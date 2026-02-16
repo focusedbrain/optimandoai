@@ -218,10 +218,10 @@ export const RECORD_TYPE_DISPLAY: Record<VaultRecordType, RecordTypeDisplayInfo>
     minTier: 'pro',
   },
   handshake_context: {
-    label: 'Handshake Context',
+    label: 'HS Context',
     icon: '\u{1F91D}',
     description: 'Data bound into cryptographic handshakes for trust verification',
-    section: 'Handshake Context',
+    section: 'HS Context',
     minTier: 'publisher',
   },
 }
@@ -344,8 +344,8 @@ export const CATEGORY_UI_MAP: Record<LegacyItemCategory, CategoryUILabel> = {
     recordType: 'document',
   },
   handshake_context: {
-    sidebarLabel: 'Handshake Context',
-    createDialogLabel: 'Handshake Context',
+    sidebarLabel: 'HS Context',
+    createDialogLabel: 'HS Context',
     icon: '\u{1F91D}',
     recordType: 'handshake_context',
   },

@@ -4,7 +4,6 @@ import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
 import { 
   resolveTier,
-  mapRolesToTier, 
   DEFAULT_TIER,
   type Tier
 } from '../src/auth/capabilities'

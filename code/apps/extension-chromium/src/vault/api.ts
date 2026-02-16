@@ -120,6 +120,13 @@ async function apiCall(endpoint: string, body?: any): Promise<any> {
               return
             }
             
+            // Auto-store VSBT when the server returns a sessionToken
+            // (e.g. after create, unlock, passkey-unlock-complete)
+            if (response.sessionToken) {
+              _storeVSBT(response.sessionToken)
+              addLog('INFO', 'VSBT stored from response', { endpoint })
+            }
+
             addLog('SUCCESS', `API call succeeded`, { endpoint, data: response.data })
             resolve(response.data)
           }

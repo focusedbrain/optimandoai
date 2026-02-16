@@ -59,6 +59,21 @@ export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: stri
   if (wrdesk_plan) {
     const normalized = wrdesk_plan.toLowerCase().trim();
 
+    // ── WooCommerce → Keycloak naming alignment ──
+    // WooCommerce stores the Pro plan as 'private' internally.
+    // The WordPress dashboard correctly displays it as "Pro", but Keycloak
+    // receives the raw WooCommerce value 'private'.  Map it to the 'pro'
+    // tier so vault capabilities match what the user purchased.
+    const WC_PLAN_ALIASES: Record<string, Tier> = {
+      'private':          'pro',
+      'private_lifetime': 'pro',
+    };
+    if (WC_PLAN_ALIASES[normalized]) {
+      const mapped = WC_PLAN_ALIASES[normalized];
+      console.log('[TIER] Resolved from plan claim (WC alias "' + normalized + '" → ' + mapped + ')');
+      return mapped;
+    }
+
     // Direct match (e.g. "pro", "publisher", "enterprise")
     if (VALID_PLAN_TIERS.includes(normalized)) {
       console.log('[TIER] Resolved from plan claim (exact): ' + normalized);
@@ -72,8 +87,8 @@ export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: stri
       { pattern: /publisher.*life/i,       tier: 'publisher_lifetime' },
       { pattern: /publisher/i,             tier: 'publisher' },
       { pattern: /\bpro\b/i,              tier: 'pro' },
-      { pattern: /private.*life/i,         tier: 'private_lifetime' },
-      { pattern: /\bprivate\b/i,           tier: 'private' },
+      { pattern: /private.*life/i,         tier: 'pro' },
+      { pattern: /\bprivate\b/i,           tier: 'pro' },
     ];
     for (const { pattern, tier } of FUZZY_MAP) {
       if (pattern.test(normalized)) {
@@ -130,14 +145,14 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'pro';
   }
   
-  // Private lifetime takes priority over private annual
+  // Private lifetime → maps to pro (WooCommerce naming: 'private' = Pro plan)
   if (normalizedRoles.includes('private_lifetime')) {
-    return 'private_lifetime';
+    return 'pro';
   }
   
-  // Private annual
+  // Private annual → maps to pro (WooCommerce naming: 'private' = Pro plan)
   if (normalizedRoles.includes('private')) {
-    return 'private';
+    return 'pro';
   }
   
   // No tier role found - default to free (not an error, just no premium role)

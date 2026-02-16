@@ -128,7 +128,7 @@ export interface UnlockProvider {
 // PassphraseUnlockProvider — default provider
 // ---------------------------------------------------------------------------
 
-import { hkdfSync, randomBytes } from 'crypto'
+import { hkdfSync } from 'crypto'
 
 import {
   deriveKEK,

@@ -51,7 +51,7 @@ import {
   registerVault,
   unregisterVault,
 } from './db'
-import { readFileSync, writeFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
+import { readFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 
 import { atomicWriteFileSync } from './atomicWrite'

@@ -18,6 +18,37 @@ let lastMailGuardTheme: string = 'default';
 // Track which tab has MailGuard activated (for hide/show on tab switch)
 let mailGuardActiveTabId: number | null = null;
 
+// ---------------------------------------------------------------------------
+// VSBT (Vault Session Binding Token) cache
+// Stored in background memory so it survives content-script reloads (popup
+// close/reopen, page navigation) without requiring the user to re-unlock.
+// Also persisted to chrome.storage.session (in-memory only, MV3) so it
+// survives service-worker suspension without ever touching disk.
+// ---------------------------------------------------------------------------
+let _cachedVsbt: string | null = null;
+
+function _cacheVsbt(token: string | null) {
+  _cachedVsbt = token
+  // chrome.storage.session is in-memory only (never persisted to disk)
+  if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+    if (token) {
+      chrome.storage.session.set({ _vsbt: token }).catch(() => {})
+    } else {
+      chrome.storage.session.remove('_vsbt').catch(() => {})
+    }
+  }
+}
+
+// Restore VSBT from session storage on service-worker startup
+if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+  chrome.storage.session.get('_vsbt').then((result: any) => {
+    if (result?._vsbt) {
+      _cachedVsbt = result._vsbt
+      console.log('[BG] Restored VSBT from session storage')
+    }
+  }).catch(() => {})
+}
+
 // =================================================================
 // Production-Grade Connection Health Monitor
 // =================================================================
@@ -1694,7 +1725,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { endpoint, body, vsbt } = msg
       console.log('[BG] Relaying vault HTTP API call:', endpoint)
       console.log('[BG] Request body:', body)
-      
+
+      // Resolve the effective VSBT: prefer the one sent by the content script,
+      // fall back to the background-cached copy (survives content script reloads).
+      const effectiveVsbt = vsbt || _cachedVsbt
+      if (!vsbt && _cachedVsbt) {
+        console.log('[BG] Content script had no VSBT — using background-cached token')
+      }
+
       const VAULT_API_URL = 'http://127.0.0.1:51248/api/vault'
       const fullUrl = `${VAULT_API_URL}${endpoint}`
       
@@ -1738,8 +1776,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
       
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (vsbt) {
-        headers['X-Vault-Session'] = vsbt
+      if (effectiveVsbt) {
+        headers['X-Vault-Session'] = effectiveVsbt
       }
 
       const fetchOptions: RequestInit = {
@@ -1767,6 +1805,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
         .then(data => {
           console.log('[BG] Vault API response data:', data)
+
+          // Cache VSBT from unlock/create responses so it survives content-script reloads
+          if (data?.sessionToken) {
+            _cacheVsbt(data.sessionToken)
+            console.log('[BG] VSBT cached from', endpoint)
+          }
+          // Clear VSBT cache when the vault is locked or deleted
+          if (data?.success && (endpoint === '/lock' || endpoint === '/delete')) {
+            _cacheVsbt(null)
+            console.log('[BG] VSBT cache cleared on', endpoint)
+          }
+
           // Check if sendResponse is still valid (service worker might have suspended)
           try {
             // Store response in chrome.storage as fallback

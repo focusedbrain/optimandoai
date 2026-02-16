@@ -113,13 +113,53 @@ const VAULT_THEMES: Record<VaultThemeName, Record<string, string>> = {
   },
 }
 
+// Module-level theme state — set once during vault init.
+let currentVaultTheme: VaultThemeName = 'pro'
+
 /** Inject CSS custom properties on the vault root element. */
 function applyVaultTheme(root: HTMLElement): VaultThemeName {
   const theme = detectVaultTheme()
+  currentVaultTheme = theme
   const vars = VAULT_THEMES[theme]
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(key, value)
   }
+
+  // Inject scoped style overrides for the standard (light) theme so that
+  // host-page CSS cannot force white text on light-background inputs.
+  if (theme === 'standard') {
+    const styleId = 'wrv-theme-overrides'
+    if (!root.querySelector(`#${styleId}`)) {
+      const style = document.createElement('style')
+      style.id = styleId
+      style.textContent = `
+        #wrvault-overlay input,
+        #wrvault-overlay select,
+        #wrvault-overlay textarea {
+          color: #0f1419 !important;
+          -webkit-text-fill-color: #0f1419 !important;
+        }
+        #wrvault-overlay input::placeholder,
+        #wrvault-overlay textarea::placeholder {
+          color: #8899a6 !important;
+          -webkit-text-fill-color: #8899a6 !important;
+        }
+        #wrvault-overlay option {
+          color: #0f1419 !important;
+          background: #ffffff !important;
+        }
+        #wrvault-overlay button {
+          color: var(--wrv-text) !important;
+        }
+        #wrvault-overlay #vault-unlock-btn,
+        #wrvault-overlay #vault-create-btn {
+          color: #ffffff !important;
+        }
+      `
+      root.appendChild(style)
+    }
+  }
+
   return theme
 }
 
@@ -1766,7 +1806,7 @@ async function loadHandshakeContextList(parentContainer: HTMLElement) {
 
     let html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <h3 style="margin:0;font-size:15px;color:var(--wrv-text);">🤝 Handshake Context Items (${items.length})</h3>
+        <h3 style="margin:0;font-size:15px;color:var(--wrv-text);">🤝 HS Context Items (${items.length})</h3>
         <button id="hc-list-add-btn" style="padding:6px 16px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">+ Add Context</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">`
@@ -1901,7 +1941,7 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
   }
 
   const isEdit = !!existingItem
-  const dialogTitle = isEdit ? 'Edit Handshake Context' : 'New Handshake Context'
+  const dialogTitle = isEdit ? 'Edit HS Context' : 'New HS Context'
 
   const overlay = document.createElement('div')
   overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;'
