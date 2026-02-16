@@ -2,8 +2,40 @@
  * Type definitions for vault entities (shared with Electron)
  */
 
+// Re-export capability types and helpers for convenient access
+export type {
+  VaultRecordType,
+  VaultTier,
+  VaultAction,
+  LegacyItemCategory,
+  RecordTypeDisplayInfo,
+  CategoryUILabel,
+  HandshakeBindingPolicy,
+  HandshakeTarget,
+  AttachBlockReason,
+  AttachEvalResult,
+} from './capabilities'
+export {
+  VAULT_RECORD_TYPES,
+  TIER_LEVEL,
+  RECORD_TYPE_MIN_TIER,
+  TIER_ALLOWED_ACTIONS,
+  RECORD_TYPE_DISPLAY,
+  CATEGORY_UI_MAP,
+  LEGACY_CATEGORY_TO_RECORD_TYPE,
+  RECORD_TYPE_TO_DEFAULT_CATEGORY,
+  ALL_ITEM_CATEGORIES,
+  DEFAULT_BINDING_POLICY,
+  canAccessRecordType,
+  getAccessibleRecordTypes,
+  getCategoryOptionsForTier,
+  canAccessCategory,
+  canAttachContext,
+  matchDomainGlob,
+} from './capabilities'
+
 export type ContainerType = 'person' | 'company' | 'business'
-export type ItemCategory = 'password' | 'identity' | 'company' | 'business' | 'custom'
+export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context'
 export type FieldType = 'text' | 'password' | 'email' | 'url' | 'number' | 'textarea'
 
 // Standard field definitions for each category
@@ -63,6 +95,30 @@ export const PASSWORD_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
 ]
 
+// Standard fields for Automation Secrets & API Keys (Free+ record type)
+export const AUTOMATION_SECRET_STANDARD_FIELDS: StandardFieldDef[] = [
+  { key: 'service_name', label: 'Service / Provider', type: 'text', required: true, explanation: 'Name of the API or service (e.g., OpenAI, Stripe, AWS)' },
+  { key: 'key_name', label: 'Key Name / Identifier', type: 'text', required: false, explanation: 'Label or identifier for the key (e.g., Production API Key, Staging Token)' },
+  { key: 'secret', label: 'Secret / API Key', type: 'password', required: true, explanation: 'The API key, token, or secret value' },
+  { key: 'endpoint', label: 'API Endpoint / Base URL', type: 'url', required: false, explanation: 'Base URL or endpoint for the API service' },
+  { key: 'expires_at', label: 'Expiration Date', type: 'text', required: false, explanation: 'When this key expires (ISO date or descriptive)' },
+  { key: 'notes', label: 'Notes', type: 'textarea', required: false, explanation: 'Additional notes about usage, rate limits, or rotation schedule' },
+]
+
+// Standard fields for Document Vault entries
+// Documents are uploaded as files; these fields hold only the metadata label.
+export const DOCUMENT_STANDARD_FIELDS: StandardFieldDef[] = [
+  { key: 'notes', label: 'Notes', type: 'textarea', required: false, explanation: 'Additional notes or description for this document' },
+]
+
+// Standard fields for Handshake Context entries (Publisher+)
+export const HANDSHAKE_CONTEXT_STANDARD_FIELDS: StandardFieldDef[] = [
+  { key: 'context_type', label: 'Context Type', type: 'text', required: true, explanation: 'Type of context (e.g., Personalized Offer, User Manual, Support Profile)' },
+  { key: 'summary', label: 'Summary', type: 'text', required: true, explanation: 'Short description of the context payload' },
+  { key: 'payload', label: 'Context Payload', type: 'textarea', required: true, explanation: 'The data to be attached to a handshake (offer details, manual content, profile data, etc.)' },
+  { key: 'notes', label: 'Notes', type: 'textarea', required: false, explanation: 'Internal notes (not shared in the handshake)' },
+]
+
 export interface Container {
   id: string
   type: ContainerType
@@ -99,6 +155,12 @@ export interface VaultStatus {
   isUnlocked?: boolean
   currentVaultId?: string
   availableVaults?: Array<{ id: string, name: string, created: number }>
+  /** User's resolved subscription tier (for capability gating). */
+  tier?: string
+  /** Available unlock provider types for the current vault. */
+  unlockProviders?: Array<{ id: string; name: string }>
+  /** The active (default) provider type for the current vault. */
+  activeProviderType?: string
 }
 
 // Category tree structure
@@ -115,4 +177,24 @@ export interface CategoryNode {
 
 export interface VaultSettings {
   autoLockMinutes: number
+
+  /**
+   * Global toggle: enables/disables all Secure Insert Overlay features.
+   * When OFF, no field scanning, overlay, or commit-insert runs.
+   * Default: true (ON).
+   */
+  autofillEnabled: boolean
+
+  /**
+   * Per-section toggles for autofill.
+   * Each section can be independently enabled/disabled.
+   * Only effective when autofillEnabled is true.
+   * Default: all true (ON).
+   */
+  autofillSections: {
+    login: boolean     // username/email/password
+    identity: boolean  // name/address/phone/etc.
+    company: boolean   // company/vat/etc.
+    custom: boolean    // tagged custom fields
+  }
 }

@@ -27,6 +27,9 @@ var HANDSHAKE_MESSAGE_TEMPLATE = 'Dear [Recipient Name],\n\nI am writing to requ
       try { t = localStorage.getItem('optimando-ui-theme') } catch {}
     }
     t = t || 'standard'
+    // Map theme aliases: 'professional' = light/standard, 'default' = pro/purple
+    if (t === 'professional') t = 'standard'
+    if (t === 'default') t = 'pro'
     document.body.className = (t === 'standard') ? 'theme-standard' : (t === 'pro' ? 'theme-pro' : (t === 'dark' ? 'theme-dark' : 'theme-standard'))
   } catch { document.body.className = 'theme-standard' }
 })()

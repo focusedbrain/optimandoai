@@ -120,8 +120,49 @@ export const GetAutofillCandidatesRequestSchema = z.object({
   domain: z.string().min(1),
 })
 
+export const AutofillSectionsSchema = z.object({
+  login: z.boolean().optional(),
+  identity: z.boolean().optional(),
+  company: z.boolean().optional(),
+  custom: z.boolean().optional(),
+})
+
+/** HA Mode state schema — validated at RPC boundary. */
+export const HAStateSchema = z.enum(['off', 'active', 'locked'])
+
+export const HAModeStateSchema = z.object({
+  state: HAStateSchema,
+  activatedAt: z.number().nullable(),
+  activatedBy: z.string().nullable(),
+  lockCodeHash: z.string().nullable(),
+  failedUnlockAttempts: z.number().int().min(0),
+  lastFailedUnlockAt: z.number().nullable(),
+})
+
 export const UpdateSettingsRequestSchema = z.object({
-  autoLockMinutes: z.number().min(0),
+  autoLockMinutes: z.number().min(0).optional(),
+  autofillEnabled: z.boolean().optional(),
+  autofillSections: AutofillSectionsSchema.optional(),
+})
+
+/** RPC request for HA mode activation. */
+export const ActivateHARequestSchema = z.object({
+  activatedBy: z.string().min(1).max(200),
+})
+
+/** RPC request for HA mode deactivation (requires confirmation phrase). */
+export const DeactivateHARequestSchema = z.object({
+  confirmPhrase: z.string(),
+})
+
+/** RPC request for locking HA mode with an admin code. */
+export const LockHARequestSchema = z.object({
+  lockCodeHash: z.string().length(64), // SHA-256 hex
+})
+
+/** RPC request for unlocking HA mode. */
+export const UnlockHARequestSchema = z.object({
+  codeHash: z.string().length(64), // SHA-256 hex
 })
 
 export const ImportCSVRequestSchema = z.object({
@@ -189,4 +230,8 @@ export type SearchRequest = z.infer<typeof SearchRequestSchema>
 export type GetAutofillCandidatesRequest = z.infer<typeof GetAutofillCandidatesRequestSchema>
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequestSchema>
 export type ImportCSVRequest = z.infer<typeof ImportCSVRequestSchema>
+export type ActivateHARequest = z.infer<typeof ActivateHARequestSchema>
+export type DeactivateHARequest = z.infer<typeof DeactivateHARequestSchema>
+export type LockHARequest = z.infer<typeof LockHARequestSchema>
+export type UnlockHARequest = z.infer<typeof UnlockHARequestSchema>
 

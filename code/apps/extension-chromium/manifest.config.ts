@@ -3,7 +3,7 @@ import { defineManifest } from '@crxjs/vite-plugin'
 export default defineManifest({
   name: 'WR Desk',
   description: 'Multi-AI-Agenten Workflow Orchestrator mit echten Sidebars',
-  version: '0.0.2',
+  version: '0.0.5',
   manifest_version: 3,
   permissions: [
     'activeTab',

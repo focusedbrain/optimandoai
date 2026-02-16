@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Test: Cross-Origin Iframe Injection</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+    .warning { color: #dc2626; font-weight: bold; }
+    iframe { width: 100%; height: 300px; border: 2px solid #dc2626; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>SEC-IFRAME: Cross-Origin Iframe Injection Test</h2>
+  <p class="warning">WRVault MUST NOT inject any UI inside the iframe below.</p>
+
+  <!--
+    In a real E2E setup, serve classic-login.html on a different port (e.g. :3334)
+    so that it is genuinely cross-origin from :3333.
+    For local testing, this src points to about:blank with a sandbox that strips
+    same-origin privileges (sandbox without allow-same-origin).
+  -->
+  <iframe
+    id="xorigin-frame"
+    src="http://localhost:3334/classic-login.html"
+    title="Cross-origin login form (attacker controlled)"
+  ></iframe>
+
+  <p>If the test server on :3334 is not running, the iframe will show an error.
+     This is acceptable — the test verifies no overlay/icon appears.</p>
+</body>
+</html>

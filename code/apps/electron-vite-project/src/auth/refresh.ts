@@ -56,6 +56,7 @@ export async function refreshWithKeycloak(refreshToken: string): Promise<Refresh
   return {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
+    id_token: tokens.id_token,
     expires_in: tokens.expires_in,
     token_type: tokens.token_type,
     scope: tokens.scope,

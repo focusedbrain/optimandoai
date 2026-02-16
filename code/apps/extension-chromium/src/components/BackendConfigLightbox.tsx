@@ -1,6 +1,7 @@
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { LlmSettings } from './LlmSettings';
 import { ImageEngineSettings } from './ImageEngineSettings';
+import { electronRpc } from '../rpc/electronRpc';
 
 // Simple Error Boundary to prevent crashes from closing the lightbox
 class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { hasError: boolean }> {
@@ -43,79 +44,10 @@ interface BackendConfigLightboxProps {
   theme?: 'default' | 'dark' | 'professional';
 }
 
-// Helper to proxy API calls through background script (avoids CORS issues in content scripts)
-async function electronApiCall(
-  endpoint: string, 
-  options: { method?: string; body?: any; timeout?: number } = {}
-): Promise<{ success: boolean; status?: number; statusText?: string; data?: any; error?: string }> {
-  console.log('[electronApiCall] Calling:', endpoint, options.method || 'GET');
-  
-  // Try background script first
-  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-    try {
-      const bgResult = await new Promise<{ success: boolean; status?: number; statusText?: string; data?: any; error?: string } | null>((resolve) => {
-        const timeout = setTimeout(() => {
-          console.log('[electronApiCall] Background script timeout');
-          resolve(null);
-        }, (options.timeout || 15000) + 2000);
-        
-        chrome.runtime.sendMessage({
-          type: 'ELECTRON_API_PROXY',
-          endpoint,
-          method: options.method || 'GET',
-          body: options.body,
-          timeout: options.timeout || 15000,
-        }, (result) => {
-          clearTimeout(timeout);
-          if (chrome.runtime.lastError) {
-            console.log('[electronApiCall] Chrome runtime error:', chrome.runtime.lastError.message);
-            resolve(null); // Fall through to direct fetch
-          } else if (result) {
-            console.log('[electronApiCall] Background response:', result.success, result.status);
-            resolve(result);
-          } else {
-            console.log('[electronApiCall] Empty response from background');
-            resolve(null);
-          }
-        });
-      });
-      
-      if (bgResult !== null) {
-        return bgResult;
-      }
-    } catch (e) {
-      console.log('[electronApiCall] Background script error:', e);
-    }
-  }
-  
-  // Fallback: direct fetch
-  console.log('[electronApiCall] Falling back to direct fetch');
-  try {
-    const fetchOptions: RequestInit = {
-      method: options.method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    };
-    if (options.body) {
-      fetchOptions.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
-    }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), options.timeout || 15000);
-    fetchOptions.signal = controller.signal;
-    
-    const response = await fetch(`http://127.0.0.1:51248${endpoint}`, fetchOptions);
-    clearTimeout(timeoutId);
-    
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = text; }
-    console.log('[electronApiCall] Direct fetch success:', response.status);
-    return { success: response.ok, status: response.status, statusText: response.statusText, data };
-  } catch (e: any) {
-    console.log('[electronApiCall] Direct fetch failed:', e.message);
-    return { success: false, error: `Network error: ${e.message}` };
-  }
-}
+// ─── Electron RPC ────────────────────────────────────────────────────────
+// All Electron HTTP calls now go through typed RPC methods defined in
+// src/rpc/electronRpc.ts.  No direct fetch, no dynamic endpoints.
+// ─────────────────────────────────────────────────────────────────────────
 
 export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: BackendConfigLightboxProps) {
   const [config, setConfig] = useState<PostgresConnectionConfig>({
@@ -286,7 +218,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
     if (!config.postgres?.enabled) return;
     setIsLoadingStats(true);
     try {
-      const result = await electronApiCall('/api/db/test-data-stats', { method: 'GET' });
+      const result = await electronRpc('db.testDataStats');
       if (result.success && result.data?.ok) {
         setTestDataStats(result.data.stats);
       } else {
@@ -311,16 +243,12 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
     if (!config.postgres?.config) return;
 
     setIsTesting(true);
-    console.log('[BackendConfigLightbox] Starting connection test via proxy:', config.postgres.config);
+    console.log('[BackendConfigLightbox] Starting connection test:', config.postgres.config);
     
     try {
-      const result = await electronApiCall('/api/db/test-connection', {
-        method: 'POST',
-        body: config.postgres.config,
-        timeout: 10000,
-      });
+      const result = await electronRpc('db.testConnection', config.postgres.config, 10000);
 
-      console.log('[BackendConfigLightbox] Proxy response:', result);
+      console.log('[BackendConfigLightbox] RPC response:', result);
 
       if (!result.success) {
         // API call failed (network error, timeout, etc.)
@@ -789,10 +717,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                           return;
                         }
                         try {
-                          const result = await electronApiCall('/api/db/launch-dbeaver', {
-                            method: 'POST',
-                            body: { postgresConfig: config.postgres.config },
-                          });
+                          const result = await electronRpc('db.launchDbeaver', { postgresConfig: config.postgres.config });
                           if (result.success && result.data?.ok) {
                             setNotification({
                               message: 'DBeaver launched! Look for "Local PostgreSQL (WR Desk)" connection.',
@@ -842,10 +767,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                         }
                         setIsInsertingTestData(true);
                         try {
-                          const result = await electronApiCall('/api/db/insert-test-data', {
-                            method: 'POST',
-                            body: { postgresConfig: config.postgres.config },
-                          });
+                          const result = await electronRpc('db.insertTestData', { postgresConfig: config.postgres.config });
                           if (result.success && result.data?.ok) {
                             setNotification({
                               message: `Successfully inserted ${result.data.count} test data items`,

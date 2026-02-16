@@ -124,6 +124,12 @@
       .send-dropdown-item .check { width:16px; color:#22c55e; font-weight:700; }
       .send-dropdown-item .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .send-dropdown-item .size { font-size:10px; opacity:0.5; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; }
+      /* Standard theme: ensure dark text in all input fields */
+      body.theme-standard .ta { color:#0f172a; background:#ffffff; border-color:rgba(147, 51, 234, 0.2); }
+      body.theme-standard .ta::placeholder { color:#94a3b8; }
+      body.theme-standard .btn { color:#0f172a; }
+      body.theme-standard .mg-input { color:#0f172a; background:#ffffff; }
+      body.theme-standard .mg-body { color:#0f172a; background:#ffffff; }
       body.theme-standard .send-main:disabled { background:linear-gradient(135deg, rgba(147, 51, 234, 0.1) 0%, rgba(147, 51, 234, 0.05) 100%); border-color:rgba(147, 51, 234, 0.2); color:#64748b; }
       body.theme-standard .send-dropdown { background:#ffffff; border-color:rgba(147, 51, 234, 0.15); }
       body.theme-standard .send-dropdown-item:hover { background:rgba(147, 51, 234, 0.05); }

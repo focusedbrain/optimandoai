@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react'
 import { UnlockView } from './UnlockView'
 import { connectVault, disconnectVault, lockVault, listItems, listContainers, createItem, createContainer, deleteItem, deleteContainer, getItem, updateItem, exportCSV, importCSV, getSettings, updateSettings } from './api'
 import type { VaultItem, Container, Field, ItemCategory } from './types'
+import { CATEGORY_UI_MAP } from './capabilities'
 
 export const VaultUI: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false)
@@ -228,7 +229,7 @@ export const VaultUI: React.FC = () => {
               />
 
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {(['all', 'password', 'address', 'payment', 'tax_id', 'notice'] as const).map((cat) => (
+                {(['all', 'password', 'identity', 'company', 'business', 'custom'] as const).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
@@ -242,7 +243,9 @@ export const VaultUI: React.FC = () => {
                       fontSize: '13px',
                     }}
                   >
-                    {cat === 'all' ? 'All' : cat.replace('_', ' ')}
+                    {cat === 'all'
+                      ? 'All'
+                      : `${CATEGORY_UI_MAP[cat].icon} ${CATEGORY_UI_MAP[cat].sidebarLabel}`}
                   </button>
                 ))}
               </div>

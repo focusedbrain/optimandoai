@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react'
+import { electronRpc, type RpcMethod } from '../rpc/electronRpc'
 
 // Types
 interface HardwareInfo {
@@ -64,74 +65,13 @@ interface LlmSettingsProps {
   bridge: 'ipc' | 'http'  // IPC for Electron, HTTP for Extension
 }
 
-// Helper to proxy API calls through background script (avoids CORS issues in content scripts)
-async function electronApiCall(
-  endpoint: string, 
-  options: { method?: string; body?: any; timeout?: number } = {}
-): Promise<{ ok: boolean; data?: any; error?: string }> {
-  console.log('[LlmSettings] API call via proxy:', endpoint, options.method || 'GET');
-  
-  // Try background script first
-  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-    try {
-      const bgResult = await new Promise<{ success: boolean; status?: number; data?: any; error?: string } | null>((resolve) => {
-        const timeout = setTimeout(() => {
-          console.log('[LlmSettings] Background script timeout');
-          resolve(null);
-        }, (options.timeout || 15000) + 2000);
-        
-        chrome.runtime.sendMessage({
-          type: 'ELECTRON_API_PROXY',
-          endpoint,
-          method: options.method || 'GET',
-          body: options.body,
-          timeout: options.timeout || 15000,
-        }, (result) => {
-          clearTimeout(timeout);
-          if (chrome.runtime.lastError) {
-            console.log('[LlmSettings] Chrome runtime error:', chrome.runtime.lastError.message);
-            resolve(null);
-          } else if (result) {
-            console.log('[LlmSettings] Background response:', result.success, result.status);
-            resolve(result);
-          } else {
-            resolve(null);
-          }
-        });
-      });
-      
-      if (bgResult !== null) {
-        return { ok: bgResult.success, data: bgResult.data, error: bgResult.error };
-      }
-    } catch (e) {
-      console.log('[LlmSettings] Background script error:', e);
-    }
-  }
-  
-  // Fallback: direct fetch
-  console.log('[LlmSettings] Falling back to direct fetch');
-  try {
-    const fetchOptions: RequestInit = {
-      method: options.method || 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    };
-    if (options.body) {
-      fetchOptions.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
-    }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), options.timeout || 15000);
-    fetchOptions.signal = controller.signal;
-    
-    const response = await fetch(`http://127.0.0.1:51248${endpoint}`, fetchOptions);
-    clearTimeout(timeoutId);
-    
-    const data = await response.json();
-    return { ok: response.ok, data, error: response.ok ? undefined : 'Request failed' };
-  } catch (e: any) {
-    console.log('[LlmSettings] Direct fetch failed:', e.message);
-    return { ok: false, error: e.message };
-  }
+// ─── Typed RPC adapter ───────────────────────────────────────────────────
+// Maps electronRpc's { success, data, error } → { ok, data, error }
+// to keep the existing result handling unchanged.
+// ─────────────────────────────────────────────────────────────────────────
+async function rpc(method: RpcMethod, params?: unknown): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const res = await electronRpc(method, params)
+  return { ok: res.success, data: res.data, error: res.error }
 }
 
 // Hardcoded fallback catalog in case API is unavailable
@@ -191,24 +131,16 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId)
       }
     } else {
-      // HTTP bridge for Extension - uses background script proxy to avoid CORS
+      // HTTP bridge for Extension — typed RPC, no dynamic endpoints
       return {
-        getHardware: () => electronApiCall('/api/llm/hardware'),
-        getStatus: () => electronApiCall('/api/llm/status'),
-        getCatalog: () => electronApiCall('/api/llm/catalog'),
-        startOllama: () => electronApiCall('/api/llm/start', { method: 'POST' }),
-        installModel: (modelId: string) => electronApiCall('/api/llm/models/install', {
-          method: 'POST',
-          body: { modelId }
-        }),
-        deleteModel: (modelId: string) => electronApiCall(`/api/llm/models/${encodeURIComponent(modelId)}`, {
-          method: 'DELETE'
-        }),
-        setActiveModel: (modelId: string) => electronApiCall('/api/llm/models/activate', {
-          method: 'POST',
-          body: { modelId }
-        }),
-        getPerformanceEstimate: (modelId: string) => electronApiCall(`/api/llm/performance/${encodeURIComponent(modelId)}`)
+        getHardware: () => rpc('llm.hardware'),
+        getStatus: () => rpc('llm.status'),
+        getCatalog: () => rpc('llm.catalog'),
+        startOllama: () => rpc('llm.start'),
+        installModel: (modelId: string) => rpc('llm.installModel', { modelId }),
+        deleteModel: (modelId: string) => rpc('llm.deleteModel', { modelId }),
+        setActiveModel: (modelId: string) => rpc('llm.activateModel', { modelId }),
+        getPerformanceEstimate: (modelId: string) => rpc('llm.performance', { modelId }),
       }
     }
   }, [bridge])
@@ -307,8 +239,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         if (bridge === 'http') {
           const pollInterval = setInterval(async () => {
             try {
-              // Poll the new progress endpoint via proxy
-              const progressRes = await electronApiCall('/api/llm/install-progress')
+              // Poll the progress endpoint via typed RPC
+              const progressRes = await rpc('llm.installProgress')
               console.log('[LlmSettings] Poll response:', progressRes)
               if (progressRes.ok && progressRes.data) {
                 const progress = progressRes.data.progress

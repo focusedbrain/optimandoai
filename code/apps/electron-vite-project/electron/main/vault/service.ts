@@ -3,21 +3,48 @@
  * Handles unlock, lock, CRUD operations, session management, and autolock
  */
 
-import { randomBytes } from 'crypto'
-import type { Container, VaultItem, VaultSession, VaultStatus, VaultSettings, Field } from './types'
+import { randomBytes, timingSafeEqual } from 'crypto'
+import type { Container, VaultItem, VaultSession, VaultStatus, VaultSettings, Field, ItemCategory } from './types'
 import {
-  deriveKEK,
-  wrapDEK,
-  unwrapDEK,
+  canAccessCategory,
+  canAttachContext,
+  LEGACY_CATEGORY_TO_RECORD_TYPE,
+  type VaultTier,
+  type HandshakeBindingPolicy,
+  type HandshakeTarget,
+  type AttachEvalResult,
+} from './types'
+import {
   generateRandomKey,
-  generateSalt,
   zeroize,
   deriveFieldKey,
-  encryptField,
   decryptField,
   DEFAULT_KDF_PARAMS,
+  buildAAD,
   type KDFParams,
 } from './crypto'
+import type { UnlockProvider, ProviderState, UnlockProviderType } from './unlockProvider'
+import { resolveProvider } from './unlockProvider'
+import {
+  sealRecord,
+  openRecord,
+  ENVELOPE_SCHEMA_VERSION,
+  LEGACY_SCHEMA_VERSION,
+} from './envelope'
+import { DecryptCache } from './cache'
+import {
+  matchOrigin as matchOriginFn,
+  parseOrigin as parseOriginFn,
+  registrableDomain as registrableDomainFn,
+} from '../../../../../packages/shared/src/vault/originPolicy'
+import {
+  importDocument,
+  getDocument,
+  listDocuments,
+  deleteDocument,
+  updateDocumentMeta,
+} from './documentService'
+import type { VaultDocument, DocumentImportResult } from './types'
 import {
   createVaultDB,
   openVaultDB,
@@ -29,8 +56,10 @@ import {
   registerVault,
   unregisterVault,
 } from './db'
-import { readFileSync, writeFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
+import { readFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
+
+import { atomicWriteFileSync } from './atomicWrite'
 
 export class VaultService {
   private db: any | null = null
@@ -39,6 +68,13 @@ export class VaultService {
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
     autoLockMinutes: 30, // Default: 30 minutes
+    autofillEnabled: true, // Global toggle: default ON
+    autofillSections: {    // Per-section: all default ON
+      login: true,
+      identity: true,
+      company: true,
+      custom: true,
+    },
   }
   
   // Rate limiting
@@ -46,6 +82,14 @@ export class VaultService {
   
   // Connection state tracking
   private dbValid: boolean = false // Track if database connection is valid
+
+  // Per-record decrypt cache (TTL=60s, max 16 entries, flushed on lock)
+  private decryptCache = new DecryptCache({ ttlMs: 60_000, maxEntries: 16 })
+
+  // Unlock provider abstraction
+  private provider: UnlockProvider | null = null
+  private providerStates: ProviderState[] = []
+  private activeProviderType: UnlockProviderType = 'passphrase'
 
   constructor() {
     console.log('[VAULT] VaultService initialized')
@@ -57,9 +101,19 @@ export class VaultService {
   // ==========================================================================
 
   /**
-   * Create a new vault with master password
+   * Create a new vault with master password.
+   *
+   * @param masterPassword  Passphrase for the default provider
+   * @param vaultName       Display name
+   * @param vaultId         Optional explicit ID
+   * @param providerType    Provider type to enroll (default: 'passphrase')
    */
-  async createVault(masterPassword: string, vaultName: string, vaultId?: string): Promise<string> {
+  async createVault(
+    masterPassword: string,
+    vaultName: string,
+    vaultId?: string,
+    providerType: UnlockProviderType = 'passphrase',
+  ): Promise<string> {
     // Generate unique vault ID if not provided
     if (!vaultId) {
       vaultId = `vault_${Date.now()}_${randomBytes(4).toString('hex')}`
@@ -70,27 +124,28 @@ export class VaultService {
       throw new Error(`Vault with ID "${vaultId}" already exists`)
     }
 
-    console.log('[VAULT] Creating new vault:', vaultId, vaultName)
+    console.log('[VAULT] Creating new vault:', vaultId, vaultName, 'provider:', providerType)
 
-    // Generate salt and DEK
-    const salt = generateSalt()
+    // Generate DEK (the provider will generate its own salt and wrap the DEK)
     const dek = generateRandomKey()
 
-    // Derive KEK from master password
-    const kek = await deriveKEK(masterPassword, salt, DEFAULT_KDF_PARAMS)
+    // Resolve and enroll the provider
+    const provider = resolveProvider(providerType)
+    const enrollment = await provider.enroll(masterPassword, dek, DEFAULT_KDF_PARAMS)
 
-    // Wrap DEK with KEK
-    const wrappedDEK = await wrapDEK(dek, kek)
+    const { salt, wrappedDEK, kek, providerState } = enrollment
 
-    // Zeroize KEK
-    zeroize(kek)
+    // Store provider references
+    this.provider = provider
+    this.providerStates = [providerState]
+    this.activeProviderType = providerType
 
     // Create database
     this.db = await createVaultDB(dek, vaultId)
-    this.dbValid = true // Mark connection as valid
+    this.dbValid = true
     this.currentVaultId = vaultId
 
-    // Store vault metadata
+    // Store vault metadata (now includes provider info)
     this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS, vaultId)
 
     // Register vault in registry
@@ -99,23 +154,33 @@ export class VaultService {
     // Store settings
     this.saveSettings()
 
-    // Create session
+    // Create session (KEK + DEK both in memory while unlocked)
     this.session = {
       vmk: dek,
+      kek,
       extensionToken: this.generateToken(),
       lastActivity: Date.now(),
+      providerType,
     }
 
     this.startAutoLockTimer()
 
-    console.log('[VAULT] ✅ Vault created successfully:', vaultId)
+    console.log('[VAULT] ✅ Vault created successfully:', vaultId, 'via', providerType)
     return vaultId
   }
 
   /**
-   * Unlock existing vault with master password
+   * Unlock existing vault with master password.
+   *
+   * @param masterPassword  Passphrase credential (for the passphrase provider)
+   * @param vaultId         Which vault to unlock
+   * @param providerType    Which provider to use (defaults to the vault's active provider)
    */
-  async unlock(masterPassword: string, vaultId: string = 'default'): Promise<string> {
+  async unlock(
+    masterPassword: string,
+    vaultId: string = 'default',
+    providerType?: UnlockProviderType,
+  ): Promise<string> {
     if (!vaultExists(vaultId)) {
       throw new Error(`Vault does not exist: ${vaultId}`)
     }
@@ -137,28 +202,38 @@ export class VaultService {
     console.log('[VAULT] Unlocking vault...')
 
     // Load metadata (without opening DB)
-    const { salt, wrappedDEK, kdfParams } = this.loadVaultMetaRaw(vaultId)
+    const rawMeta = this.loadVaultMetaRaw(vaultId)
 
-    // Derive KEK
-    const kek = await deriveKEK(masterPassword, salt, kdfParams)
+    // Determine which provider to use
+    const effectiveProviderType = providerType || rawMeta.activeProviderType || 'passphrase'
+    const provider = resolveProvider(effectiveProviderType)
 
-    // Unwrap DEK
-    let dek: Buffer
-    try {
-      dek = await unwrapDEK(wrappedDEK, kek)
-    } catch (error) {
-      zeroize(kek)
-      throw new Error('Incorrect password')
-    }
+    // Find the provider-specific state (if any)
+    const providerState = rawMeta.providerStates?.find(
+      ps => ps.type === effectiveProviderType,
+    )
 
-    zeroize(kek)
+    // Delegate unlock to the provider
+    const { kek, dek } = await provider.unlock(masterPassword, {
+      salt: rawMeta.salt,
+      wrappedDEK: rawMeta.wrappedDEK,
+      kdfParams: rawMeta.kdfParams,
+      providerState,
+    })
+
+    // Store provider references
+    this.provider = provider
+    this.providerStates = rawMeta.providerStates || []
+    this.activeProviderType = effectiveProviderType
 
     // Open database
     try {
       this.db = await openVaultDB(dek, vaultId)
-      this.dbValid = true // Mark connection as valid
+      this.dbValid = true
     } catch (error) {
       zeroize(dek)
+      zeroize(kek)
+      provider.lock()
       this.dbValid = false
       throw new Error('Failed to open vault database')
     }
@@ -166,17 +241,20 @@ export class VaultService {
     // Load settings
     this.loadSettings()
 
-      // Create session
-      this.session = {
+    // Create session (KEK + DEK both in memory while unlocked)
+    this.session = {
       vmk: dek,
+      kek,
       extensionToken: this.generateToken(),
-        lastActivity: Date.now(),
+      lastActivity: Date.now(),
+      providerType: effectiveProviderType,
     }
 
     this.startAutoLockTimer()
 
-    console.log('[VAULT] ✅ Vault unlocked successfully')
-    return this.session.extensionToken
+    console.log('[VAULT] ✅ Vault unlocked successfully via', effectiveProviderType)
+    // Convert token to hex only at the transport boundary
+    return this.session.extensionToken.toString('hex')
   }
 
   /**
@@ -241,20 +319,35 @@ export class VaultService {
 
     console.log('[VAULT] Locking vault...')
 
+    // Flush decrypt cache FIRST (before losing keys)
+    this.decryptCache.flush()
+
     // Close database
     if (this.db) {
       closeVaultDB(this.db)
       this.db = null
     }
 
-    // Zeroize DEK
+    // Zeroize all key material: DEK, KEK, and session token
     if (this.session.vmk) {
       zeroize(this.session.vmk)
+    }
+    if (this.session.kek) {
+      zeroize(this.session.kek)
+    }
+    if (this.session.extensionToken) {
+      zeroize(this.session.extensionToken)
+    }
+
+    // Tell the provider to clear its own in-memory material
+    if (this.provider) {
+      this.provider.lock()
+      this.provider = null
     }
 
     // Clear session
     this.session = null
-    this.dbValid = false // Reset connection state
+    this.dbValid = false
 
     // Stop autolock timer
     if (this.autoLockTimer) {
@@ -272,6 +365,31 @@ export class VaultService {
     const targetVaultId = vaultId || this.currentVaultId
     const exists = vaultExists(targetVaultId)
     const isCurrentVault = targetVaultId === this.currentVaultId
+
+    // Determine available providers for this vault
+    let unlockProviders: Array<{ id: string; name: string }> = []
+    let activeProviderType: string = 'passphrase'
+
+    if (exists) {
+      try {
+        const rawMeta = this.loadVaultMetaRaw(targetVaultId)
+        activeProviderType = rawMeta.activeProviderType || 'passphrase'
+        // List providers that have enrolled state
+        if (rawMeta.providerStates && rawMeta.providerStates.length > 0) {
+          unlockProviders = rawMeta.providerStates.map(ps => ({
+            id: ps.type,
+            name: ps.name,
+          }))
+        } else {
+          // Legacy vault — only passphrase
+          unlockProviders = [{ id: 'passphrase', name: 'Master Password' }]
+        }
+      } catch {
+        // Meta read failed; fall back to passphrase-only
+        unlockProviders = [{ id: 'passphrase', name: 'Master Password' }]
+      }
+    }
+
     return {
       exists,
       locked: !isCurrentVault || !this.session,
@@ -279,6 +397,8 @@ export class VaultService {
       autoLockMinutes: this.settings.autoLockMinutes,
       currentVaultId: this.currentVaultId,
       availableVaults: this.getAvailableVaults(),
+      unlockProviders,
+      activeProviderType,
     }
   }
 
@@ -434,9 +554,14 @@ export class VaultService {
   /**
    * Create a vault item
    */
-  async createItem(item: Omit<VaultItem, 'id' | 'created_at' | 'updated_at'>): Promise<VaultItem> {
+  async createItem(item: Omit<VaultItem, 'id' | 'created_at' | 'updated_at'>, tier: VaultTier): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
+
+    // ── Capability check BEFORE any encryption/storage (defense-in-depth) ──
+    if (!canAccessCategory(tier, item.category as any, 'write')) {
+      throw new Error(`Tier "${tier}" cannot write category "${item.category}"`)
+    }
     
     // Ensure database connection is valid before INSERT
     const connectionValid = await this.ensureDbConnection()
@@ -452,143 +577,67 @@ export class VaultService {
       updated_at: now,
     }
 
-    // Encrypt sensitive fields
-    const encryptedFields = await this.encryptItemFields(newItem.id, newItem.fields)
-    
-    const dbPath = getVaultPath(this.currentVaultId)
-    console.log('[VAULT] Encrypted', encryptedFields.length, 'fields for item:', newItem.id)
-    console.log('[VAULT] Database path:', dbPath, '| VaultId:', this.currentVaultId)
+    // Determine record_type from category (for capability gating)
+    const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[newItem.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+
+    // ── Envelope encryption (schema_version = 2) ──
+    // Serialize fields, seal with a per-record DEK wrapped by the KEK.
+    // AAD binds ciphertext to this vault + record type + schema version.
+    const fieldsJson = JSON.stringify(newItem.fields)
+    const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+    const { wrappedDEK: wrappedRecordDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
+
+    console.log('[VAULT] Sealed item with envelope encryption:', newItem.id, 'schema_version=2')
 
     try {
-      console.log('[VAULT] 📝 Starting INSERT for item:', {
+      console.log('[VAULT] 📝 Starting INSERT (envelope v2) for item:', {
         id: newItem.id,
         category: newItem.category,
+        record_type: recordType,
         title: newItem.title,
-        container_id: newItem.container_id,
-        fieldsCount: encryptedFields.length,
-        vaultId: this.currentVaultId,
-        dbPath: dbPath
       })
-      
-      // Don't change synchronous mode - use BEGIN IMMEDIATE for better lock handling
-      // Use immediate transaction to get exclusive lock upfront
-      console.log('[VAULT] BEGIN IMMEDIATE TRANSACTION')
+
       this.db!.exec('BEGIN IMMEDIATE')
       try {
         const stmt = this.db!.prepare(
-          'INSERT INTO vault_items (id, container_id, category, title, domain, fields_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          `INSERT INTO vault_items
+           (id, container_id, category, title, domain, fields_json,
+            favorite, created_at, updated_at,
+            wrapped_dek, ciphertext, record_type, schema_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        
-        // Bind parameters explicitly
-        stmt.bind(
+
+        stmt.run(
           newItem.id,
           newItem.container_id || null,
           newItem.category,
           newItem.title,
           newItem.domain || null,
-          JSON.stringify(encryptedFields),
+          '[]',                         // fields_json = empty (data lives in ciphertext)
           newItem.favorite ? 1 : 0,
           newItem.created_at,
-          newItem.updated_at
+          newItem.updated_at,
+          wrappedRecordDEK,             // BLOB
+          ciphertext,                   // BLOB
+          recordType,
+          ENVELOPE_SCHEMA_VERSION,      // 2
         )
-        
-        const result = stmt.run()
-        console.log('[VAULT] ✅ INSERT executed. Result:', result)
-        console.log('[VAULT] 🔍 INSERT result type:', typeof result)
-        console.log('[VAULT] 🔍 INSERT result keys:', result ? Object.keys(result) : 'null/undefined')
-        console.log('[VAULT] 🔍 INSERT result JSON:', JSON.stringify(result))
-        
-        // Check if result has changes property (better-sqlite3 style)
-        if (result && typeof result === 'object') {
-          // Try multiple possible property names
-          const changes = (result as any).changes || (result as any).changesCount || (result as any).count
-          if (typeof changes === 'number') {
-            console.log('[VAULT] ✅ INSERT affected', changes, 'row(s)')
-            if (changes !== 1) {
-              throw new Error(`INSERT affected ${changes} rows, expected 1`)
-            }
-          } else {
-            console.warn('[VAULT] ⚠️ INSERT result does not have changes property')
-            console.warn('[VAULT] ⚠️ Result structure:', result)
-          }
-        } else {
-          console.warn('[VAULT] ⚠️ INSERT result is not an object:', result)
-        }
-        
-        // Explicitly commit the transaction
-        console.log('[VAULT] COMMIT TRANSACTION')
+
         this.db!.exec('COMMIT')
-        console.log('[VAULT] ✅ Transaction committed')
-        
-        // Force WAL checkpoint to ensure data is written
+        console.log('[VAULT] ✅ Envelope INSERT committed')
+
         try {
           this.db!.prepare('PRAGMA wal_checkpoint(PASSIVE)').run()
-          console.log('[VAULT] ✅ WAL checkpoint completed')
         } catch (cpError: any) {
-          console.warn('[VAULT] ⚠️ WAL checkpoint failed (non-critical):', cpError?.message)
+          // non-critical
         }
-        
-        // NOTE: We cannot verify with SELECT queries because .get() returns {} in SQLCipher 5.2.0/5.3.1
-        // If INSERT and COMMIT didn't throw errors, we assume it succeeded
-        // The data will be readable once we fix the query methods
-        console.log('[VAULT] ✅ Item save completed (verification skipped due to .get() bug)')
-        
       } catch (txError: any) {
-        // Rollback on error
-        console.log('[VAULT] ROLLBACK TRANSACTION')
         this.db!.exec('ROLLBACK')
         console.error('[VAULT] ❌ Transaction failed, rolled back:', txError?.message)
         throw txError
       }
-      
-      // Note: WAL mode handles checkpointing automatically - no need for explicit checkpoint
-      // Explicit checkpoint was causing SQLITE_NOMEM errors and breaking the connection
-      
-      // Comprehensive verification: Check by ID first
-      // Note: Verification failures are logged but don't throw errors to prevent breaking the connection
-      try {
-        const verifyStmt = this.db!.prepare('SELECT id, category, title FROM vault_items WHERE id = ?')
-        const verifyResult = verifyStmt.get(newItem.id) as any
-        if (verifyResult) {
-          console.log('[VAULT] ✅ Verified item by ID:', verifyResult)
-        } else {
-          console.warn('[VAULT] ⚠️ Item not found after INSERT by ID (may be WAL delay):', newItem.id)
-          // Don't throw - WAL mode may have slight delay, but INSERT succeeded
-        }
-      } catch (verifyError: any) {
-        console.warn('[VAULT] ⚠️ Verification query failed (non-critical):', verifyError?.code, verifyError?.message)
-        // Don't throw - verification is informational, INSERT already succeeded
-      }
-      
-      // Also verify by category query (same as listItems uses)
-      // This is optional verification - failures are logged but don't break the operation
-      try {
-        const categoryVerifyStmt = this.db!.prepare('SELECT id, category, title FROM vault_items WHERE category = ?')
-        const categoryResult = categoryVerifyStmt.all(newItem.category)
-        if (Array.isArray(categoryResult)) {
-          const found = categoryResult.find((r: any) => r.id === newItem.id)
-          if (found) {
-            console.log('[VAULT] ✅ Verified item found in category query:', found)
-            console.log('[VAULT] Total items in category:', categoryResult.length)
-          } else {
-            console.warn('[VAULT] ⚠️ Item not immediately visible in category query (may be WAL delay):', newItem.id)
-            console.log('[VAULT] Category:', newItem.category)
-            console.log('[VAULT] Items currently in category:', categoryResult.map((r: any) => ({ id: r.id, title: r.title })))
-          }
-        } else {
-          console.warn('[VAULT] ⚠️ Category query returned non-array (non-critical):', typeof categoryResult)
-        }
-      } catch (categoryVerifyError: any) {
-        console.warn('[VAULT] ⚠️ Category verification query failed (non-critical):', categoryVerifyError?.code, categoryVerifyError?.message)
-        // Don't throw - verification is informational
-      }
-      
-      // Don't throw error if verification fails - INSERT succeeded, verification is just for logging
-      // WAL mode may have slight delays, but data is committed
     } catch (error: any) {
       console.error('[VAULT] ❌ INSERT failed for item:', newItem.id, error)
-      console.error('[VAULT] Error code:', error?.code, 'Error number:', error?.errno)
-      console.error('[VAULT] Error stack:', error?.stack)
       throw new Error(`Failed to save item: ${error?.message || error}`)
     }
 
@@ -599,71 +648,154 @@ export class VaultService {
   /**
    * Update a vault item
    */
-  async updateItem(id: string, updates: Partial<Pick<VaultItem, 'title' | 'fields' | 'domain' | 'favorite'>>): Promise<VaultItem> {
+  async updateItem(id: string, updates: Partial<Pick<VaultItem, 'title' | 'fields' | 'domain' | 'favorite'>>, tier: VaultTier): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
 
-    const existing = this.getItemById(id)
-    if (!existing) {
+    // ── Capability check BEFORE any decrypt/re-encrypt ──
+    const itemCategory = this.getItemCategory(id)
+    if (!canAccessCategory(tier, itemCategory as any, 'write')) {
+      throw new Error(`Tier "${tier}" cannot write category "${itemCategory}"`)
+    }
+
+    const row = this.getItemRowById(id)
+    if (!row) {
       throw new Error('Item not found')
     }
 
+    const existing = this.rowToItem(row)
     const updated: VaultItem = {
       ...existing,
       ...updates,
       updated_at: Date.now(),
     }
 
-    // Encrypt sensitive fields if provided
-    const fieldsToSave = updates.fields ? await this.encryptItemFields(id, updates.fields) : existing.fields
+    // Invalidate cache for this item
+    this.decryptCache.evict(id)
 
-    this.db!.prepare(
-      'UPDATE vault_items SET title = ?, domain = ?, fields_json = ?, favorite = ?, updated_at = ? WHERE id = ?'
-    ).run(
-      updated.title,
-      updated.domain || null,
-      JSON.stringify(fieldsToSave),
-      updated.favorite ? 1 : 0,
-      updated.updated_at,
-      id
-    )
+    if (updates.fields) {
+      // ── Re-seal with fresh per-record DEK (always writes as v2) ──
+      const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[updated.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+      const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+      const fieldsJson = JSON.stringify(updates.fields)
+      const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
 
-    console.log('[VAULT] Updated item:', id)
+      this.db!.prepare(
+        `UPDATE vault_items
+         SET title = ?, domain = ?, fields_json = ?, favorite = ?, updated_at = ?,
+             wrapped_dek = ?, ciphertext = ?, record_type = ?, schema_version = ?
+         WHERE id = ?`
+      ).run(
+        updated.title,
+        updated.domain || null,
+        '[]',
+        updated.favorite ? 1 : 0,
+        updated.updated_at,
+        wrappedDEK,
+        ciphertext,
+        recordType,
+        ENVELOPE_SCHEMA_VERSION,
+        id,
+      )
+    } else {
+      // Metadata-only update (title, domain, favorite) — no re-encryption needed
+      this.db!.prepare(
+        'UPDATE vault_items SET title = ?, domain = ?, favorite = ?, updated_at = ? WHERE id = ?'
+      ).run(
+        updated.title,
+        updated.domain || null,
+        updated.favorite ? 1 : 0,
+        updated.updated_at,
+        id,
+      )
+    }
+
+    console.log('[VAULT] Updated item:', id, `(schema_version=${updates.fields ? ENVELOPE_SCHEMA_VERSION : 'unchanged'})`)
     return updated
   }
 
   /**
    * Delete a vault item
    */
-  deleteItem(id: string): void {
+  deleteItem(id: string, tier: VaultTier): void {
     this.ensureUnlocked()
     this.updateActivity()
 
+    // ── Capability check BEFORE any mutation ──
+    const itemCategory = this.getItemCategory(id)
+    if (!canAccessCategory(tier, itemCategory as any, 'delete')) {
+      throw new Error(`Tier "${tier}" cannot delete category "${itemCategory}"`)
+    }
+
+    this.decryptCache.evict(id)
     this.db!.prepare('DELETE FROM vault_items WHERE id = ?').run(id)
 
     console.log('[VAULT] Deleted item:', id)
   }
 
   /**
-   * Get a single item (decrypts fields)
+   * Get a single item (decrypts fields lazily, per-record).
+   * For envelope v2 records: unwraps per-record DEK, decrypts ciphertext.
+   * For legacy v1 records: uses HKDF field-level decryption.
+   *
+   * @param tier  REQUIRED — capability check is performed BEFORE any
+   *              cryptographic unwrap (fail-closed).
    */
-  async getItem(id: string): Promise<VaultItem> {
+  async getItem(id: string, tier: VaultTier): Promise<VaultItem> {
     this.ensureUnlocked()
     this.updateActivity()
 
-    const item = this.getItemById(id)
-    if (!item) {
+    const row = this.getItemRowById(id)
+    if (!row) {
       throw new Error('Item not found')
     }
 
-    // Decrypt fields
-    item.fields = await this.decryptItemFields(id, item.fields)
+    const schemaVersion: number = (row as any).schema_version ?? LEGACY_SCHEMA_VERSION
+
+    // ── Capability check BEFORE any decrypt / unwrap (always enforced) ──
+    const cat = row.category as ItemCategory
+    if (!canAccessCategory(tier, cat as any, 'read')) {
+      throw new Error(`Tier "${tier}" cannot read category "${cat}"`)
+    }
+
+    // ── Check decrypt cache ──
+    const cached = this.decryptCache.get(id)
+    if (cached) {
+      const item = this.rowToItem(row)
+      item.fields = JSON.parse(cached)
+      return item
+    }
+
+    // ── Decrypt based on schema version ──
+    const item = this.rowToItem(row)
+
+    if (schemaVersion >= ENVELOPE_SCHEMA_VERSION && (row as any).wrapped_dek && (row as any).ciphertext) {
+      // Envelope v2: unwrap per-record DEK, decrypt ciphertext
+      const wrappedDEK = Buffer.from((row as any).wrapped_dek)
+      const ciphertext = Buffer.from((row as any).ciphertext)
+      const recordType = (row as any).record_type || 'custom'
+      const aad = buildAAD(this.currentVaultId, recordType, schemaVersion)
+      item.fields = await openRecord(wrappedDEK, ciphertext, this.session!.kek, aad)
+    } else {
+      // Legacy v1: HKDF field-level decryption
+      item.fields = await this.decryptItemFields(id, item.fields)
+    }
+
+    // Cache the decrypted fields
+    this.decryptCache.set(id, JSON.stringify(item.fields))
 
     return item
   }
 
   /**
-   * List items with optional filters (decrypts fields)
+   * List items with optional filters.
+   *
+   * Returns METADATA ONLY for ALL schema versions — `fields` is always
+   * an empty array.  The caller must use `getItem(id)` to decrypt a
+   * single record on demand (lazy decrypt invariant).
+   *
+   * Legacy v1 records are queued for opportunistic migration to v2
+   * (fire-and-forget) so that future reads are envelope-encrypted.
    */
   async listItems(filters?: {
     container_id?: string
@@ -671,31 +803,13 @@ export class VaultService {
     favorites_only?: boolean
     limit?: number
     offset?: number
-  }): Promise<VaultItem[]> {
+  }, tier?: VaultTier): Promise<VaultItem[]> {
     this.ensureUnlocked()
     this.updateActivity()
 
-    const dbPath = getVaultPath(this.currentVaultId)
     console.log('[VAULT] 📋 listItems called with filters:', filters)
-    console.log('[VAULT] Database path:', dbPath, '| VaultId:', this.currentVaultId)
-    
-    // First, get total count to verify database is working
-    // NOTE: Count queries also broken in SQLCipher 5.3.1, skip for now
-    // try {
-    //   const countStmt = this.db!.prepare('SELECT COUNT(*) as count FROM vault_items')
-    //   const countResult = countStmt.get() as any
-    //   console.log('[VAULT] Total items in database:', countResult?.count || 0)
-    //   
-    //   if (filters?.category) {
-    //     const categoryCountStmt = this.db!.prepare('SELECT COUNT(*) as count FROM vault_items WHERE category = ?')
-    //     const categoryCountResult = categoryCountStmt.get(filters.category) as any
-    //     console.log('[VAULT] Items in category "' + filters.category + '":', categoryCountResult?.count || 0)
-    //   }
-    // } catch (countError: any) {
-    //   console.error('[VAULT] ⚠️ Count query failed:', countError?.message)
-    // }
 
-    let query = 'SELECT * FROM vault_items WHERE 1=1'
+    let query = 'SELECT id, container_id, category, title, domain, favorite, created_at, updated_at, schema_version FROM vault_items WHERE 1=1'
     const params: any[] = []
 
     if (filters?.container_id) {
@@ -723,189 +837,83 @@ export class VaultService {
       query += ' OFFSET ?'
       params.push(filters.offset)
     }
-    
-    console.log('[VAULT] Executing query:', query)
-    console.log('[VAULT] Query parameters:', params)
 
     let rows: any[] = []
     try {
-      // Ensure database connection is valid and recover if needed
       const connectionValid = await this.ensureDbConnection()
       if (!connectionValid) {
-        console.error('[VAULT] Database connection is invalid and could not be recovered')
+        console.error('[VAULT] Database connection invalid')
         return []
       }
-      
-      // Connection is valid, proceed with query
-      console.log('[VAULT] ✅ Database connection verified')
-      
-      // For WAL mode, do a passive checkpoint before reading to see latest data
+
       try {
         this.db.prepare('PRAGMA wal_checkpoint(PASSIVE)').run()
-      } catch (checkpointError: any) {
-        console.warn('[VAULT] ⚠️ WAL checkpoint failed (non-critical):', checkpointError?.message)
-      }
-      
-      // Prepare and execute the actual query
-      console.log('[VAULT] Executing query:', query.substring(0, 100) + (query.length > 100 ? '...' : ''), 'Params:', params)
-      
-      // CRITICAL FIX: Both .all() and .get() return {} in @journeyapps/sqlcipher 5.2.0/5.3.1
-      // Try using db.exec() with callback as alternative
-      console.log('[VAULT] Attempting query with db.exec() callback method...')
-      
-      try {
-        // better-sqlite3 has working .all() method - no workarounds needed!
-        console.log('[VAULT] Executing query with better-sqlite3...')
-        const stmt = this.db.prepare(query)
-        
-        // Bind parameters if provided
-        if (params && params.length > 0) {
-          console.log('[VAULT] Binding', params.length, 'parameters')
-          rows = stmt.all(...params)
-        } else {
-          rows = stmt.all()
-        }
-        
-        console.log(`[VAULT] ✅ Query returned ${rows.length} rows`)
-      } catch (execError: any) {
-        console.error('[VAULT] ❌ Query execution failed:', execError?.code, execError?.message)
-        console.error('[VAULT] Error stack:', execError?.stack)
-        rows = []
-      }
-      
-      // Remove all the complex error handling for .all() since we're using iterate now
-      if (rows.length === 0) {
-        console.log('[VAULT] No items found in database')
-        return []
-      }
+      } catch { /* non-critical */ }
+
+      const stmt = this.db.prepare(query)
+      rows = params.length > 0 ? stmt.all(...params) : stmt.all()
+      console.log(`[VAULT] ✅ Query returned ${rows.length} rows`)
+
+      if (!Array.isArray(rows) || rows.length === 0) return []
     } catch (error: any) {
-      console.error('[VAULT] Database query failed:', error)
-      console.error('[VAULT] Error code:', error?.code, 'Error number:', error?.errno)
-      console.error('[VAULT] Query:', query)
-      console.error('[VAULT] Params:', params)
-      
-      // Handle SQLITE_NOMEM specifically - try to recover
-      if (error?.code === 'SQLITE_NOMEM' || error?.errno === 7) {
-        console.error('[VAULT] SQLite out of memory - trying to recover...')
-        try {
-          // Try to free memory
-          this.db!.prepare('PRAGMA shrink_memory').run()
-          // Try the query again
-          console.log('[VAULT] Retrying query after memory shrink...')
-          const retryStmt = this.db!.prepare(query)
-          const retryResult = retryStmt.all(...params)
-          if (Array.isArray(retryResult)) {
-            rows = retryResult
-            console.log(`[VAULT] ✅ Retry successful: ${rows.length} rows`)
-          } else {
-            console.error('[VAULT] Retry also returned non-array, returning empty array')
-            return []
-          }
-        } catch (retryError: any) {
-          console.error('[VAULT] Retry failed:', retryError?.message)
-          return []
-        }
-      } else {
-        // If database error, return empty array instead of crashing
-        return []
-      }
-    }
-    
-    // Ensure rows is an array
-    if (!Array.isArray(rows)) {
-      console.error('[VAULT] Database query did not return an array:', typeof rows, rows)
-      return []
-    }
-    
-    // Ensure rows is not empty or null
-    if (!rows || rows.length === 0) {
-      console.log('[VAULT] No items found in database')
+      console.error('[VAULT] Database query failed:', error?.message)
       return []
     }
 
-    const items = rows.map((row: any) => {
-      let fields: Field[] = []
-      try {
-        if (!row.fields_json) {
-          console.warn('[VAULT] fields_json is missing for item:', row.id)
-          fields = []
-        } else {
-          const parsedFields = JSON.parse(row.fields_json)
-          // Ensure fields is an array
-          if (Array.isArray(parsedFields)) {
-            fields = parsedFields.filter((f: any) => f && typeof f === 'object')
-          } else if (parsedFields && typeof parsedFields === 'object') {
-            // If it's an object, try to convert to array
-            console.warn('[VAULT] Fields is not an array, attempting to convert:', row.id, typeof parsedFields)
-            // Try to convert object to array if it has numeric keys
-            if (Object.keys(parsedFields).every(k => !isNaN(Number(k)))) {
-              fields = Object.values(parsedFields).filter((f: any) => f && typeof f === 'object') as Field[]
-            } else {
-              fields = []
-            }
-          } else {
-            console.warn('[VAULT] Fields is not an array or object:', row.id, typeof parsedFields)
-            fields = []
-          }
-        }
-      } catch (error) {
-        console.error('[VAULT] Failed to parse fields_json for item:', row.id, error)
-        fields = []
+    // Map rows → VaultItem.  ALL records return fields=[] (no decrypt).
+    const items: VaultItem[] = []
+    const v1Ids: string[] = []
+
+    for (const row of rows) {
+      const sv: number = row.schema_version ?? LEGACY_SCHEMA_VERSION
+
+      if (sv < ENVELOPE_SCHEMA_VERSION) {
+        v1Ids.push(row.id)
       }
-      
-      return {
+
+      // Metadata only — no decryption for any schema version
+      items.push({
         id: row.id,
         container_id: row.container_id || undefined,
         category: row.category,
         title: row.title,
         domain: row.domain || undefined,
-        fields,
+        fields: [],   // caller must use getItem(id) for decrypted data
         favorite: row.favorite === 1,
         created_at: row.created_at,
         updated_at: row.updated_at,
-      }
-    })
-
-    // Decrypt fields for all items
-    // Ensure items is an array before Promise.all
-    if (!Array.isArray(items)) {
-      console.error('[VAULT] items is not an array before Promise.all:', typeof items, items)
-      return []
+      })
     }
-    
-    const decryptedItems = await Promise.all(items.map(async (item) => {
-      // Ensure item is valid
-      if (!item || typeof item !== 'object') {
-        console.error('[VAULT] Invalid item in array:', typeof item, item)
-        return null
-      }
-      
-      // Ensure fields is an array before decrypting
-      if (!Array.isArray(item.fields)) {
-        console.error('[VAULT] Item fields is not an array:', item.id, typeof item.fields)
-        item.fields = []
-      } else {
-        item.fields = await this.decryptItemFields(item.id, item.fields)
-      }
-      return item
-    }))
-    
-    // Filter out any null items
-    const validItems = decryptedItems.filter((item) => item !== null) as VaultItem[]
 
-    console.log(`[VAULT] Listed ${validItems.length} items (category: ${filters?.category || 'all'}, container: ${filters?.container_id || 'none'})`)
-    return validItems
+    // Opportunistic v1→v2 migration (fire-and-forget, non-blocking)
+    if (v1Ids.length > 0) {
+      console.log(`[VAULT] 🔄 ${v1Ids.length} legacy v1 record(s) detected — queuing migration`)
+      Promise.all(v1Ids.map(id => this.migrateItemToV2(id).catch(err => {
+        console.error(`[VAULT] Migration failed for ${id}:`, err?.message)
+      })))
+    }
+
+    // If tier is provided, filter items by capability (defense-in-depth)
+    const filtered = tier
+      ? items.filter(i => canAccessCategory(tier, i.category as any, 'read'))
+      : items
+
+    console.log(`[VAULT] Listed ${filtered.length} items (category: ${filters?.category || 'all'}, v1_pending: ${v1Ids.length}, tier_filtered: ${tier ? 'yes' : 'no'})`)
+    return filtered
   }
 
   /**
-   * Search items by title or domain
+   * Search items by title or domain.
+   *
+   * Returns METADATA ONLY — `fields` is always an empty array.
+   * Caller must use `getItem(id)` to decrypt individual results.
    */
-  search(query: string, category?: VaultItem['category']): VaultItem[] {
+  search(query: string, category?: VaultItem['category'], tier?: VaultTier): VaultItem[] {
     this.ensureUnlocked()
     this.updateActivity()
 
     const searchTerm = `%${query.toLowerCase()}%`
-    let sql = 'SELECT * FROM vault_items WHERE (LOWER(title) LIKE ? OR LOWER(domain) LIKE ?)'
+    let sql = 'SELECT id, container_id, category, title, domain, favorite, created_at, updated_at FROM vault_items WHERE (LOWER(title) LIKE ? OR LOWER(domain) LIKE ?)'
     const params: any[] = [searchTerm, searchTerm]
 
     if (category) {
@@ -917,75 +925,356 @@ export class VaultService {
 
     const rows = this.db!.prepare(sql).all(...params) as any[]
 
-    return rows.map((row: any) => ({
+    const items = rows.map((row: any) => ({
       id: row.id,
       container_id: row.container_id || undefined,
       category: row.category,
       title: row.title,
       domain: row.domain || undefined,
-      fields: JSON.parse(row.fields_json),
+      fields: [] as Field[],   // metadata only — use getItem(id) for decrypted fields
       favorite: row.favorite === 1,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }))
+
+    // If tier provided, filter by capability
+    return tier
+      ? items.filter(i => canAccessCategory(tier, i.category as any, 'read'))
+      : items
   }
 
   /**
-   * Get autofill candidates for a domain
+   * Get autofill candidates for a domain (capability-gated).
+   * Uses getItem() per record to respect envelope encryption and capability checks.
    */
-  async getAutofillCandidates(domain: string): Promise<VaultItem[]> {
+  async getAutofillCandidates(domain: string, tier: VaultTier): Promise<VaultItem[]> {
     this.ensureUnlocked()
     this.updateActivity()
 
-    // Normalize domain (remove www., protocol, etc.)
-    const normalized = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0]
+    // ── Capability check: password category requires Pro+ ──
+    if (!canAccessCategory(tier, 'password' as any, 'read')) {
+      return []
+    }
 
+    // ── Strict origin matching ──
+    // Parse the current page origin and its registrable domain so we can
+    // perform in-app filtering rather than relying on SQL LIKE (which
+    // matched substrings and was a security hole).
+    const currentOrigin = parseOriginFn(domain)
+    const currentReg = currentOrigin
+      ? registrableDomainFn(currentOrigin.host)
+      : domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].toLowerCase()
+
+    // Fetch ALL password items (metadata only — no decrypt).
+    // We filter in-app using strict origin matching because the stored
+    // `domain` field may be a hostname, a URL, or an origin, and SQL
+    // cannot evaluate our multi-factor origin comparison.
     const rows = this.db!.prepare(
-      'SELECT * FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC'
-    ).all('password', `%${normalized}%`) as any[]
+      'SELECT id, domain FROM vault_items WHERE category = ? AND domain IS NOT NULL ORDER BY title ASC'
+    ).all('password') as any[]
 
-    const items = await Promise.all(rows.map(async (row: any) => {
-      const item: VaultItem = {
-        id: row.id,
-        container_id: row.container_id || undefined,
-        category: row.category,
-        title: row.title,
-        domain: row.domain || undefined,
-        fields: JSON.parse(row.fields_json),
-        favorite: row.favorite === 1,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+    // Filter rows using strict origin matching
+    const matchedIds: string[] = []
+    for (const row of rows) {
+      const storedDomain: string | undefined = row.domain
+      if (!storedDomain) continue
+
+      // Primary: strict origin match
+      const result = matchOriginFn(storedDomain, domain, { subdomainPolicy: 'exact' })
+      if (result.matches) {
+        matchedIds.push(row.id)
+        continue
       }
 
-      // Decrypt fields for autofill
-      item.fields = await this.decryptItemFields(item.id, item.fields)
+      // Secondary: www-equivalence (stored=www.x, current=x or vice versa)
+      const wwwResult = matchOriginFn(storedDomain, domain, { subdomainPolicy: 'exact', allowInsecureSchemeUpgrade: true })
+      if (wwwResult.matches) {
+        matchedIds.push(row.id)
+        continue
+      }
 
-      return item
-    }))
+      // Tertiary: same registrable domain (legacy loose match for migration).
+      // Only include if the stored domain's registrable domain matches.
+      const storedOrigin = parseOriginFn(storedDomain)
+      if (storedOrigin) {
+        const storedReg = registrableDomainFn(storedOrigin.host)
+        if (storedReg === currentReg) {
+          matchedIds.push(row.id)
+        }
+      }
+    }
+
+    // Decrypt each matched record individually (respects envelope v2 + capability)
+    const items: VaultItem[] = []
+    for (const id of matchedIds) {
+      try {
+        items.push(await this.getItem(id, tier))
+      } catch {
+        // Skip records that fail capability/decrypt
+      }
+    }
     return items
   }
 
   /**
-   * Get item by ID (internal, doesn't decrypt)
+   * Get raw database row by ID (no parsing, no decrypt).
+   * Returns the row as-is from better-sqlite3, including envelope columns.
    */
-  private getItemById(id: string): VaultItem | null {
+  private getItemRowById(id: string): any | null {
     const row = this.db!.prepare('SELECT * FROM vault_items WHERE id = ?').get(id) as any
+    return row || null
+  }
 
-    if (!row) {
-      return null
+  /**
+   * Return the category of a vault item WITHOUT decrypting any fields.
+   * Used by mutation routes (update/delete/meta-set) that need to gate on
+   * category but never need plaintext.
+   */
+  getItemCategory(id: string): string {
+    this.ensureUnlocked()
+    const row = this.db!.prepare('SELECT category FROM vault_items WHERE id = ?').get(id) as any
+    if (!row) throw new Error('Item not found')
+    return row.category as string
+  }
+
+  /**
+   * Convert a raw DB row → VaultItem (parses fields_json, no decryption).
+   */
+  private rowToItem(row: any): VaultItem {
+    let fields: Field[] = []
+    try {
+      const parsed = row.fields_json ? JSON.parse(row.fields_json) : []
+      fields = Array.isArray(parsed) ? parsed.filter((f: any) => f && typeof f === 'object') : []
+    } catch {
+      fields = []
     }
-
     return {
       id: row.id,
       container_id: row.container_id || undefined,
       category: row.category,
       title: row.title,
       domain: row.domain || undefined,
-      fields: JSON.parse(row.fields_json),
+      fields,
       favorite: row.favorite === 1,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }
+  }
+
+  // getItemById removed — use getItemRowById() + rowToItem() instead.
+
+  // ==========================================================================
+  // Legacy → Envelope Migration
+  // ==========================================================================
+
+  /**
+   * Migrate a single legacy (v1) record to envelope (v2) format.
+   * Called opportunistically on read or explicitly via upgradeVault().
+   *
+   * 1. Decrypt fields using legacy HKDF approach.
+   * 2. Re-encrypt using per-record DEK (envelope).
+   * 3. Update the row in-place.
+   */
+  async migrateItemToV2(id: string): Promise<void> {
+    this.ensureUnlocked()
+
+    const row = this.getItemRowById(id)
+    if (!row) return
+    if ((row.schema_version ?? LEGACY_SCHEMA_VERSION) >= ENVELOPE_SCHEMA_VERSION) return
+
+    // Decrypt with legacy approach
+    let fields: Field[] = []
+    try {
+      const parsed = row.fields_json ? JSON.parse(row.fields_json) : []
+      fields = Array.isArray(parsed) ? parsed : []
+    } catch { return }
+
+    const decryptedFields = await this.decryptItemFields(id, fields)
+
+    // Re-seal with envelope encryption (AAD-bound)
+    const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[row.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+    const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+    const fieldsJson = JSON.stringify(decryptedFields)
+    const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
+
+    this.db!.prepare(
+      `UPDATE vault_items
+       SET fields_json = '[]', wrapped_dek = ?, ciphertext = ?,
+           record_type = ?, schema_version = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(wrappedDEK, ciphertext, recordType, ENVELOPE_SCHEMA_VERSION, Date.now(), id)
+
+    console.log(`[VAULT] ✅ Migrated item ${id} from v1 → v2 (envelope)`)
+  }
+
+  /**
+   * Bulk-upgrade all legacy v1 records to envelope v2.
+   * Optional — can be triggered by a UI button or admin command.
+   * Returns the number of records migrated.
+   */
+  async upgradeVault(): Promise<number> {
+    this.ensureUnlocked()
+
+    const legacyRows = this.db!.prepare(
+      'SELECT id FROM vault_items WHERE schema_version IS NULL OR schema_version < ?'
+    ).all(ENVELOPE_SCHEMA_VERSION) as any[]
+
+    if (!Array.isArray(legacyRows) || legacyRows.length === 0) {
+      console.log('[VAULT] No legacy records to migrate')
+      return 0
+    }
+
+    console.log(`[VAULT] Upgrading ${legacyRows.length} legacy record(s) to envelope v2...`)
+
+    let migrated = 0
+    for (const row of legacyRows) {
+      try {
+        await this.migrateItemToV2(row.id)
+        migrated++
+      } catch (err: any) {
+        console.error(`[VAULT] Failed to migrate item ${row.id}:`, err?.message)
+      }
+    }
+
+    console.log(`[VAULT] ✅ Vault upgrade complete: ${migrated}/${legacyRows.length} records migrated`)
+    return migrated
+  }
+
+  // ==========================================================================
+  // Document Vault Operations
+  // ==========================================================================
+
+  /**
+   * Import a document into the encrypted vault.
+   * Delegates to documentService with capability check.
+   */
+  async importDocument(
+    tier: VaultTier,
+    filename: string,
+    data: Buffer,
+    notes?: string,
+  ): Promise<DocumentImportResult> {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return importDocument(this.db!, this.session!.kek, tier, filename, data, notes, this.currentVaultId)
+  }
+
+  /**
+   * Retrieve and decrypt a stored document.
+   */
+  async getDocument(
+    tier: VaultTier,
+    documentId: string,
+  ): Promise<{ document: VaultDocument; content: Buffer }> {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocument(this.db!, this.session!.kek, tier, documentId, this.currentVaultId)
+  }
+
+  /**
+   * List all documents (metadata only — no decryption).
+   */
+  listDocuments(tier: VaultTier): VaultDocument[] {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return listDocuments(this.db!, tier)
+  }
+
+  /**
+   * Delete a document from the vault.
+   */
+  deleteDocument(tier: VaultTier, documentId: string): void {
+    this.ensureUnlocked()
+    this.updateActivity()
+    deleteDocument(this.db!, tier, documentId)
+  }
+
+  /**
+   * Update document metadata (notes/tags).
+   */
+  updateDocumentMeta(
+    tier: VaultTier,
+    documentId: string,
+    updates: { notes?: string },
+  ): VaultDocument {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return updateDocumentMeta(this.db!, tier, documentId, updates)
+  }
+
+  // ==========================================================================
+  // Item Metadata (meta column) — used by Handshake Context
+  // ==========================================================================
+
+  /**
+   * Read the `meta` JSON column for a vault item.
+   * Returns `null` if the item has no meta or the column is empty.
+   */
+  getItemMeta(id: string, tier: VaultTier): any | null {
+    this.ensureUnlocked()
+
+    // ── Capability check BEFORE reading metadata ──
+    const itemCategory = this.getItemCategory(id)
+    if (!canAccessCategory(tier, itemCategory as any, 'read')) {
+      throw new Error(`Tier "${tier}" cannot read category "${itemCategory}"`)
+    }
+
+    const row = this.db!.prepare('SELECT meta FROM vault_items WHERE id = ?').get(id) as any
+    if (!row || !row.meta) return null
+    try { return JSON.parse(row.meta) } catch { return null }
+  }
+
+  /**
+   * Write the `meta` JSON column for a vault item.
+   * Merges with existing meta (shallow).
+   */
+  setItemMeta(id: string, meta: Record<string, any>, tier: VaultTier): void {
+    this.ensureUnlocked()
+    this.updateActivity()
+
+    // Capability check is enforced inside getItemMeta (reads category)
+    const existing = this.getItemMeta(id, tier) || {}
+    const merged = { ...existing, ...meta }
+    const now = Date.now()
+
+    this.db!.prepare(
+      'UPDATE vault_items SET meta = ?, updated_at = ? WHERE id = ?'
+    ).run(JSON.stringify(merged), now, id)
+
+    console.log(`[VAULT] Updated meta for item ${id}`)
+  }
+
+  // ==========================================================================
+  // Handshake Context — Binding Policy Evaluation
+  // ==========================================================================
+
+  /**
+   * Evaluate whether a handshake context item can be attached to a handshake.
+   * Reads the binding policy from the item's meta column, then delegates
+   * to the pure `canAttachContext` function.
+   *
+   * @param tier      - User's resolved tier
+   * @param itemId    - The handshake_context vault item ID
+   * @param target    - The handshake requesting the context
+   */
+  async evaluateAttach(
+    tier: VaultTier,
+    itemId: string,
+    target: HandshakeTarget,
+  ): Promise<AttachEvalResult> {
+    this.ensureUnlocked()
+
+    // Read the binding policy from meta (capability check inside getItemMeta)
+    const meta = this.getItemMeta(itemId, tier)
+    const policy: HandshakeBindingPolicy = meta?.binding_policy || {
+      allowed_domains: [],
+      handshake_types: [],
+      valid_until: null,
+      safe_to_share: false,
+      step_up_required: false,
+    }
+
+    return canAttachContext(tier, policy, target)
   }
 
   // ==========================================================================
@@ -993,13 +1282,23 @@ export class VaultService {
   // ==========================================================================
 
   /**
-   * Update vault settings
+   * Update vault settings.
+   *
+   * Deep-merges autofillSections so callers can update individual
+   * section toggles without resetting the others.
    */
   updateSettings(updates: Partial<VaultSettings>): VaultSettings {
     this.ensureUnlocked()
     this.updateActivity()
 
-    this.settings = { ...this.settings, ...updates }
+    this.settings = {
+      ...this.settings,
+      ...updates,
+      autofillSections: {
+        ...this.settings.autofillSections,
+        ...(updates.autofillSections ?? {}),
+      },
+    }
     this.saveSettings()
 
     // Restart autolock timer with new timeout
@@ -1024,36 +1323,46 @@ export class VaultService {
   // ==========================================================================
 
   /**
-   * Export vault data to CSV
+   * Export vault data to CSV (capability-gated per record).
    */
-  async exportCSV(): Promise<string> {
+  async exportCSV(tier: VaultTier): Promise<string> {
     this.ensureUnlocked()
     this.updateActivity()
 
     const containers = this.listContainers()
-    const items = await this.listItems()
+    let items = await this.listItems()
+
+    // Filter items by capability — only export what this tier can read
+    items = items.filter(i => canAccessCategory(tier, i.category as any, 'read'))
 
     // Build CSV header
     let csv = 'Type,Container,Title,Domain,Category'
 
-    // Find all unique field keys
+    // Decrypt accessible items to discover field keys
+    const decryptedItems: VaultItem[] = []
+    for (const item of items) {
+      try {
+        decryptedItems.push(await this.getItem(item.id, tier))
+      } catch {
+        // Skip items that fail capability/decrypt (fail-closed)
+      }
+    }
+
     const fieldKeys = new Set<string>()
-    items.forEach((item: VaultItem) => {
+    decryptedItems.forEach((item: VaultItem) => {
       item.fields.forEach((field: any) => fieldKeys.add(field.key))
     })
 
     fieldKeys.forEach((key) => csv += `,${key}`)
     csv += '\n'
 
-    // Add items (await all decryptions)
-    const rows = await Promise.all(items.map(async (item: VaultItem) => {
-      const container = item.container_id
-        ? containers.find((c) => c.id === item.container_id)?.name || ''
+    // Format rows
+    const rows = decryptedItems.map((decryptedItem: VaultItem) => {
+      const container = decryptedItem.container_id
+        ? containers.find((c) => c.id === decryptedItem.container_id)?.name || ''
         : ''
 
-      const decryptedItem = await this.getItem(item.id)
-
-      let row = `"${item.category}","${container}","${item.title}","${item.domain || ''}","${item.category}"`
+      let row = `"${decryptedItem.category}","${container}","${decryptedItem.title}","${decryptedItem.domain || ''}","${decryptedItem.category}"`
 
       fieldKeys.forEach((key) => {
         const field = decryptedItem.fields.find((f: Field) => f.key === key)
@@ -1062,19 +1371,18 @@ export class VaultService {
       })
 
       return row
-    }))
+    })
 
     csv += rows.join('\n') + '\n'
 
-    console.log('[VAULT] Exported CSV')
+    console.log(`[VAULT] Exported CSV (${decryptedItems.length} items for tier=${tier})`)
     return csv
   }
 
   /**
-   * Import vault data from CSV
-   * Note: This is a basic implementation, production should have better validation
+   * Import vault data from CSV (capability-gated per row).
    */
-  importCSV(csvData: string): void {
+  importCSV(csvData: string, tier: VaultTier): void {
     this.ensureUnlocked()
     this.updateActivity()
 
@@ -1125,7 +1433,7 @@ export class VaultService {
         domain,
         fields,
         favorite: false,
-      })
+      }, tier)
     }
 
     console.log('[VAULT] Imported CSV data')
@@ -1230,34 +1538,24 @@ export class VaultService {
   /**
    * Generate capability token
    */
-  private generateToken(): string {
-    return randomBytes(32).toString('hex')
-  }
-
   /**
-   * Encrypt item fields (only encrypt fields marked as encrypted)
+   * Generate a random 32-byte token as a Buffer.
+   * The Buffer can be zeroized on lock; hex encoding is deferred to transport.
    */
-  private async encryptItemFields(itemId: string, fields: Field[]): Promise<Field[]> {
-    const encryptedFields = await Promise.all(fields.map(async (field) => {
-      if (field.encrypted && this.session?.vmk) {
-        const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
-        return {
-          ...field,
-          value: await encryptField(field.value, fieldKey),
-        }
-      }
-      return field
-    }))
-    return encryptedFields
+  private generateToken(): Buffer {
+    return randomBytes(32)
   }
 
+  // encryptItemFields removed — envelope v2 uses sealRecord() instead.
+  // The legacy HKDF encrypt path is no longer needed (writes are always v2).
+
   /**
-   * Decrypt item fields
+   * Decrypt item fields (legacy v1 HKDF path — used for migration & backwards compat)
    */
   private async decryptItemFields(itemId: string, fields: Field[]): Promise<Field[]> {
     // Ensure fields is an array
     if (!Array.isArray(fields)) {
-      console.error('[VAULT] decryptItemFields: fields is not an array:', typeof fields, fields)
+      console.error('[VAULT] decryptItemFields: fields is not an array:', typeof fields)
       return []
     }
     
@@ -1275,20 +1573,20 @@ export class VaultService {
     const decryptedFields = await Promise.all(validFields.map(async (field) => {
       // Ensure field is an object
       if (!field || typeof field !== 'object') {
-        console.error('[VAULT] decryptItemFields: field is not an object:', typeof field, field)
+        console.error('[VAULT] decryptItemFields: field is not an object:', typeof field)
         return { key: 'unknown', value: '', encrypted: false, type: 'text' } as Field
       }
       
       if (field.encrypted && this.session?.vmk) {
+        const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
         try {
-          const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
-          return {
-            ...field,
-            value: await decryptField(field.value, fieldKey),
-          }
+          const decryptedValue = await decryptField(field.value, fieldKey)
+          return { ...field, value: decryptedValue }
         } catch (error) {
-          console.error('[VAULT] Failed to decrypt field:', error)
+          console.error('[VAULT] Failed to decrypt field')
           return { ...field, value: '[DECRYPTION FAILED]' }
+        } finally {
+          zeroize(fieldKey)
         }
       }
       return field
@@ -1304,6 +1602,8 @@ export class VaultService {
     salt: Buffer
     wrappedDEK: Buffer
     kdfParams: KDFParams
+    providerStates: ProviderState[]
+    activeProviderType: UnlockProviderType
   } {
     const metaPath = getVaultMetaPath(vaultId)
     
@@ -1315,6 +1615,9 @@ export class VaultService {
           salt: Buffer.from(metaData.salt, 'base64'),
           wrappedDEK: Buffer.from(metaData.wrappedDEK, 'base64'),
           kdfParams: metaData.kdfParams,
+          // Additive: existing meta files without provider fields default gracefully
+          providerStates: metaData.unlockProviders || [],
+          activeProviderType: (metaData.activeProviderType || 'passphrase') as UnlockProviderType,
         }
       } catch (error) {
         console.warn('[VAULT] Failed to read metadata file, will try database:', error)
@@ -1322,8 +1625,6 @@ export class VaultService {
     }
     
     // File doesn't exist - this is a critical error
-    // We cannot read encrypted metadata from the database without the key,
-    // and we need the metadata to derive the key. This is a circular dependency.
     console.error('[VAULT] CRITICAL: Metadata file not found:', metaPath)
     console.error('[VAULT] This vault was created but metadata file was not saved.')
     console.error('[VAULT] The vault database exists but cannot be unlocked without metadata.')
@@ -1337,10 +1638,13 @@ export class VaultService {
   private saveVaultMeta(salt: Buffer, wrappedDEK: Buffer, kdfParams: KDFParams, vaultId: string = 'default'): void {
     const metaPath = getVaultMetaPath(vaultId)
 
-    const metaData = {
+    const metaData: Record<string, any> = {
       salt: salt.toString('base64'),
       wrappedDEK: wrappedDEK.toString('base64'),
       kdfParams,
+      // Provider metadata (additive — old code simply ignores these fields)
+      unlockProviders: this.providerStates,
+      activeProviderType: this.activeProviderType,
     }
 
     // Ensure directory exists
@@ -1351,7 +1655,7 @@ export class VaultService {
     }
 
     try {
-      writeFileSync(metaPath, JSON.stringify(metaData, null, 2))
+      atomicWriteFileSync(metaPath, JSON.stringify(metaData, null, 2))
       console.log('[VAULT] Saved vault metadata to:', metaPath)
     } catch (error) {
       console.error('[VAULT] Failed to save metadata file:', error)
@@ -1374,15 +1678,40 @@ export class VaultService {
     ).run('kdf_params', Buffer.from(JSON.stringify(kdfParams)), now)
   }
 
+  /** Default settings (source of truth for missing-field migration). */
+  private static readonly DEFAULT_SETTINGS: VaultSettings = {
+    autoLockMinutes: 30,
+    autofillEnabled: true,
+    autofillSections: {
+      login: true,
+      identity: true,
+      company: true,
+      custom: true,
+    },
+  }
+
   /**
-   * Load settings from database
+   * Load settings from database.
+   *
+   * Migration-safe: merges stored settings with defaults so that
+   * new fields (e.g., autofillEnabled, autofillSections) are
+   * populated on first load from an older vault that doesn't have them.
    */
   private loadSettings(): void {
     try {
       const row = this.db!.prepare('SELECT value FROM vault_meta WHERE key = ?').get('settings') as any
 
       if (row) {
-        this.settings = JSON.parse(Buffer.from(row.value).toString('utf-8'))
+        const stored = JSON.parse(Buffer.from(row.value).toString('utf-8'))
+        // Deep-merge: defaults ← stored, so new keys get their default values
+        this.settings = {
+          ...VaultService.DEFAULT_SETTINGS,
+          ...stored,
+          autofillSections: {
+            ...VaultService.DEFAULT_SETTINGS.autofillSections,
+            ...(stored.autofillSections ?? {}),
+          },
+        }
       }
     } catch (error) {
       // Use defaults if not found
@@ -1412,7 +1741,29 @@ export class VaultService {
    * Validate extension token
    */
   validateToken(token: string): boolean {
-    return !!this.session && this.session.extensionToken === token
+    if (!this.session || !this.session.extensionToken) return false
+    // Token is stored as Buffer; incoming token is hex string from transport.
+    // Convert incoming hex to Buffer for constant-time comparison.
+    const incomingBuf = Buffer.from(token, 'hex')
+    const storedBuf = this.session.extensionToken
+    if (incomingBuf.length !== storedBuf.length) {
+      // Run a dummy comparison to avoid leaking length info via timing
+      try { timingSafeEqual(storedBuf, storedBuf) } catch { /* ignore */ }
+      return false
+    }
+    return timingSafeEqual(storedBuf, incomingBuf)
+  }
+
+  /**
+   * Get the Vault Session Binding Token (VSBT) for the current session.
+   * Returns null when the vault is locked.
+   *
+   * SECURITY: The returned value must NEVER be logged or persisted to disk.
+   */
+  getSessionToken(): string | null {
+    if (!this.session?.extensionToken) return null
+    // Convert from internal Buffer to hex string only at transport boundary
+    return this.session.extensionToken.toString('hex')
   }
 }
 

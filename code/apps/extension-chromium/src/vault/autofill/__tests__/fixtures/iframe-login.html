@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>S7: Iframe Login (Cross-Origin — Must Deny)</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .iframe-container { border: 2px solid #ef4444; padding: 20px; border-radius: 8px; }
+    iframe { width: 100%; height: 200px; border: 1px solid #ccc; border-radius: 4px; }
+    .note { color: #ef4444; font-style: italic; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Page with Cross-Origin Iframe Login</h2>
+
+  <div class="iframe-container">
+    <h3>Cross-Origin Login (MUST DENY)</h3>
+    <!-- In real E2E tests, this would point to a different origin test server -->
+    <iframe id="cross-origin-iframe"
+            src="about:blank"
+            sandbox="allow-scripts"
+            title="Cross-origin login form">
+    </iframe>
+    <p class="note">Autofill must NOT fill fields inside this iframe.</p>
+  </div>
+
+  <hr style="margin: 30px 0;">
+
+  <div>
+    <h3>Same-Origin Login (SHOULD WORK)</h3>
+    <!-- Same-origin iframe for comparison -->
+    <iframe id="same-origin-iframe"
+            srcdoc='
+              <form id="inner-login">
+                <input type="text" name="username" autocomplete="username" placeholder="Username">
+                <input type="password" name="password" autocomplete="current-password" placeholder="Password">
+                <button type="submit">Log In</button>
+              </form>
+            '
+            sandbox="allow-same-origin allow-scripts"
+            title="Same-origin login form">
+    </iframe>
+  </div>
+
+  <script>
+    // Populate cross-origin iframe with a login form (simulated)
+    // In real tests, this would be served from a different port/domain
+    const crossFrame = document.getElementById('cross-origin-iframe');
+    try {
+      const doc = crossFrame.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <form id="evil-login">
+            <input type="text" name="username" autocomplete="username" placeholder="Username">
+            <input type="password" name="password" autocomplete="current-password" placeholder="Password">
+            <button type="submit">Log In</button>
+          </form>
+        `);
+        doc.close();
+      }
+    } catch (e) {
+      // Expected to fail if actually cross-origin
+      console.log('Cross-origin iframe access denied (expected)');
+    }
+  </script>
+</body>
+</html>

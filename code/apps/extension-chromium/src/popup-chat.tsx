@@ -78,8 +78,9 @@ type SessionOption = {
 // Get initial theme from window (set by inline script in HTML)
 const getInitialTheme = (): Theme => {
   const t = (window as any).__INITIAL_THEME__
-  if (t === 'professional' || t === 'pro') return 'pro'
+  if (t === 'pro' || t === 'default') return 'pro'
   if (t === 'dark') return 'dark'
+  // 'standard' and 'professional' both map to light theme
   return 'standard'
 }
 
@@ -179,6 +180,10 @@ function PopupChatApp() {
             });
           }
         });
+      } else {
+        // SSO failed for any reason - fall back to opening wrdesk.com
+        console.log('[AUTH] SSO failed, falling back to wrdesk.com. Reason:', response?.error || 'unknown');
+        chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
       }
     });
   };

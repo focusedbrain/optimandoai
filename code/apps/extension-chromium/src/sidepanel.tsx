@@ -218,6 +218,11 @@ function SidepanelOrchestrator() {
             });
           }
         });
+      } else {
+        // SSO failed for any reason (Electron not running, SSO timed out, browser didn't open, etc.)
+        // Fall back to opening wrdesk.com
+        console.log('[AUTH] SSO failed, falling back to wrdesk.com. Reason:', response?.error || 'unknown');
+        chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
       }
     });
   };
@@ -1176,11 +1181,19 @@ function SidepanelOrchestrator() {
 
   // Load and listen for theme changes AND session changes
   useEffect(() => {
+    // Map stored theme values to valid theme type
+    const mapTheme = (t: string): 'pro' | 'dark' | 'standard' => {
+      if (t === 'dark') return 'dark'
+      if (t === 'standard' || t === 'professional') return 'standard'
+      if (t === 'pro' || t === 'default') return 'pro'
+      return 'standard'
+    }
+
     // Load initial theme
     import('./storage/storageWrapper').then(({ storageGet }) => {
       storageGet(['optimando-ui-theme'], (result) => {
         const savedTheme = result['optimando-ui-theme'] || 'standard'
-        setTheme(savedTheme as 'pro' | 'dark' | 'standard')
+        setTheme(mapTheme(savedTheme))
       });
     });
 
@@ -1191,7 +1204,7 @@ function SidepanelOrchestrator() {
         if (changes['optimando-ui-theme']) {
           const newTheme = changes['optimando-ui-theme'].newValue || 'standard'
           console.log('🎨 Sidepanel: Theme changed to:', newTheme)
-          setTheme(newTheme as 'pro' | 'dark' | 'standard')
+          setTheme(mapTheme(newTheme))
         }
         
         // Handle active session key changes - reload session data when session changes
@@ -4619,8 +4632,8 @@ function SidepanelOrchestrator() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
-                  background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
-                  borderBottom: '1px solid rgba(255,255,255,0.20)',
+                  background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.06)',
+                  borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
                   padding: '14px'
                 }}
               >
@@ -4681,10 +4694,10 @@ function SidepanelOrchestrator() {
                 }}
                 style={{
                   height: '4px',
-                  background: 'rgba(255,255,255,0.15)',
+                  background: theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)',
                   cursor: 'ns-resize',
-                  borderTop: '1px solid rgba(255,255,255,0.10)',
-                  borderBottom: '1px solid rgba(255,255,255,0.10)'
+                  borderTop: theme === 'standard' ? '1px solid #d1d9e0' : '1px solid rgba(255,255,255,0.10)',
+                  borderBottom: theme === 'standard' ? '1px solid #d1d9e0' : '1px solid rgba(255,255,255,0.10)'
                 }}
               />
 
@@ -4708,9 +4721,9 @@ function SidepanelOrchestrator() {
                     height: '40px',
                     minHeight: '40px',
                     resize: 'vertical',
-                    background: 'rgba(255,255,255,0.08)',
-                    border: '1px solid rgba(255,255,255,0.20)',
-                    color: 'white',
+                    background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                    border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                    color: theme === 'standard' ? '#0f172a' : 'white',
                     borderRadius: '8px',
                     padding: '10px 12px',
                     fontSize: '13px',
@@ -6616,9 +6629,9 @@ height: '28px',
                       height: '40px',
                       minHeight: '40px',
                       resize: 'vertical',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                      color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '8px',
                       padding: '10px 12px',
                       fontSize: '13px',
@@ -7915,9 +7928,9 @@ height: '28px',
                       height: '40px',
                       minHeight: '40px',
                       resize: 'vertical',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                      color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '8px',
                       padding: '10px 12px',
                       fontSize: '13px',

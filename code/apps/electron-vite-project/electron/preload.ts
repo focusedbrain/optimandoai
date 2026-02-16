@@ -1,92 +1,225 @@
+// ============================================================================
+// WRVault — Hardened Preload Script
+// ============================================================================
+//
+// SECURITY PROPERTIES:
+//
+//   1. NO generic ipcRenderer access is exposed to the renderer.
+//      The renderer cannot call arbitrary IPC channels.
+//
+//   2. Every exposed function maps to exactly ONE hardcoded channel.
+//      There is no dynamic channel name construction.
+//
+//   3. Arguments are validated before being forwarded to the main process.
+//      Invalid shapes are rejected with a thrown error, never sent.
+//
+//   4. contextIsolation: true (enforced in BrowserWindow config)
+//      The renderer runs in a separate JS context; it cannot modify
+//      or monkey-patch anything in this preload script.
+//
+//   5. nodeIntegration: false (enforced in BrowserWindow config)
+//      The renderer has no access to require(), process, fs, child_process,
+//      or any Node.js API.
+//
+//   6. Main→renderer listeners use hardcoded channels and do NOT expose
+//      the Electron event object.  Cleanup functions are returned.
+//
+// THREAT MODEL:
+//
+//   If an XSS vulnerability exists in the renderer, the attacker can
+//   call any function on the exposed bridges.  By restricting these to
+//   a minimal, typed set with validated arguments, we limit the blast
+//   radius to the exact functionality the renderer legitimately needs —
+//   not the entire main process IPC surface.
+//
+// ============================================================================
+
 import { ipcRenderer, contextBridge } from 'electron'
 
-// --------- Expose some API to the Renderer process ---------
-contextBridge.exposeInMainWorld('ipcRenderer', {
-  on(...args: Parameters<typeof ipcRenderer.on>) {
-    const [channel, listener] = args
-    return ipcRenderer.on(channel, (event, ...args) => listener(event, ...args))
-  },
-  off(...args: Parameters<typeof ipcRenderer.off>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.off(channel, ...omit)
-  },
-  send(...args: Parameters<typeof ipcRenderer.send>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.send(channel, ...omit)
-  },
-  invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.invoke(channel, ...omit)
-  },
+// ============================================================================
+// §1  Argument Validators
+// ============================================================================
+//
+// Lightweight runtime checks (no external deps in preload).
+// Each validator returns the validated value or throws.
+//
 
-  // You can expose other APTs you need here.
-  // ...
-})
+function assertString(v: unknown, name: string): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > 500) {
+    throw new Error(`${name}: expected non-empty string (max 500 chars)`)
+  }
+  return v
+}
 
-// LmGTFY bridge
-contextBridge.exposeInMainWorld('lmgtfy', {
+function assertTheme(v: unknown): string {
+  const ALLOWED = new Set(['default', 'dark', 'professional', 'pro', 'standard'])
+  const s = assertString(v, 'theme')
+  if (!ALLOWED.has(s)) throw new Error(`theme: invalid value "${s}"`)
+  return s
+}
+
+type CaptureMode = 'screenshot' | 'stream'
+
+interface CapturePresetPayload {
+  mode: CaptureMode
+  rect: { x: number; y: number; w: number; h: number }
+  displayId?: string
+}
+
+function assertCapturePreset(v: unknown): CapturePresetPayload {
+  if (!v || typeof v !== 'object') throw new Error('capturePreset: expected object')
+  const obj = v as Record<string, unknown>
+
+  if (obj.mode !== 'screenshot' && obj.mode !== 'stream') {
+    throw new Error('capturePreset.mode: must be "screenshot" or "stream"')
+  }
+  if (!obj.rect || typeof obj.rect !== 'object') {
+    throw new Error('capturePreset.rect: expected object')
+  }
+  const r = obj.rect as Record<string, unknown>
+  for (const k of ['x', 'y', 'w', 'h'] as const) {
+    if (typeof r[k] !== 'number' || !Number.isFinite(r[k] as number)) {
+      throw new Error(`capturePreset.rect.${k}: expected finite number`)
+    }
+  }
+  if (obj.displayId !== undefined && typeof obj.displayId !== 'string') {
+    throw new Error('capturePreset.displayId: expected string or undefined')
+  }
+
+  return {
+    mode: obj.mode as CaptureMode,
+    rect: { x: r.x as number, y: r.y as number, w: r.w as number, h: r.h as number },
+    ...(obj.displayId !== undefined ? { displayId: String(obj.displayId) } : {}),
+  }
+}
+
+function assertSavePreset(v: unknown): object {
+  if (!v || typeof v !== 'object') throw new Error('savePreset: expected object')
+  return v as object
+}
+
+// ============================================================================
+// §2  Channel Allowlists (compile-time constants)
+// ============================================================================
+
+// Channels the renderer may INVOKE (request→response)
+const INVOKE_CHANNELS = new Set([
+  'lmgtfy/select-screenshot',
+  'lmgtfy/select-stream',
+  'lmgtfy/stop-stream',
+  'lmgtfy/get-presets',
+  'lmgtfy/capture-preset',
+  'lmgtfy/save-preset',
+] as const)
+
+// Channels the renderer may SEND (fire-and-forget)
+const SEND_CHANNELS = new Set([
+  'REQUEST_THEME',
+  'SET_THEME',
+  'OPEN_BEAP_INBOX',
+] as const)
+
+// Channels the renderer may LISTEN to (main→renderer)
+const LISTEN_CHANNELS = new Set([
+  'main-process-message',
+  'lmgtfy.capture',
+  'hotkey',
+  'TRIGGERS_UPDATED',
+  'OPEN_ANALYSIS_DASHBOARD',
+  'THEME_CHANGED',
+] as const)
+
+// ============================================================================
+// §3  Exposed Bridges
+// ============================================================================
+
+// ── LETmeGIRAFFETHATFORYOU (screen capture) ──────────────────────────────
+const lmgtfyBridge = {
   selectScreenshot: () => ipcRenderer.invoke('lmgtfy/select-screenshot'),
   selectStream: () => ipcRenderer.invoke('lmgtfy/select-stream'),
   stopStream: () => ipcRenderer.invoke('lmgtfy/stop-stream'),
   getPresets: () => ipcRenderer.invoke('lmgtfy/get-presets'),
-  capturePreset: (payload: any) => ipcRenderer.invoke('lmgtfy/capture-preset', payload),
-  savePreset: (payload: any) => ipcRenderer.invoke('lmgtfy/save-preset', payload),
-  onCapture: (cb: (payload: any) => void) => ipcRenderer.on('lmgtfy.capture', (_e, d) => cb(d)),
-  onHotkey: (cb: (kind: string) => void) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
-})
+  capturePreset: (payload: unknown) => {
+    const validated = assertCapturePreset(payload)
+    return ipcRenderer.invoke('lmgtfy/capture-preset', validated)
+  },
+  savePreset: (payload: unknown) => {
+    const validated = assertSavePreset(payload)
+    return ipcRenderer.invoke('lmgtfy/save-preset', validated)
+  },
+  onCapture: (cb: (payload: unknown) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('lmgtfy.capture', handler)
+    return () => { ipcRenderer.removeListener('lmgtfy.capture', handler) }
+  },
+  onHotkey: (cb: (kind: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, k: unknown) => {
+      if (typeof k === 'string') cb(k)
+    }
+    ipcRenderer.on('hotkey', handler)
+    return () => { ipcRenderer.removeListener('hotkey', handler) }
+  },
+  onTriggersUpdated: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('TRIGGERS_UPDATED', handler)
+    return () => { ipcRenderer.removeListener('TRIGGERS_UPDATED', handler) }
+  },
+}
 
-// Alias with requested name
-contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', {
-  selectScreenshot: () => ipcRenderer.invoke('lmgtfy/select-screenshot'),
-  selectStream: () => ipcRenderer.invoke('lmgtfy/select-stream'),
-  stopStream: () => ipcRenderer.invoke('lmgtfy/stop-stream'),
-  getPresets: () => ipcRenderer.invoke('lmgtfy/get-presets'),
-  capturePreset: (payload: any) => ipcRenderer.invoke('lmgtfy/capture-preset', payload),
-  savePreset: (payload: any) => ipcRenderer.invoke('lmgtfy/save-preset', payload),
-  onCapture: (cb: (payload: any) => void) => ipcRenderer.on('lmgtfy.capture', (_e, d) => cb(d)),
-  onHotkey: (cb: (kind: string) => void) => ipcRenderer.on('hotkey', (_e, k) => cb(k)),
-})
+contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', lmgtfyBridge)
 
-// Database API
-contextBridge.exposeInMainWorld('db', {
-  testConnection: (config: any) => ipcRenderer.invoke('db:testConnection', config),
-  sync: (data: Record<string, any>) => ipcRenderer.invoke('db:sync', data),
-  getConfig: () => ipcRenderer.invoke('db:getConfig'),
-})
-
-// Analysis Dashboard API - safe, scoped listener for main->renderer signaling
-// Payload is passed as-is; renderer is responsible for validation/sanitization
+// ── Analysis Dashboard ───────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('analysisDashboard', {
   onOpen: (callback: (rawPayload: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, rawPayload: unknown) => {
-      callback(rawPayload)
-    }
+    const handler = (_e: Electron.IpcRendererEvent, rawPayload: unknown) => callback(rawPayload)
     ipcRenderer.on('OPEN_ANALYSIS_DASHBOARD', handler)
-    // Return cleanup function
-    return () => {
-      ipcRenderer.removeListener('OPEN_ANALYSIS_DASHBOARD', handler)
-    }
+    return () => { ipcRenderer.removeListener('OPEN_ANALYSIS_DASHBOARD', handler) }
   },
   onThemeChange: (callback: (theme: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: { theme: string }) => {
-      callback(payload.theme)
+    const handler = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+      if (payload && typeof payload === 'object' && 'theme' in payload) {
+        const t = (payload as { theme: unknown }).theme
+        if (typeof t === 'string') callback(t)
+      }
     }
     ipcRenderer.on('THEME_CHANGED', handler)
-    // Return cleanup function
-    return () => {
-      ipcRenderer.removeListener('THEME_CHANGED', handler)
-    }
+    return () => { ipcRenderer.removeListener('THEME_CHANGED', handler) }
   },
-  // Request current theme from main process
   requestTheme: () => {
     ipcRenderer.send('REQUEST_THEME')
   },
-  // Send theme change from renderer to main process
-  setTheme: (theme: string) => {
-    ipcRenderer.send('SET_THEME', theme)
+  setTheme: (theme: unknown) => {
+    ipcRenderer.send('SET_THEME', assertTheme(theme))
   },
-  // Open BEAP Inbox popup (triggers Chrome extension popup via WebSocket)
   openBeapInbox: () => {
     ipcRenderer.send('OPEN_BEAP_INBOX')
-  }
+  },
 })
+
+// ── Lifecycle (main→renderer notifications) ──────────────────────────────
+contextBridge.exposeInMainWorld('lifecycle', {
+  onMainProcessMessage: (cb: (message: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, msg: unknown) => {
+      if (typeof msg === 'string') cb(msg)
+    }
+    ipcRenderer.on('main-process-message', handler)
+    return () => { ipcRenderer.removeListener('main-process-message', handler) }
+  },
+})
+
+// ============================================================================
+// §4  What Is NOT Exposed
+// ============================================================================
+//
+// The following are deliberately removed:
+//
+//   ✗  window.ipcRenderer          — open proxy to every IPC channel
+//   ✗  window.lmgtfy               — unused duplicate of LETmeGIRAFFETHATFORYOU
+//   ✗  window.db                   — unused by the renderer
+//   ✗  ipcRenderer.invoke(channel) — no dynamic channel invocation
+//   ✗  ipcRenderer.send(channel)   — no dynamic channel sending
+//   ✗  ipcRenderer.on(channel)     — no dynamic channel listening
+//   ✗  require()                   — blocked by nodeIntegration: false
+//   ✗  process, fs, child_process  — blocked by contextIsolation: true
+//
+// ============================================================================
