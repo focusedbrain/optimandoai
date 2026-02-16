@@ -259,9 +259,15 @@ export async function createVaultDB(dek: Buffer, vaultId: string = 'default'): P
     // Create database with better-sqlite3
     const db = new Database(vaultPath)
     
-    // Set SQLCipher key using raw hex format (better-sqlite3 compatible)
-    const hexKey = dek.toString('hex')
-    db.pragma(`key = "x'${hexKey}'"`)
+    // Set SQLCipher key using raw hex format (better-sqlite3 compatible).
+    // The hex string is ephemeral — used only for the pragma call, then
+    // the local variable falls out of scope.  We cannot zeroize JS strings,
+    // but we keep the scope as tight as possible.
+    {
+      const hexKey = dek.toString('hex')
+      db.pragma(`key = "x'${hexKey}'"`)
+      // hexKey falls out of scope here — shortest possible lifetime
+    }
     
     // SQLCipher 4 configuration for security and compatibility
     db.pragma('cipher_page_size = 4096')
@@ -279,8 +285,7 @@ export async function createVaultDB(dek: Buffer, vaultId: string = 'default'): P
     
     // Verify encryption is working
     try {
-      const testResult = db.prepare('SELECT count(*) as count FROM sqlite_master').get()
-      console.log('[VAULT DB] Encryption verified, sqlite_master accessible:', testResult)
+      db.prepare('SELECT count(*) as count FROM sqlite_master').get()
     } catch (error) {
       db.close()
       throw new Error('Failed to initialize encrypted database - SQLCipher key may be invalid')
@@ -312,9 +317,11 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
   try {
     const db = new Database(vaultPath)
     
-    // Set SQLCipher key using raw hex format (better-sqlite3 compatible)
-    const hexKey = dek.toString('hex')
-    db.pragma(`key = "x'${hexKey}'"`)
+    // Set SQLCipher key — scoped to minimize hex string lifetime
+    {
+      const hexKey = dek.toString('hex')
+      db.pragma(`key = "x'${hexKey}'"`)
+    }
     
     // SQLCipher 4 configuration
     db.pragma('cipher_page_size = 4096')

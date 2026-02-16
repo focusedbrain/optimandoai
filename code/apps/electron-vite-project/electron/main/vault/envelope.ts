@@ -17,7 +17,7 @@
 
 import { randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 import { createRequire } from 'module'
-import { zeroize } from './crypto'
+import { zeroize, buildAAD } from './crypto'
 
 const require = createRequire(import.meta.url)
 
@@ -59,10 +59,15 @@ export function generateRecordDEK(): Buffer {
  * Format: nonce(12) || ciphertext(32) || authTag(16) = 60 bytes.
  * Identical layout to the vault-level wrapDEK in crypto.ts but kept
  * separate for clarity and to avoid coupling.
+ *
+ * @param recordDEK  32-byte per-record DEK
+ * @param kek        32-byte vault KEK
+ * @param aad        Optional AAD (binds wrapped key to vault + record context)
  */
-export function wrapRecordDEK(recordDEK: Buffer, kek: Buffer): Buffer {
+export function wrapRecordDEK(recordDEK: Buffer, kek: Buffer, aad?: Buffer): Buffer {
   const nonce = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', kek, nonce)
+  if (aad) cipher.setAAD(aad)
   const ct = Buffer.concat([cipher.update(recordDEK), cipher.final()])
   const tag = cipher.getAuthTag()
   return Buffer.concat([nonce, ct, tag]) // 60 bytes total
@@ -70,9 +75,13 @@ export function wrapRecordDEK(recordDEK: Buffer, kek: Buffer): Buffer {
 
 /**
  * Unwrap (decrypt) a record DEK.
- * @throws Error if auth tag validation fails (tampered or wrong KEK).
+ *
+ * @param wrapped  60-byte wrapped DEK blob
+ * @param kek      32-byte vault KEK
+ * @param aad      Optional AAD (must match what was used during wrap)
+ * @throws Error if auth tag validation fails (tampered, wrong KEK, or AAD mismatch).
  */
-export function unwrapRecordDEK(wrapped: Buffer, kek: Buffer): Buffer {
+export function unwrapRecordDEK(wrapped: Buffer, kek: Buffer, aad?: Buffer): Buffer {
   if (wrapped.length !== 60) {
     throw new Error(`Invalid wrapped record DEK length: ${wrapped.length} (expected 60)`)
   }
@@ -82,10 +91,11 @@ export function unwrapRecordDEK(wrapped: Buffer, kek: Buffer): Buffer {
 
   const decipher = createDecipheriv('aes-256-gcm', kek, nonce)
   decipher.setAuthTag(tag)
+  if (aad) decipher.setAAD(aad)
   try {
     return Buffer.concat([decipher.update(ct), decipher.final()])
   } catch {
-    throw new Error('Record DEK unwrap failed — KEK mismatch or data tampered')
+    throw new Error('Record DEK unwrap failed — KEK mismatch, AAD mismatch, or data tampered')
   }
 }
 
@@ -100,10 +110,15 @@ export function unwrapRecordDEK(wrapped: Buffer, kek: Buffer): Buffer {
  * per-field encryption, but applied to the whole record at once).
  *
  * Returns a Buffer:  nonce(24) || ciphertext+tag(variable)
+ *
+ * @param fieldsJson  JSON string of the record fields
+ * @param recordDEK   32-byte per-record DEK
+ * @param aad         Optional AAD (binds ciphertext to vault + record context)
  */
 export async function encryptRecord(
   fieldsJson: string,
   recordDEK: Buffer,
+  aad?: Buffer,
 ): Promise<Buffer> {
   await ensureSodium()
   const nonce: Uint8Array = sodium.randombytes_buf(
@@ -112,7 +127,7 @@ export async function encryptRecord(
   const plaintext = Buffer.from(fieldsJson, 'utf-8')
   const ciphertext: Uint8Array = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
     plaintext,
-    null, // no AAD
+    aad ?? null,
     null, // no secret nonce
     nonce,
     recordDEK,
@@ -122,12 +137,17 @@ export async function encryptRecord(
 
 /**
  * Decrypt record ciphertext with a record DEK.
+ *
+ * @param blob       Ciphertext blob (nonce || ciphertext+tag)
+ * @param recordDEK  32-byte per-record DEK
+ * @param aad        Optional AAD (must match what was used during encrypt)
  * @returns The original fields JSON string.
- * @throws Error on auth failure.
+ * @throws Error on auth failure or AAD mismatch.
  */
 export async function decryptRecord(
   blob: Buffer,
   recordDEK: Buffer,
+  aad?: Buffer,
 ): Promise<string> {
   await ensureSodium()
   const NONCE_LEN = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES // 24
@@ -141,13 +161,13 @@ export async function decryptRecord(
     const plaintext: Uint8Array = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
       null,  // no secret nonce
       ct,
-      null,  // no AAD
+      aad ?? null,
       nonce,
       recordDEK,
     )
     return Buffer.from(plaintext).toString('utf-8')
   } catch {
-    throw new Error('Record decryption failed — wrong DEK or data tampered')
+    throw new Error('Record decryption failed — wrong DEK, AAD mismatch, or data tampered')
   }
 }
 
@@ -165,15 +185,20 @@ export interface EnvelopeWriteResult {
 /**
  * Seal a record: generate a fresh DEK, encrypt fields, wrap the DEK.
  * The record DEK is zeroized before returning.
+ *
+ * @param fieldsJson  JSON string of the record fields
+ * @param kek         Vault KEK
+ * @param aad         Optional AAD built via `buildAAD()` — binds ciphertext to context
  */
 export async function sealRecord(
   fieldsJson: string,
   kek: Buffer,
+  aad?: Buffer,
 ): Promise<EnvelopeWriteResult> {
   const recordDEK = generateRecordDEK()
   try {
-    const ciphertext = await encryptRecord(fieldsJson, recordDEK)
-    const wrappedDEK = wrapRecordDEK(recordDEK, kek)
+    const ciphertext = await encryptRecord(fieldsJson, recordDEK, aad)
+    const wrappedDEK = wrapRecordDEK(recordDEK, kek, aad)
     return { wrappedDEK, ciphertext }
   } finally {
     zeroize(recordDEK)
@@ -184,16 +209,21 @@ export async function sealRecord(
  * Open a record: unwrap the DEK, decrypt the ciphertext.
  * The record DEK is zeroized before returning.
  *
+ * @param wrappedDEK   Wrapped record DEK (60 bytes)
+ * @param ciphertext   Record ciphertext blob
+ * @param kek          Vault KEK
+ * @param aad          Optional AAD (must match what was used during seal)
  * @returns Parsed fields array (JSON.parse of the decrypted blob).
  */
 export async function openRecord(
   wrappedDEK: Buffer,
   ciphertext: Buffer,
   kek: Buffer,
+  aad?: Buffer,
 ): Promise<any[]> {
-  const recordDEK = unwrapRecordDEK(wrappedDEK, kek)
+  const recordDEK = unwrapRecordDEK(wrappedDEK, kek, aad)
   try {
-    const json = await decryptRecord(ciphertext, recordDEK)
+    const json = await decryptRecord(ciphertext, recordDEK, aad)
     return JSON.parse(json) as any[]
   } finally {
     zeroize(recordDEK)

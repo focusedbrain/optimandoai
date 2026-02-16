@@ -25,7 +25,8 @@
 
 import { createHash, randomBytes } from 'crypto'
 import { basename, extname } from 'path'
-import { sealRecord, openRecord } from './envelope'
+import { sealRecord, openRecord, ENVELOPE_SCHEMA_VERSION } from './envelope'
+import { buildAAD } from './crypto'
 import type { VaultDocument, DocumentImportResult } from './types'
 import { MAX_DOCUMENT_SIZE, BLOCKED_EXTENSIONS } from './types'
 import { canAccessRecordType, type VaultTier } from './types'
@@ -112,6 +113,7 @@ export function detectMimeType(filename: string): string {
  * @param filename - Original filename.
  * @param data     - Raw plaintext file content as a Buffer.
  * @param notes    - Optional user notes / tags.
+ * @param vaultId  - Vault identifier (for AAD binding).
  * @returns Import result with document metadata and deduplication flag.
  */
 export async function importDocument(
@@ -121,6 +123,7 @@ export async function importDocument(
   filename: string,
   data: Buffer,
   notes: string = '',
+  vaultId: string = 'default',
 ): Promise<DocumentImportResult> {
   // ── 1. Capability gate (fail-closed) ──
   if (!canAccessRecordType(tier, 'document', 'write')) {
@@ -162,8 +165,10 @@ export async function importDocument(
 
   // ── 6. Encrypt document content ──
   // We reuse sealRecord: the "fieldsJson" param is just a string — works for any payload.
+  // AAD binds the ciphertext to this vault and the 'document' record type.
   const contentStr = data.toString('base64')
-  const { wrappedDEK, ciphertext } = await sealRecord(contentStr, kek)
+  const aad = buildAAD(vaultId, 'document', ENVELOPE_SCHEMA_VERSION)
+  const { wrappedDEK, ciphertext } = await sealRecord(contentStr, kek, aad)
 
   // ── 7. Detect MIME type (from extension, never trusted for execution) ──
   const mimeType = detectMimeType(safeName)
@@ -197,6 +202,7 @@ export async function importDocument(
 /**
  * Retrieve and decrypt a document.
  *
+ * @param vaultId - Vault identifier (for AAD binding).
  * @returns Object with metadata + decrypted content as Buffer.
  */
 export async function getDocument(
@@ -204,6 +210,7 @@ export async function getDocument(
   kek: Buffer,
   tier: VaultTier,
   documentId: string,
+  vaultId: string = 'default',
 ): Promise<{ document: VaultDocument; content: Buffer }> {
   // ── 1. Capability gate (BEFORE decrypt) ──
   if (!canAccessRecordType(tier, 'document', 'read')) {
@@ -219,10 +226,11 @@ export async function getDocument(
     throw new Error('Document not found')
   }
 
-  // ── 3. Decrypt ──
+  // ── 3. Decrypt (with AAD binding to vault + document record type) ──
   const wrappedDEK = Buffer.from(row.wrapped_dek)
   const ciphertext = Buffer.from(row.ciphertext)
-  const decryptedArr = await openRecord(wrappedDEK, ciphertext, kek)
+  const aad = buildAAD(vaultId, 'document', ENVELOPE_SCHEMA_VERSION)
+  const decryptedArr = await openRecord(wrappedDEK, ciphertext, kek, aad)
   // openRecord returns JSON.parse result; our payload was a base64 string,
   // so the result is that string.
   const base64Content = typeof decryptedArr === 'string'

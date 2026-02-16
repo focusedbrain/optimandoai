@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Test: Sandboxed Iframe (No Same-Origin)</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+    .warning { color: #dc2626; font-weight: bold; }
+    iframe { width: 100%; height: 300px; border: 2px solid #f59e0b; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>SEC-IFRAME: Sandboxed Iframe Test (No allow-same-origin)</h2>
+  <p class="warning">WRVault MUST NOT inject any UI inside a sandboxed iframe
+     that lacks <code>allow-same-origin</code>.</p>
+
+  <!--
+    sandbox="allow-scripts" but NOT allow-same-origin.
+    The content can run JS but is treated as a unique (opaque) origin.
+    WRVault's guardElement check must detect this and refuse to autofill.
+  -->
+  <iframe
+    id="sandboxed-frame"
+    sandbox="allow-scripts"
+    srcdoc='
+      <form id="sandboxed-login">
+        <label>Username: <input type="text" name="username" autocomplete="username"></label><br>
+        <label>Password: <input type="password" name="password" autocomplete="current-password"></label><br>
+        <button type="submit">Log In</button>
+      </form>
+    '
+    title="Sandboxed login form (no same-origin)"
+  ></iframe>
+</body>
+</html>

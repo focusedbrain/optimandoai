@@ -8,8 +8,7 @@ core `VaultService` logic.  The first (and currently only) provider is
 **PassphraseUnlockProvider** — identical in behaviour to the previous
 hard-coded passphrase/PIN flow.
 
-Future providers (e.g. Passkey/WebAuthn, hardware tokens, biometrics) will
-implement the same interface.
+The interface is extensible for future providers if needed.
 
 ---
 
@@ -17,7 +16,7 @@ implement the same interface.
 
 ```typescript
 interface UnlockProvider {
-  readonly id: UnlockProviderType   // 'passphrase' | 'passkey' | …
+  readonly id: UnlockProviderType   // 'passphrase'
   readonly name: string             // Human-readable label
 
   isAvailable(): boolean
@@ -147,7 +146,6 @@ const PROVIDER_REGISTRY: Record<UnlockProviderType, () => UnlockProvider>
 ```
 
 - `'passphrase'` → `PassphraseUnlockProvider` (always available)
-- `'passkey'` → throws "not yet implemented" (placeholder)
 
 Helper functions:
 - `resolveProvider(type?)` — returns provider instance (defaults to passphrase)
@@ -163,11 +161,7 @@ The unlock screen now reads `status.unlockProviders` and
 
 - **Single provider (current):** The provider selector is a hidden field.
   The unlock screen looks and behaves exactly as before.
-- **Multiple providers (future):** A dropdown appears above the password
-  field, allowing the user to choose between authentication methods.
-  When a non-passphrase provider is selected, the UI will toggle to show
-  that provider's flow (e.g. a "Use Passkey" button instead of a password
-  input).
+- **Single provider:** Currently only the passphrase provider is supported.
 
 ---
 
@@ -199,9 +193,9 @@ The unlock screen now reads `status.unlockProviders` and
 
 ## Adding a New Provider (Future)
 
-1. Create a class implementing `UnlockProvider` (e.g. `PasskeyUnlockProvider`)
+1. Create a class implementing `UnlockProvider`
 2. Add the type to `UnlockProviderType` union
 3. Register it in `PROVIDER_REGISTRY`
 4. Add enrollment UI (settings page)
-5. Add unlock UI toggle (provider selector → passkey button)
+5. Add unlock UI toggle (provider selector)
 6. The rest of VaultService works unchanged

@@ -146,6 +146,7 @@ import { execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
 import * as net from 'net'
+import * as crypto from 'crypto'
 
 // ============================================================================
 // AUTH TEST FUNCTION - Manual trigger only via IPC
@@ -321,6 +322,45 @@ function debugLog(...args: any[]): void {
 
 const WS_PORT = 51247
 const HTTP_PORT = 51248
+
+// ============================================================================
+// SECURITY: Per-launch HTTP authentication secret.
+//
+// Generated once at process start.  Never persisted to disk.
+// Required in the X-Launch-Secret header on every HTTP request
+// (except /api/health).  Distributed to the extension background
+// script via the WebSocket handshake message.
+//
+// This is the primary defense against Attack Chain 1: even if an
+// attacker somehow bypasses CORS (proxy, browser bug, etc.), they
+// cannot forge this header because they don't know the secret.
+// ============================================================================
+// Secret stored as raw Buffer — hex encoding only at transport boundaries.
+// Cannot be zeroized on shutdown (module scope, process-lifetime), but keeping
+// it as Buffer avoids V8 string interning and makes it eligible for GC if we
+// ever move to a shorter-lived scope.
+const LAUNCH_SECRET_BUF = crypto.randomBytes(32)
+
+/**
+ * Hex-encode the launch secret for transport (WebSocket handshake, logging).
+ * Each call creates a short-lived string that is GC'd promptly.
+ */
+function launchSecretHex(): string {
+  return LAUNCH_SECRET_BUF.toString('hex')
+}
+
+/**
+ * Constant-time comparison of an incoming header value against the launch secret.
+ * The incoming string is hex-decoded to a Buffer before comparison.
+ */
+function validateLaunchSecret(incoming: string): boolean {
+  const inBuf = Buffer.from(incoming, 'hex')
+  if (inBuf.length !== LAUNCH_SECRET_BUF.length) {
+    crypto.timingSafeEqual(LAUNCH_SECRET_BUF, LAUNCH_SECRET_BUF) // consume constant time
+    return false
+  }
+  return crypto.timingSafeEqual(LAUNCH_SECRET_BUF, inBuf)
+}
 
 /**
  * Check if a port is available
@@ -609,8 +649,7 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      // TODO: Enable sandbox: true once preload compatibility is verified
-      // sandbox: true,
+      sandbox: true,
       webSecurity: true,
     },
     show: false,  // Always start hidden - visibility controlled by openDashboardWindow()
@@ -1153,7 +1192,10 @@ async function createWindow() {
       }
       
       // Show credentials input dialog
-      // TODO: Security - refactor to use contextIsolation: true and IPC for credential input
+      // ⚠️  SECURITY WARNING: This window uses nodeIntegration:true / contextIsolation:false.
+      // It loads only local inline HTML (no remote content), so the immediate risk is
+      // limited, but it should be migrated to a safe IPC-based dialog.
+      // TODO(P1): Refactor to contextIsolation:true + IPC for credential input.
       const credWindow = new BrowserWindow({
         width: 500,
         height: 400,
@@ -1770,15 +1812,18 @@ app.whenReady().then(async () => {
         console.log('[MAIN] Socket readyState:', socket.readyState)
         try { wsClients.push(socket) } catch {}
         
-        // Send immediate test message to verify connection works
+        // Send immediate handshake message with the per-launch HTTP auth secret.
+        // The extension background script stores this and attaches it as
+        // X-Launch-Secret on every HTTP request to 127.0.0.1:51248.
         try {
           socket.send(JSON.stringify({ 
-            type: 'ELECTRON_LOG', 
-            message: '[MAIN] ✅ WebSocket connection established - ready to receive messages'
+            type: 'ELECTRON_HANDSHAKE',
+            launchSecret: launchSecretHex(),
+            message: '[MAIN] WebSocket connection established - ready to receive messages',
           }))
-          console.log('[MAIN] ✅ Test ELECTRON_LOG sent on connection')
+          console.log('[MAIN] ✅ Handshake with launch secret sent on connection')
         } catch (testErr) {
-          console.error('[MAIN] ❌ Failed to send test ELECTRON_LOG:', testErr)
+          console.error('[MAIN] ❌ Failed to send handshake:', testErr)
         }
         
         socket.on('close', () => { console.log('[MAIN] WebSocket connection closed'); wsVsbtBindings.delete(socket); try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
@@ -2606,15 +2651,84 @@ app.whenReady().then(async () => {
     const httpApp = express()
     httpApp.use(express.json({ limit: '50mb' }))
     
-    // CORS middleware - allow extension origin
+    // ========================================================================
+    // SECURITY: Per-launch secret is defined at module scope (LAUNCH_SECRET_BUF).
+    // See declaration near WS_PORT / HTTP_PORT for documentation.
+    // ========================================================================
+    console.log('[SECURITY] Per-launch HTTP auth secret active (64 hex chars)')
+
+    // SECURITY: The launch secret is distributed to the extension exclusively
+    // via the WebSocket handshake (ELECTRON_HANDSHAKE message).  It is NOT
+    // exposed via IPC — the renderer must never have access to it.
+    // (Removed: ipcMain.handle('security:getLaunchSecret', ...) )
+
+    // ========================================================================
+    // SECURITY: Strict CORS — deny all cross-origin requests.
+    //
+    // Why NO Access-Control-Allow-Origin header at all:
+    //   - The Chrome extension background script uses fetch() from its service
+    //     worker context.  Service worker fetches are NOT subject to CORS
+    //     (they are same-origin by definition to their own extension origin).
+    //   - By NOT setting any CORS headers, the browser's same-origin policy
+    //     blocks every cross-origin request from web pages.
+    //   - A website at https://evil.com fetching http://127.0.0.1:51248
+    //     will receive a CORS error because the response has no
+    //     Access-Control-Allow-Origin header.
+    //
+    // The only callers are:
+    //   1. Chrome extension background (service worker fetch — not CORS)
+    //   2. Electron renderer (IPC-based — not HTTP)
+    //   3. WebSocket clients (WS protocol — not HTTP CORS)
+    // ========================================================================
     httpApp.use((req, res, next) => {
-      res.header('Access-Control-Allow-Origin', '*')
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-      res.header('Access-Control-Allow-Headers', 'Content-Type')
+      // Block CORS preflight outright — no origin is trusted.
       if (req.method === 'OPTIONS') {
-        res.sendStatus(200)
+        res.status(403).end()
         return
       }
+
+      // Reject any request that carries an Origin header from a web page.
+      // Extension service workers do NOT send an Origin header on fetch().
+      // Electron renderer should use IPC, not HTTP.
+      const origin = req.headers['origin']
+      if (origin) {
+        // Allow chrome-extension:// origins (for popup/sidepanel fetch calls)
+        if (!origin.startsWith('chrome-extension://')) {
+          console.warn(`[SECURITY] Blocked request with web Origin: ${origin} → ${req.method} ${req.path}`)
+          res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
+          return
+        }
+      }
+
+      next()
+    })
+
+    // ========================================================================
+    // SECURITY: Global auth middleware — per-launch secret required.
+    //
+    // Every HTTP endpoint (except /api/health) must include:
+    //   X-Launch-Secret: <64-char hex>
+    //
+    // This eliminates Attack Chain 1: even if a website could somehow
+    // bypass CORS (e.g., via a misconfigured proxy), it would not know
+    // the per-launch secret and all requests would be rejected with 401.
+    //
+    // The secret is communicated to the extension via WebSocket handshake
+    // or IPC — never over HTTP, never persisted.
+    // ========================================================================
+    const AUTH_EXEMPT_PATHS = new Set([
+      '/api/health',       // Lightweight liveness probe, returns no sensitive data
+    ])
+
+    httpApp.use((req, res, next) => {
+      if (AUTH_EXEMPT_PATHS.has(req.path)) return next()
+
+      const secret = req.headers['x-launch-secret'] as string | undefined
+      if (!secret || !validateLaunchSecret(secret)) {
+        res.status(401).json({ error: 'Unauthorized: missing or invalid launch secret' })
+        return
+      }
+
       next()
     })
 
@@ -3825,8 +3939,6 @@ app.whenReady().then(async () => {
       '/api/vault/status',
       '/api/vault/create',
       '/api/vault/unlock',
-      '/api/vault/passkey/unlock-begin',
-      '/api/vault/passkey/unlock-complete',
     ])
 
     httpApp.use('/api/vault', (req, res, next) => {
@@ -3852,6 +3964,9 @@ app.whenReady().then(async () => {
     })
     
     // POST /api/vault/status - Get vault status (includes tier for UI gating)
+    // When the vault is already unlocked, the response also carries the current
+    // VSBT so that freshly-loaded extension UIs (content-script reload, popup
+    // reopen) can bind to the existing session without re-entering the password.
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/status')
@@ -3861,7 +3976,10 @@ app.whenReady().then(async () => {
         const status = await vaultService.getStatus()
         console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier })
         // Attach the user's resolved tier so the UI can gate categories
-        res.json({ success: true, data: { ...status, tier } })
+        // Include sessionToken when unlocked so the client can bind to the
+        // existing session (background caching picks this up automatically).
+        const sessionToken = status.isUnlocked ? vaultService.getSessionToken() : null
+        res.json({ success: true, data: { ...status, tier }, ...(sessionToken ? { sessionToken } : {}) })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in status:', error)
         console.error('[HTTP-VAULT] Error stack:', error?.stack)
@@ -3920,84 +4038,6 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in lock:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to lock vault' })
-      }
-    })
-
-    // -----------------------------------------------------------------------
-    // Passkey (WebAuthn) — enrollment & unlock
-    // -----------------------------------------------------------------------
-
-    // Begin passkey enrollment (Pro+, vault must be unlocked)
-    httpApp.post('/api/vault/passkey/enroll-begin', async (_req, res) => {
-      try {
-        console.log('[HTTP-VAULT] POST /api/vault/passkey/enroll-begin')
-        const tier = await resolveRequestTier()
-        const vaultService = await getVaultService()
-        const result = vaultService.beginPasskeyEnroll(tier)
-        res.json({ success: true, data: result })
-      } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in passkey enroll-begin:', error)
-        res.status(500).json({ success: false, error: error.message || 'Failed to begin passkey enrollment' })
-      }
-    })
-
-    // Complete passkey enrollment (challenge verified server-side)
-    httpApp.post('/api/vault/passkey/enroll-complete', async (req, res) => {
-      try {
-        const { credentialId, prfOutput, rpId, challenge } = req.body
-        console.log('[HTTP-VAULT] POST /api/vault/passkey/enroll-complete')
-        const tier = await resolveRequestTier()
-        const vaultService = await getVaultService()
-        await vaultService.completePasskeyEnroll(tier, credentialId, prfOutput, rpId, challenge)
-        res.json({ success: true })
-      } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in passkey enroll-complete:', error)
-        const status = error.message?.includes('challenge') ? 403 : 500
-        res.status(status).json({ success: false, error: error.message || 'Failed to complete passkey enrollment' })
-      }
-    })
-
-    // Remove passkey provider (Pro+, vault must be unlocked)
-    httpApp.post('/api/vault/passkey/remove', async (_req, res) => {
-      try {
-        console.log('[HTTP-VAULT] POST /api/vault/passkey/remove')
-        const tier = await resolveRequestTier()
-        const vaultService = await getVaultService()
-        vaultService.removePasskeyProvider(tier)
-        res.json({ success: true })
-      } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in passkey remove:', error)
-        res.status(500).json({ success: false, error: error.message || 'Failed to remove passkey' })
-      }
-    })
-
-    // Begin passkey unlock (returns credentialId + prfSalt for WebAuthn assertion)
-    httpApp.post('/api/vault/passkey/unlock-begin', async (req, res) => {
-      try {
-        const vaultId = req.body.vaultId || 'default'
-        console.log('[HTTP-VAULT] POST /api/vault/passkey/unlock-begin', { vaultId })
-        const vaultService = await getVaultService()
-        const result = vaultService.beginPasskeyUnlock(vaultId)
-        res.json({ success: true, data: result })
-      } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in passkey unlock-begin:', error)
-        res.status(500).json({ success: false, error: error.message || 'Failed to begin passkey unlock' })
-      }
-    })
-
-    // Complete passkey unlock (Pro+, challenge verified server-side)
-    httpApp.post('/api/vault/passkey/unlock-complete', async (req, res) => {
-      try {
-        const { prfOutput, challenge, vaultId } = req.body
-        console.log('[HTTP-VAULT] POST /api/vault/passkey/unlock-complete', { vaultId })
-        const tier = await resolveRequestTier()
-        const vaultService = await getVaultService()
-        await vaultService.completePasskeyUnlock(tier, prfOutput, challenge, vaultId || 'default')
-        res.json({ success: true, sessionToken: vaultService.getSessionToken() })
-      } catch (error: any) {
-        console.error('[HTTP-VAULT] Error in passkey unlock-complete:', error)
-        const status = error.message?.includes('challenge') ? 403 : 500
-        res.status(status).json({ success: false, error: error.message || 'Failed to unlock with passkey' })
       }
     })
 

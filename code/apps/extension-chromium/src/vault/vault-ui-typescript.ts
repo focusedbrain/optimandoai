@@ -152,7 +152,8 @@ function applyVaultTheme(root: HTMLElement): VaultThemeName {
           color: var(--wrv-text) !important;
         }
         #wrvault-overlay #vault-unlock-btn,
-        #wrvault-overlay #vault-create-btn {
+        #wrvault-overlay #vault-create-btn,
+        #wrvault-overlay .wrv-add-data-btn {
           color: #ffffff !important;
         }
       `
@@ -747,8 +748,6 @@ async function renderUnlockScreen(container: HTMLElement) {
         </select>
   ` : `<input type="hidden" id="vault-provider-select" value="${activeProviderType}" />`
 
-  const hasPasskey = unlockProviders.some(p => p.id === 'passkey')
-
   container.innerHTML = `
     <div style="max-width:440px;margin:80px auto;text-align:center;">
       <div style="font-size:64px;margin-bottom:24px;">🔒</div>
@@ -779,38 +778,6 @@ async function renderUnlockScreen(container: HTMLElement) {
         </select>
         
         ${providerSelectorHTML}
-        
-        <!-- Passkey unlock button (shown when passkey is enrolled) -->
-        ${hasPasskey ? `
-        <div id="vault-passkey-section" style="margin-bottom:24px;">
-          <button id="vault-passkey-unlock-btn" style="
-            width:100%;
-            padding:14px;
-            background:linear-gradient(135deg, #059669 0%, #047857 100%);
-            border:none;
-            border-radius:8px;
-            color:var(--wrv-text);
-            font-size:16px;
-            font-weight:600;
-            cursor:pointer;
-            transition:all 0.2s;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            gap:8px;
-          ">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 10v4m0 0v2m0-2h2m-2 0H10"/>
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
-            Unlock with Passkey
-          </button>
-          <div style="text-align:center;margin-top:12px;">
-            <span style="font-size:12px;color:var(--wrv-text-3);">or use master password below</span>
-          </div>
-        </div>
-        ` : ''}
         
         <!-- Passphrase unlock form -->
         <div id="vault-passphrase-form">
@@ -898,50 +865,6 @@ async function renderUnlockScreen(container: HTMLElement) {
   passwordInput?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') doUnlock()
   })
-
-  // Passkey unlock handler
-  const passkeyBtn = container.querySelector('#vault-passkey-unlock-btn') as HTMLButtonElement | null
-  if (passkeyBtn) {
-    passkeyBtn.addEventListener('click', async () => {
-      const vaultId = vaultSelect?.value || 'default'
-      try {
-        passkeyBtn.textContent = 'Verifying...'
-        passkeyBtn.disabled = true
-        errorDiv.style.display = 'none'
-        await performPasskeyUnlock(vaultId)
-        renderVaultDashboard(container)
-      } catch (err: any) {
-        errorDiv.textContent = err.message || 'Passkey unlock failed'
-        errorDiv.style.display = 'block'
-        passkeyBtn.innerHTML = `
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 10v4m0 0v2m0-2h2m-2 0H10"/>
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          Unlock with Passkey
-        `
-        passkeyBtn.disabled = false
-      }
-    })
-  }
-
-  // Provider change handler (toggle between password form and passkey section)
-  if (hasMultipleProviders && providerSelect) {
-    providerSelect.addEventListener('change', () => {
-      const passphraseForm = container.querySelector('#vault-passphrase-form') as HTMLElement
-      const passkeySection = container.querySelector('#vault-passkey-section') as HTMLElement | null
-      if (providerSelect.value === 'passphrase') {
-        passphraseForm.style.display = 'block'
-        unlockBtn.style.display = 'block'
-        if (passkeySection) passkeySection.style.display = 'none'
-      } else if (providerSelect.value === 'passkey') {
-        passphraseForm.style.display = 'none'
-        unlockBtn.style.display = 'none'
-        if (passkeySection) passkeySection.style.display = 'block'
-      }
-    })
-  }
 
   // Create New Vault button
   const createNewBtn = container.querySelector('#vault-create-new-btn') as HTMLButtonElement
@@ -1056,7 +979,7 @@ function renderVaultDashboard(container: HTMLElement) {
             color:var(--wrv-text);
             font-size:14px;
           "/>
-          <button id="vault-add-btn" style="
+          <button id="vault-add-btn" class="wrv-add-data-btn" style="
             padding:10px 20px;
             background:var(--wrv-btn-primary);
             border:none;
@@ -3983,33 +3906,6 @@ function showSuccessNotification(message: string) {
 }
 
 function renderSettingsScreen(container: HTMLElement) {
-  // Determine whether the user is Pro+ (passkey section is Pro+ only)
-  const TIER_LEVEL: Record<string, number> = {
-    free: 0, private: 1, private_lifetime: 2,
-    pro: 3, publisher: 4, publisher_lifetime: 5, enterprise: 6,
-  }
-  const isProPlus = (TIER_LEVEL[currentVaultTier] ?? 0) >= (TIER_LEVEL['pro'] ?? 3)
-
-  const passkeySection = isProPlus ? `
-      <div id="passkey-section" style="background:rgba(var(--wrv-accent-rgb),0.04);border:1px solid rgba(var(--wrv-accent-rgb),0.15);border-radius:12px;padding:24px;margin-bottom:16px;">
-        <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--wrv-text);">Passkey Authentication</h3>
-        <p style="font-size:13px;color:var(--wrv-text-2);margin-bottom:16px;">
-          Use a platform authenticator (fingerprint, face, security key) to unlock your vault.
-          Your master password remains as a fallback.
-        </p>
-        <div id="passkey-status" style="font-size:13px;color:var(--wrv-text-3);margin-bottom:12px;">Loading passkey status...</div>
-        <div id="passkey-actions"></div>
-      </div>
-  ` : `
-      <div style="background:rgba(var(--wrv-accent-rgb),0.03);border:1px solid rgba(var(--wrv-accent-rgb),0.08);border-radius:12px;padding:24px;margin-bottom:16px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--wrv-text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <h3 style="font-size:16px;font-weight:600;color:var(--wrv-text-2);margin:0;">Passkey Authentication</h3>
-        </div>
-        <p style="font-size:13px;color:var(--wrv-text-2);margin:0;">Passkey unlock is available for Pro+ users. Upgrade to enable biometric / security key vault unlock.</p>
-      </div>
-  `
-
   container.innerHTML = `
     <div style="max-width:600px;margin:40px auto;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px;">
@@ -4025,7 +3921,54 @@ function renderSettingsScreen(container: HTMLElement) {
         </select>
       </div>
 
-      ${passkeySection}
+      <div id="autofill-settings-section" style="background:rgba(var(--wrv-accent-rgb),0.04);border:1px solid rgba(var(--wrv-accent-rgb),0.15);border-radius:12px;padding:24px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:600;color:var(--wrv-text);margin:0;">Secure Insert Overlay</h3>
+            <p style="font-size:12px;color:var(--wrv-text-3);margin:4px 0 0 0;">Auto-detect and fill form fields with vault data</p>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="autofill-global-toggle" style="opacity:0;width:0;height:0;">
+            <span id="autofill-global-slider" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--wrv-bg-input);border:1px solid var(--wrv-border-accent);border-radius:24px;transition:all 0.25s;"></span>
+          </label>
+        </div>
+
+        <div id="autofill-section-toggles" style="display:flex;flex-direction:column;gap:10px;padding-left:4px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="autofill-toggle-login" style="width:16px;height:16px;accent-color:var(--wrv-accent);cursor:pointer;">
+            <div>
+              <span style="font-size:13px;color:var(--wrv-text);">Login autofill</span>
+              <span style="display:block;font-size:11px;color:var(--wrv-text-3);">Username, email, password</span>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="autofill-toggle-identity" style="width:16px;height:16px;accent-color:var(--wrv-accent);cursor:pointer;">
+            <div>
+              <span style="font-size:13px;color:var(--wrv-text);">Identity autofill</span>
+              <span style="display:block;font-size:11px;color:var(--wrv-text-3);">Name, address, phone, birthday</span>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="autofill-toggle-company" style="width:16px;height:16px;accent-color:var(--wrv-accent);cursor:pointer;">
+            <div>
+              <span style="font-size:13px;color:var(--wrv-text);">Company autofill</span>
+              <span style="display:block;font-size:11px;color:var(--wrv-text-3);">Company name, VAT, HRB, IBAN</span>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="autofill-toggle-custom" style="width:16px;height:16px;accent-color:var(--wrv-accent);cursor:pointer;">
+            <div>
+              <span style="font-size:13px;color:var(--wrv-text);">Custom fields</span>
+              <span style="display:block;font-size:11px;color:var(--wrv-text-3);">Tagged custom entries</span>
+            </div>
+          </label>
+        </div>
+
+        <p id="autofill-status-msg" style="font-size:11px;color:var(--wrv-text-3);margin:12px 0 0 0;min-height:16px;"></p>
+      </div>
 
       <div style="background:rgba(var(--wrv-accent-rgb),0.04);border:1px solid rgba(var(--wrv-accent-rgb),0.15);border-radius:12px;padding:24px;margin-bottom:16px;">
         <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--wrv-text);">Export & Backup</h3>
@@ -4100,68 +4043,119 @@ function renderSettingsScreen(container: HTMLElement) {
     })
   }
 
-  // ---------------------------------------------------------------------------
-  // Passkey section (Pro+ only)
-  // ---------------------------------------------------------------------------
-  if (isProPlus) {
-    const passkeyStatusDiv = container.querySelector('#passkey-status') as HTMLElement
-    const passkeyActionsDiv = container.querySelector('#passkey-actions') as HTMLElement
+  // ── Autofill toggle wiring ──
+  const globalToggle = container.querySelector('#autofill-global-toggle') as HTMLInputElement
+  const globalSlider = container.querySelector('#autofill-global-slider') as HTMLElement
+  const sectionTogglesEl = container.querySelector('#autofill-section-toggles') as HTMLElement
+  const loginToggle = container.querySelector('#autofill-toggle-login') as HTMLInputElement
+  const identityToggle = container.querySelector('#autofill-toggle-identity') as HTMLInputElement
+  const companyToggle = container.querySelector('#autofill-toggle-company') as HTMLInputElement
+  const customToggle = container.querySelector('#autofill-toggle-custom') as HTMLInputElement
+  const statusMsg = container.querySelector('#autofill-status-msg') as HTMLElement
 
-    const renderPasskeyState = (enrolled: boolean) => {
-      if (enrolled) {
-        passkeyStatusDiv.textContent = 'Passkey is enrolled and ready to use.'
-        passkeyStatusDiv.style.color = '#34d399'
-        passkeyActionsDiv.innerHTML = `
-          <button id="passkey-remove-btn" style="padding:12px 24px;background:var(--wrv-danger-bg);border:1px solid var(--wrv-danger-bg);border-radius:8px;color:var(--wrv-danger);font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s;">Remove Passkey</button>
-        `
-        container.querySelector('#passkey-remove-btn')?.addEventListener('click', async () => {
-          if (!confirm('Remove passkey authentication? You will only be able to unlock with your master password.')) return
-          const btn = container.querySelector('#passkey-remove-btn') as HTMLButtonElement
-          try {
-            btn.textContent = 'Removing...'
-            btn.disabled = true
-            await vaultAPI.passkeyRemove()
-            renderPasskeyState(false)
-          } catch (err: any) {
-            alert(`Failed to remove passkey: ${err.message || err}`)
-            btn.textContent = 'Remove Passkey'
-            btn.disabled = false
-          }
-        })
-      } else {
-        passkeyStatusDiv.textContent = 'No passkey enrolled.'
-        passkeyStatusDiv.style.color = 'var(--wrv-text-3)'
-        passkeyActionsDiv.innerHTML = `
-          <button id="passkey-enroll-btn" style="padding:12px 24px;background:rgba(var(--wrv-accent-rgb),0.20);border:1px solid rgba(var(--wrv-accent-rgb),0.35);border-radius:8px;color:var(--wrv-text);font-size:14px;cursor:pointer;transition:all 0.2s;">Enable Passkey</button>
-        `
-        container.querySelector('#passkey-enroll-btn')?.addEventListener('click', async () => {
-          const btn = container.querySelector('#passkey-enroll-btn') as HTMLButtonElement
-          try {
-            btn.textContent = 'Starting...'
-            btn.disabled = true
-            await performPasskeyEnrollment(container)
-            renderPasskeyState(true)
-          } catch (err: any) {
-            alert(`Passkey enrollment failed: ${err.message || err}`)
-            btn.textContent = 'Enable Passkey'
-            btn.disabled = false
-          }
-        })
-      }
+  function updateSliderVisual(checked: boolean) {
+    if (!globalSlider) return
+    if (checked) {
+      globalSlider.style.background = `rgba(var(--wrv-accent-rgb),0.6)`
+      globalSlider.style.setProperty('--dot-left', '22px')
+    } else {
+      globalSlider.style.background = 'var(--wrv-bg-input)'
+      globalSlider.style.setProperty('--dot-left', '2px')
     }
-
-    // Check current enrollment state from vault status
-    ;(async () => {
-      try {
-        const status = await vaultAPI.getVaultStatus()
-        const enrolled = (status.unlockProviders || []).some((p: any) => p.id === 'passkey')
-        renderPasskeyState(enrolled)
-      } catch {
-        passkeyStatusDiv.textContent = 'Unable to check passkey status.'
-        passkeyStatusDiv.style.color = '#ff3b30'
-      }
-    })()
+    // The slider dot is rendered via ::after, but since this is inline,
+    // we create/update a child element for the toggle knob.
+    let dot = globalSlider.querySelector('.wrv-toggle-dot') as HTMLElement
+    if (!dot) {
+      dot = document.createElement('span')
+      dot.className = 'wrv-toggle-dot'
+      dot.style.cssText = 'position:absolute;top:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:left 0.25s;box-shadow:0 1px 3px rgba(0,0,0,0.3);'
+      globalSlider.appendChild(dot)
+    }
+    dot.style.left = checked ? '22px' : '2px'
   }
+
+  function updateSectionDisabledState(globalEnabled: boolean) {
+    if (!sectionTogglesEl) return
+    sectionTogglesEl.style.opacity = globalEnabled ? '1' : '0.4'
+    sectionTogglesEl.style.pointerEvents = globalEnabled ? 'auto' : 'none'
+  }
+
+  function showStatus(msg: string) {
+    if (statusMsg) {
+      statusMsg.textContent = msg
+      setTimeout(() => { if (statusMsg) statusMsg.textContent = '' }, 2500)
+    }
+  }
+
+  // Load current autofill settings
+  const loadAutofillSettings = async () => {
+    try {
+      const settings = await vaultAPI.getSettings()
+      // Safe defaults: if fields are missing (old vault), treat as ON
+      const enabled = settings.autofillEnabled ?? true
+      const sections = settings.autofillSections ?? { login: true, identity: true, company: true, custom: true }
+
+      if (globalToggle) globalToggle.checked = enabled
+      updateSliderVisual(enabled)
+      updateSectionDisabledState(enabled)
+
+      if (loginToggle) loginToggle.checked = sections.login ?? true
+      if (identityToggle) identityToggle.checked = sections.identity ?? true
+      if (companyToggle) companyToggle.checked = sections.company ?? true
+      if (customToggle) customToggle.checked = sections.custom ?? true
+    } catch (err) {
+      console.error('[VAULT] Error loading autofill settings:', err)
+      // Default: everything ON (safe default)
+      if (globalToggle) globalToggle.checked = true
+      updateSliderVisual(true)
+      updateSectionDisabledState(true)
+      if (loginToggle) loginToggle.checked = true
+      if (identityToggle) identityToggle.checked = true
+      if (companyToggle) companyToggle.checked = true
+      if (customToggle) customToggle.checked = true
+    }
+  }
+
+  loadAutofillSettings()
+
+  // Global toggle handler
+  globalToggle?.addEventListener('change', async () => {
+    const enabled = globalToggle.checked
+    updateSliderVisual(enabled)
+    updateSectionDisabledState(enabled)
+    try {
+      await vaultAPI.updateSettings({ autofillEnabled: enabled } as any)
+      showStatus(enabled ? 'Secure Insert Overlay enabled' : 'Secure Insert Overlay disabled')
+      console.log('[VAULT] Autofill global toggle:', enabled)
+    } catch (err: any) {
+      console.error('[VAULT] Error updating autofill toggle:', err)
+      globalToggle.checked = !enabled
+      updateSliderVisual(!enabled)
+      updateSectionDisabledState(!enabled)
+      showStatus('Failed to save — please try again')
+    }
+  })
+
+  // Section toggle handler factory
+  const handleSectionToggle = (section: string, checkbox: HTMLInputElement | null) => {
+    checkbox?.addEventListener('change', async () => {
+      try {
+        await vaultAPI.updateSettings({ autofillSections: { [section]: checkbox.checked } } as any)
+        const label = section.charAt(0).toUpperCase() + section.slice(1)
+        showStatus(`${label} autofill ${checkbox.checked ? 'enabled' : 'disabled'}`)
+        console.log(`[VAULT] Autofill section toggle [${section}]:`, checkbox.checked)
+      } catch (err: any) {
+        console.error(`[VAULT] Error updating ${section} toggle:`, err)
+        checkbox.checked = !checkbox.checked
+        showStatus('Failed to save — please try again')
+      }
+    })
+  }
+
+  handleSectionToggle('login', loginToggle)
+  handleSectionToggle('identity', identityToggle)
+  handleSectionToggle('company', companyToggle)
+  handleSectionToggle('custom', customToggle)
 
   container.querySelector('#export-btn')?.addEventListener('click', async () => {
     alert('Export functionality - TODO: Will export vault data to CSV')
@@ -4185,169 +4179,4 @@ function renderSettingsScreen(container: HTMLElement) {
   })
 }
 
-// =============================================================================
-// WebAuthn / Passkey helpers
-// =============================================================================
-
-/** Convert an ArrayBuffer to a base64 string. */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
-
-/** Convert a base64 string to a Uint8Array. */
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes
-}
-
-/** Convert an ArrayBuffer to a base64url string (no padding). */
-function arrayBufferToBase64url(buffer: ArrayBuffer): string {
-  return arrayBufferToBase64(buffer)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-}
-
-/**
- * Perform the full passkey enrollment flow:
- *   1. Call backend to begin enrollment (get challenge + prfSalt)
- *   2. Perform WebAuthn navigator.credentials.create() with PRF extension
- *   3. Send credential ID + PRF output to backend to complete enrollment
- */
-async function performPasskeyEnrollment(_container: HTMLElement): Promise<void> {
-  // Step 1: Get enrollment params from backend
-  const enrollData = await vaultAPI.passkeyEnrollBegin()
-  const { challenge, prfSalt } = enrollData
-
-  const challengeBytes = base64ToUint8Array(challenge)
-  const prfSaltBytes = base64ToUint8Array(prfSalt)
-
-  // Generate a random user ID (not sensitive — just a WebAuthn user handle)
-  const userId = new Uint8Array(16)
-  crypto.getRandomValues(userId)
-
-  // Step 2: WebAuthn create() with PRF extension
-  const createOptions: PublicKeyCredentialCreationOptions = {
-    rp: { name: 'WRVault' },
-    user: {
-      id: userId,
-      name: 'vault-user',
-      displayName: 'Vault User',
-    },
-    challenge: challengeBytes,
-    pubKeyCredParams: [
-      { alg: -7, type: 'public-key' },    // ES256
-      { alg: -257, type: 'public-key' },   // RS256
-    ],
-    authenticatorSelection: {
-      authenticatorAttachment: 'platform',
-      userVerification: 'required',
-      residentKey: 'preferred',
-    },
-    timeout: 60000,
-    extensions: {
-      // @ts-expect-error — PRF extension is not in all TS type defs yet
-      prf: { eval: { first: prfSaltBytes } },
-    },
-  }
-
-  let credential: PublicKeyCredential
-  try {
-    const raw = await navigator.credentials.create({ publicKey: createOptions })
-    if (!raw) throw new Error('No credential returned from authenticator')
-    credential = raw as PublicKeyCredential
-  } catch (err: any) {
-    if (err.name === 'NotAllowedError') {
-      throw new Error('Passkey creation was cancelled or not allowed by the authenticator.')
-    }
-    throw new Error(`WebAuthn create failed: ${err.message || err}`)
-  }
-
-  // Check PRF support
-  const extResults = credential.getClientExtensionResults() as any
-  const prfResults = extResults?.prf?.results
-  if (!prfResults?.first) {
-    throw new Error(
-      'Your authenticator does not support the PRF extension, which is required for passkey vault unlock. ' +
-      'Please try a different authenticator or update your browser.'
-    )
-  }
-
-  const prfOutput = arrayBufferToBase64(prfResults.first)
-  const credentialId = arrayBufferToBase64url(credential.rawId)
-
-  // Step 3: Send to backend (include server-issued challenge for verification)
-  await vaultAPI.passkeyEnrollComplete({
-    credentialId,
-    prfOutput,
-    rpId: window.location.origin,
-    challenge,
-  })
-}
-
-/**
- * Perform the passkey unlock flow:
- *   1. Call backend to begin unlock (get credentialId + prfSalt)
- *   2. Perform WebAuthn navigator.credentials.get() with PRF extension
- *   3. Send PRF output to backend to complete unlock
- */
-async function performPasskeyUnlock(vaultId: string): Promise<void> {
-  // Step 1: Get assertion params from backend
-  const unlockData = await vaultAPI.passkeyUnlockBegin(vaultId)
-  const { challenge, credentialId, prfSalt } = unlockData
-
-  const challengeBytes = base64ToUint8Array(challenge)
-  const prfSaltBytes = base64ToUint8Array(prfSalt)
-
-  // Decode the credentialId from base64url
-  const credIdBase64 = credentialId.replace(/-/g, '+').replace(/_/g, '/')
-  const credIdBytes = base64ToUint8Array(credIdBase64)
-
-  // Step 2: WebAuthn get() with PRF extension
-  const getOptions: PublicKeyCredentialRequestOptions = {
-    challenge: challengeBytes,
-    allowCredentials: [
-      { id: credIdBytes, type: 'public-key' },
-    ],
-    userVerification: 'required',
-    timeout: 60000,
-    extensions: {
-      // @ts-expect-error — PRF extension not in all TS type defs
-      prf: { eval: { first: prfSaltBytes } },
-    },
-  }
-
-  let assertion: PublicKeyCredential
-  try {
-    const raw = await navigator.credentials.get({ publicKey: getOptions })
-    if (!raw) throw new Error('No assertion returned from authenticator')
-    assertion = raw as PublicKeyCredential
-  } catch (err: any) {
-    if (err.name === 'NotAllowedError') {
-      throw new Error('Passkey verification was cancelled or not allowed.')
-    }
-    throw new Error(`WebAuthn get failed: ${err.message || err}`)
-  }
-
-  // Extract PRF output
-  const extResults = assertion.getClientExtensionResults() as any
-  const prfResults = extResults?.prf?.results
-  if (!prfResults?.first) {
-    throw new Error('Authenticator did not return PRF output — unlock failed.')
-  }
-
-  const prfOutput = arrayBufferToBase64(prfResults.first)
-
-  // Step 3: Send to backend (include server-issued challenge for verification)
-  await vaultAPI.passkeyUnlockComplete({ prfOutput, challenge, vaultId })
-}
 

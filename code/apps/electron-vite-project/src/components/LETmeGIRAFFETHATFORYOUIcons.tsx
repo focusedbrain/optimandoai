@@ -14,7 +14,6 @@ export default function LETmeGIRAFFETHATFORYOUIcons({ onCapture }: { onCapture: 
       if (k === 'stop') stopStream()
     })
 
-    const ipc: any = (window as any).ipcRenderer
     const refresh = async () => {
       try {
         // @ts-ignore
@@ -26,16 +25,13 @@ export default function LETmeGIRAFFETHATFORYOUIcons({ onCapture }: { onCapture: 
     }
     refresh()
 
-    if (ipc?.on) {
-      const handler = () => {
-        console.log('[UI] TRIGGERS_UPDATED received, reloading presets')
-        refresh()
-      }
-      ipc.on('TRIGGERS_UPDATED', handler)
-      return () => {
-        ipc.off?.('TRIGGERS_UPDATED', handler)
-      }
-    }
+    // Use typed bridge instead of raw ipcRenderer
+    // @ts-ignore
+    const cleanup = window.LETmeGIRAFFETHATFORYOU?.onTriggersUpdated(() => {
+      console.log('[UI] TRIGGERS_UPDATED received, reloading presets')
+      refresh()
+    })
+    return () => { cleanup?.() }
   }, [])
 
   const startShot = async () => {

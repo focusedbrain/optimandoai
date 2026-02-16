@@ -9,7 +9,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 )
 
-// Use contextBridge
-window.ipcRenderer.on('main-process-message', (_event, message) => {
+// Typed lifecycle bridge (replaces raw ipcRenderer access)
+;(window as any).lifecycle?.onMainProcessMessage((message: string) => {
   console.log(message)
 })

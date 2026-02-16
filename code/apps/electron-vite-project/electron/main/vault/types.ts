@@ -86,7 +86,7 @@ export interface VaultItem {
 export interface VaultSession {
   vmk: Buffer              // Vault Master Key (DEK) — used for SQLCipher + legacy HKDF
   kek: Buffer              // Key Encryption Key — wraps/unwraps per-record DEKs (envelope v2)
-  extensionToken: string   // Capability token for extension access
+  extensionToken: Buffer   // Capability token for extension access (raw 32 bytes, hex-encoded only for transport)
   lastActivity: number     // Timestamp for autolock
   /** The unlock provider type used for this session (default: 'passphrase'). */
   providerType?: string
@@ -115,6 +115,26 @@ export interface VaultStatus {
  */
 export interface VaultSettings {
   autoLockMinutes: number  // 15, 30, 1440 (1 day), or 0 (never)
+
+  /**
+   * Global toggle: enables/disables all Secure Insert Overlay features.
+   * When OFF, no field scanning, overlay, or commit-insert runs.
+   * Default: true (ON).
+   */
+  autofillEnabled: boolean
+
+  /**
+   * Per-section toggles for autofill.
+   * Each section can be independently enabled/disabled.
+   * Only effective when autofillEnabled is true.
+   * Default: all true (ON).
+   */
+  autofillSections: {
+    login: boolean     // username/email/password
+    identity: boolean  // name/address/phone/etc.
+    company: boolean   // company/vat/etc.
+    custom: boolean    // tagged custom fields
+  }
 }
 
 /**

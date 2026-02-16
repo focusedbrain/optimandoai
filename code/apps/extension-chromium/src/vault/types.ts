@@ -177,4 +177,24 @@ export interface CategoryNode {
 
 export interface VaultSettings {
   autoLockMinutes: number
+
+  /**
+   * Global toggle: enables/disables all Secure Insert Overlay features.
+   * When OFF, no field scanning, overlay, or commit-insert runs.
+   * Default: true (ON).
+   */
+  autofillEnabled: boolean
+
+  /**
+   * Per-section toggles for autofill.
+   * Each section can be independently enabled/disabled.
+   * Only effective when autofillEnabled is true.
+   * Default: all true (ON).
+   */
+  autofillSections: {
+    login: boolean     // username/email/password
+    identity: boolean  // name/address/phone/etc.
+    company: boolean   // company/vat/etc.
+    custom: boolean    // tagged custom fields
+  }
 }

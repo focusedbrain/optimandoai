@@ -3,7 +3,7 @@
  * Handles unlock, lock, CRUD operations, session management, and autolock
  */
 
-import { randomBytes } from 'crypto'
+import { randomBytes, timingSafeEqual } from 'crypto'
 import type { Container, VaultItem, VaultSession, VaultStatus, VaultSettings, Field, ItemCategory } from './types'
 import {
   canAccessCategory,
@@ -16,15 +16,15 @@ import {
 } from './types'
 import {
   generateRandomKey,
-  wrapDEK,
   zeroize,
   deriveFieldKey,
   decryptField,
   DEFAULT_KDF_PARAMS,
+  buildAAD,
   type KDFParams,
 } from './crypto'
 import type { UnlockProvider, ProviderState, UnlockProviderType } from './unlockProvider'
-import { resolveProvider, derivePasskeyWrappingKey } from './unlockProvider'
+import { resolveProvider } from './unlockProvider'
 import {
   sealRecord,
   openRecord,
@@ -32,6 +32,11 @@ import {
   LEGACY_SCHEMA_VERSION,
 } from './envelope'
 import { DecryptCache } from './cache'
+import {
+  matchOrigin as matchOriginFn,
+  parseOrigin as parseOriginFn,
+  registrableDomain as registrableDomainFn,
+} from '../../../../../packages/shared/src/vault/originPolicy'
 import {
   importDocument,
   getDocument,
@@ -55,7 +60,6 @@ import { readFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 
 import { dirname } from 'path'
 
 import { atomicWriteFileSync } from './atomicWrite'
-import { ChallengeStore } from './challengeStore'
 
 export class VaultService {
   private db: any | null = null
@@ -64,6 +68,13 @@ export class VaultService {
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
     autoLockMinutes: 30, // Default: 30 minutes
+    autofillEnabled: true, // Global toggle: default ON
+    autofillSections: {    // Per-section: all default ON
+      login: true,
+      identity: true,
+      company: true,
+      custom: true,
+    },
   }
   
   // Rate limiting
@@ -71,9 +82,6 @@ export class VaultService {
   
   // Connection state tracking
   private dbValid: boolean = false // Track if database connection is valid
-
-  // Server-side challenge store for passkey flows (TTL 5 min, one-time use)
-  private challengeStore = new ChallengeStore({ ttlMs: 300_000, maxPending: 32 })
 
   // Per-record decrypt cache (TTL=60s, max 16 entries, flushed on lock)
   private decryptCache = new DecryptCache({ ttlMs: 60_000, maxEntries: 16 })
@@ -245,7 +253,8 @@ export class VaultService {
     this.startAutoLockTimer()
 
     console.log('[VAULT] ✅ Vault unlocked successfully via', effectiveProviderType)
-    return this.session.extensionToken
+    // Convert token to hex only at the transport boundary
+    return this.session.extensionToken.toString('hex')
   }
 
   /**
@@ -319,12 +328,15 @@ export class VaultService {
       this.db = null
     }
 
-    // Zeroize DEK and KEK
+    // Zeroize all key material: DEK, KEK, and session token
     if (this.session.vmk) {
       zeroize(this.session.vmk)
     }
     if (this.session.kek) {
       zeroize(this.session.kek)
+    }
+    if (this.session.extensionToken) {
+      zeroize(this.session.extensionToken)
     }
 
     // Tell the provider to clear its own in-memory material
@@ -344,286 +356,6 @@ export class VaultService {
     }
 
     console.log('[VAULT] ✅ Vault locked')
-  }
-
-  // ==========================================================================
-  // Passkey (WebAuthn) Enrollment & Unlock
-  // ==========================================================================
-
-  /** Transient state for an in-progress passkey enrollment ceremony. */
-  private passkeyEnrollPrfSalt: Buffer | null = null
-  private passkeyEnrollChallenge: Buffer | null = null
-
-  /**
-   * Begin passkey enrollment — returns challenge + PRF salt for the WebAuthn ceremony.
-   * The vault must already be unlocked (KEK in memory).
-   * Requires Pro+ tier.
-   */
-  beginPasskeyEnroll(tier: string): { challenge: string; prfSalt: string } {
-    this.ensureUnlocked()
-    this.requireProTier(tier)
-
-    this.passkeyEnrollChallenge = randomBytes(32)
-    this.passkeyEnrollPrfSalt = randomBytes(32)
-
-    const challengeB64 = this.passkeyEnrollChallenge.toString('base64')
-    this.challengeStore.issue(challengeB64)
-
-    console.log('[VAULT] Passkey enrollment begun — waiting for WebAuthn ceremony')
-    return {
-      challenge: challengeB64,
-      prfSalt: this.passkeyEnrollPrfSalt.toString('base64'),
-    }
-  }
-
-  /**
-   * Complete passkey enrollment — wraps the in-memory KEK with the PRF-derived key.
-   *
-   * @param tier             User tier (must be Pro+)
-   * @param credentialId     Base64url-encoded credential ID from WebAuthn create()
-   * @param prfOutputBase64  Base64-encoded PRF evaluation result from the authenticator
-   * @param rpId             RP ID used in the ceremony (stored for assertion)
-   * @param challengeBase64  The challenge returned by beginPasskeyEnroll (server-verified)
-   */
-  async completePasskeyEnroll(
-    tier: string,
-    credentialId: string,
-    prfOutputBase64: string,
-    rpId: string,
-    challengeBase64: string,
-  ): Promise<void> {
-    this.ensureUnlocked()
-    this.requireProTier(tier)
-
-    // Verify server-issued challenge (one-time use, TTL-bounded)
-    if (!challengeBase64 || !this.challengeStore.consume(challengeBase64)) {
-      this.passkeyEnrollChallenge = null
-      this.passkeyEnrollPrfSalt = null
-      throw new Error('Invalid or expired enrollment challenge')
-    }
-
-    if (!this.passkeyEnrollPrfSalt) {
-      throw new Error('No active passkey enrollment — call beginPasskeyEnroll first')
-    }
-
-    const kek = this.session!.kek
-    if (!kek) {
-      throw new Error('KEK not available in session')
-    }
-
-    const prfOutput = Buffer.from(prfOutputBase64, 'base64')
-    const prfSalt = this.passkeyEnrollPrfSalt
-
-    // Derive wrapping key from PRF output via HKDF
-    const wrappingKey = derivePasskeyWrappingKey(prfOutput, prfSalt)
-
-    // Wrap KEK with the passkey wrapping key (reuse AES-256-GCM wrapDEK)
-    const wrappedKEK = await wrapDEK(kek, wrappingKey)
-
-    zeroize(wrappingKey)
-    zeroize(prfOutput)
-
-    // Build provider state
-    const providerState: ProviderState = {
-      type: 'passkey',
-      name: 'Passkey (WebAuthn)',
-      enrolled_at: Date.now(),
-      data: {
-        credentialId,
-        prfSalt: prfSalt.toString('base64'),
-        wrappedKEK: wrappedKEK.toString('base64'),
-        rpId,
-      },
-    }
-
-    // Replace any existing passkey provider state
-    this.providerStates = this.providerStates.filter(ps => ps.type !== 'passkey')
-    this.providerStates.push(providerState)
-
-    // Persist updated provider list
-    this.updateProvidersMeta(this.currentVaultId)
-
-    // Clear enrollment transient state
-    this.passkeyEnrollChallenge = null
-    this.passkeyEnrollPrfSalt = null
-
-    console.log('[VAULT] ✅ Passkey enrolled successfully')
-  }
-
-  /**
-   * Remove enrolled passkey provider.  Vault must be unlocked, tier must be Pro+.
-   */
-  removePasskeyProvider(tier: string): void {
-    this.ensureUnlocked()
-    this.requireProTier(tier)
-
-    const hadPasskey = this.providerStates.some(ps => ps.type === 'passkey')
-    if (!hadPasskey) {
-      throw new Error('No passkey provider enrolled')
-    }
-
-    this.providerStates = this.providerStates.filter(ps => ps.type !== 'passkey')
-    if (this.activeProviderType === 'passkey') {
-      this.activeProviderType = 'passphrase'
-    }
-    this.updateProvidersMeta(this.currentVaultId)
-
-    console.log('[VAULT] ✅ Passkey provider removed')
-  }
-
-  /**
-   * Begin passkey unlock — returns stored credential ID, PRF salt, and a fresh challenge.
-   * Called when the vault is locked (reads unencrypted meta file).
-   */
-  beginPasskeyUnlock(vaultId: string = 'default'): {
-    challenge: string
-    credentialId: string
-    prfSalt: string
-    rpId: string
-  } {
-    const rawMeta = this.loadVaultMetaRaw(vaultId)
-    const passkeyState = rawMeta.providerStates.find(ps => ps.type === 'passkey')
-    if (!passkeyState) {
-      throw new Error('No passkey provider enrolled for this vault')
-    }
-
-    const challengeB64 = randomBytes(32).toString('base64')
-    this.challengeStore.issue(challengeB64)
-
-    return {
-      challenge: challengeB64,
-      credentialId: passkeyState.data.credentialId,
-      prfSalt: passkeyState.data.prfSalt,
-      rpId: passkeyState.data.rpId || '',
-    }
-  }
-
-  /**
-   * Complete passkey unlock — unwraps KEK using PRF output, then opens the vault.
-   *
-   * @param tier              User tier (must be Pro+)
-   * @param prfOutputBase64   Base64-encoded PRF evaluation result
-   * @param challengeBase64   The challenge returned by beginPasskeyUnlock (server-verified)
-   * @param vaultId           Which vault to unlock
-   * @returns Extension token for the new session
-   */
-  async completePasskeyUnlock(
-    tier: string,
-    prfOutputBase64: string,
-    challengeBase64: string,
-    vaultId: string = 'default',
-  ): Promise<string> {
-    // Verify server-issued challenge (one-time use, TTL-bounded)
-    if (!challengeBase64 || !this.challengeStore.consume(challengeBase64)) {
-      throw new Error('Invalid or expired unlock challenge')
-    }
-
-    if (!vaultExists(vaultId)) {
-      throw new Error(`Vault does not exist: ${vaultId}`)
-    }
-
-    this.currentVaultId = vaultId
-    this.requireProTier(tier)
-
-    if (this.session) {
-      throw new Error('Vault is already unlocked')
-    }
-
-    // Rate limiting (same as passphrase)
-    this.cleanupUnlockAttempts()
-    if (this.unlockAttempts.length >= 5) {
-      throw new Error('Too many unlock attempts. Please wait a minute.')
-    }
-    this.unlockAttempts.push(Date.now())
-
-    console.log('[VAULT] Unlocking vault via passkey...')
-
-    const rawMeta = this.loadVaultMetaRaw(vaultId)
-
-    // Resolve passkey provider and find its state
-    const provider = resolveProvider('passkey')
-    const passkeyState = rawMeta.providerStates.find(ps => ps.type === 'passkey')
-    if (!passkeyState) {
-      throw new Error('No passkey provider enrolled for this vault')
-    }
-
-    const prfOutput = Buffer.from(prfOutputBase64, 'base64')
-
-    // Delegate to PasskeyUnlockProvider.unlock()
-    const { kek, dek } = await provider.unlock(
-      { prfOutput },
-      {
-        salt: rawMeta.salt,
-        wrappedDEK: rawMeta.wrappedDEK,
-        kdfParams: rawMeta.kdfParams,
-        providerState: passkeyState,
-      },
-    )
-
-    zeroize(prfOutput)
-
-    // Store provider references
-    this.provider = provider
-    this.providerStates = rawMeta.providerStates || []
-    this.activeProviderType = 'passkey'
-
-    // Open database
-    try {
-      this.db = await openVaultDB(dek, vaultId)
-      this.dbValid = true
-    } catch (error) {
-      zeroize(dek)
-      zeroize(kek)
-      provider.lock()
-      this.dbValid = false
-      throw new Error('Failed to open vault database')
-    }
-
-    // Load settings
-    this.loadSettings()
-
-    // Create session
-    this.session = {
-      vmk: dek,
-      kek,
-      extensionToken: this.generateToken(),
-      lastActivity: Date.now(),
-      providerType: 'passkey',
-    }
-
-    this.startAutoLockTimer()
-
-    console.log('[VAULT] ✅ Vault unlocked successfully via passkey')
-    return this.session.extensionToken
-  }
-
-  // -- Passkey helpers -------------------------------------------------------
-
-  /** Throw if tier is below Pro. */
-  private requireProTier(tier: string): void {
-    const TIER_LEVEL: Record<string, number> = {
-      free: 0, private: 1, private_lifetime: 2,
-      pro: 3, publisher: 4, publisher_lifetime: 5, enterprise: 6,
-    }
-    if ((TIER_LEVEL[tier] ?? 0) < (TIER_LEVEL['pro'] ?? 3)) {
-      throw new Error('Passkey requires Pro+ tier')
-    }
-  }
-
-  /**
-   * Update only the provider fields in the vault meta file
-   * (avoids re-serializing salt/wrappedDEK/kdfParams).
-   */
-  private updateProvidersMeta(vaultId: string = 'default'): void {
-    const metaPath = getVaultMetaPath(vaultId)
-    if (!fsExistsSync(metaPath)) {
-      throw new Error('Vault meta file not found')
-    }
-    const metaData = JSON.parse(readFileSync(metaPath, 'utf-8'))
-    metaData.unlockProviders = this.providerStates
-    metaData.activeProviderType = this.activeProviderType
-    atomicWriteFileSync(metaPath, JSON.stringify(metaData, null, 2))
-    console.log('[VAULT] Updated provider metadata in:', metaPath)
   }
 
   /**
@@ -845,13 +577,15 @@ export class VaultService {
       updated_at: now,
     }
 
-    // ── Envelope encryption (schema_version = 2) ──
-    // Serialize fields, seal with a per-record DEK wrapped by the KEK.
-    const fieldsJson = JSON.stringify(newItem.fields)
-    const { wrappedDEK: wrappedRecordDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek)
-
     // Determine record_type from category (for capability gating)
     const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[newItem.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+
+    // ── Envelope encryption (schema_version = 2) ──
+    // Serialize fields, seal with a per-record DEK wrapped by the KEK.
+    // AAD binds ciphertext to this vault + record type + schema version.
+    const fieldsJson = JSON.stringify(newItem.fields)
+    const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+    const { wrappedDEK: wrappedRecordDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
 
     console.log('[VAULT] Sealed item with envelope encryption:', newItem.id, 'schema_version=2')
 
@@ -941,9 +675,10 @@ export class VaultService {
 
     if (updates.fields) {
       // ── Re-seal with fresh per-record DEK (always writes as v2) ──
-      const fieldsJson = JSON.stringify(updates.fields)
-      const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek)
       const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[updated.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+      const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+      const fieldsJson = JSON.stringify(updates.fields)
+      const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
 
       this.db!.prepare(
         `UPDATE vault_items
@@ -1038,7 +773,9 @@ export class VaultService {
       // Envelope v2: unwrap per-record DEK, decrypt ciphertext
       const wrappedDEK = Buffer.from((row as any).wrapped_dek)
       const ciphertext = Buffer.from((row as any).ciphertext)
-      item.fields = await openRecord(wrappedDEK, ciphertext, this.session!.kek)
+      const recordType = (row as any).record_type || 'custom'
+      const aad = buildAAD(this.currentVaultId, recordType, schemaVersion)
+      item.fields = await openRecord(wrappedDEK, ciphertext, this.session!.kek, aad)
     } else {
       // Legacy v1: HKDF field-level decryption
       item.fields = await this.decryptItemFields(id, item.fields)
@@ -1219,18 +956,59 @@ export class VaultService {
       return []
     }
 
-    // Normalize domain (remove www., protocol, etc.)
-    const normalized = domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0]
+    // ── Strict origin matching ──
+    // Parse the current page origin and its registrable domain so we can
+    // perform in-app filtering rather than relying on SQL LIKE (which
+    // matched substrings and was a security hole).
+    const currentOrigin = parseOriginFn(domain)
+    const currentReg = currentOrigin
+      ? registrableDomainFn(currentOrigin.host)
+      : domain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].toLowerCase()
 
+    // Fetch ALL password items (metadata only — no decrypt).
+    // We filter in-app using strict origin matching because the stored
+    // `domain` field may be a hostname, a URL, or an origin, and SQL
+    // cannot evaluate our multi-factor origin comparison.
     const rows = this.db!.prepare(
-      'SELECT id FROM vault_items WHERE category = ? AND domain LIKE ? ORDER BY title ASC'
-    ).all('password', `%${normalized}%`) as any[]
+      'SELECT id, domain FROM vault_items WHERE category = ? AND domain IS NOT NULL ORDER BY title ASC'
+    ).all('password') as any[]
 
-    // Decrypt each record individually via getItem (respects envelope v2 + capability)
-    const items: VaultItem[] = []
+    // Filter rows using strict origin matching
+    const matchedIds: string[] = []
     for (const row of rows) {
+      const storedDomain: string | undefined = row.domain
+      if (!storedDomain) continue
+
+      // Primary: strict origin match
+      const result = matchOriginFn(storedDomain, domain, { subdomainPolicy: 'exact' })
+      if (result.matches) {
+        matchedIds.push(row.id)
+        continue
+      }
+
+      // Secondary: www-equivalence (stored=www.x, current=x or vice versa)
+      const wwwResult = matchOriginFn(storedDomain, domain, { subdomainPolicy: 'exact', allowInsecureSchemeUpgrade: true })
+      if (wwwResult.matches) {
+        matchedIds.push(row.id)
+        continue
+      }
+
+      // Tertiary: same registrable domain (legacy loose match for migration).
+      // Only include if the stored domain's registrable domain matches.
+      const storedOrigin = parseOriginFn(storedDomain)
+      if (storedOrigin) {
+        const storedReg = registrableDomainFn(storedOrigin.host)
+        if (storedReg === currentReg) {
+          matchedIds.push(row.id)
+        }
+      }
+    }
+
+    // Decrypt each matched record individually (respects envelope v2 + capability)
+    const items: VaultItem[] = []
+    for (const id of matchedIds) {
       try {
-        items.push(await this.getItem(row.id, tier))
+        items.push(await this.getItem(id, tier))
       } catch {
         // Skip records that fail capability/decrypt
       }
@@ -1313,10 +1091,11 @@ export class VaultService {
 
     const decryptedFields = await this.decryptItemFields(id, fields)
 
-    // Re-seal with envelope encryption
-    const fieldsJson = JSON.stringify(decryptedFields)
-    const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek)
+    // Re-seal with envelope encryption (AAD-bound)
     const recordType = LEGACY_CATEGORY_TO_RECORD_TYPE[row.category as keyof typeof LEGACY_CATEGORY_TO_RECORD_TYPE] || 'custom'
+    const aad = buildAAD(this.currentVaultId, recordType, ENVELOPE_SCHEMA_VERSION)
+    const fieldsJson = JSON.stringify(decryptedFields)
+    const { wrappedDEK, ciphertext } = await sealRecord(fieldsJson, this.session!.kek, aad)
 
     this.db!.prepare(
       `UPDATE vault_items
@@ -1377,7 +1156,7 @@ export class VaultService {
   ): Promise<DocumentImportResult> {
     this.ensureUnlocked()
     this.updateActivity()
-    return importDocument(this.db!, this.session!.kek, tier, filename, data, notes)
+    return importDocument(this.db!, this.session!.kek, tier, filename, data, notes, this.currentVaultId)
   }
 
   /**
@@ -1389,7 +1168,7 @@ export class VaultService {
   ): Promise<{ document: VaultDocument; content: Buffer }> {
     this.ensureUnlocked()
     this.updateActivity()
-    return getDocument(this.db!, this.session!.kek, tier, documentId)
+    return getDocument(this.db!, this.session!.kek, tier, documentId, this.currentVaultId)
   }
 
   /**
@@ -1503,13 +1282,23 @@ export class VaultService {
   // ==========================================================================
 
   /**
-   * Update vault settings
+   * Update vault settings.
+   *
+   * Deep-merges autofillSections so callers can update individual
+   * section toggles without resetting the others.
    */
   updateSettings(updates: Partial<VaultSettings>): VaultSettings {
     this.ensureUnlocked()
     this.updateActivity()
 
-    this.settings = { ...this.settings, ...updates }
+    this.settings = {
+      ...this.settings,
+      ...updates,
+      autofillSections: {
+        ...this.settings.autofillSections,
+        ...(updates.autofillSections ?? {}),
+      },
+    }
     this.saveSettings()
 
     // Restart autolock timer with new timeout
@@ -1749,8 +1538,12 @@ export class VaultService {
   /**
    * Generate capability token
    */
-  private generateToken(): string {
-    return randomBytes(32).toString('hex')
+  /**
+   * Generate a random 32-byte token as a Buffer.
+   * The Buffer can be zeroized on lock; hex encoding is deferred to transport.
+   */
+  private generateToken(): Buffer {
+    return randomBytes(32)
   }
 
   // encryptItemFields removed — envelope v2 uses sealRecord() instead.
@@ -1762,7 +1555,7 @@ export class VaultService {
   private async decryptItemFields(itemId: string, fields: Field[]): Promise<Field[]> {
     // Ensure fields is an array
     if (!Array.isArray(fields)) {
-      console.error('[VAULT] decryptItemFields: fields is not an array:', typeof fields, fields)
+      console.error('[VAULT] decryptItemFields: fields is not an array:', typeof fields)
       return []
     }
     
@@ -1780,20 +1573,20 @@ export class VaultService {
     const decryptedFields = await Promise.all(validFields.map(async (field) => {
       // Ensure field is an object
       if (!field || typeof field !== 'object') {
-        console.error('[VAULT] decryptItemFields: field is not an object:', typeof field, field)
+        console.error('[VAULT] decryptItemFields: field is not an object:', typeof field)
         return { key: 'unknown', value: '', encrypted: false, type: 'text' } as Field
       }
       
       if (field.encrypted && this.session?.vmk) {
+        const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
         try {
-          const fieldKey = deriveFieldKey(this.session.vmk, 'field-encryption', itemId)
-          return {
-            ...field,
-            value: await decryptField(field.value, fieldKey),
-          }
+          const decryptedValue = await decryptField(field.value, fieldKey)
+          return { ...field, value: decryptedValue }
         } catch (error) {
-          console.error('[VAULT] Failed to decrypt field:', error)
+          console.error('[VAULT] Failed to decrypt field')
           return { ...field, value: '[DECRYPTION FAILED]' }
+        } finally {
+          zeroize(fieldKey)
         }
       }
       return field
@@ -1885,15 +1678,40 @@ export class VaultService {
     ).run('kdf_params', Buffer.from(JSON.stringify(kdfParams)), now)
   }
 
+  /** Default settings (source of truth for missing-field migration). */
+  private static readonly DEFAULT_SETTINGS: VaultSettings = {
+    autoLockMinutes: 30,
+    autofillEnabled: true,
+    autofillSections: {
+      login: true,
+      identity: true,
+      company: true,
+      custom: true,
+    },
+  }
+
   /**
-   * Load settings from database
+   * Load settings from database.
+   *
+   * Migration-safe: merges stored settings with defaults so that
+   * new fields (e.g., autofillEnabled, autofillSections) are
+   * populated on first load from an older vault that doesn't have them.
    */
   private loadSettings(): void {
     try {
       const row = this.db!.prepare('SELECT value FROM vault_meta WHERE key = ?').get('settings') as any
 
       if (row) {
-        this.settings = JSON.parse(Buffer.from(row.value).toString('utf-8'))
+        const stored = JSON.parse(Buffer.from(row.value).toString('utf-8'))
+        // Deep-merge: defaults ← stored, so new keys get their default values
+        this.settings = {
+          ...VaultService.DEFAULT_SETTINGS,
+          ...stored,
+          autofillSections: {
+            ...VaultService.DEFAULT_SETTINGS.autofillSections,
+            ...(stored.autofillSections ?? {}),
+          },
+        }
       }
     } catch (error) {
       // Use defaults if not found
@@ -1923,7 +1741,17 @@ export class VaultService {
    * Validate extension token
    */
   validateToken(token: string): boolean {
-    return !!this.session && this.session.extensionToken === token
+    if (!this.session || !this.session.extensionToken) return false
+    // Token is stored as Buffer; incoming token is hex string from transport.
+    // Convert incoming hex to Buffer for constant-time comparison.
+    const incomingBuf = Buffer.from(token, 'hex')
+    const storedBuf = this.session.extensionToken
+    if (incomingBuf.length !== storedBuf.length) {
+      // Run a dummy comparison to avoid leaking length info via timing
+      try { timingSafeEqual(storedBuf, storedBuf) } catch { /* ignore */ }
+      return false
+    }
+    return timingSafeEqual(storedBuf, incomingBuf)
   }
 
   /**
@@ -1933,7 +1761,9 @@ export class VaultService {
    * SECURITY: The returned value must NEVER be logged or persisted to disk.
    */
   getSessionToken(): string | null {
-    return this.session?.extensionToken ?? null
+    if (!this.session?.extensionToken) return null
+    // Convert from internal Buffer to hex string only at transport boundary
+    return this.session.extensionToken.toString('hex')
   }
 }
 

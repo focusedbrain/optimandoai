@@ -79,9 +79,7 @@ const VSBT_EXEMPT_PATHS = new Set([
   '/api/vault/status',
   '/api/vault/create',
   '/api/vault/unlock',
-  '/api/vault/passkey/unlock-begin',
-  '/api/vault/passkey/unlock-complete',
-])
+    ])
 
 function simulateHttpMiddleware(
   fullPath: string,
@@ -204,21 +202,18 @@ describe('VSBT — HTTP Middleware', () => {
     svc = new MockVaultService()
   })
 
-  it('6 exempt paths pass without VSBT', () => {
+  it('4 exempt paths pass without VSBT', () => {
     svc.unlock()
     for (const p of VSBT_EXEMPT_PATHS) {
       expect(simulateHttpMiddleware(p, undefined, svc).blocked).toBe(false)
     }
   })
 
-  it('all 22 non-exempt paths blocked without VSBT', () => {
+  it('all 19 non-exempt paths blocked without VSBT', () => {
     svc.unlock()
     const nonExempt = [
       '/api/vault/delete',
       '/api/vault/lock',
-      '/api/vault/passkey/enroll-begin',
-      '/api/vault/passkey/enroll-complete',
-      '/api/vault/passkey/remove',
       '/api/vault/items',
       '/api/vault/item/create',
       '/api/vault/item/get',

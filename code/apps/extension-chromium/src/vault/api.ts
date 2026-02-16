@@ -121,7 +121,7 @@ async function apiCall(endpoint: string, body?: any): Promise<any> {
             }
             
             // Auto-store VSBT when the server returns a sessionToken
-            // (e.g. after create, unlock, passkey-unlock-complete)
+            // (e.g. after create, unlock)
             if (response.sessionToken) {
               _storeVSBT(response.sessionToken)
               addLog('INFO', 'VSBT stored from response', { endpoint })
@@ -386,69 +386,6 @@ export async function evaluateHandshakeAttach(
   target: HandshakeTarget,
 ): Promise<AttachEvalResult> {
   return await apiCall('/handshake/evaluate', { itemId, target })
-}
-
-// ==========================================================================
-// Passkey (WebAuthn) — Enrollment & Unlock
-// ==========================================================================
-
-export interface PasskeyEnrollBeginResult {
-  challenge: string   // base64-encoded challenge
-  prfSalt: string     // base64-encoded PRF salt
-}
-
-export interface PasskeyUnlockBeginResult {
-  challenge: string
-  credentialId: string   // base64url credential ID
-  prfSalt: string        // base64-encoded PRF salt
-  rpId: string
-}
-
-/**
- * Begin passkey enrollment.  Vault must be unlocked & user must be Pro+.
- */
-export async function passkeyEnrollBegin(): Promise<PasskeyEnrollBeginResult> {
-  return await apiCall('/passkey/enroll-begin')
-}
-
-/**
- * Complete passkey enrollment after a successful WebAuthn ceremony.
- */
-export async function passkeyEnrollComplete(data: {
-  credentialId: string
-  prfOutput: string   // base64
-  rpId: string
-  challenge: string   // base64 — must match the challenge from enroll-begin
-}): Promise<void> {
-  await apiCall('/passkey/enroll-complete', data)
-}
-
-/**
- * Remove the passkey provider from the current vault.
- */
-export async function passkeyRemove(): Promise<void> {
-  await apiCall('/passkey/remove')
-}
-
-/**
- * Begin passkey unlock — returns stored credentialId + prfSalt for the assertion ceremony.
- */
-export async function passkeyUnlockBegin(vaultId: string = 'default'): Promise<PasskeyUnlockBeginResult> {
-  return await apiCall('/passkey/unlock-begin', { vaultId })
-}
-
-/**
- * Complete passkey unlock — send PRF output from the assertion ceremony.
- */
-export async function passkeyUnlockComplete(data: {
-  prfOutput: string   // base64
-  challenge: string   // base64 — must match the challenge from unlock-begin
-  vaultId?: string
-}): Promise<void> {
-  const result = await apiCall('/passkey/unlock-complete', data)
-  // Store VSBT returned by the server for subsequent requests
-  const token = result?.sessionToken
-  if (token) _storeVSBT(token)
 }
 
 // ==========================================================================

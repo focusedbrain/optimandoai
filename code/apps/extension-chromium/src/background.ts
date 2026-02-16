@@ -1,3 +1,5 @@
+import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
+
 let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: ReturnType<typeof setInterval> | null = null;
@@ -26,6 +28,15 @@ let mailGuardActiveTabId: number | null = null;
 // survives service-worker suspension without ever touching disk.
 // ---------------------------------------------------------------------------
 let _cachedVsbt: string | null = null;
+
+// ---------------------------------------------------------------------------
+// LAUNCH SECRET — per-launch HTTP authentication token.
+// Received from the Electron main process via WebSocket handshake
+// (ELECTRON_HANDSHAKE message).  Attached as X-Launch-Secret header
+// on every HTTP request to 127.0.0.1:51248.  Rotates on every
+// Electron app restart.  Never persisted to disk.
+// ---------------------------------------------------------------------------
+let _launchSecret: string | null = null;
 
 function _cacheVsbt(token: string | null) {
   _cachedVsbt = token
@@ -99,6 +110,7 @@ async function performHealthCheck(): Promise<void> {
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
         method: 'GET',
+        headers: _electronHeaders(),
         signal: controller.signal
       });
       healthy = response.ok;
@@ -159,6 +171,20 @@ startHealthMonitor();
 
 const ELECTRON_BASE_URL = 'http://127.0.0.1:51248';
 
+/**
+ * Build headers for a direct fetch() call to the Electron HTTP API.
+ * Automatically injects the per-launch auth secret (X-Launch-Secret).
+ * Use this for all scattered fetch() calls that bypass electronRequest().
+ */
+function _electronHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (_launchSecret) {
+    headers['X-Launch-Secret'] = _launchSecret
+  }
+  if (extra) Object.assign(headers, extra)
+  return headers
+}
+
 // Retry configuration
 const DEFAULT_RETRY_CONFIG = {
   maxRetries: 3,
@@ -188,6 +214,7 @@ async function isElectronRunning(): Promise<boolean> {
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
         method: 'GET',
+        headers: _electronHeaders(),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -204,6 +231,7 @@ async function isElectronRunning(): Promise<boolean> {
     const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
     const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
       method: 'GET',
+      headers: _electronHeaders(),
       signal: controller2.signal
     });
     clearTimeout(timeoutId2);
@@ -225,6 +253,7 @@ async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oa
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
         method: 'GET',
+        headers: _electronHeaders(),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -245,6 +274,7 @@ async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oa
     const timeoutId2 = setTimeout(() => controller2.abort(), 2000);
     const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
       method: 'GET',
+      headers: _electronHeaders(),
       signal: controller2.signal
     });
     clearTimeout(timeoutId2);
@@ -369,8 +399,14 @@ async function electronRequest(
     }, timeoutMs);
 
     try {
+      // Inject per-launch auth secret into every request
+      const mergedHeaders = new Headers((options as any)?.headers)
+      if (_launchSecret) {
+        mergedHeaders.set('X-Launch-Secret', _launchSecret)
+      }
       const response = await fetch(url, {
         ...options,
+        headers: mergedHeaders,
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -593,6 +629,17 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             if (data.type === 'pong') {
               // Connection is alive
               try { chrome.runtime.sendMessage({ type: 'pong' }) } catch {}
+            } else if (data.type === 'ELECTRON_HANDSHAKE') {
+              // Receive per-launch HTTP auth secret from Electron main process.
+              // This secret is required in the X-Launch-Secret header on every
+              // HTTP request.  Without it, the server returns 401.
+              if (data.launchSecret && typeof data.launchSecret === 'string') {
+                _launchSecret = data.launchSecret
+                console.log('[BG] 🔑 Launch secret received from Electron handshake')
+              }
+              if (data.message) {
+                console.log('[BG] 📋 Electron Handshake:', data.message)
+              }
             } else if (data.type === 'ELECTRON_LOG') {
               console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
               try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
@@ -1051,6 +1098,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     try {
       const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
         method: 'GET',
+        headers: _electronHeaders(),
         signal: AbortSignal.timeout(3000),
       });
       const data = await response.json();
@@ -1156,7 +1204,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
           try {
             const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: _electronHeaders(),
               signal: AbortSignal.timeout(5000)
             })
             if (response.ok) {
@@ -1344,7 +1392,7 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
             try {
               const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _electronHeaders(),
                 signal: AbortSignal.timeout(5000)
               })
               if (response.ok) {
@@ -1385,6 +1433,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
           method: 'GET',
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(3000),
         });
         console.log('[BG] Desktop app responded:', response.status);
@@ -1397,46 +1446,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // Proxy API calls to Electron app (for BackendConfigLightbox)
-  if (msg && msg.type === 'ELECTRON_API_PROXY') {
-    console.log('[BG] Proxying API call:', msg.endpoint, msg.method);
-    (async () => {
-      try {
-        const fetchOptions: RequestInit = {
-          method: msg.method || 'GET',
-          headers: msg.headers || { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(msg.timeout || 15000),
-        };
-        if (msg.body) {
-          fetchOptions.body = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body);
-        }
-        
-        const response = await fetch(`${ELECTRON_BASE_URL}${msg.endpoint}`, fetchOptions);
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = text;
-        }
-        
-        console.log('[BG] API proxy response:', response.status, response.ok);
-        sendResponse({ 
-          success: response.ok, 
-          status: response.status, 
-          statusText: response.statusText,
-          data 
-        });
-      } catch (e: any) {
-        console.log('[BG] API proxy error:', e.name, e.message);
-        sendResponse({ 
-          success: false, 
-          error: e.message,
-          errorName: e.name 
-        });
-      }
-    })();
-    return true; // Keep channel open for async response
+  // ── Typed Electron RPC (replaces ELECTRON_API_PROXY) ──────────────────────
+  //
+  // SECURITY: No generic proxy.  Each RPC method maps to exactly one
+  // hardcoded HTTP endpoint.  Payload is Zod-validated, sender is
+  // checked (extension ID only), and the launch secret is injected
+  // server-side — never exposed to the caller.
+  //
+  // See: src/rpc/electronRpc.ts for the full registry + schemas.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (msg && msg.type === 'ELECTRON_RPC') {
+    return handleElectronRpc(
+      msg as ElectronRpcRequest,
+      sender,
+      sendResponse,
+      _launchSecret,
+      ELECTRON_BASE_URL,
+    )
   }
 
   // ===== AUTH HANDLERS =====
@@ -1451,6 +1477,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // First check if Electron is reachable
         const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
           method: 'GET',
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(3000),
         }).catch(() => null);
         
@@ -1467,7 +1494,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log('[BG] Requesting auth URL from Electron...');
         const urlResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(10000),
         });
         const urlData = await urlResponse.json();
@@ -1487,7 +1514,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log('[BG] Waiting for SSO callback via Electron...');
         const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(180000), // 3 min timeout
         });
         const waitData = await waitResponse.json();
@@ -1526,6 +1553,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
           method: 'GET',
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(5000),
         });
         const data = await response.json();
@@ -1591,7 +1619,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/logout`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _electronHeaders(),
           signal: AbortSignal.timeout(10000),
         });
         const data = await response.json();
@@ -1778,6 +1806,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (effectiveVsbt) {
         headers['X-Vault-Session'] = effectiveVsbt
+      }
+      if (_launchSecret) {
+        headers['X-Launch-Secret'] = _launchSecret
       }
 
       const fetchOptions: RequestInit = {
@@ -2451,7 +2482,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_GET_PRESETS': {
       console.log('[BG] 📧 Email get IMAP presets request (via HTTP)')
       
-      fetch('http://127.0.0.1:51248/api/email/presets')
+      fetch('http://127.0.0.1:51248/api/email/presets', { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
           console.log('[BG] 📧 IMAP presets response:', data)
@@ -2468,7 +2499,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'EMAIL_GET_MESSAGE': {
       console.log('[BG] 📧 Email get message request (via HTTP):', msg.accountId, msg.messageId)
       
-      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages/${msg.messageId}`)
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages/${msg.messageId}`, { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
           console.log('[BG] 📧 Get message response:', data)
@@ -2491,7 +2522,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.from) params.append('from', msg.from)
       if (msg.subject) params.append('subject', msg.subject)
       
-      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages?${params}`)
+      fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages?${params}`, { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
           console.log('[BG] 📧 List messages response:', data)
@@ -2554,7 +2585,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       
       // Use HTTP API to get session from SQLite
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`, { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -2574,7 +2605,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // Save back to SQLite
             return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: _electronHeaders(),
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
@@ -2621,7 +2652,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       
       // Use HTTP API to get session from SQLite
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`, { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -2668,7 +2699,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // Save back to SQLite
             return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: _electronHeaders(),
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
@@ -2917,7 +2948,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       
       // Use direct HTTP API call to avoid document access issues (correct format: ?key= not ?keys=)
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -2966,7 +2997,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Save to SQLite via HTTP API
       fetch('http://127.0.0.1:51248/api/orchestrator/set', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _electronHeaders(),
         body: JSON.stringify({ key: sessionKey, value: session })
       })
         .then(response => {
@@ -2991,7 +3022,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.log('📥 BG: GET_ALL_SESSIONS_FROM_SQLITE')
       
       // Get all session keys from SQLite
-      fetch('http://127.0.0.1:51248/api/orchestrator/keys')
+      fetch('http://127.0.0.1:51248/api/orchestrator/keys', { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -3013,7 +3044,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           // Fetch all sessions
           const fetchPromises = sessionKeys.map((key: string) => 
-            fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(key)}`)
+            fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(key)}`, { headers: _electronHeaders() })
               .then(r => r.json())
               .then(result => ({ key, data: result.data }))
           )
@@ -3061,7 +3092,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       
       // Use direct HTTP API call to avoid document access issues (correct format: ?key= not ?keys=)
-      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`)
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)
@@ -3165,7 +3196,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Save updated session using direct HTTP API (correct format: {key, value})
           return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: _electronHeaders(),
             body: JSON.stringify({ key: msg.sessionKey, value: session })
           })
         })
@@ -3182,7 +3213,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result: any) => {
           console.log('✅ BG: Session saved to SQLite via HTTP!')
           // Get updated session to count boxes
-          return fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`)
+          return fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
         })
         .then(response => response.json())
         .then((result: any) => {
