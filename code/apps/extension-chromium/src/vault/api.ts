@@ -11,9 +11,27 @@ import type {
   Field,
   VaultStatus,
   VaultSettings,
+  HandshakeBindingPolicy,
+  HandshakeTarget,
+  AttachEvalResult,
 } from './types'
 
 const API_TIMEOUT = 30000 // 30 seconds
+
+// ---------------------------------------------------------------------------
+// Vault Session Binding Token (VSBT)
+// ---------------------------------------------------------------------------
+// In-memory only.  Set on unlock/create, cleared on lock/logout.
+// Passed to the background script for inclusion as X-Vault-Session header.
+// ---------------------------------------------------------------------------
+
+let _vsbt: string | null = null
+
+function _storeVSBT(token: string) { _vsbt = token }
+function _clearVSBT() { _vsbt = null }
+
+/** Returns the current VSBT (for testing / advanced use). */
+export function getVaultSessionToken(): string | null { return _vsbt }
 
 /**
  * Make HTTP API call to vault via background script
@@ -61,6 +79,7 @@ async function apiCall(endpoint: string, body?: any): Promise<any> {
             type: 'VAULT_HTTP_API',
             endpoint,
             body,
+            vsbt: _vsbt,
           },
           (response) => {
             clearTimeout(timeout)
@@ -150,6 +169,9 @@ export function disconnectVault(): void {
 
 export async function createVault(masterPassword: string, vaultName: string, vaultId?: string): Promise<{ vaultId: string }> {
   const result = await apiCall('/create', { password: masterPassword, vaultName, vaultId })
+  // Store VSBT returned by the server for subsequent requests
+  const token = result?.sessionToken ?? (result?.data as any)?.sessionToken
+  if (token) _storeVSBT(token)
   return result.data || { vaultId: result.vaultId }
 }
 
@@ -158,11 +180,15 @@ export async function deleteVault(vaultId?: string): Promise<void> {
 }
 
 export async function unlockVault(masterPassword: string, vaultId: string = 'default'): Promise<void> {
-  await apiCall('/unlock', { password: masterPassword, vaultId })
+  const result = await apiCall('/unlock', { password: masterPassword, vaultId })
+  // Store VSBT returned by the server for subsequent requests
+  const token = result?.sessionToken
+  if (token) _storeVSBT(token)
 }
 
 export async function lockVault(): Promise<void> {
   await apiCall('/lock')
+  _clearVSBT()
 }
 
 export async function getVaultStatus(): Promise<VaultStatus> {
@@ -248,6 +274,174 @@ export async function searchItems(query: string, category?: ItemCategory): Promi
 export async function getAutofillCandidates(domain: string): Promise<VaultItem[]> {
   // Not yet implemented in HTTP endpoints, but keeping for API compatibility
   throw new Error('getAutofillCandidates not yet implemented')
+}
+
+// ==========================================================================
+// Document Vault Operations
+// ==========================================================================
+
+export interface VaultDocumentMeta {
+  id: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+  sha256: string
+  notes: string
+  created_at: number
+  updated_at: number
+}
+
+export interface DocumentImportResult {
+  document: VaultDocumentMeta
+  deduplicated: boolean
+}
+
+/**
+ * Upload a document to the encrypted vault.
+ * @param filename  Original filename.
+ * @param data      Base64-encoded file content.
+ * @param notes     Optional notes / tags.
+ */
+export async function uploadDocument(
+  filename: string,
+  data: string,
+  notes?: string,
+): Promise<DocumentImportResult> {
+  return await apiCall('/document/upload', { filename, data, notes })
+}
+
+/**
+ * Retrieve and decrypt a stored document.
+ * Returns metadata + base64-encoded content.
+ */
+export async function getDocument(
+  id: string,
+): Promise<{ document: VaultDocumentMeta; content: string }> {
+  return await apiCall('/document/get', { id })
+}
+
+/**
+ * List all documents (metadata only, no decryption).
+ */
+export async function listDocuments(): Promise<VaultDocumentMeta[]> {
+  const result = await apiCall('/documents')
+  if (!Array.isArray(result)) {
+    console.error('[VAULT API] listDocuments did not return an array:', result)
+    return []
+  }
+  return result
+}
+
+/**
+ * Delete a document from the vault.
+ */
+export async function deleteDocument(id: string): Promise<void> {
+  await apiCall('/document/delete', { id })
+}
+
+/**
+ * Update document metadata (notes).
+ */
+export async function updateDocument(
+  id: string,
+  updates: { notes?: string },
+): Promise<VaultDocumentMeta> {
+  return await apiCall('/document/update', { id, updates })
+}
+
+// ==========================================================================
+// Handshake Context — Binding Policy & Evaluation
+// ==========================================================================
+
+/**
+ * Get item meta (binding policy for handshake context items).
+ */
+export async function getItemMeta(id: string): Promise<any | null> {
+  return await apiCall('/item/meta/get', { id })
+}
+
+/**
+ * Set item meta (binding policy for handshake context items).
+ */
+export async function setItemMeta(
+  id: string,
+  meta: Record<string, any>,
+): Promise<void> {
+  await apiCall('/item/meta/set', { id, meta })
+}
+
+/**
+ * Evaluate whether a handshake context item can be attached to a handshake.
+ * Returns allowed/blocked with reason and message.
+ */
+export async function evaluateHandshakeAttach(
+  itemId: string,
+  target: HandshakeTarget,
+): Promise<AttachEvalResult> {
+  return await apiCall('/handshake/evaluate', { itemId, target })
+}
+
+// ==========================================================================
+// Passkey (WebAuthn) — Enrollment & Unlock
+// ==========================================================================
+
+export interface PasskeyEnrollBeginResult {
+  challenge: string   // base64-encoded challenge
+  prfSalt: string     // base64-encoded PRF salt
+}
+
+export interface PasskeyUnlockBeginResult {
+  challenge: string
+  credentialId: string   // base64url credential ID
+  prfSalt: string        // base64-encoded PRF salt
+  rpId: string
+}
+
+/**
+ * Begin passkey enrollment.  Vault must be unlocked & user must be Pro+.
+ */
+export async function passkeyEnrollBegin(): Promise<PasskeyEnrollBeginResult> {
+  return await apiCall('/passkey/enroll-begin')
+}
+
+/**
+ * Complete passkey enrollment after a successful WebAuthn ceremony.
+ */
+export async function passkeyEnrollComplete(data: {
+  credentialId: string
+  prfOutput: string   // base64
+  rpId: string
+  challenge: string   // base64 — must match the challenge from enroll-begin
+}): Promise<void> {
+  await apiCall('/passkey/enroll-complete', data)
+}
+
+/**
+ * Remove the passkey provider from the current vault.
+ */
+export async function passkeyRemove(): Promise<void> {
+  await apiCall('/passkey/remove')
+}
+
+/**
+ * Begin passkey unlock — returns stored credentialId + prfSalt for the assertion ceremony.
+ */
+export async function passkeyUnlockBegin(vaultId: string = 'default'): Promise<PasskeyUnlockBeginResult> {
+  return await apiCall('/passkey/unlock-begin', { vaultId })
+}
+
+/**
+ * Complete passkey unlock — send PRF output from the assertion ceremony.
+ */
+export async function passkeyUnlockComplete(data: {
+  prfOutput: string   // base64
+  challenge: string   // base64 — must match the challenge from unlock-begin
+  vaultId?: string
+}): Promise<void> {
+  const result = await apiCall('/passkey/unlock-complete', data)
+  // Store VSBT returned by the server for subsequent requests
+  const token = result?.sessionToken
+  if (token) _storeVSBT(token)
 }
 
 // ==========================================================================

@@ -338,6 +338,12 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
       throw new Error('Failed to decrypt vault - incorrect password')
     }
     
+    // Run additive migration for envelope columns (safe on every open)
+    migrateEnvelopeColumns(db)
+
+    // Run additive migration for document vault table (safe on every open)
+    migrateDocumentTable(db)
+
     console.log('[VAULT DB] Opened better-sqlite3 vault database')
     return db
   } catch (error) {
@@ -352,6 +358,80 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
 export function closeVaultDB(db: any): void {
   db.close()
   console.log('[VAULT DB] Closed vault database')
+}
+
+// ---------------------------------------------------------------------------
+// Additive schema migration — Document Vault table
+// ---------------------------------------------------------------------------
+// Creates the vault_documents table if it doesn't exist.  Safe to call
+// on every open (CREATE TABLE IF NOT EXISTS).
+
+function migrateDocumentTable(db: any): void {
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS vault_documents (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        sha256 TEXT NOT NULL,
+        wrapped_dek BLOB NOT NULL,
+        ciphertext BLOB NOT NULL,
+        notes TEXT DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ vault_documents table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create vault_documents table:', e?.message)
+  }
+
+  // Content-addressing index for deduplication
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_docs_sha256 ON vault_documents(sha256)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_docs_created ON vault_documents(created_at)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create document indexes:', e?.message)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Additive schema migration — envelope encryption columns
+// ---------------------------------------------------------------------------
+// Safe to call on every open: each ALTER TABLE is guarded by a try/catch
+// so already-existing columns are silently skipped.
+
+function migrateEnvelopeColumns(db: any): void {
+  const cols: Array<{ name: string; sql: string }> = [
+    { name: 'wrapped_dek',    sql: 'ALTER TABLE vault_items ADD COLUMN wrapped_dek BLOB' },
+    { name: 'ciphertext',     sql: 'ALTER TABLE vault_items ADD COLUMN ciphertext BLOB' },
+    { name: 'record_type',    sql: "ALTER TABLE vault_items ADD COLUMN record_type TEXT" },
+    { name: 'meta',           sql: "ALTER TABLE vault_items ADD COLUMN meta TEXT" },
+    { name: 'schema_version', sql: 'ALTER TABLE vault_items ADD COLUMN schema_version INTEGER DEFAULT 1' },
+  ]
+
+  for (const col of cols) {
+    try {
+      db.prepare(col.sql).run()
+      console.log(`[VAULT DB] ✅ Added column: ${col.name}`)
+    } catch (e: any) {
+      // "duplicate column name" means it already exists — expected & safe
+      if (e?.message?.includes('duplicate column')) {
+        // Silently ignore
+      } else {
+        console.warn(`[VAULT DB] ⚠️ Could not add column ${col.name}:`, e?.message)
+      }
+    }
+  }
+
+  // Index on schema_version for migration queries
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_items_schema_version ON vault_items(schema_version)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_items_record_type ON vault_items(record_type)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create envelope indexes:', e?.message)
+  }
 }
 
 /**
@@ -437,6 +517,14 @@ function createSchema(db: any): void {
     } catch (e: any) {
       console.warn('[VAULT DB] Failed to create indexes (non-critical):', e?.message)
     }
+
+    // ── Envelope encryption columns (additive migration) ──
+    // These columns are added with ALTER TABLE so that existing vaults
+    // are upgraded transparently on first open after the update.
+    migrateEnvelopeColumns(db)
+
+    // ── Document Vault table ──
+    migrateDocumentTable(db)
     
     // Verify schema was created correctly
     // NOTE: sqlite_master queries return {} instead of [] with current SQLCipher config

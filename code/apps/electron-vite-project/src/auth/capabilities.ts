@@ -58,11 +58,31 @@ export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: stri
   // PRIMARY: Use wrdesk_plan claim if present and valid
   if (wrdesk_plan) {
     const normalized = wrdesk_plan.toLowerCase().trim();
+
+    // Direct match (e.g. "pro", "publisher", "enterprise")
     if (VALID_PLAN_TIERS.includes(normalized)) {
-      console.log('[TIER] Resolved from wrdesk_plan claim: ' + normalized);
+      console.log('[TIER] Resolved from plan claim (exact): ' + normalized);
       return normalized as Tier;
     }
-    console.log('[TIER] wrdesk_plan claim has unrecognized value: "' + wrdesk_plan + '", falling back to roles');
+
+    // Fuzzy match: handle common variations like "Pro Plan", "pro_annual",
+    // "publisher-lifetime", "Enterprise Tier", etc.
+    const FUZZY_MAP: Array<{ pattern: RegExp; tier: Tier }> = [
+      { pattern: /enterprise/i,            tier: 'enterprise' },
+      { pattern: /publisher.*life/i,       tier: 'publisher_lifetime' },
+      { pattern: /publisher/i,             tier: 'publisher' },
+      { pattern: /\bpro\b/i,              tier: 'pro' },
+      { pattern: /private.*life/i,         tier: 'private_lifetime' },
+      { pattern: /\bprivate\b/i,           tier: 'private' },
+    ];
+    for (const { pattern, tier } of FUZZY_MAP) {
+      if (pattern.test(normalized)) {
+        console.log('[TIER] Resolved from plan claim (fuzzy "' + wrdesk_plan + '" → ' + tier + ')');
+        return tier;
+      }
+    }
+
+    console.log('[TIER] Plan claim has unrecognized value: "' + wrdesk_plan + '", falling back to roles');
   }
 
   // FALLBACK: Map Keycloak roles to tier

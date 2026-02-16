@@ -8,3 +8,6 @@ export {
   type SanitizeReturnToConfig,
   type SanitizeResult,
 } from './security/sanitizeReturnTo';
+
+// Vault capabilities (record types, tier gating, display metadata)
+export * from './vault/vaultCapabilities';

@@ -1468,6 +1468,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             authLoggedIn: true,
             authTier: waitData.tier || 'free'
           });
+          // Delay before closing the auth tab so the user can see the
+          // "You're signed in" confirmation page.  Without this delay the
+          // Electron dashboard window steals focus almost instantly and the
+          // tab is removed before the confirmation page is ever visible.
+          await new Promise(r => setTimeout(r, 3000));
           // Close the Keycloak auth tab if still open
           try {
             if (authTab.id) await chrome.tabs.remove(authTab.id);
@@ -1686,7 +1691,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
     case 'VAULT_HTTP_API': {
       // Relay vault HTTP API calls from content scripts (bypasses CSP)
-      const { endpoint, body } = msg
+      const { endpoint, body, vsbt } = msg
       console.log('[BG] Relaying vault HTTP API call:', endpoint)
       console.log('[BG] Request body:', body)
       
@@ -1732,9 +1737,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
       
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (vsbt) {
+        headers['X-Vault-Session'] = vsbt
+      }
+
       const fetchOptions: RequestInit = {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         signal: controller.signal,
       }
       

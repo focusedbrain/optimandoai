@@ -84,6 +84,9 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
     });
 
     server = createServer((req, res) => {
+      const reqUrl = req.url ?? '/';
+      console.log(`[AUTH] Loopback request: ${req.method} ${reqUrl}`);
+
       // Only accept GET requests
       if (req.method !== 'GET') {
         res.writeHead(405, { 'Content-Type': 'text/plain' });
@@ -91,10 +94,11 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
         return;
       }
 
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      const url = new URL(reqUrl, 'http://127.0.0.1');
 
-      // Only accept the exact callback path
+      // Only accept the exact callback path (favicon, probes, etc. are ignored)
       if (url.pathname !== callbackPath) {
+        console.log(`[AUTH] Loopback 404: expected=${callbackPath}, got=${url.pathname}`);
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
         return;
@@ -278,14 +282,16 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 </html>`);
 
       // Resolve with result
+      console.log('[AUTH] Loopback callback handled successfully, resolving code');
       resolveCode({ code, state, error, error_description });
 
       // Close server after a delay to ensure the response is fully sent to the browser.
       // Without this delay, server.close() can terminate the socket before the browser
       // receives the full HTML response, causing ERR_CONNECTION_REFUSED.
+      // 5 seconds gives ample time for the HTML to render before the server shuts down.
       setTimeout(() => {
         try { server.close(); } catch (_) { /* ignore */ }
-      }, 3000);
+      }, 5000);
     });
 
     server.on('error', reject);

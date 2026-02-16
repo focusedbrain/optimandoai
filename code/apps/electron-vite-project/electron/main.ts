@@ -21,26 +21,30 @@ function logoutFast(): void {
   const t0 = Date.now()
   console.log(`[AUTH][t0] logoutFast() - Locking UI immediately`)
   
-  // 1. Set auth state to locked (blocks all privileged actions)
+  // 1. Lock vault FIRST — clears KEK/DEK from memory before anything else
+  lockVaultIfLoaded()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] Vault lock requested`)
+
+  // 2. Set auth state to locked (blocks all privileged actions)
   hasValidSession = false
   currentTier = DEFAULT_TIER
   console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false`)
   
-  // 2. Clear in-memory tokens (sync, fast)
+  // 3. Clear in-memory tokens (sync, fast)
   clearSession()
   console.log(`[AUTH][t+${Date.now() - t0}ms] In-memory session cleared`)
   
-  // 3. Update tray menu to show locked state
+  // 4. Update tray menu to show locked state
   updateTrayMenu()
   console.log(`[AUTH][t+${Date.now() - t0}ms] Tray menu updated`)
   
-  // 4. Close dashboard window immediately
+  // 5. Close dashboard window immediately
   if (win && !win.isDestroyed()) {
     win.close()
     console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window closed`)
   }
   
-  // 5. Close BEAP Inbox popup via WebSocket message to extension
+  // 6. Close BEAP Inbox popup via WebSocket message to extension
   const closePopupMsg = JSON.stringify({ type: 'CLOSE_COMMAND_CENTER_POPUP' })
   wsClients.forEach((socket: any) => {
     try {
@@ -76,7 +80,66 @@ async function logoutCleanupAsync(): Promise<void> {
 // AUTH-GATED STARTUP - Track session validity for headless mode
 // ============================================================================
 let hasValidSession = false  // Set after startup session check
-let currentTier: Tier = 'free'  // MVP: default to 'free' tier
+
+// Display-only cache — used for tray menus, IPC status, and auth responses.
+// NEVER use this for security-gated decisions (vault routes, capability checks).
+// Those MUST call resolveRequestTier() to get the authoritative tier per-request.
+let currentTier: Tier = 'free'
+
+/**
+ * Resolve the authoritative tier for the current request.
+ *
+ * Reads the LATEST JWT claims from the session module (refreshed automatically
+ * when the token is near expiry), extracts `wrdesk_plan` / `roles`, and resolves
+ * the tier via the canonical `resolveTier()` function.
+ *
+ * Must be called inside every security-gated route handler — never rely on
+ * the module-level `currentTier` cache for access control.
+ */
+async function resolveRequestTier(): Promise<Tier> {
+  const session = await ensureSession()
+  if (!session.accessToken || !session.userInfo) {
+    console.log('[TIER] resolveRequestTier: no session or userInfo — defaulting to', DEFAULT_TIER)
+    return DEFAULT_TIER
+  }
+  const plan = session.userInfo.wrdesk_plan
+  const roles = session.userInfo.roles || []
+  const tier = resolveTier(plan, roles)
+  console.log('[TIER] resolveRequestTier: wrdesk_plan=' + (plan || '(none)') + ', roleCount=' + roles.length + ', resolved=' + tier)
+  // Update the display cache so tray/status stay reasonably fresh
+  currentTier = tier
+  return tier
+}
+
+// Cached reference to vaultService — set lazily on first vault route access.
+// Allows logoutFast() (synchronous) to lock the vault without async import.
+// validateToken/getSessionToken used by the VSBT middleware.
+let _vaultServiceRef: {
+  lock: () => void
+  validateToken: (token: string) => boolean
+  getSessionToken: () => string | null
+} | null = null
+
+/**
+ * Lock the vault synchronously if the module has been loaded.
+ * Safe to call at any time — no-op if vault was never imported.
+ */
+function lockVaultIfLoaded(): void {
+  if (_vaultServiceRef) {
+    try {
+      _vaultServiceRef.lock()
+      console.log('[AUTH] Vault locked during session teardown')
+    } catch (err: any) {
+      console.error('[AUTH] Error locking vault:', err?.message || err)
+    }
+  }
+  // Invalidate ALL WS vault session bindings — any bound connection will fail
+  // on the next vault.* message and must re-bind after a new unlock.
+  if (wsVsbtBindings.size > 0) {
+    wsVsbtBindings.clear()
+    console.log('[AUTH] Cleared all WS vault session bindings')
+  }
+}
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -413,6 +476,12 @@ let activeStop: null | (() => Promise<string>) = null
 // Track connected WS clients (extension bridge)
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
+
+// Per-socket VSBT binding for vault RPC (connection-bound, not per-message).
+// Populated on vault.create / vault.unlock success or explicit vault.bind handshake.
+// Cleared on lock / logout / session-expire via lockVaultIfLoaded().
+var wsVsbtBindings: Map<any, string> = (globalThis as any).__og_ws_vsbt__ || new Map();
+(globalThis as any).__og_ws_vsbt__ = wsVsbtBindings;
 
 // Current extension theme (synced from extension via WebSocket)
 // Values: 'pro' (purple), 'dark', 'standard' (white - default)
@@ -1713,7 +1782,7 @@ app.whenReady().then(async () => {
           console.error('[MAIN] ❌ Failed to send test ELECTRON_LOG:', testErr)
         }
         
-        socket.on('close', () => { console.log('[MAIN] WebSocket connection closed'); try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
+        socket.on('close', () => { console.log('[MAIN] WebSocket connection closed'); wsVsbtBindings.delete(socket); try { wsClients = wsClients.filter(s => s !== socket) } catch {} })
         socket.on('error', (err: any) => {
           console.error('[MAIN] WebSocket error:', err)
         })
@@ -1756,13 +1825,76 @@ app.whenReady().then(async () => {
             if (msg.method && msg.method.startsWith('vault.')) {
               console.log('[MAIN] Processing vault RPC:', msg.method)
               try {
-                const response = await handleVaultRPC(msg.method, msg.params)
+                // ── Auth gate: resolve tier from session (fail-closed) ──
+                const rpcSession = await ensureSession()
+                if (!rpcSession.accessToken) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'Authentication required — no valid session',
+                  }))
+                  return
+                }
+                const rpcTier = resolveTier(
+                  rpcSession.userInfo?.wrdesk_plan,
+                  rpcSession.userInfo?.roles || [],
+                )
+
+                // ── vault.bind handshake (auth required, binds VSBT to this connection) ──
+                if (msg.method === 'vault.bind') {
+                  const { vaultService: vsForBind } = await import('./main/vault/rpc')
+                  const clientVsbt = msg.params?.vsbt
+                  if (clientVsbt && vsForBind.validateToken(clientVsbt)) {
+                    wsVsbtBindings.set(socket, clientVsbt)
+                    socket.send(JSON.stringify({ id: msg.id, success: true }))
+                  } else {
+                    socket.send(JSON.stringify({
+                      id: msg.id,
+                      success: false,
+                      error: 'Invalid vault session token',
+                    }))
+                  }
+                  return
+                }
+
+                // ── VSBT gate: connection-bound vault session binding token ──
+                // Methods that establish a session (create/unlock) or read-only
+                // status are exempt; everything else requires the connection to
+                // be bound via vault.bind or auto-bound from a prior unlock.
+                const VSBT_EXEMPT_RPC = new Set([
+                  'vault.create', 'vault.unlock', 'vault.getStatus',
+                ])
+                if (!VSBT_EXEMPT_RPC.has(msg.method)) {
+                  const boundVsbt = wsVsbtBindings.get(socket)
+                  const { vaultService: vsForToken } = await import('./main/vault/rpc')
+                  if (!boundVsbt || !vsForToken.validateToken(boundVsbt)) {
+                    socket.send(JSON.stringify({
+                      id: msg.id,
+                      success: false,
+                      error: 'Vault session not bound — call vault.bind or vault.unlock first',
+                    }))
+                    return
+                  }
+                }
+
+                const response = await handleVaultRPC(msg.method, msg.params, rpcTier)
+
+                // Auto-bind VSBT to this connection on successful create/unlock
+                if (response.success && response.sessionToken) {
+                  wsVsbtBindings.set(socket, response.sessionToken)
+                }
+
+                // Clear ALL WS bindings on vault.lock (VSBT invalidated globally)
+                if (msg.method === 'vault.lock' && response.success) {
+                  wsVsbtBindings.clear()
+                }
+
                 const reply = {
                   id: msg.id,
                   ...response
                 }
                 socket.send(JSON.stringify(reply))
-                console.log('[MAIN] ✅ Vault RPC response sent:', msg.method)
+                console.log('[MAIN] ✅ Vault RPC response sent:', msg.method, `(tier=${rpcTier})`)
               } catch (error: any) {
                 console.error('[MAIN] ❌ Vault RPC error:', error)
                 socket.send(JSON.stringify({
@@ -2406,8 +2538,18 @@ app.whenReady().then(async () => {
                 const session = await ensureSession()
                 const loggedIn = session.accessToken !== null
                 
+                // If session expired, lock vault to clear KEK/DEK from memory
+                if (!loggedIn && hasValidSession) {
+                  lockVaultIfLoaded()
+                }
+
                 // Update hasValidSession flag
                 hasValidSession = loggedIn
+                
+                // Re-resolve tier from fresh session claims
+                if (loggedIn && session.userInfo) {
+                  currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+                }
                 
                 console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
                 // Include user info and tier in response for UI display
@@ -2729,12 +2871,18 @@ app.whenReady().then(async () => {
         hasValidSession = true
         const tier = resolve(session?.wrdesk_plan, session?.roles ?? [])
         
-        // Open dashboard on success
-        await openDashboardWindow()
         updateTrayMenu()
         
         console.log('[HTTP] SSO login successful via extension - tier:', tier)
+        // Respond to the extension FIRST so it can update its UI, then open
+        // the dashboard window.  Opening the dashboard before responding would
+        // steal focus from the browser confirmation page before the extension
+        // has a chance to keep the auth tab visible for the user.
         res.json({ ok: true, tier })
+
+        // Open dashboard after a short delay so the confirmation page
+        // in the browser tab remains visible and focused for the user.
+        setTimeout(() => openDashboardWindow().catch(() => {}), 2000)
       } catch (error: any) {
         _pendingLogin = null
         console.error('[HTTP] SSO login-wait failed:', error?.message || error)
@@ -2768,8 +2916,18 @@ app.whenReady().then(async () => {
         const session = await ensureSession()
         const loggedIn = session.accessToken !== null
         
+        // If session expired, lock vault to clear KEK/DEK from memory
+        if (!loggedIn && hasValidSession) {
+          lockVaultIfLoaded()
+        }
+
         // Update hasValidSession flag based on current session state
         hasValidSession = loggedIn
+        
+        // Re-resolve tier from fresh session claims
+        if (loggedIn && session.userInfo) {
+          currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+        }
         
         // [CHECKPOINT B] Log HTTP status response (no secrets)
         console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
@@ -3638,21 +3796,73 @@ app.whenReady().then(async () => {
 
     // ===== VAULT HTTP API ENDPOINTS (SQLCipher) =====
     // These are separate from PostgreSQL and use SQLCipher for encryption
-    
+
+    // Import capability-gate helpers (lazy — only loaded when vault routes are hit)
+    const getVaultCapHelpers = async () => {
+      const { canAccessCategory, LEGACY_CATEGORY_TO_RECORD_TYPE } = await import('./main/vault/types')
+      return { canAccessCategory, LEGACY_CATEGORY_TO_RECORD_TYPE }
+    }
+
+    // Lazy vault service import — caches ref for sync access by logoutFast/lockVaultIfLoaded
+    const getVaultService = async () => {
+      const { vaultService } = await import('./main/vault/rpc')
+      _vaultServiceRef = vaultService
+      return vaultService
+    }
+
     // GET /api/vault/health - Health check (lightweight, no vault service import)
+    // ========================================================================
+    // VSBT (Vault Session Binding Token) Middleware
+    // ========================================================================
+    // Protects against hostile local processes on 127.0.0.1.
+    // Every vault endpoint that operates on an UNLOCKED vault requires
+    // the X-Vault-Session header to match the session token generated at
+    // unlock time.  Endpoints that work on a LOCKED vault (or establish a
+    // session) are exempt.
+    // ========================================================================
+
+    const VSBT_EXEMPT_PATHS = new Set([
+      '/api/vault/health',
+      '/api/vault/status',
+      '/api/vault/create',
+      '/api/vault/unlock',
+      '/api/vault/passkey/unlock-begin',
+      '/api/vault/passkey/unlock-complete',
+    ])
+
+    httpApp.use('/api/vault', (req, res, next) => {
+      const fullPath = '/api/vault' + req.path
+      if (VSBT_EXEMPT_PATHS.has(fullPath)) return next()
+
+      const vsbt = req.headers['x-vault-session'] as string | undefined
+      if (!vsbt) {
+        res.status(401).json({ success: false, error: 'Missing vault session token' })
+        return
+      }
+
+      if (!_vaultServiceRef || !_vaultServiceRef.validateToken(vsbt)) {
+        res.status(401).json({ success: false, error: 'Invalid vault session token' })
+        return
+      }
+
+      next()
+    })
+
     httpApp.get('/api/vault/health', (_req, res) => {
       res.json({ status: 'ok', timestamp: Date.now() })
     })
     
-    // POST /api/vault/status - Get vault status
+    // POST /api/vault/status - Get vault status (includes tier for UI gating)
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/status')
-        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
         console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
-        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked })
-        res.json({ success: true, data: status })
+        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier })
+        // Attach the user's resolved tier so the UI can gate categories
+        res.json({ success: true, data: { ...status, tier } })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in status:', error)
         console.error('[HTTP-VAULT] Error stack:', error?.stack)
@@ -3660,13 +3870,13 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/create - Create new vault
+    // POST /api/vault/create - Create new vault (returns VSBT for session binding)
     httpApp.post('/api/vault/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         const vaultId = await vaultService.createVault(req.body.password, req.body.vaultName || 'My Vault', req.body.vaultId)
-        res.json({ success: true, data: { vaultId } })
+        res.json({ success: true, data: { vaultId }, sessionToken: vaultService.getSessionToken() })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in create:', error)
         console.error('[HTTP-VAULT] Error message:', error?.message)
@@ -3679,7 +3889,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         await vaultService.deleteVault(req.body.vaultId)
         res.json({ success: true })
       } catch (error: any) {
@@ -3688,13 +3898,13 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/unlock - Unlock vault
+    // POST /api/vault/unlock - Unlock vault (returns VSBT for session binding)
     httpApp.post('/api/vault/unlock', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
-        res.json({ success: true })
+        res.json({ success: true, sessionToken: vaultService.getSessionToken() })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in unlock:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
@@ -3705,7 +3915,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/lock', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/lock')
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         await vaultService.lock()
         res.json({ success: true })
       } catch (error: any) {
@@ -3714,17 +3924,111 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/items - List items
+    // -----------------------------------------------------------------------
+    // Passkey (WebAuthn) — enrollment & unlock
+    // -----------------------------------------------------------------------
+
+    // Begin passkey enrollment (Pro+, vault must be unlocked)
+    httpApp.post('/api/vault/passkey/enroll-begin', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/passkey/enroll-begin')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        const result = vaultService.beginPasskeyEnroll(tier)
+        res.json({ success: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in passkey enroll-begin:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to begin passkey enrollment' })
+      }
+    })
+
+    // Complete passkey enrollment (challenge verified server-side)
+    httpApp.post('/api/vault/passkey/enroll-complete', async (req, res) => {
+      try {
+        const { credentialId, prfOutput, rpId, challenge } = req.body
+        console.log('[HTTP-VAULT] POST /api/vault/passkey/enroll-complete')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        await vaultService.completePasskeyEnroll(tier, credentialId, prfOutput, rpId, challenge)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in passkey enroll-complete:', error)
+        const status = error.message?.includes('challenge') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to complete passkey enrollment' })
+      }
+    })
+
+    // Remove passkey provider (Pro+, vault must be unlocked)
+    httpApp.post('/api/vault/passkey/remove', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/passkey/remove')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        vaultService.removePasskeyProvider(tier)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in passkey remove:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to remove passkey' })
+      }
+    })
+
+    // Begin passkey unlock (returns credentialId + prfSalt for WebAuthn assertion)
+    httpApp.post('/api/vault/passkey/unlock-begin', async (req, res) => {
+      try {
+        const vaultId = req.body.vaultId || 'default'
+        console.log('[HTTP-VAULT] POST /api/vault/passkey/unlock-begin', { vaultId })
+        const vaultService = await getVaultService()
+        const result = vaultService.beginPasskeyUnlock(vaultId)
+        res.json({ success: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in passkey unlock-begin:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to begin passkey unlock' })
+      }
+    })
+
+    // Complete passkey unlock (Pro+, challenge verified server-side)
+    httpApp.post('/api/vault/passkey/unlock-complete', async (req, res) => {
+      try {
+        const { prfOutput, challenge, vaultId } = req.body
+        console.log('[HTTP-VAULT] POST /api/vault/passkey/unlock-complete', { vaultId })
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        await vaultService.completePasskeyUnlock(tier, prfOutput, challenge, vaultId || 'default')
+        res.json({ success: true, sessionToken: vaultService.getSessionToken() })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in passkey unlock-complete:', error)
+        const status = error.message?.includes('challenge') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to unlock with passkey' })
+      }
+    })
+
+    // POST /api/vault/items - List items (capability-gated: only returns allowed categories)
     httpApp.post('/api/vault/items', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        const { canAccessCategory: canAccess } = await getVaultCapHelpers()
+
+        const requestedCategory = req.body.category
+
+        // If a specific category is requested, check permission first (fail-closed)
+        if (requestedCategory && !canAccess(tier as any, requestedCategory, 'read')) {
+          console.log(`[HTTP-VAULT] ❌ Tier "${tier}" cannot read category "${requestedCategory}"`)
+          res.json({ success: true, data: [] })
+          return
+        }
+
         const filters = {
           container_id: req.body.containerId,
-          category: req.body.category
+          category: requestedCategory,
         }
-        const items = await vaultService.listItems(filters)
-        console.log(`[HTTP-VAULT] Returning ${items.length} items`)
+        let items = await vaultService.listItems(filters, tier)
+
+        // Post-filter: defense-in-depth (service already filters by tier)
+        items = items.filter(i => canAccess(tier as any, i.category as any, 'read'))
+
+        console.log(`[HTTP-VAULT] Returning ${items.length} items (tier=${tier})`)
         res.json({ success: true, data: items })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in items:', error)
@@ -3732,13 +4036,24 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/item/create - Create item
+    // POST /api/vault/item/create - Create item (capability-gated)
     httpApp.post('/api/vault/item/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/create')
         console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-        const { vaultService } = await import('./main/vault/rpc')
-        const item = await vaultService.createItem(req.body)
+        const tier = await resolveRequestTier()
+
+        // ── Capability gate (before any encryption/storage) ──
+        const { canAccessCategory: canAccess } = await getVaultCapHelpers()
+        const category = req.body.category
+        if (!canAccess(tier as any, category, 'write')) {
+          console.log(`[HTTP-VAULT] ❌ Tier "${tier}" cannot write category "${category}"`)
+          res.status(403).json({ success: false, error: `Your plan (${tier}) does not allow creating ${category} records. Upgrade to access this feature.` })
+          return
+        }
+
+        const vaultService = await getVaultService()
+        const item = await vaultService.createItem(req.body, tier)
         console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
         
         // Immediately verify the item can be retrieved
@@ -3764,25 +4079,40 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/item/get - Get item by ID
+    // POST /api/vault/item/get - Get item by ID (capability-gated BEFORE decrypt)
     httpApp.post('/api/vault/item/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/get')
-        const { vaultService } = await import('./main/vault/rpc')
-        const item = await vaultService.getItem(req.body.id)
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        // Tier is passed to getItem() so the capability check runs BEFORE
+        // any KEK unwrap / DEK decrypt (fail-closed).
+        const item = await vaultService.getItem(req.body.id, tier)
         res.json({ success: true, data: item })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in get item:', error)
-        res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
+        const status = error.message?.includes('cannot read category') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to get item' })
       }
     })
 
-    // POST /api/vault/item/update - Update item
+    // POST /api/vault/item/update - Update item (capability-gated BEFORE decrypt)
     httpApp.post('/api/vault/item/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/update')
-        const { vaultService } = await import('./main/vault/rpc')
-        const item = await vaultService.updateItem(req.body.id, req.body.updates)
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+
+        // Read category WITHOUT decrypting — no KEK/DEK touched
+        const category = vaultService.getItemCategory(req.body.id)
+        const { canAccessCategory: canAccess } = await getVaultCapHelpers()
+        if (!canAccess(tier as any, category as any, 'write')) {
+          console.log(`[HTTP-VAULT] ❌ Tier "${tier}" cannot write category "${category}"`)
+          res.status(403).json({ success: false, error: `Your plan (${tier}) does not allow editing ${category} records.` })
+          return
+        }
+
+        const item = await vaultService.updateItem(req.body.id, req.body.updates, tier)
         res.json({ success: true, data: item })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in update item:', error)
@@ -3790,12 +4120,23 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/vault/item/delete - Delete item
+    // POST /api/vault/item/delete - Delete item (capability-gated BEFORE decrypt)
     httpApp.post('/api/vault/item/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-        const { vaultService } = await import('./main/vault/rpc')
-        await vaultService.deleteItem(req.body.id)
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+
+        // Read category WITHOUT decrypting — no KEK/DEK touched
+        const category = vaultService.getItemCategory(req.body.id)
+        const { canAccessCategory: canAccess } = await getVaultCapHelpers()
+        if (!canAccess(tier as any, category as any, 'delete')) {
+          console.log(`[HTTP-VAULT] ❌ Tier "${tier}" cannot delete category "${category}"`)
+          res.status(403).json({ success: false, error: `Your plan (${tier}) does not allow deleting ${category} records.` })
+          return
+        }
+
+        await vaultService.deleteItem(req.body.id, tier)
         res.json({ success: true })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in delete item:', error)
@@ -3803,11 +4144,199 @@ app.whenReady().then(async () => {
       }
     })
 
+    // ========================================================================
+    // Handshake Context Routes (capability-gated, Publisher+)
+    // ========================================================================
+
+    // POST /api/vault/item/meta/get - Get item meta (binding policy, capability-gated)
+    httpApp.post('/api/vault/item/meta/get', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/meta/get')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        const { id } = req.body
+        if (!id) { res.status(400).json({ success: false, error: 'Missing item id' }); return }
+
+        // getItemMeta now enforces capability check internally
+        const meta = vaultService.getItemMeta(id, tier)
+        res.json({ success: true, data: meta })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in get item meta:', error)
+        const status = error.message?.includes('cannot read category') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to get item meta' })
+      }
+    })
+
+    // POST /api/vault/item/meta/set - Set item meta (binding policy, capability-gated BEFORE decrypt)
+    httpApp.post('/api/vault/item/meta/set', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/item/meta/set')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        const { id, meta } = req.body
+        if (!id || !meta) { res.status(400).json({ success: false, error: 'Missing id or meta' }); return }
+
+        // Read category WITHOUT decrypting — no KEK/DEK touched
+        const category = vaultService.getItemCategory(id)
+        const { canAccessCategory: canAccess } = await getVaultCapHelpers()
+        if (!canAccess(tier as any, category as any, 'write')) {
+          res.status(403).json({ success: false, error: `Your plan (${tier}) does not allow editing ${category} records.` })
+          return
+        }
+
+        vaultService.setItemMeta(id, meta, tier)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in set item meta:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to set item meta' })
+      }
+    })
+
+    // POST /api/vault/handshake/evaluate - Evaluate context attachment eligibility
+    httpApp.post('/api/vault/handshake/evaluate', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/handshake/evaluate')
+        const vaultService = await getVaultService()
+        const { itemId, target } = req.body
+        if (!itemId || !target) {
+          res.status(400).json({ success: false, error: 'Missing itemId or target' })
+          return
+        }
+
+        const tier = await resolveRequestTier()
+        const result = await vaultService.evaluateAttach(tier as any, itemId, target)
+        res.json({ success: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in handshake evaluate:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to evaluate attachment' })
+      }
+    })
+
+    // ========================================================================
+    // Document Vault Routes (capability-gated, Pro+)
+    // ========================================================================
+
+    // POST /api/vault/documents - List documents (metadata only)
+    httpApp.post('/api/vault/documents', async (_req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/documents')
+        const tier = await resolveRequestTier()
+        const vaultService = await getVaultService()
+        const docs = vaultService.listDocuments(tier as any)
+        res.json({ success: true, data: docs })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in list documents:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to list documents' })
+      }
+    })
+
+    // POST /api/vault/document/upload - Upload/import a document
+    httpApp.post('/api/vault/document/upload', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/document/upload')
+        const vaultService = await getVaultService()
+
+        const { filename, data, notes } = req.body
+        if (!filename || !data) {
+          res.status(400).json({ success: false, error: 'Missing filename or data' })
+          return
+        }
+
+        // Data arrives as base64-encoded string from the frontend
+        const buffer = Buffer.from(data, 'base64')
+        const tier = await resolveRequestTier()
+        const result = await vaultService.importDocument(tier as any, filename, buffer, notes || '')
+
+        console.log('[HTTP-VAULT] ✅ Document imported:', result.document.id, result.deduplicated ? '(deduplicated)' : '')
+        res.json({ success: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in document upload:', error)
+        const status = error.message?.includes('cannot write') || error.message?.includes('cannot read') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to upload document' })
+      }
+    })
+
+    // POST /api/vault/document/get - Retrieve and decrypt a document
+    httpApp.post('/api/vault/document/get', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/document/get')
+        const vaultService = await getVaultService()
+
+        const { id } = req.body
+        if (!id) {
+          res.status(400).json({ success: false, error: 'Missing document id' })
+          return
+        }
+
+        const tier = await resolveRequestTier()
+        const result = await vaultService.getDocument(tier as any, id)
+
+        // SECURITY: Content is always returned as base64.
+        // Content-Disposition semantics are enforced at the UI layer (always "attachment").
+        // MIME type is included for display only — the UI must NEVER use it to dispatch an executor.
+        res.json({
+          success: true,
+          data: {
+            document: result.document,
+            content: result.content.toString('base64'),
+          },
+        })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in document get:', error)
+        const status = error.message?.includes('cannot read') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to get document' })
+      }
+    })
+
+    // POST /api/vault/document/delete - Delete a document
+    httpApp.post('/api/vault/document/delete', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/document/delete')
+        const vaultService = await getVaultService()
+
+        const { id } = req.body
+        if (!id) {
+          res.status(400).json({ success: false, error: 'Missing document id' })
+          return
+        }
+
+        const tier = await resolveRequestTier()
+        vaultService.deleteDocument(tier as any, id)
+        res.json({ success: true })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in document delete:', error)
+        const status = error.message?.includes('cannot delete') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to delete document' })
+      }
+    })
+
+    // POST /api/vault/document/update - Update document metadata (notes)
+    httpApp.post('/api/vault/document/update', async (req, res) => {
+      try {
+        console.log('[HTTP-VAULT] POST /api/vault/document/update')
+        const vaultService = await getVaultService()
+
+        const { id, updates } = req.body
+        if (!id) {
+          res.status(400).json({ success: false, error: 'Missing document id' })
+          return
+        }
+
+        const tier = await resolveRequestTier()
+        const doc = vaultService.updateDocumentMeta(tier as any, id, updates || {})
+        res.json({ success: true, data: doc })
+      } catch (error: any) {
+        console.error('[HTTP-VAULT] Error in document update:', error)
+        const status = error.message?.includes('cannot write') ? 403 : 500
+        res.status(status).json({ success: false, error: error.message || 'Failed to update document' })
+      }
+    })
+
     // POST /api/vault/containers - List containers
     httpApp.post('/api/vault/containers', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/containers')
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         const containers = await vaultService.listContainers()
         res.json({ success: true, data: containers })
       } catch (error: any) {
@@ -3820,7 +4349,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/container/create', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/container/create')
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         const { type, name, favorite } = req.body
         const container = vaultService.createContainer(type, name, favorite || false)
         res.json({ success: true, data: container })
@@ -3834,7 +4363,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/settings/get', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/settings/get')
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         const settings = await vaultService.getSettings()
         res.json({ success: true, data: settings })
       } catch (error: any) {
@@ -3847,7 +4376,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/settings/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/settings/update')
-        const { vaultService } = await import('./main/vault/rpc')
+        const vaultService = await getVaultService()
         const settings = await vaultService.updateSettings(req.body)
         res.json({ success: true, data: settings })
       } catch (error: any) {

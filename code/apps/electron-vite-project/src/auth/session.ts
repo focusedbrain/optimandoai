@@ -123,10 +123,88 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
   // Extract Keycloak roles
   const roles = extractRoles(payload);
 
-  // Extract wrdesk_plan claim (custom Keycloak user attribute)
-  const wrdesk_plan = typeof payload.wrdesk_plan === 'string' ? payload.wrdesk_plan : undefined;
-  if (wrdesk_plan) {
-    console.log('[SESSION] wrdesk_plan claim found: ' + wrdesk_plan);
+  // ── Plan detection: search multiple possible claim locations ──
+  // Keycloak can store custom attributes under various claim names depending
+  // on the mapper configuration. We check all known variations.
+  const PLAN_CLAIM_KEYS = [
+    'wrdesk_plan',
+    'wrdesk_plans',
+    'user_plan',
+    'user_plans',
+    'plan',
+    'plans',
+    'subscription',
+    'subscription_plan',
+    'tier',
+    'user_tier',
+  ];
+
+  // Also check inside user_attributes / attributes objects (Keycloak admin API style)
+  const NESTED_ATTRIBUTE_KEYS = [
+    'user_attributes',
+    'attributes',
+    'custom_attributes',
+    'user_metadata',
+  ];
+
+  let wrdesk_plan: string | undefined;
+
+  // 1. Direct top-level claim search
+  for (const key of PLAN_CLAIM_KEYS) {
+    const val = payload[key];
+    if (typeof val === 'string' && val.trim()) {
+      wrdesk_plan = val.trim();
+      console.log('[SESSION] Plan found in claim "' + key + '": ' + wrdesk_plan);
+      break;
+    }
+    // Some Keycloak mappers return arrays for multi-valued attributes
+    if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
+      wrdesk_plan = val[0].trim();
+      console.log('[SESSION] Plan found in claim "' + key + '" (array): ' + wrdesk_plan);
+      break;
+    }
+  }
+
+  // 2. Nested attribute object search (e.g. payload.user_attributes.wrdesk_plan)
+  if (!wrdesk_plan) {
+    for (const attrKey of NESTED_ATTRIBUTE_KEYS) {
+      const attrs = payload[attrKey] as Record<string, unknown> | undefined;
+      if (attrs && typeof attrs === 'object') {
+        for (const key of PLAN_CLAIM_KEYS) {
+          const val = (attrs as Record<string, unknown>)[key];
+          if (typeof val === 'string' && val.trim()) {
+            wrdesk_plan = val.trim();
+            console.log('[SESSION] Plan found in ' + attrKey + '.' + key + ': ' + wrdesk_plan);
+            break;
+          }
+          if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'string') {
+            wrdesk_plan = val[0].trim();
+            console.log('[SESSION] Plan found in ' + attrKey + '.' + key + ' (array): ' + wrdesk_plan);
+            break;
+          }
+        }
+        if (wrdesk_plan) break;
+      }
+    }
+  }
+
+  // 3. Diagnostic: log all non-standard claims so we can identify the right one
+  if (!wrdesk_plan) {
+    const standardClaims = new Set([
+      'iss', 'sub', 'aud', 'exp', 'iat', 'nbf', 'jti', 'typ', 'azp', 'nonce',
+      'auth_time', 'session_state', 'acr', 'sid', 'at_hash', 'c_hash',
+      'name', 'given_name', 'family_name', 'preferred_username', 'email',
+      'email_verified', 'picture', 'locale', 'updated_at', 'scope',
+      'realm_access', 'resource_access', 'allowed-origins',
+    ]);
+    const customClaims: Record<string, string> = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (!standardClaims.has(k)) {
+        customClaims[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      }
+    }
+    console.log('[SESSION] ⚠️ No plan claim found. Custom JWT claims:', JSON.stringify(customClaims));
+    console.log('[SESSION] ⚠️ Roles extracted:', JSON.stringify(roles));
   }
 
   return {
@@ -178,10 +256,12 @@ export async function ensureSession(): Promise<{ accessToken: string | null; use
     accessToken = tokens.access_token;
     expiresAt = Date.now() + tokens.expires_in * 1000;
 
-    // Extract user info from access token (or id_token if available)
+    // Extract user info from id_token (preferred, has wrdesk_plan) or access_token
+    const hasIdToken = !!tokens.id_token;
     const tokenToDecode = tokens.id_token || tokens.access_token;
     const payload = decodeJwtPayload(tokenToDecode);
     cachedUserInfo = payload ? extractUserInfo(payload) : null;
+    console.log('[SESSION] Token refresh: hasIdToken=' + hasIdToken + ', wrdesk_plan=' + (cachedUserInfo?.wrdesk_plan || '(none)') + ', roleCount=' + (cachedUserInfo?.roles?.length ?? 0));
 
     // Save new refresh token if provided (token rotation)
     if (tokens.refresh_token) {

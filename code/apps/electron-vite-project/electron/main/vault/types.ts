@@ -2,6 +2,31 @@
  * Type definitions for vault entities
  */
 
+// Re-export capability types and helpers for backend access checks
+export type {
+  VaultRecordType,
+  VaultTier,
+  VaultAction,
+  LegacyItemCategory,
+  HandshakeBindingPolicy,
+  HandshakeTarget,
+  AttachBlockReason,
+  AttachEvalResult,
+} from './capabilities'
+export {
+  VAULT_RECORD_TYPES,
+  TIER_LEVEL,
+  RECORD_TYPE_MIN_TIER,
+  DEFAULT_BINDING_POLICY,
+  canAccessRecordType,
+  getAccessibleRecordTypes,
+  canAccessCategory,
+  canAttachContext,
+  matchDomainGlob,
+  LEGACY_CATEGORY_TO_RECORD_TYPE,
+  ALL_ITEM_CATEGORIES,
+} from './capabilities'
+
 /**
  * Container types for organizational grouping
  */
@@ -10,7 +35,7 @@ export type ContainerType = 'person' | 'company' | 'business'
 /**
  * Item categories
  */
-export type ItemCategory = 'password' | 'identity' | 'company' | 'business' | 'custom'
+export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context'
 
 /**
  * Field types for dynamic form rendering
@@ -59,9 +84,12 @@ export interface VaultItem {
  * Vault session (active when unlocked)
  */
 export interface VaultSession {
-  vmk: Buffer              // Vault Master Key (DEK)
+  vmk: Buffer              // Vault Master Key (DEK) — used for SQLCipher + legacy HKDF
+  kek: Buffer              // Key Encryption Key — wraps/unwraps per-record DEKs (envelope v2)
   extensionToken: string   // Capability token for extension access
   lastActivity: number     // Timestamp for autolock
+  /** The unlock provider type used for this session (default: 'passphrase'). */
+  providerType?: string
 }
 
 /**
@@ -74,6 +102,12 @@ export interface VaultStatus {
   autoLockMinutes: number
   currentVaultId?: string
   availableVaults?: Array<{ id: string, name: string, created: number }>
+  /** User's resolved subscription tier (injected by the API route layer). */
+  tier?: string
+  /** Available unlock provider types for the current vault. */
+  unlockProviders?: Array<{ id: string; name: string }>
+  /** The active (default) provider type for the current vault. */
+  activeProviderType?: string
 }
 
 /**
@@ -101,4 +135,69 @@ export interface CSVRow {
   Title: string
   Domain: string
   [key: string]: string  // Dynamic field columns
+}
+
+// ---------------------------------------------------------------------------
+// Document Vault Types
+// ---------------------------------------------------------------------------
+
+/** Maximum document size in bytes (50 MB). */
+export const MAX_DOCUMENT_SIZE = 50 * 1024 * 1024
+
+/**
+ * MIME types considered safe for optional in-UI preview.
+ * Everything else is treated as opaque binary (download-only).
+ * CRITICAL: No executable MIME types are ever allowed here.
+ */
+export const SAFE_PREVIEW_MIMES = new Set([
+  'text/plain',
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+])
+
+/**
+ * File extensions that are ALWAYS blocked from import.
+ * These are executable / scripting vectors that must never enter the vault.
+ */
+export const BLOCKED_EXTENSIONS = new Set([
+  '.exe', '.dll', '.bat', '.cmd', '.com', '.msi', '.scr', '.pif',
+  '.sh', '.bash', '.zsh', '.ps1', '.psm1',
+  '.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx',
+  '.py', '.pyc', '.pyo', '.rb', '.pl', '.php',
+  '.jar', '.class', '.war', '.ear',
+  '.app', '.action', '.command', '.workflow',
+  '.vbs', '.vbe', '.wsf', '.wsh', '.hta',
+  '.lnk', '.inf', '.reg', '.cpl',
+])
+
+/**
+ * Metadata for a stored document (kept in the vault_documents table).
+ */
+export interface VaultDocument {
+  id: string
+  /** Original filename (sanitised — no path separators). */
+  filename: string
+  /** Detected MIME type (for display, never for execution). */
+  mime_type: string
+  /** Original plaintext size in bytes. */
+  size_bytes: number
+  /** SHA-256 hex digest of original plaintext content (content addressing). */
+  sha256: string
+  /** Notes or tags (user-supplied, optional). */
+  notes: string
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Result of importing a document into the vault.
+ */
+export interface DocumentImportResult {
+  document: VaultDocument
+  /** Whether a document with the same SHA-256 already existed. */
+  deduplicated: boolean
 }
