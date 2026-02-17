@@ -3,6 +3,7 @@
 // ============================================================================
 //
 // Environment: Vitest + JSDOM
+// @vitest-environment jsdom
 //
 // These tests cover:
 //   §1  guardElement (visibility, iframe, clickjacking, inert)

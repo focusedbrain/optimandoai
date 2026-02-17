@@ -4,6 +4,8 @@
  * Tests the value-injection pipeline and safety checks.
  * Uses JSDOM-compatible mocks since these run in a Node/Vitest environment.
  *
+ * @vitest-environment jsdom
+ *
  * Acceptance criteria:
  *   1. setValueSafely injects value via native setter and dispatches events
  *   2. setValueSafely falls back to direct assignment if native setter absent

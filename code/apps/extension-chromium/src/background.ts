@@ -1,4 +1,6 @@
 import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
+import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpAdapter'
+import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 
 let ws: WebSocket | null = null;
 let isConnecting = false;
@@ -30,6 +32,16 @@ let mailGuardActiveTabId: number | null = null;
 let _cachedVsbt: string | null = null;
 
 // ---------------------------------------------------------------------------
+// VSBT TTL — the cached token expires after VSBT_MAX_AGE_MS.
+// If the Electron app is unreachable (crash, WS disconnect) the TTL ensures
+// the extension cannot keep using a stale session indefinitely.
+// The timestamp is set whenever _cacheVsbt(token) stores a non-null token.
+// ---------------------------------------------------------------------------
+/** Maximum age of a cached VSBT before it is considered expired (15 minutes). */
+export const VSBT_MAX_AGE_MS = 15 * 60 * 1000
+let _vsbtCachedAt = 0
+
+// ---------------------------------------------------------------------------
 // LAUNCH SECRET — per-launch HTTP authentication token.
 // Received from the Electron main process via WebSocket handshake
 // (ELECTRON_HANDSHAKE message).  Attached as X-Launch-Secret header
@@ -38,24 +50,237 @@ let _cachedVsbt: string | null = null;
 // ---------------------------------------------------------------------------
 let _launchSecret: string | null = null;
 
+// ---------------------------------------------------------------------------
+// WebMCP rate-limit tracking: maps tabId → last invocation timestamp (ms).
+// Enforces a minimum 2s gap between WEBMCP_FILL_PREVIEW calls per tab.
+// ---------------------------------------------------------------------------
+let _webMcpRateMap: Map<number, number> | null = null;
+
+// ---------------------------------------------------------------------------
+// WebMCP global rate limiter — sliding window (MAX_WEBMCP_PER_MIN in 60s)
+// ---------------------------------------------------------------------------
+/** Max WEBMCP_FILL_PREVIEW requests accepted globally in a 60-second window. */
+export const MAX_WEBMCP_PER_MIN = 20
+const WEBMCP_WINDOW_MS = 60_000
+/** Ring buffer of accepted request timestamps for the sliding window. */
+let _webMcpGlobalTimestamps: number[] = []
+
+// ---------------------------------------------------------------------------
+// WebMCP circuit breaker — trips after repeated rejection-class errors
+// ---------------------------------------------------------------------------
+/** Rejects in the observation window that trip the circuit. */
+export const WEBMCP_CB_THRESHOLD = 10
+/** Observation window for reject counting (ms). */
+export const WEBMCP_CB_WINDOW_MS = 30_000
+/** How long the circuit stays open once tripped (ms). */
+export const WEBMCP_CB_COOLDOWN_MS = 10_000
+
+/** Timestamps of rejection-class events (invalid params, restricted URL, forbidden). */
+let _webMcpCbRejects: number[] = []
+/** Epoch ms when circuit was opened; 0 = closed. */
+let _webMcpCbOpenedAt = 0
+
+/**
+ * Fail-closed numeric sanitizer for rate-limit / circuit-breaker constants.
+ *
+ * Returns `fallback` if `value` is not a finite positive number.
+ * Security degrades to STRICTER defaults — never looser.
+ */
+function _safePositiveInt(value: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback
+  return Math.floor(value)
+}
+
+/** Sanitized accessor for MAX_WEBMCP_PER_MIN (fallback: 10 — stricter). */
+function _effectiveMaxPerMin(): number { return _safePositiveInt(MAX_WEBMCP_PER_MIN, 10) }
+/** Sanitized accessor for WEBMCP_WINDOW_MS (fallback: 60 000). */
+function _effectiveWindowMs(): number { return _safePositiveInt(WEBMCP_WINDOW_MS, 60_000) }
+/** Sanitized accessor for WEBMCP_CB_THRESHOLD (fallback: 5 — stricter). */
+function _effectiveCbThreshold(): number { return _safePositiveInt(WEBMCP_CB_THRESHOLD, 5) }
+/** Sanitized accessor for WEBMCP_CB_WINDOW_MS (fallback: 30 000). */
+function _effectiveCbWindowMs(): number { return _safePositiveInt(WEBMCP_CB_WINDOW_MS, 30_000) }
+/** Sanitized accessor for WEBMCP_CB_COOLDOWN_MS (fallback: 10 000). */
+function _effectiveCbCooldownMs(): number { return _safePositiveInt(WEBMCP_CB_COOLDOWN_MS, 10_000) }
+
+/**
+ * Record a WebMCP rejection-class event and trip the circuit breaker
+ * if the threshold is met within the observation window.
+ *
+ * Rejection-class events: invalid params, invalid tabId, restricted URL.
+ * Per-tab rate limiting is NOT counted (it's a normal flow-control response).
+ */
+function _recordWebMcpReject(now: number): void {
+  const cbWindowMs = _effectiveCbWindowMs()
+  const cbThreshold = _effectiveCbThreshold()
+  const cbCooldownMs = _effectiveCbCooldownMs()
+
+  // Prune entries outside the observation window
+  const windowStart = now - cbWindowMs
+  _webMcpCbRejects = _webMcpCbRejects.filter(t => t > windowStart)
+  _webMcpCbRejects.push(now)
+
+  if (_webMcpCbRejects.length >= cbThreshold) {
+    _webMcpCbOpenedAt = now
+    console.warn('[BG] WEBMCP_CIRCUIT_OPEN: too many rejected requests — blocking for', cbCooldownMs, 'ms')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Audit Export — UI context allowlist
+//
+// EXPORT_AUDIT_LOG is privileged: only popup.html and sidepanel.html may call
+// it, and only when the vault is unlocked (VSBT present).
+// ---------------------------------------------------------------------------
+
+/** Allowed UI page filenames for EXPORT_AUDIT_LOG. */
+const AUDIT_EXPORT_ALLOWED_PAGES = ['/popup.html', '/sidepanel.html']
+
+/** Stable result version for EXPORT_AUDIT_LOG responses. */
+export const AUDIT_EXPORT_RESULT_VERSION = 'audit-export-v1'
+
+/** Stable error codes for EXPORT_AUDIT_LOG rejection responses. */
+export type AuditExportErrorCode = 'FORBIDDEN' | 'LOCKED' | 'HA_BLOCKED' | 'INTERNAL_ERROR'
+
+/**
+ * Returns true if `sender` is from an allowed extension UI context
+ * (popup or sidepanel), NOT from a content-script or external page.
+ *
+ * Fail-closed checks (all must pass):
+ *   1. sender.tab must NOT be defined — content scripts always have a tab,
+ *      whereas popup / sidepanel messages do not attach a tab object.
+ *   2. sender.url must be a non-empty string starting with
+ *      chrome-extension://<extensionId>/.
+ *   3. The path component of sender.url must match an allowed page.
+ *
+ * Extension popup/sidepanel have sender.url like:
+ *   chrome-extension://<id>/popup.html
+ *   chrome-extension://<id>/sidepanel.html
+ */
+function _isExtensionUiContext(
+  sender: chrome.runtime.MessageSender | undefined,
+  extensionId: string,
+): boolean {
+  if (!sender || !sender.url || typeof sender.url !== 'string') return false
+
+  // ── Fail-closed: content scripts always have sender.tab ──
+  // Popup / sidepanel messages do NOT have sender.tab.
+  if (sender.tab) return false
+
+  const expectedPrefix = `chrome-extension://${extensionId}`
+  if (!sender.url.startsWith(expectedPrefix)) return false
+
+  // Check that the path portion matches an allowed page
+  const pathStart = sender.url.indexOf('/', expectedPrefix.length)
+  if (pathStart === -1) return false
+  const path = sender.url.slice(pathStart).split('?')[0].split('#')[0]
+
+  return AUDIT_EXPORT_ALLOWED_PAGES.some(allowed => path === allowed)
+}
+
+/**
+ * Returns true if the vault is currently unlocked (VSBT is cached and not expired).
+ *
+ * The VSBT is set on successful vault login and cleared on logout/lock/WS-close.
+ * Expires after VSBT_MAX_AGE_MS (fail-closed: stale token = locked).
+ * This is a synchronous, zero-overhead check — no Electron RPC needed.
+ */
+function _isVaultUnlocked(): boolean {
+  if (typeof _cachedVsbt !== 'string' || _cachedVsbt.length === 0) return false
+  // TTL check — if the token is older than VSBT_MAX_AGE_MS, treat as expired
+  if (_vsbtCachedAt > 0 && (Date.now() - _vsbtCachedAt) >= VSBT_MAX_AGE_MS) {
+    _cacheVsbt(null) // proactively clear expired token
+    return false
+  }
+  return true
+}
+
+/**
+ * Log an EXPORT_AUDIT_LOG access decision (allowed or blocked).
+ *
+ * Uses dynamic import of hardening to avoid top-level dependency.
+ * Message is generic — no tabId, URL, sender.url, vault state, or secrets.
+ *
+ * Codes:
+ *   EXPORT_AUDIT_ALLOWED          — successful export (info / security under HA)
+ *   EXPORT_AUDIT_BLOCKED_CONTEXT  — sender is not an allowed UI context
+ *   EXPORT_AUDIT_BLOCKED_LOCKED   — vault is locked / VSBT absent
+ *   EXPORT_AUDIT_BLOCKED_HA       — blocked because HA mode is active (always security)
+ *
+ * @param code  Audit event code
+ * @param msg   Short, safe message (no PII/secrets/URLs)
+ * @param ha    Whether HA mode is currently active
+ */
+function _auditExportLog(
+  code: 'EXPORT_AUDIT_ALLOWED' | 'EXPORT_AUDIT_BLOCKED_CONTEXT' | 'EXPORT_AUDIT_BLOCKED_LOCKED' | 'EXPORT_AUDIT_BLOCKED_HA',
+  msg: string,
+  ha: boolean,
+): void {
+  import('./vault/autofill/hardening').then(({ auditLog }) => {
+    // HA-blocked is always 'security'; allowed is info/security; other blocks are warn/security
+    let level: 'info' | 'warn' | 'security'
+    if (code === 'EXPORT_AUDIT_BLOCKED_HA') {
+      level = 'security'
+    } else if (code === 'EXPORT_AUDIT_ALLOWED') {
+      level = ha ? 'security' : 'info'
+    } else {
+      level = ha ? 'security' : 'warn'
+    }
+    auditLog(level, code, msg)
+  }).catch(() => {
+    console.warn(`[BG] ${code}`)
+  })
+}
+
+/**
+ * Ensure the per-launch secret is available before making HTTP requests.
+ * If the secret is missing (e.g. after service worker restart), attempts to
+ * (re)connect the WebSocket and waits for the ELECTRON_HANDSHAKE message.
+ *
+ * @param maxWaitMs  Maximum time to wait for the handshake (default 5 s)
+ * @returns true if the secret is now available, false otherwise
+ */
+async function ensureLaunchSecret(maxWaitMs = 5000): Promise<boolean> {
+  if (_launchSecret) return true;
+
+  // Trigger WebSocket (re)connection — this is a no-op if already connected
+  try { await connectToWebSocketServer(); } catch { /* ignore */ }
+
+  // Poll until the handshake delivers the secret or we time out
+  const start = Date.now();
+  while (!_launchSecret && Date.now() - start < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 250));
+  }
+
+  return !!_launchSecret;
+}
+
 function _cacheVsbt(token: string | null) {
   _cachedVsbt = token
+  _vsbtCachedAt = token ? Date.now() : 0
   // chrome.storage.session is in-memory only (never persisted to disk)
   if (typeof chrome !== 'undefined' && chrome.storage?.session) {
     if (token) {
-      chrome.storage.session.set({ _vsbt: token }).catch(() => {})
+      chrome.storage.session.set({ _vsbt: token, _vsbtAt: _vsbtCachedAt }).catch(() => {})
     } else {
-      chrome.storage.session.remove('_vsbt').catch(() => {})
+      chrome.storage.session.remove(['_vsbt', '_vsbtAt']).catch(() => {})
     }
   }
 }
 
 // Restore VSBT from session storage on service-worker startup
 if (typeof chrome !== 'undefined' && chrome.storage?.session) {
-  chrome.storage.session.get('_vsbt').then((result: any) => {
+  chrome.storage.session.get(['_vsbt', '_vsbtAt']).then((result: any) => {
     if (result?._vsbt) {
-      _cachedVsbt = result._vsbt
-      console.log('[BG] Restored VSBT from session storage')
+      const age = typeof result._vsbtAt === 'number' ? Date.now() - result._vsbtAt : Infinity
+      if (age < VSBT_MAX_AGE_MS) {
+        _cachedVsbt = result._vsbt
+        _vsbtCachedAt = result._vsbtAt
+        console.log('[BG] Restored VSBT from session storage')
+      } else {
+        // Expired — clear stale session storage
+        chrome.storage.session.remove(['_vsbt', '_vsbtAt']).catch(() => {})
+        console.log('[BG] VSBT from session storage expired — discarded')
+      }
     }
   }).catch(() => {})
 }
@@ -192,6 +417,59 @@ const DEFAULT_RETRY_CONFIG = {
   maxDelayMs: 4000,
   timeoutMs: 30000
 };
+
+// =================================================================
+// Build Integrity Check — defense-in-depth kill-switch trigger
+// =================================================================
+//
+// On extension startup, queries the Electron app's /api/integrity
+// endpoint.  If the build is NOT verified, automatically enables
+// the writes kill-switch to prevent any DOM writes from autofill.
+//
+// This is a best-effort check: if the Electron app is not running
+// or the endpoint is unreachable, writes remain enabled (fail-open
+// for availability — the kill-switch can still be set manually).
+//
+
+async function checkElectronIntegrity(): Promise<void> {
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/integrity`, {
+      method: 'GET',
+      headers: _electronHeaders(),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      console.warn('[BG-INTEGRITY] Integrity endpoint returned:', response.status)
+      return
+    }
+
+    const status = await response.json()
+
+    if (status && status.verified === false) {
+      console.warn('[BG-INTEGRITY] ⚠ BUILD NOT VERIFIED — enabling writes kill-switch')
+      console.warn('[BG-INTEGRITY] Reason:', status.summary)
+
+      // Enable the writes kill-switch via chrome.storage.local
+      // This is the same key the writesKillSwitch module reads.
+      try {
+        await chrome.storage.local.set({ wrvault_writes_disabled: true })
+        console.warn('[BG-INTEGRITY] Writes kill-switch ENABLED due to failed integrity check')
+      } catch (storageErr) {
+        console.error('[BG-INTEGRITY] Failed to set kill-switch:', storageErr)
+      }
+    } else if (status && status.verified === true) {
+      console.log('[BG-INTEGRITY] Build integrity verified')
+    }
+  } catch {
+    // Electron not running or endpoint unreachable — fail open for availability
+    // The kill-switch can still be manually enabled if needed.
+  }
+}
 
 // OAuth-specific configuration (longer timeouts for user interaction)
 const OAUTH_RETRY_CONFIG = {
@@ -889,6 +1167,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         ws = null;
         isConnecting = false;
         
+        // Fail-closed: clear VSBT on WS disconnect.  If Electron crashed or
+        // was killed, the vault session is no longer valid.  The user must
+        // re-unlock after reconnection.  This closes the "Electron crash →
+        // stale VSBT" staleness window.
+        _cacheVsbt(null)
+        
         stopHeartbeat();
 
         chrome.action.setBadgeText({ text: 'OFF' });
@@ -1052,6 +1336,7 @@ chrome.runtime.onStartup.addListener(() => {
   if (WS_ENABLED) {
     connectToWebSocketServer();
   }
+  checkElectronIntegrity()
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -1060,6 +1345,7 @@ chrome.runtime.onInstalled.addListener(() => {
   if (WS_ENABLED) {
     connectToWebSocketServer();
   }
+  checkElectronIntegrity()
 });
 
 // Also try to connect when service worker wakes up for any reason
@@ -1179,6 +1465,14 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
       }
     }
   }
+});
+
+// Clean up WebMCP rate-limit entries when tabs close (bounded growth)
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (_webMcpRateMap) {
+    _webMcpRateMap.delete(tabId)
+  }
+  tabSidebarStatus.delete(tabId)
 });
 
 /**
@@ -1426,8 +1720,248 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // ════════════════════════════════════════════════════════════════════════
+  // UNIVERSAL SENDER GATE — reject messages from foreign extensions.
+  //
+  // Every message that triggers a side-effect (auth, vault, Electron IPC,
+  // WebMCP, etc.) MUST originate from our own extension contexts (content
+  // scripts, popup, sidepanel, service worker).  Cross-extension messages
+  // are rejected immediately.
+  //
+  // This gate runs BEFORE any handler dispatch.
+  // ════════════════════════════════════════════════════════════════════════
+  if (!msg || !msg.type) return true
+
+  if (!sender || sender.id !== chrome.runtime.id) {
+    console.warn('[BG] Rejected message from foreign sender:', sender?.id, msg.type)
+    try {
+      if (msg.type === 'WEBMCP_FILL_PREVIEW') {
+        sendResponse({ resultVersion: WEBMCP_RESULT_VERSION, success: false, error: { code: 'FORBIDDEN', message: 'Sender not trusted' } })
+      } else {
+        sendResponse({ success: false, error: 'Forbidden: sender not trusted' })
+      }
+    } catch {}
+    return true
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // WEBMCP FILL PREVIEW — route to content script for overlay preview
+  //
+  // Defense-in-depth layers (order matters):
+  //   1. Sender gate (already checked above)
+  //   2. Circuit breaker (fast reject when abuse detected)
+  //   3. Schema validation
+  //   4. Per-tab rate limiter (2 s/tab)
+  //   5. Global sliding-window rate limiter (MAX_WEBMCP_PER_MIN / 60 s)
+  //   6. Restricted URL check
+  //   7. Forward to content script
+  // ════════════════════════════════════════════════════════════════════════
+  if (msg.type === 'WEBMCP_FILL_PREVIEW') {
+    const now = Date.now()
+
+    // Helper: structured error response for the orchestrator UI.
+    // Every rejection carries resultVersion so the UI can parse uniformly.
+    const _bgErr = (code: BgWebMcpErrorCode, message: string, extra?: { retryAfterMs: number }) => ({
+      resultVersion: WEBMCP_RESULT_VERSION,
+      success: false as const,
+      error: { code, message },
+      ...(extra ? { retryAfterMs: extra.retryAfterMs } : {}),
+    })
+
+    // ── Layer 2: Circuit breaker (fail-closed via sanitized accessors) ──
+    // If the circuit is open, reject immediately until cooldown expires.
+    if (_webMcpCbOpenedAt > 0) {
+      const cbCooldownMs = _effectiveCbCooldownMs()
+      const elapsed = now - _webMcpCbOpenedAt
+      if (elapsed < cbCooldownMs) {
+        const retryAfterMs = cbCooldownMs - elapsed
+        sendResponse(_bgErr('TEMP_BLOCKED', 'Temporarily blocked', { retryAfterMs }))
+        return true
+      }
+      // Cooldown expired — close circuit, reset reject history
+      _webMcpCbOpenedAt = 0
+      _webMcpCbRejects = []
+    }
+
+    // ── Layer 3: Schema validation ──
+    const params = msg.params
+    if (!params || typeof params !== 'object' || !params.itemId || !params.tabId) {
+      _recordWebMcpReject(now)
+      sendResponse(_bgErr('INVALID_PARAMS', 'Missing required parameters'))
+      return true
+    }
+
+    const tabId = params.tabId
+    if (typeof tabId !== 'number' || tabId <= 0 || !Number.isInteger(tabId)) {
+      _recordWebMcpReject(now)
+      sendResponse(_bgErr('INVALID_TAB', 'Invalid tab identifier'))
+      return true
+    }
+
+    // ── Layer 4: Per-tab rate limiter (2 s per tab) ──
+    if (!_webMcpRateMap) _webMcpRateMap = new Map()
+    const lastInvoke = _webMcpRateMap.get(tabId) ?? 0
+    if (now - lastInvoke < 2000) {
+      console.warn('[BG] WEBMCP rate limited for tab', tabId)
+      const retryAfterMs = 2000 - (now - lastInvoke)
+      sendResponse(_bgErr('RATE_LIMITED', 'Rate limited', { retryAfterMs: Math.max(retryAfterMs, 1) }))
+      return true
+    }
+    _webMcpRateMap.set(tabId, now)
+
+    // ── Layer 5: Global sliding-window rate limiter (fail-closed via sanitized accessors) ──
+    // Prune timestamps older than the window, then check count.
+    const effectiveWindowMs = _effectiveWindowMs()
+    const effectiveMaxPerMin = _effectiveMaxPerMin()
+    const windowStart = now - effectiveWindowMs
+    _webMcpGlobalTimestamps = _webMcpGlobalTimestamps.filter(t => t > windowStart)
+    if (_webMcpGlobalTimestamps.length >= effectiveMaxPerMin) {
+      // Compute when the oldest entry in the window will expire
+      const oldestInWindow = _webMcpGlobalTimestamps[0]
+      const retryAfterMs = oldestInWindow + effectiveWindowMs - now
+      sendResponse(_bgErr('RATE_LIMITED', 'Rate limited', { retryAfterMs: Math.max(retryAfterMs, 1) }))
+      return true
+    }
+    _webMcpGlobalTimestamps.push(now)
+
+    // ── Layer 6: Restricted URL check (async) ──
+    ;(async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId)
+        const url = tab.url ?? ''
+        if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
+            url.startsWith('about:') || url.startsWith('file://') || !url) {
+          _recordWebMcpReject(now)
+          sendResponse(_bgErr('RESTRICTED_PAGE', 'Cannot operate on this page'))
+          return
+        }
+
+        // Forward to content script
+        chrome.tabs.sendMessage(
+          tabId,
+          { type: 'WEBMCP_FILL_PREVIEW_REQUEST', itemId: params.itemId, targetHints: params.targetHints },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              sendResponse(_bgErr('TAB_UNREACHABLE', 'Content script unreachable'))
+              return
+            }
+            // Relay adapter response.  If adapter already includes resultVersion,
+            // pass through; otherwise wrap with version for safety.
+            if (response && typeof response === 'object' && response.resultVersion === WEBMCP_RESULT_VERSION) {
+              sendResponse(response)
+            } else if (response && typeof response === 'object') {
+              sendResponse({ ...response, resultVersion: WEBMCP_RESULT_VERSION })
+            } else {
+              sendResponse(_bgErr('INTERNAL_ERROR', 'No response from content script'))
+            }
+          },
+        )
+      } catch (err: any) {
+        sendResponse(_bgErr('INVALID_TAB', 'Tab not found'))
+      }
+    })()
+    return true // async
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // VAULT_SET_WRITES_DISABLED — Global writes kill-switch toggle
+  //
+  // Operator/admin control: enable/disable ALL DOM write operations.
+  // Gated by sender.id (already validated above) and strict schema.
+  // ════════════════════════════════════════════════════════════════════════
+  if (msg.type === 'VAULT_SET_WRITES_DISABLED') {
+    const { disabled } = msg
+    if (typeof disabled !== 'boolean') {
+      sendResponse({ success: false, error: 'Invalid VAULT_SET_WRITES_DISABLED payload: disabled must be boolean' })
+      return true
+    }
+    ;(async () => {
+      try {
+        const { setWritesDisabled } = await import('./vault/autofill/writesKillSwitch')
+        await setWritesDisabled(disabled)
+        console.log(`[BG] Writes kill-switch set to: ${disabled}`)
+        sendResponse({ success: true, disabled })
+      } catch (err: any) {
+        console.error('[BG] Failed to set writes kill-switch:', err)
+        sendResponse({ success: false, error: 'Failed to update writes kill-switch' })
+      }
+    })()
+    return true // async
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // EXPORT_AUDIT_LOG — Export sanitized audit log as JSONL
+  //
+  // Privileged operation.  Defense layers (in order):
+  //   1. Universal sender gate (already enforced above)
+  //   2. Context gate — sender must be extension UI (no sender.tab,
+  //      sender.url matches chrome-extension://<id>/popup|sidepanel)
+  //   3. Vault unlocked gate — VSBT must be present (cleared on lock/logout)
+  //   4. HA gate — if HA mode active, block export entirely (fail-closed)
+  //   5. Export logic
+  //
+  // On rejection: { success:false, error:{ code, message }, resultVersion }
+  // On success:   { success:true, jsonl, truncated, resultVersion }
+  // Hard cap: MAX_EXPORT_BYTES (512 KB); truncated=true if exceeded.
+  // ════════════════════════════════════════════════════════════════════════
+  if (msg.type === 'EXPORT_AUDIT_LOG') {
+    // ── Layer 2: Context gate (fail-closed, synchronous) ──
+    // Reject if sender.tab exists (content-script), or sender.url is
+    // missing / not from our extension's allowed UI pages.
+    if (!_isExtensionUiContext(sender, chrome.runtime.id)) {
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_CONTEXT', 'Audit export rejected — invalid context', true)
+      sendResponse({ success: false, error: { code: 'FORBIDDEN' as AuditExportErrorCode, message: 'Forbidden' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+      return true
+    }
+
+    // ── Layer 3: Vault unlocked gate (fail-closed, synchronous) ──
+    // VSBT is cleared synchronously on lock (/lock endpoint) and logout
+    // (AUTH_LOGOUT). If the cache is stale, we fail-closed (empty = locked).
+    if (!_isVaultUnlocked()) {
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked', true)
+      sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+      return true
+    }
+
+    // ── Layer 4 + 5: HA gate + export (async for dynamic import) ──
+    ;(async () => {
+      try {
+        let ha = true // fail-closed default
+        try {
+          const { isHAEnforced } = await import('./vault/autofill/haGuard')
+          ha = isHAEnforced()
+        } catch {
+          // Cannot determine HA state — fail-closed: treat as HA active
+        }
+
+        // ── Layer 4: HA gate — block entirely under HA (fail-closed) ──
+        if (ha) {
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_HA', 'Audit export rejected — HA mode active', true)
+          sendResponse({ success: false, error: { code: 'HA_BLOCKED' as AuditExportErrorCode, message: 'Export blocked by security policy' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+          return
+        }
+
+        // ── Layer 4b: Double-check VSBT (guard against async race) ──
+        if (!_isVaultUnlocked()) {
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked (async recheck)', false)
+          sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+          return
+        }
+
+        // ── Layer 5: Export logic ──
+        const { exportAuditLogJsonl } = await import('./vault/autofill/hardening')
+        const result = exportAuditLogJsonl()
+        _auditExportLog('EXPORT_AUDIT_ALLOWED', 'Audit log exported', false)
+        sendResponse({ success: true, jsonl: result.jsonl, truncated: result.truncated, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+      } catch {
+        sendResponse({ success: false, error: { code: 'INTERNAL_ERROR' as AuditExportErrorCode, message: 'Export failed' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
+      }
+    })()
+    return true // async
+  }
+
   // Check desktop app status (for BackendConfigLightbox)
-  if (msg && msg.type === 'CHECK_DESKTOP_APP_STATUS') {
+  if (msg.type === 'CHECK_DESKTOP_APP_STATUS') {
     console.log('[BG] Checking desktop app status...');
     (async () => {
       try {
@@ -1474,7 +2008,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     console.log('[BG] AUTH_LOGIN request received');
     (async () => {
       try {
-        // First check if Electron is reachable
+        // ── Step 0: Ensure launch secret is available ──
+        // After a machine restart or service-worker restart the WebSocket
+        // handshake may not have completed yet.  Without the secret every
+        // HTTP request to Electron (except /api/health) returns 401.
+        const hasSecret = await ensureLaunchSecret(5000);
+
+        if (!hasSecret) {
+          // Secret still missing – check if Electron is at least alive
+          // via the secret-exempt /api/health endpoint.
+          const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(3000),
+          }).catch(() => null);
+
+          if (healthCheck && healthCheck.ok) {
+            // Electron is running but the WebSocket handshake hasn't completed.
+            console.log('[AUTH] Electron running but launch secret not yet received');
+            sendResponse({ ok: false, error: 'Connecting to desktop app – please try again in a few seconds.' });
+          } else {
+            console.log('[AUTH] Electron not reachable (no secret, health check failed)');
+            sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
+          }
+          return;
+        }
+
+        // ── Step 0b: Authenticated health check ──
         const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
           method: 'GET',
           headers: _electronHeaders(),
@@ -1485,7 +2044,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log('[BG][A] Health check: electronReachable=' + electronReachable);
         
         if (!electronReachable) {
-          console.log('[AUTH] Electron not reachable');
+          console.log('[AUTH] Electron not reachable (authenticated check failed)');
           sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
           return;
         }
@@ -1551,6 +2110,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     console.log('[BG] AUTH_STATUS request received');
     (async () => {
       try {
+        // Ensure launch secret is available (may need WebSocket handshake)
+        await ensureLaunchSecret(3000);
+
         const response = await fetch(`${ELECTRON_BASE_URL}/api/auth/status`, {
           method: 'GET',
           headers: _electronHeaders(),
@@ -1603,7 +2165,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Clears session on backend and all cached auth state
   if (msg && msg.type === 'AUTH_LOGOUT') {
     console.log('[BG] AUTH_LOGOUT request received');
-    (async () => {
+    // Immediately clear VSBT (fail-closed: no stale session survives logout)
+    _cacheVsbt(null)
+    ;(async () => {
       // Clear all auth state immediately (fail-closed)
       const clearAuthState = async () => {
         await chrome.storage.local.set({ 
@@ -1707,6 +2271,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+
+  // NOTE: The per-type SENDER_GATED_TYPES check was removed because the
+  // universal sender gate at the top of this handler now rejects ALL
+  // messages from foreign extensions before any dispatch occurs.
 
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
@@ -1826,6 +2394,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(response => {
           clearTimeout(timeoutId) // Clear timeout on successful response
           console.log('[BG] Vault API response status:', response.status, response.statusText)
+          // Fail-closed: 401 means the session is no longer valid on the
+          // Electron side.  Clear the VSBT immediately to prevent stale
+          // session usage across the extension.
+          if (response.status === 401) {
+            _cacheVsbt(null)
+            console.log('[BG] VSBT cleared — Electron returned 401 (session invalid)')
+          }
           if (!response.ok) {
             return response.text().then(text => {
               console.error('[BG] Vault API error response:', text)

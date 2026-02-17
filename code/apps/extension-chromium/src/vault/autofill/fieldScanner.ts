@@ -11,8 +11,10 @@
 //   pickBestMapping(scores, profiles) → FieldMapping[]
 //
 // Performance:
-//   - Initial scan: one querySelectorAll + O(n × k) scoring
+//   - Initial scan: bounded TreeWalker traversal + O(n × k) scoring
 //     where n = number of fields, k = number of fillable FieldKinds (~25)
+//   - TreeWalker streams elements one-by-one (no querySelectorAll allocation)
+//   - Element cap, time budget, and candidate cap enforce early exit
 //   - Incremental: MutationObserver calls rescanElement() on new/changed nodes
 //   - Label resolution cached per scan cycle (Map<element, text>)
 //   - Form context cached per <form> (Map<form, FormContext>)
@@ -53,6 +55,8 @@ import {
   SCAN_THROTTLE_MS,
   MUTATION_RESCAN_DEBOUNCE_MS,
 } from '../../../../../packages/shared/src/vault/insertionPipeline'
+import { auditLog, auditLogSafe, emitTelemetryEvent } from './hardening'
+import { isHAEnforced } from './haGuard'
 
 // ============================================================================
 // §1  Types
@@ -74,6 +78,10 @@ export interface ScanResult {
   elementsEvaluated: number
   /** Time taken in ms. */
   durationMs: number
+  /** True if scan was truncated due to caps (element/time/candidate limits). */
+  partial: boolean
+  /** If partial, why the scan stopped early. */
+  partialReason?: 'element_cap' | 'time_budget' | 'candidate_cap'
 }
 
 /** Score result for a single element against all FieldKinds. */
@@ -114,13 +122,127 @@ export interface ScanConfig {
   root?: HTMLElement
   /** Maximum elements to evaluate per scan (performance guard). */
   maxElements?: number
+  /** Maximum candidates returned (excess are dropped). */
+  maxCandidates?: number
+  /** Maximum scan duration in ms (time budget — partial if exceeded). */
+  maxDurationMs?: number
   /** Whether to include select and textarea (default: true). */
   includeSelectTextarea?: boolean
 }
 
+// ── DoS Caps ──
+// Normal mode: generous caps that won't affect real-world sites.
+// HA mode: tighter caps to reduce attack surface on hostile pages.
+//
+// These are fail-safe: exceeding a cap returns a partial result (no crash).
+
+/** Max DOM elements inspected per scan (normal mode). */
+export const SCAN_CAP_MAX_ELEMENTS = 1500
+/** Max DOM elements inspected per scan (HA mode — stricter). */
+export const SCAN_CAP_MAX_ELEMENTS_HA = 500
+/** Max candidates returned per scan (normal mode). */
+export const SCAN_CAP_MAX_CANDIDATES = 80
+/** Max candidates returned per scan (HA mode). */
+export const SCAN_CAP_MAX_CANDIDATES_HA = 30
+/** Max scan duration in ms (normal mode). */
+export const SCAN_CAP_MAX_DURATION_MS = 120
+/** Max scan duration in ms (HA mode). */
+export const SCAN_CAP_MAX_DURATION_MS_HA = 60
+
+/** How often (every N TreeWalker nodes) to check time budget (normal mode). */
+export const SCAN_CHECK_EVERY = 50
+/** How often (every N TreeWalker nodes) to check time budget (HA mode — more frequent). */
+export const SCAN_CHECK_EVERY_HA = 20
+
+/**
+ * Fail-closed numeric sanitizer for scan caps.
+ *
+ * Returns `fallback` if `value` is undefined, null, NaN, Infinity, <= 0,
+ * or not a finite positive number.  Security degrades to STRICTER behavior
+ * (the known-safe fallback) — never looser.
+ */
+function sanitizeNumericCap(value: number | undefined | null, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback
+  return value
+}
+
+/** Tag names the TreeWalker yields as form controls. */
+const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(['INPUT', 'SELECT', 'TEXTAREA'])
+const FORM_CONTROL_TAGS_INPUT_ONLY: ReadonlySet<string> = new Set(['INPUT'])
+
+/** Mutable state shared between the iterator and its caller. */
+interface BoundedIterState {
+  /** Total DOM elements visited by the TreeWalker (all node types, not just controls). */
+  inspected: number
+  /** If the iterator stopped early, why. */
+  stopReason?: 'element_cap' | 'time_budget'
+}
+
+/**
+ * Streaming bounded DOM traversal that yields only form controls
+ * (INPUT, SELECT, TEXTAREA) without allocating a full NodeList.
+ *
+ * Uses TreeWalker to walk the DOM element-by-element.  The inspected
+ * counter tracks ALL elements visited (not just yielded controls) so
+ * that hostile pages with millions of non-form elements are still bounded.
+ *
+ * Caps:
+ *   - Element cap: checked every node (cheap comparison).
+ *   - Time budget: checked every cfg.checkEvery nodes (performance.now is expensive).
+ *
+ * The generator writes stop metadata into the shared `state` object so
+ * the caller can inspect why iteration ended.
+ */
+function* iterFormControlsBounded(
+  root: HTMLElement,
+  cfg: {
+    maxElements: number
+    maxDurationMs: number
+    checkEvery: number
+    includeSelectTextarea: boolean
+  },
+  state: BoundedIterState,
+  startTime: number,
+): Generator<HTMLElement> {
+  const allowedTags = cfg.includeSelectTextarea
+    ? FORM_CONTROL_TAGS
+    : FORM_CONTROL_TAGS_INPUT_ONLY
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+
+  let node: Node | null = walker.nextNode()
+  while (node) {
+    state.inspected++
+
+    // Yield form controls to the caller for scoring
+    const el = node as HTMLElement
+    if (allowedTags.has(el.tagName)) {
+      yield el
+    }
+
+    // ── Element cap: every node (O(1) comparison) ──
+    if (state.inspected >= cfg.maxElements) {
+      state.stopReason = 'element_cap'
+      return
+    }
+
+    // ── Time budget: every checkEvery nodes (performance.now is expensive) ──
+    if (state.inspected % cfg.checkEvery === 0) {
+      if (performance.now() - startTime >= cfg.maxDurationMs) {
+        state.stopReason = 'time_budget'
+        return
+      }
+    }
+
+    node = walker.nextNode()
+  }
+}
+
 const DEFAULT_SCAN_CONFIG: Required<ScanConfig> = {
   root: document.body,
-  maxElements: 200,
+  maxElements: SCAN_CAP_MAX_ELEMENTS,
+  maxCandidates: SCAN_CAP_MAX_CANDIDATES,
+  maxDurationMs: SCAN_CAP_MAX_DURATION_MS,
   includeSelectTextarea: true,
 }
 
@@ -171,7 +293,35 @@ export function collectCandidates(
   config: ScanConfig = {},
 ): ScanResult {
   const now = Date.now()
-  const cfg = { ...DEFAULT_SCAN_CONFIG, ...config }
+  const ha = isHAEnforced()
+
+  // ── Fail-closed defaults: sanitize every numeric cap ──
+  //
+  // If any cap is undefined/null/NaN/Infinity/0/negative, replace with
+  // the known-safe default.  This ensures hostile or buggy callers cannot
+  // widen the scan surface by passing invalid values.
+  //
+  const merged = { ...DEFAULT_SCAN_CONFIG, ...config }
+  const baseCfg = {
+    ...merged,
+    maxElements: sanitizeNumericCap(merged.maxElements, SCAN_CAP_MAX_ELEMENTS),
+    maxCandidates: sanitizeNumericCap(merged.maxCandidates, SCAN_CAP_MAX_CANDIDATES),
+    maxDurationMs: sanitizeNumericCap(merged.maxDurationMs, SCAN_CAP_MAX_DURATION_MS),
+  }
+
+  // ── Apply HA-mode caps (stricter) AFTER fail-closed defaults ──
+  const cfg = {
+    ...baseCfg,
+    maxElements: ha
+      ? Math.min(baseCfg.maxElements, SCAN_CAP_MAX_ELEMENTS_HA)
+      : baseCfg.maxElements,
+    maxCandidates: ha
+      ? Math.min(baseCfg.maxCandidates, SCAN_CAP_MAX_CANDIDATES_HA)
+      : baseCfg.maxCandidates,
+    maxDurationMs: ha
+      ? Math.min(baseCfg.maxDurationMs, SCAN_CAP_MAX_DURATION_MS_HA)
+      : baseCfg.maxDurationMs,
+  }
 
   // Throttle: return cached result if within throttle window
   if (_cachedScanResult && now - _lastScanAt < SCAN_THROTTLE_MS) {
@@ -187,23 +337,32 @@ export function collectCandidates(
   // Build the set of FieldKinds we'll score against
   const activeSpecs = getActiveSpecs(toggles)
 
-  // Query all candidate elements
-  const selector = cfg.includeSelectTextarea
-    ? 'input, select, textarea'
-    : 'input'
+  // ── Bounded TreeWalker traversal (no querySelectorAll allocation) ──
+  //
+  // Instead of querySelectorAll('input, select, textarea') which builds a
+  // full NodeList on hostile pages, we use a TreeWalker that streams elements
+  // one-by-one with early exit on element cap and time budget.
+  //
   const root = cfg.root ?? document.body
-  const allElements = root.querySelectorAll<HTMLElement>(selector)
+  const rawCheckEvery = ha ? SCAN_CHECK_EVERY_HA : SCAN_CHECK_EVERY
+  const checkEvery = sanitizeNumericCap(rawCheckEvery, ha ? 20 : 50)
+  const iterState: BoundedIterState = { inspected: 0 }
+  const controlIter = iterFormControlsBounded(root, {
+    maxElements: cfg.maxElements,
+    maxDurationMs: cfg.maxDurationMs,
+    checkEvery,
+    includeSelectTextarea: cfg.includeSelectTextarea,
+  }, iterState, startTime)
 
   const candidates: FieldCandidate[] = []
   const hints: FieldCandidate[] = []
   let evalCount = 0
   let primaryFormContext: FormContext = 'unknown'
+  let partial = false
+  let partialReason: ScanResult['partialReason'] = undefined
 
-  for (let i = 0; i < allElements.length && evalCount < cfg.maxElements; i++) {
-    const el = allElements[i]
-
-    // Hard-block: invalid tag or blocked input type
-    if (!VALID_TARGET_TAGS.has(el.tagName)) continue
+  for (const el of controlIter) {
+    // Hard-block: blocked input type
     const inputType = ((el as HTMLInputElement).type ?? '').toLowerCase()
     if (BLOCKED_INPUT_TYPES.has(inputType)) continue
 
@@ -239,13 +398,47 @@ export function collectCandidates(
 
     if (score.accepted && !crossOrigin) {
       candidates.push(candidate)
+
+      // ── Candidate count limit ──
+      if (candidates.length >= cfg.maxCandidates) {
+        partial = true
+        partialReason = 'candidate_cap'
+        break
+      }
     } else if (score.confidence >= CONFIDENCE_HINT_THRESHOLD && !crossOrigin) {
       hints.push(candidate)
     }
   }
 
+  // If the iterator stopped early (element_cap or time_budget) and we didn't
+  // already hit candidate_cap, propagate its stop reason.
+  // Precedence: candidate_cap > time_budget > element_cap (most actionable first).
+  if (!partial && iterState.stopReason) {
+    partial = true
+    partialReason = iterState.stopReason
+  }
+
   const durationMs = performance.now() - startTime
   _lastScanAt = now
+
+  // ── Audit partial scans (HA mode elevates to security level) ──
+  if (partial) {
+    const level = ha ? 'security' : 'warn'
+    auditLogSafe(level, 'SCAN_PARTIAL', 'Scan truncated by DoS cap', {
+      partialReason: partialReason ?? 'unknown',
+      evaluatedCount: evalCount,
+      candidateCount: candidates.length,
+      durationMs: Math.round(durationMs),
+      ha,
+    })
+    emitTelemetryEvent('scan_partial', {
+      reason: partialReason ?? 'unknown',
+      evaluated: evalCount,
+      candidates: candidates.length,
+      durationMs: Math.round(durationMs),
+      ha,
+    })
+  }
 
   const result: ScanResult = {
     candidates,
@@ -255,6 +448,8 @@ export function collectCandidates(
     scannedAt: now,
     elementsEvaluated: evalCount,
     durationMs,
+    partial,
+    partialReason,
   }
 
   _cachedScanResult = result

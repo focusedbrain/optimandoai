@@ -110,6 +110,7 @@ const INVOKE_CHANNELS = new Set([
   'lmgtfy/get-presets',
   'lmgtfy/capture-preset',
   'lmgtfy/save-preset',
+  'integrity:status',
 ] as const)
 
 // Channels the renderer may SEND (fire-and-forget)
@@ -194,6 +195,11 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openBeapInbox: () => {
     ipcRenderer.send('OPEN_BEAP_INBOX')
   },
+})
+
+// ── Build Integrity (offline verification) ────────────────────────────────
+contextBridge.exposeInMainWorld('integrity', {
+  getStatus: () => ipcRenderer.invoke('integrity:status'),
 })
 
 // ── Lifecycle (main→renderer notifications) ──────────────────────────────

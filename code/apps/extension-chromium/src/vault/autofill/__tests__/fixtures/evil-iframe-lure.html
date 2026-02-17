@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Evil: Iframe Lure — Cross-Origin + Decoy Inputs</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    .decoy-section { margin: 20px 0; padding: 16px; border: 1px dashed #f00; background: #fff5f5; }
+    .decoy-section input { padding: 8px; border: 1px solid #ccc; width: 100%; box-sizing: border-box; margin: 4px 0; }
+    #real-form { margin: 40px 0; padding: 16px; border: 2px solid #4f46e5; border-radius: 8px; }
+    #real-form input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+    #real-form label { display: block; margin-top: 12px; font-size: 14px; }
+    iframe { width: 100%; height: 200px; border: 1px solid #999; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Evil Iframe Lure</h2>
+    <p>Cross-origin iframe + same-origin decoy inputs designed to confuse autofill.</p>
+
+    <!-- Decoy inputs ABOVE the real form: mimic login labels but are traps -->
+    <div class="decoy-section">
+      <p style="color: red; font-size: 12px;">Decoy section (should NOT be filled)</p>
+      <input type="text" name="decoy-user" autocomplete="username" placeholder="Username (decoy)" data-trap="true">
+      <input type="password" name="decoy-pass" autocomplete="current-password" placeholder="Password (decoy)" data-trap="true">
+      <input type="email" name="decoy-email" autocomplete="email" placeholder="Email (decoy)" data-trap="true">
+    </div>
+
+    <!-- Cross-origin iframe: content is unreachable but tests that extension
+         doesn't attempt to write into cross-origin frames -->
+    <h3>Cross-Origin Iframe</h3>
+    <iframe
+      id="xorigin-frame"
+      src="https://example.com"
+      sandbox="allow-scripts"
+      title="Cross-origin lure"
+    ></iframe>
+
+    <!-- Same-origin iframe with decoy inputs -->
+    <h3>Same-Origin Iframe (inline srcdoc)</h3>
+    <iframe
+      id="sameorigin-frame"
+      srcdoc="
+        <!DOCTYPE html>
+        <html>
+        <body>
+          <form>
+            <input type='text' name='iframe-user' autocomplete='username' placeholder='Username (iframe)'>
+            <input type='password' name='iframe-pass' autocomplete='current-password' placeholder='Password (iframe)'>
+          </form>
+        </body>
+        </html>
+      "
+      title="Same-origin decoy iframe"
+    ></iframe>
+
+    <!-- The REAL form -->
+    <form id="real-form" action="/login" method="POST">
+      <h3 style="margin-top: 0;">Real Login Form</h3>
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" placeholder="Enter username">
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Enter password">
+
+      <button type="submit">Log In</button>
+    </form>
+
+    <!-- More decoys BELOW the form -->
+    <div class="decoy-section">
+      <p style="color: red; font-size: 12px;">Post-form decoys (should NOT be filled)</p>
+      <input type="text" name="decoy-user-2" autocomplete="username" placeholder="Username (decoy 2)" data-trap="true">
+      <input type="password" name="decoy-pass-2" autocomplete="current-password" placeholder="Password (decoy 2)" data-trap="true">
+      <input type="hidden" name="decoy-hidden-csrf" value="" data-trap="true">
+    </div>
+  </div>
+</body>
+</html>

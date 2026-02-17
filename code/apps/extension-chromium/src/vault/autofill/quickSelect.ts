@@ -45,7 +45,7 @@ import {
   isIndexStale,
 } from './vaultIndex'
 import type { SearchResult, IndexEntry } from './vaultIndex'
-import { classifyRelevance, type RelevanceTier } from '../../../../../../packages/shared/src/vault/originPolicy'
+import { classifyRelevance, type RelevanceTier } from '../../../../../packages/shared/src/vault/originPolicy'
 import {
   guardElement,
   auditLog,

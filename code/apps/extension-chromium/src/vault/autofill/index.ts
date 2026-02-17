@@ -35,7 +35,7 @@ export {
 export type { ScanResult, ElementScore, FieldMapping, ScanConfig } from './fieldScanner'
 
 // ── Overlay (preview UI) ──
-export { showOverlay, hideOverlay, isOverlayVisible, checkMutationGuard, applyTheme, getTokens } from './overlayManager'
+export { showOverlay, hideOverlay, isOverlayVisible, getActiveSessionId, checkMutationGuard, applyTheme, getTokens } from './overlayManager'
 export type { UserDecision } from './overlayManager'
 export { CSS_TOKENS, buildOverlayCSS, createOverlayStyleSheet } from './overlayStyles'
 export type { CSSToken } from './overlayStyles'
@@ -47,9 +47,12 @@ export type { MutationGuardHandle, GuardStatus, GuardViolation } from './mutatio
 // ── DOM Fingerprint (tamper detection) ──
 export { takeFingerprint, validateFingerprint, captureProperties } from './domFingerprint'
 
-// ── Committer (value injection) ──
-export { commitInsert, setValueSafely, runSafetyChecks, setTelemetryHook } from './committer'
-export type { SetValueResult, CommitTelemetryEvent } from './committer'
+// ── Committer (value injection — via writeBoundary guard) ──
+// NOTE: setValueSafely is intentionally NOT re-exported here.
+// Only committer.ts (internal) and inlinePopover.ts may import it directly.
+// See writeBoundary.ts and scripts/check-write-boundary.sh for enforcement.
+export { commitInsert, runSafetyChecks, setTelemetryHook } from './writeBoundary'
+export type { SetValueResult, CommitTelemetryEvent } from './writeBoundary'
 
 // ── Submit Watcher (credential capture) ──
 export { startSubmitWatcher, stopSubmitWatcher, onCredentialSubmit, SAVE_BAR_TIMEOUT_MS } from './submitWatcher'
@@ -79,6 +82,22 @@ export {
   unregisterShortcut,
 } from './quickSelect'
 export type { QuickSelectResult, QuickSelectOptions } from './quickSelect'
+
+// ── Field Icons (inline input field icons) ──
+export {
+  syncFieldIcons,
+  clearAllFieldIcons,
+  getFieldIconCount,
+} from './fieldIcons'
+export type { FieldIconHandle, IconClickHandler } from './fieldIcons'
+
+// ── Inline Popover (Auto/Manual fill dropdown) ──
+export {
+  showPopover,
+  hidePopover,
+  isPopoverVisible,
+} from './inlinePopover'
+export type { PopoverOptions, PopoverResult } from './inlinePopover'
 
 // ── Vault Index (in-memory search for QuickSelect) ──
 export {
@@ -185,3 +204,54 @@ export {
   getRefactorTargets,
 } from './moduleManifest'
 export type { ModuleDescriptor, ModuleId, ModuleLayer, ImportRule, RefactorPhase } from './moduleManifest'
+
+// ── WebMCP Preview Adapter (leaf module — no reverse dependencies) ──
+export { handleWebMcpFillPreviewRequest } from './webMcpAdapter'
+export type { WebMcpFillPreviewParams, WebMcpAdapterResult } from './webMcpAdapter'
+
+// ── Writes Kill-Switch (global DOM write disable) ──
+export {
+  areWritesDisabled,
+  initWritesKillSwitch,
+  setWritesDisabled,
+  onWritesDisabledChange,
+} from './writesKillSwitch'
+
+// ── QSO (Quick Sign-On) — leaf module for password-manager sign-in ──
+export {
+  resolveQsoState, executeQsoFill,
+  QSO_RESULT_VERSION, QSO_STATUSES, QSO_ERROR_CODES,
+  isQsoResultV1, buildQsoStateResult, buildQsoFillActionResult,
+} from './qso/qsoEngine'
+export type {
+  QsoState, QsoStatus, QsoCandidate, QsoFillResult, QsoBlockReason,
+  QsoErrorCode, QsoActionResult,
+} from './qso/qsoEngine'
+export { showQsoIcon, hideQsoIcon, isQsoIconVisible, qsoStateToVisual } from './qso/qsoIcon'
+export type { QsoIconHandle, QsoIconVisualState } from './qso/qsoIcon'
+export { showQsoPicker, hideQsoPicker, isQsoPickerVisible } from './qso/qsoPicker'
+
+// ── Submit Guard (safe form submission after fill) ──
+export { resolveSubmitTarget, safeSubmitAfterFill, SUBMIT_BLOCK_REASONS } from './submitGuard'
+export type { SubmitSafetyInput, SubmitResult, SubmitBlockReason, SubmitCode } from './submitGuard'
+
+// ── QSO Remap (Add & Map + Remap flows) ──
+export { updateRemapState, teardownRemap, getRemapState, forgetMapping } from './qso/remapManager'
+export type { RemapState, RemapDetectionResult } from './qso/remapManager'
+export { showRemapIcon, hideRemapIcon, isRemapIconVisible } from './qso/remapIcon'
+export type { RemapIconMode, RemapIconHandle } from './qso/remapIcon'
+export { showMappingWizard, hideMappingWizard, isMappingWizardVisible } from './qso/mappingWizard'
+export type { WizardResult, WizardHandle } from './qso/mappingWizard'
+export {
+  saveMapping, loadMapping, deleteMapping,
+  createCredentialFromPageInput, findCredentialsForOrigin,
+} from './qso/mappingStore'
+export type { OriginCredential } from './qso/mappingStore'
+export {
+  buildSelector, buildSignature, buildElementMapping,
+  validateMapping, effectiveOrigin, scoreSignatureMatch,
+} from './qso/selectorStrategy'
+export type {
+  ElementMapping, ElementSignature, LoginFormMapping,
+  MappingValidationResult, ElementResolution,
+} from './qso/selectorStrategy'

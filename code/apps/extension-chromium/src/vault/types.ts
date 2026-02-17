@@ -59,8 +59,22 @@ export const IDENTITY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'country', label: 'Country', type: 'text', required: false, explanation: 'Country name' },
   { key: 'email', label: 'Email', type: 'email', required: false, explanation: 'Primary email address' },
   { key: 'phone', label: 'Phone Number', type: 'text', required: false, explanation: 'Primary phone number with country code' },
+  { key: 'date_of_birth', label: 'Date of Birth', type: 'text', required: false, explanation: 'Date of birth (DD.MM.YYYY or YYYY-MM-DD)' },
   { key: 'tax_id', label: 'Tax ID / SSN', type: 'text', required: false, explanation: 'Tax identification number or social security number' },
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
+]
+
+// Payment method fields (reusable across Identity, Company, Business)
+export const PAYMENT_FIELDS: StandardFieldDef[] = [
+  { key: 'iban', label: 'IBAN', type: 'text', required: false, explanation: 'International Bank Account Number (e.g. DE89 3704 0044 0532 0130 00)' },
+  { key: 'bic', label: 'BIC / SWIFT', type: 'text', required: false, explanation: 'Bank Identifier Code or SWIFT code' },
+  { key: 'bank_name', label: 'Bank Name', type: 'text', required: false, explanation: 'Name of the bank or financial institution' },
+  { key: 'account_holder', label: 'Account Holder', type: 'text', required: false, explanation: 'Name on the bank account' },
+  { key: 'cc_number', label: 'Credit Card Number', type: 'password', required: false, explanation: 'Credit or debit card number' },
+  { key: 'cc_holder', label: 'Cardholder Name', type: 'text', required: false, explanation: 'Name on the credit or debit card' },
+  { key: 'cc_expiry', label: 'Expiry Date', type: 'text', required: false, explanation: 'Card expiry date (MM/YY)' },
+  { key: 'cc_cvv', label: 'CVV / CVC', type: 'password', required: false, explanation: 'Card verification value (3 or 4 digit security code)' },
+  { key: 'paypal_email', label: 'PayPal Email', type: 'email', required: false, explanation: 'Email address linked to PayPal account' },
 ]
 
 // Standard fields for Company
@@ -75,6 +89,7 @@ export const COMPANY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'country', label: 'Country', type: 'text', required: false, explanation: 'Country name' },
   { key: 'email', label: 'Company Email', type: 'email', required: false, explanation: 'Primary business email address' },
   { key: 'phone', label: 'Phone Number', type: 'text', required: false, explanation: 'Business phone number' },
+  { key: 'website', label: 'Website', type: 'url', required: false, explanation: 'Company website URL' },
   { key: 'vat_number', label: 'VAT Number', type: 'text', required: false, explanation: 'Value Added Tax identification number' },
   { key: 'tax_id', label: 'Tax ID', type: 'text', required: false, explanation: 'Business tax identification number' },
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },

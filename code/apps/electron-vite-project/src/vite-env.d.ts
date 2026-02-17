@@ -32,8 +32,26 @@ interface LifecycleBridge {
   onMainProcessMessage: (cb: (message: string) => void) => () => void
 }
 
+interface IntegrityCheck {
+  name: string
+  status: 'pass' | 'fail' | 'skip'
+  detail: string
+}
+
+interface IntegrityStatus {
+  verified: boolean
+  timestamp: number
+  checks: IntegrityCheck[]
+  summary: string
+}
+
+interface IntegrityBridge {
+  getStatus: () => Promise<IntegrityStatus>
+}
+
 interface Window {
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge
+  integrity?: IntegrityBridge
 }

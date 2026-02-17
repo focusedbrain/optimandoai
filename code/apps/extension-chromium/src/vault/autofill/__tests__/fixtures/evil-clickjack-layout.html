@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Evil: Clickjack Layout — Overlay Confusion / Pointer Hijack</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 20px; position: relative; }
+
+    /* Fake overlay that mimics our autofill overlay position and styling */
+    #fake-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 2147483646; /* Just below max z-index */
+      pointer-events: none;
+      background: transparent;
+    }
+    #fake-overlay .fake-panel {
+      position: absolute;
+      top: 200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      padding: 16px;
+      background: white;
+      border: 2px solid #4f46e5;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      pointer-events: auto;
+      z-index: 2147483647;
+    }
+    #fake-overlay .fake-panel button {
+      width: 100%;
+      padding: 10px;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    /* Transparent input positioned over where the overlay Insert button would be */
+    #pointer-trap {
+      position: fixed;
+      top: 280px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      height: 40px;
+      opacity: 0.01;
+      z-index: 2147483647;
+      cursor: pointer;
+    }
+
+    /* Hidden inputs that try to capture autofill via various tricks */
+    .invisible-inputs {
+      position: absolute;
+      top: -9999px;
+      left: -9999px;
+    }
+    .zero-size-inputs input {
+      width: 0; height: 0;
+      border: 0; padding: 0; margin: 0;
+      overflow: hidden;
+      position: absolute;
+    }
+
+    #real-form {
+      max-width: 400px;
+      margin: 60px auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    #real-form input {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    #real-form label {
+      display: block;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Evil Clickjack Layout</h2>
+  <p>Positioned elements attempt pointer confusion. Our overlay uses closed shadow DOM.</p>
+
+  <!-- Fake overlay panel that mimics our autofill UI -->
+  <div id="fake-overlay">
+    <div class="fake-panel">
+      <p style="margin: 0 0 8px 0; font-weight: bold;">Fake Autofill Panel</p>
+      <p style="margin: 0 0 12px 0; font-size: 13px; color: #666;">This is NOT the real overlay.</p>
+      <button id="fake-insert-btn" type="button" onclick="document.getElementById('username').value='HIJACKED'">
+        Insert (Fake)
+      </button>
+    </div>
+  </div>
+
+  <!-- Transparent element overlapping expected overlay region -->
+  <div id="pointer-trap"
+       onclick="document.getElementById('password').value='HIJACKED_POINTER'"
+       title="Pointer trap (should never cause writes)">
+  </div>
+
+  <!-- Hidden off-screen inputs (should be rejected by guardElement visibility checks) -->
+  <div class="invisible-inputs">
+    <input type="text" name="offscreen-user" autocomplete="username" data-trap="true">
+    <input type="password" name="offscreen-pass" autocomplete="current-password" data-trap="true">
+  </div>
+
+  <!-- Zero-dimension inputs (should be rejected by VIS_ZERO_RECT) -->
+  <div class="zero-size-inputs">
+    <input type="text" name="zero-user" autocomplete="username" data-trap="true">
+    <input type="password" name="zero-pass" autocomplete="current-password" data-trap="true">
+  </div>
+
+  <!-- Opacity-zero input overlay (should be rejected by VIS_OPACITY_ZERO) -->
+  <input type="text" name="opacity-trap"
+         style="position: fixed; top: 250px; left: 50%; opacity: 0; z-index: 999999;"
+         autocomplete="username" data-trap="true">
+
+  <!-- The REAL form -->
+  <form id="real-form" action="/login" method="POST">
+    <h3 style="margin-top: 0;">Real Login Form</h3>
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="username" placeholder="Enter username">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Enter password">
+
+    <button type="submit">Log In</button>
+  </form>
+
+  <!-- Script that tries to intercept and hijack events -->
+  <script>
+    // Attempt to intercept any value-setting on inputs (attacker-side detection)
+    document.querySelectorAll('input').forEach(function(input) {
+      var origDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      if (origDescriptor && origDescriptor.set) {
+        Object.defineProperty(input, 'value', {
+          set: function(v) {
+            // Attacker tries to log/intercept — this should NOT fire
+            // because no values are written before consent
+            input.setAttribute('data-write-detected', 'true');
+            origDescriptor.set.call(this, v);
+          },
+          get: function() {
+            return origDescriptor.get.call(this);
+          },
+          configurable: true,
+        });
+      }
+    });
+  </script>
+</body>
+</html>

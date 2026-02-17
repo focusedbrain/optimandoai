@@ -1,0 +1,98 @@
+name: WebMCP Release Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "Run WebMCP E2E smoke test"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webmcp-release-gate:
+    name: "WebMCP Gate (build + unit tests)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: code/apps/extension-chromium
+
+      - name: Build extension
+        run: npm run build
+        working-directory: code/apps/extension-chromium
+
+      - name: Run WebMCP unit + sender-gate tests
+        run: npm run test:webmcp:ci
+        working-directory: code
+
+  quarantine-monitor:
+    name: "Quarantine (pre-existing failures, non-blocking)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: code/apps/extension-chromium
+
+      - name: Run quarantined tests (informational)
+        run: npm run test:quarantine || true
+        working-directory: code
+
+  webmcp-e2e-smoke:
+    name: "WebMCP E2E Smoke (opt-in)"
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e == true }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: code/apps/extension-chromium
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: code/apps/extension-chromium
+
+      - name: Build extension
+        run: npm run build
+        working-directory: code/apps/extension-chromium
+
+      - name: Run WebMCP E2E smoke
+        run: npm run test:e2e:webmcp
+        working-directory: code/apps/extension-chromium

@@ -64,8 +64,68 @@ import {
   emitTelemetryEvent,
   redactError,
 } from './hardening'
-import { checkMutationGuard } from './overlayManager'
+import { checkMutationGuard, isOverlayVisible, hideOverlay } from './overlayManager'
 import { haCheck, isHAEnforced } from './haGuard'
+import { areWritesDisabled } from './writesKillSwitch'
+
+// ============================================================================
+// §0.1  Dev-Only Write Canary
+// ============================================================================
+//
+// Runtime invariant: setValueSafely must only be called when either:
+//   a) An overlay is visible (commitInsert path — user clicked Insert)
+//   b) An inline popover fill is in progress (inlinePopover click-to-fill)
+//
+// In production builds this is a no-op.  In dev builds (import.meta.env.DEV)
+// it throws immediately if neither condition holds, catching accidental
+// direct calls that bypass the consent/safety pipeline.
+//
+// This canary is intentionally conservative: it checks overlay visibility
+// as a proxy for "we are in a legitimate write path".  The inline popover
+// path sets _popoverFillActive before calling setValueSafely.
+
+let _popoverFillActive = false
+let _qsoFillActive = false
+
+/**
+ * Mark the start/end of an inline popover fill operation.
+ * Called by inlinePopover.ts BEFORE invoking setValueSafely.
+ */
+export function setPopoverFillActive(active: boolean): void {
+  _popoverFillActive = active
+}
+
+/**
+ * Mark the start/end of a QSO (Quick Sign-On) fill operation.
+ * Called by qsoEngine.ts when the user clicks the QSO icon and
+ * commitInsert is about to be invoked.  This allows the dev-only
+ * write canary to recognise QSO as a legitimate consent path.
+ */
+export function setQsoFillActive(active: boolean): void {
+  _qsoFillActive = active
+}
+
+function devWriteCanary(): void {
+  // Only enforce in dev builds — production must never throw here
+  try {
+    if (!import.meta.env?.DEV) return
+  } catch {
+    return
+  }
+
+  if (isOverlayVisible()) return
+  if (_popoverFillActive) return
+  if (_qsoFillActive) return
+
+  // Neither overlay, popover, nor QSO path — this is a rogue write attempt
+  const err = new Error(
+    '[WRVault Write Canary] setValueSafely() called outside of overlay consent, ' +
+    'popover fill, or QSO fill path. This is a security violation in dev mode. ' +
+    'All DOM writes must flow through commitInsert(), inlinePopover, or QSO.',
+  )
+  auditLog('security', 'DEV_WRITE_CANARY', err.message)
+  throw err
+}
 
 // ============================================================================
 // §1  Types
@@ -225,6 +285,32 @@ export async function commitInsert(session: OverlaySession): Promise<CommitResul
   if (!haCheck('skip_mutation_guard')) {
     // HA is active → mutation guard MUST have been attached.
     // If it wasn't, reject immediately.
+  }
+
+  // ====================================================================
+  // KILL-SWITCH GATE — Global writes kill-switch (fail-closed)
+  //
+  // If the operator/admin has disabled writes globally, abort the entire
+  // commit before ANY safety checks or DOM writes occur.  This is the
+  // authoritative server-side enforcement point; the overlay/popover UX
+  // also reflects the state, but this gate is the real security boundary.
+  //
+  // Placed before Phase 1 so no work runs when writes are disabled.
+  // No partial writes allowed.
+  // ====================================================================
+  if (areWritesDisabled()) {
+    session.state = 'invalidated'
+    const level = isHAEnforced() ? 'security' : 'warn'
+    auditLog(level, 'WRITES_DISABLED_COMMIT_BLOCKED',
+      'Global writes kill-switch active — commit aborted')
+    emitTelemetryEvent('commit_blocked', { reason: 'writes_disabled' })
+    hideOverlay()
+    return {
+      success: false,
+      sessionId: session.id,
+      fields: [],
+      error: makeError('WRITES_DISABLED', 'Autofill writes are globally disabled by operator'),
+    }
   }
 
   // ====================================================================
@@ -471,6 +557,9 @@ export function setValueSafely(
   element: HTMLElement,
   value: string,
 ): SetValueResult {
+  // ── Dev-only write canary (throws if called outside consent path) ──
+  devWriteCanary()
+
   // ── Pre-checks (defensive, not primary gate) ──
   const input = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 

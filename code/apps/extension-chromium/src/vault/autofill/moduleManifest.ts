@@ -180,7 +180,8 @@ export const MODULE_MANIFEST: readonly ModuleDescriptor[] = [
       'Atomic value injection into DOM elements.  Multi-strategy cascade (native setter, ' +
       'direct assignment, setAttribute+override).  Safety checks, fingerprint re-validation, ' +
       'retry on framework overwrite.',
-    publicApi: ['commitInsert', 'setValueSafely', 'runSafetyChecks', 'setTelemetryHook'],
+    publicApi: ['commitInsert', 'runSafetyChecks', 'setTelemetryHook'],
+    // setValueSafely is intentionally NOT public. Access restricted via writeBoundary.ts.
     dependsOn: ['domFingerprint', 'hardening'],
     layer: 'L2_core',
     status: 'needs_refactor',

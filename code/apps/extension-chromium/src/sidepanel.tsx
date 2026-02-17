@@ -147,6 +147,7 @@ function SidepanelOrchestrator() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   
   // Check auth status on mount and periodically
@@ -200,9 +201,11 @@ function SidepanelOrchestrator() {
   const handleAuthSignIn = () => {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
+    setLoginError(null);
     chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
       setIsLoggingIn(false);
       if (response?.ok) {
+        setLoginError(null);
         setIsLoggedIn(true);
         // Fetch updated user info
         chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
@@ -216,10 +219,16 @@ function SidepanelOrchestrator() {
           }
         });
       } else {
-        // SSO failed for any reason (Electron not running, SSO timed out, browser didn't open, etc.)
-        // Fall back to opening wrdesk.com
-        console.log('[AUTH] SSO failed, falling back to wrdesk.com. Reason:', response?.error || 'unknown');
-        chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+        const reason = response?.error || 'unknown';
+        console.log('[AUTH] SSO failed. Reason:', reason);
+        if (response?.electronNotRunning) {
+          // Electron is truly not running – redirect to wrdesk.com
+          setLoginError('Desktop app is not running. Please start WR Desk Orchestrator.');
+          chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+        } else {
+          // Transient issue (launch secret not ready, timeout, etc.) – show error, let user retry
+          setLoginError(reason);
+        }
       }
     });
   };
@@ -3733,6 +3742,20 @@ function SidepanelOrchestrator() {
             textAlign: 'center'
           }}>
             A browser window will open for secure sign-in...
+          </p>
+        )}
+        
+        {/* Login error message */}
+        {loginError && !isLoggingIn && (
+          <p style={{
+            fontSize: '12px',
+            color: theme === 'standard' ? '#dc2626' : '#f87171',
+            margin: 0,
+            textAlign: 'center',
+            lineHeight: '1.5',
+            maxWidth: '280px'
+          }}>
+            {loginError}
           </p>
         )}
       </div>

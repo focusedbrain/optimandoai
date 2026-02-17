@@ -3,6 +3,7 @@
 // ============================================================================
 //
 // Environment: Vitest + JSDOM
+// @vitest-environment jsdom
 //
 // NOTE: JSDOM does not provide real layout (getBoundingClientRect returns zeros).
 // Tests that rely on visibility or positioning use mocks.  Real browser tests

@@ -32,12 +32,13 @@
 // ============================================================================
 
 import * as vaultAPI from '../api'
+import type { IndexProjection } from '../api'
 import type { VaultItem, Field } from '../types'
 import {
   classifyRelevance,
   relevanceWeight,
   type RelevanceTier,
-} from '../../../../../../packages/shared/src/vault/originPolicy'
+} from '../../../../../packages/shared/src/vault/originPolicy'
 
 // ============================================================================
 // §1  Types
@@ -116,7 +117,8 @@ export async function buildIndex(): Promise<boolean> {
 
   _building = true
   try {
-    const items = await vaultAPI.listItems()
+    // Least-privilege: fetch only fillable categories with sensitive values stripped
+    const items = await vaultAPI.listItemsForIndex()
     _entries = items
       .slice(0, MAX_INDEX_ENTRIES)
       .map(itemToEntry)
@@ -220,7 +222,7 @@ export function isIndexStale(): boolean {
  *     full value.  This allows type-ahead matching while preventing
  *     full-value extraction from the index.
  */
-function itemToEntry(item: VaultItem): IndexEntry {
+function itemToEntry(item: IndexProjection): IndexEntry {
   const rawUsername = extractUsername(item.fields)
   const domain = (item.domain ?? '').replace(/^https?:\/\//, '').replace(/\/.*$/, '')
 

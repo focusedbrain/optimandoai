@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Evil: DOM Bloat (50k+ nodes) — Scanner DoS Stress Test</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    .bloat-container { display: none; }
+    #real-form { max-width: 400px; margin: 40px auto; }
+    #real-form input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+    #real-form label { display: block; margin-top: 12px; font-size: 14px; }
+    #stats { color: #666; font-size: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Evil DOM Bloat</h2>
+  <p>This page generates 50,000+ DOM nodes to stress-test scanner bounds.</p>
+  <div id="stats"></div>
+
+  <!-- Real form: the only inputs the scanner should care about -->
+  <form id="real-form" action="/login" method="POST">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="username" placeholder="Enter username">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Enter password">
+
+    <button type="submit">Log In</button>
+  </form>
+
+  <!-- Bloat: 50,000+ nodes generated via script -->
+  <div id="bloat-root" class="bloat-container"></div>
+
+  <script>
+    (function generateBloat() {
+      const root = document.getElementById('bloat-root');
+      const frag = document.createDocumentFragment();
+      const TARGET = 50000;
+      let count = 0;
+
+      // Create deep nesting with hidden inputs interspersed
+      for (let i = 0; i < 500; i++) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'bloat-level-' + (i % 10);
+
+        for (let j = 0; j < 100; j++) {
+          const node = document.createElement('div');
+          node.setAttribute('data-idx', String(count));
+
+          // Every 8th node is a hidden input (decoy)
+          if (j % 8 === 0) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'trap_' + count;
+            inp.value = '';
+            inp.setAttribute('data-trap', 'true');
+            node.appendChild(inp);
+          }
+
+          // Every 25th node is a visible-but-off-screen text input (decoy)
+          if (j % 25 === 0) {
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.name = 'decoy_' + count;
+            inp.value = '';
+            inp.style.position = 'absolute';
+            inp.style.left = '-9999px';
+            inp.tabIndex = -1;
+            inp.setAttribute('data-trap', 'true');
+            node.appendChild(inp);
+          }
+
+          // Filler span nodes
+          const span = document.createElement('span');
+          span.textContent = '.';
+          node.appendChild(span);
+
+          wrapper.appendChild(node);
+          count++;
+        }
+
+        frag.appendChild(wrapper);
+      }
+
+      root.appendChild(frag);
+
+      const totalNodes = document.querySelectorAll('*').length;
+      const totalInputs = document.querySelectorAll('input').length;
+      document.getElementById('stats').textContent =
+        `Total DOM nodes: ${totalNodes} | Total inputs: ${totalInputs} (2 real, rest decoy/hidden)`;
+    })();
+  </script>
+</body>
+</html>

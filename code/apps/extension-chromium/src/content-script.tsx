@@ -1,8 +1,23 @@
 /// <reference types="chrome-types"/>
 
 import './agent-manager-v2'
+import { initAutofill, teardownAutofill } from './vault/autofill'
+import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 
-
+// ── WRVault Autofill: initialize the field icon + popover pipeline ──
+// Content scripts run at document_end, so DOM is ready.
+// Wrapped in try/catch so autofill issues never break the main extension.
+try {
+  if (document.body) {
+    initAutofill()
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      try { initAutofill() } catch { /* autofill init failed silently */ }
+    }, { once: true })
+  }
+} catch {
+  // Autofill init failed — extension continues to work normally
+}
 
 // Per-Tab Activation System
 
@@ -1355,7 +1370,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 })
 
+// ── WebMCP Preview Handler ──────────────────────────────────────────────────
+// Routes WEBMCP_FILL_PREVIEW_REQUEST from background.ts to the adapter.
+// This is a separate listener to minimize coupling to the main handler above.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || msg.type !== 'WEBMCP_FILL_PREVIEW_REQUEST') return false
 
+  handleWebMcpFillPreviewRequest({
+    itemId: msg.itemId,
+    targetHints: msg.targetHints,
+  }).then(
+    (result) => { try { sendResponse(result) } catch {} },
+    (err) => { try { sendResponse({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Handler failed' } }) } catch {} },
+  )
+
+  return true // async
+})
 
 // Function to show trigger name prompt in docked or floating chat
 
