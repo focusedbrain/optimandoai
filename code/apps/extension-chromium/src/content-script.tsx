@@ -7,16 +7,23 @@ import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 // ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
 // Wrapped in try/catch so autofill issues never break the main extension.
-try {
-  if (document.body) {
-    initAutofill()
-  } else {
-    document.addEventListener('DOMContentLoaded', () => {
-      try { initAutofill() } catch { /* autofill init failed silently */ }
-    }, { once: true })
+//
+// IMPORTANT: Skip autofill on the extension's own pages (sidepanel, popup,
+// vault manager).  The autofill overlay interferes with the vault's own
+// input fields and prevents users from adding/editing credentials.
+const _isExtensionPage = window.location.protocol === 'chrome-extension:'
+if (!_isExtensionPage) {
+  try {
+    if (document.body) {
+      initAutofill()
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        try { initAutofill() } catch { /* autofill init failed silently */ }
+      }, { once: true })
+    }
+  } catch {
+    // Autofill init failed — extension continues to work normally
   }
-} catch {
-  // Autofill init failed — extension continues to work normally
 }
 
 // Per-Tab Activation System
@@ -29995,6 +30002,8 @@ ${pageText}
     const overlay = document.createElement('div')
 
     overlay.id = 'wrvault-overlay'
+
+    overlay.setAttribute('data-wrv-no-autofill', '')
 
     overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
 

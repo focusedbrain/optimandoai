@@ -208,7 +208,21 @@ function* iterFormControlsBounded(
     ? FORM_CONTROL_TAGS
     : FORM_CONTROL_TAGS_INPUT_ONLY
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node: Node) {
+      const el = node as HTMLElement
+      // Skip the vault's own UI — never scan its input fields.
+      // FILTER_REJECT skips the node AND its entire subtree.
+      if (
+        el.id === 'wrvault-overlay' ||
+        el.id === 'wrvault-container' ||
+        el.hasAttribute?.('data-wrv-no-autofill')
+      ) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
 
   let node: Node | null = walker.nextNode()
   while (node) {
@@ -239,7 +253,12 @@ function* iterFormControlsBounded(
 }
 
 const DEFAULT_SCAN_CONFIG: Required<ScanConfig> = {
-  root: document.body,
+  // IMPORTANT: Do NOT use `document.body` here — this module is statically
+  // imported by the background service worker (via webMcpAdapter → background.ts).
+  // Service workers have no `document` global, so accessing it at module-load
+  // time throws "ReferenceError: document is not defined" and kills the SW.
+  // The actual fallback to document.body happens at call-time in collectCandidates().
+  root: null as unknown as HTMLElement,
   maxElements: SCAN_CAP_MAX_ELEMENTS,
   maxCandidates: SCAN_CAP_MAX_CANDIDATES,
   maxDurationMs: SCAN_CAP_MAX_DURATION_MS,
@@ -1037,6 +1056,9 @@ export function startWatching(
     // Check if any mutation involves form fields
     let relevant = false
     for (const m of mutations) {
+      // Skip mutations inside the vault's own UI
+      if (isInsideVaultOverlay(m.target)) continue
+
       if (m.type === 'childList') {
         for (const node of m.addedNodes) {
           if (isFormField(node) || containsFormFields(node)) {
@@ -1090,6 +1112,18 @@ export function stopWatching(): void {
     _mutationTimer = null
   }
   _onFieldsChanged = null
+}
+
+/** Check if a node is inside the vault's own overlay (skip autofill there). */
+function isInsideVaultOverlay(node: Node): boolean {
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement
+  if (!el) return false
+  return !!(
+    el.id === 'wrvault-overlay' ||
+    el.id === 'wrvault-container' ||
+    el.hasAttribute?.('data-wrv-no-autofill') ||
+    el.closest?.('#wrvault-overlay, [data-wrv-no-autofill]')
+  )
 }
 
 function isFormField(node: Node): boolean {

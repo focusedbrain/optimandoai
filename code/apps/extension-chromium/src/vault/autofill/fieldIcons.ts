@@ -38,6 +38,12 @@ export type IconClickHandler = (
   iconRect: DOMRect,
 ) => void
 
+export type QsoClickHandler = (
+  element: HTMLElement,
+  candidate: FieldCandidate,
+  iconRect: DOMRect,
+) => void
+
 // ============================================================================
 // §2  State
 // ============================================================================
@@ -45,8 +51,15 @@ export type IconClickHandler = (
 let _icons: FieldIconHandle[] = []
 let _rafId: number | null = null
 let _onClick: IconClickHandler | null = null
+let _onQsoClick: QsoClickHandler | null = null
 /** Track which elements already have icons to avoid duplicates. */
 const _iconElements = new WeakSet<HTMLElement>()
+/** Whether the current domain has at least one matching credential. */
+let _hasMatch = false
+/** Map: input element → icon button (for SVG color updates via closed shadow). */
+const _iconBtns = new Map<HTMLElement, HTMLButtonElement>()
+/** Map: input element → QSO button (for show/hide via closed shadow). */
+const _qsoBtns = new Map<HTMLElement, HTMLButtonElement>()
 
 // ============================================================================
 // §3  Public API
@@ -111,6 +124,14 @@ export function syncFieldIcons(
 }
 
 /**
+ * Register the QSO (Quick Sign-On) click handler.
+ * Called by the orchestrator to wire up direct-fill behavior.
+ */
+export function setQsoClickHandler(handler: QsoClickHandler | null): void {
+  _onQsoClick = handler
+}
+
+/**
  * Remove all field icons and stop watchdog.
  */
 export function clearAllFieldIcons(): void {
@@ -120,6 +141,10 @@ export function clearAllFieldIcons(): void {
   }
   _icons = []
   _onClick = null
+  _onQsoClick = null
+  _iconBtns.clear()
+  _qsoBtns.clear()
+  _hasMatch = false
   stopPositionWatchdog()
 }
 
@@ -128,6 +153,44 @@ export function clearAllFieldIcons(): void {
  */
 export function getFieldIconCount(): number {
   return _icons.length
+}
+
+/**
+ * Update the match state of all field icons (icon color only).
+ *
+ * When `hasMatch` is true, icons turn green (credential found for this domain).
+ * When false, icons are grey (no matching credential).
+ *
+ * QSO button visibility is controlled separately via `setQsoButtonVisible()`.
+ */
+export function setFieldIconMatchState(hasMatch: boolean): void {
+  _hasMatch = hasMatch
+  const svg = hasMatch ? WR_LOGO_SVG_GREEN : WR_LOGO_SVG
+  for (const btn of _iconBtns.values()) {
+    btn.innerHTML = svg
+  }
+}
+
+/**
+ * Show or hide the QSO button on all field icons.
+ *
+ * The QSO button should only be visible when BOTH conditions are met:
+ *   1. A matching credential exists for this domain (hasMatch)
+ *   2. Auto mode is globally consented (autoConsented)
+ *
+ * Call this after `setFieldIconMatchState()` with the combined condition.
+ */
+export function setQsoButtonVisible(visible: boolean): void {
+  for (const qsoBtn of _qsoBtns.values()) {
+    qsoBtn.style.display = visible ? '' : 'none'
+  }
+}
+
+/**
+ * Whether the current domain has matching vault credentials.
+ */
+export function hasVaultMatch(): boolean {
+  return _hasMatch
 }
 
 // ============================================================================
@@ -149,13 +212,37 @@ function createFieldIcon(
   style.textContent = buildIconCSS()
   shadow.appendChild(style)
 
-  // Build icon button
+  // Flex container for QSO button + shield icon
+  const container = document.createElement('div')
+  container.className = 'wrv-fi-container'
+
+  // QSO (Quick Sign-On) button — hidden by default, shown via setQsoButtonVisible()
+  const qsoBtn = document.createElement('button')
+  qsoBtn.className = 'wrv-fi-qso'
+  qsoBtn.setAttribute('aria-label', 'Quick Sign-On — auto-fill and submit')
+  qsoBtn.setAttribute('title', 'Quick Sign-On')
+  qsoBtn.setAttribute('type', 'button')
+  qsoBtn.textContent = 'QSO'
+  qsoBtn.style.display = 'none'
+  qsoBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const iconRect = host.getBoundingClientRect()
+    _onQsoClick?.(element, candidate, iconRect)
+  })
+  qsoBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
+  container.appendChild(qsoBtn)
+
+  // Shield icon button (opens popover)
   const btn = document.createElement('button')
   btn.className = 'wrv-fi'
   btn.setAttribute('aria-label', 'WRVault — Fill this field')
   btn.setAttribute('title', 'WRVault')
   btn.setAttribute('type', 'button')
-  btn.innerHTML = WR_LOGO_SVG
+  btn.innerHTML = _hasMatch ? WR_LOGO_SVG_GREEN : WR_LOGO_SVG
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -166,13 +253,21 @@ function createFieldIcon(
     e.preventDefault()
     e.stopPropagation()
   })
-  shadow.appendChild(btn)
+  container.appendChild(btn)
+
+  shadow.appendChild(container)
+
+  // Store refs for dynamic updates via closed shadow
+  _iconBtns.set(element, btn)
+  _qsoBtns.set(element, qsoBtn)
 
   // Append and position
   document.documentElement.appendChild(host)
   positionIcon(host, element)
 
   const remove = () => {
+    _iconBtns.delete(element)
+    _qsoBtns.delete(element)
     try { host.remove() } catch { /* noop */ }
   }
 
@@ -190,10 +285,11 @@ function positionIcon(host: HTMLElement, anchor: HTMLElement): void {
 
   const iconSize = 22
   const padding = 5
+  const hostWidth = host.offsetWidth || iconSize
 
   // Position inside the right edge of the input field, vertically centered
   host.style.top = `${rect.top + (rect.height / 2) - (iconSize / 2)}px`
-  host.style.left = `${rect.right - iconSize - padding}px`
+  host.style.left = `${rect.right - hostWidth - padding}px`
 
   // If field is too narrow, don't show
   if (rect.width < 60) {
@@ -256,12 +352,18 @@ function stopPositionWatchdog(): void {
 // Recreated from the original WR Desk logo: shield shape with "WR" text
 // and a briefcase icon. Designed for 22x22px display inside form fields.
 
+/** Grey shield icon — no matching credential for current domain. */
 const WR_LOGO_SVG = `<svg width="18" height="18" viewBox="0 0 64 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Shield body -->
-  <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="#2d2d2d" stroke="#3a3a3a" stroke-width="2.5"/>
-  <!-- WR text -->
+  <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="#6b7280" stroke="#9ca3af" stroke-width="2.5"/>
   <text x="32" y="36" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="20" fill="#ffffff" letter-spacing="-0.5">WR</text>
-  <!-- Briefcase mini icon -->
+  <rect x="22" y="44" width="20" height="12" rx="2" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+  <path d="M27 44v-3a3 3 0 013-3h4a3 3 0 013 3v3" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+</svg>`
+
+/** Green shield icon — matching credential found for current domain. */
+const WR_LOGO_SVG_GREEN = `<svg width="18" height="18" viewBox="0 0 64 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M32 2 L6 16 V38 C6 54 18 66 32 70 C46 66 58 54 58 38 V16 Z" fill="#22c55e" stroke="#16a34a" stroke-width="2.5"/>
+  <text x="32" y="36" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="20" fill="#ffffff" letter-spacing="-0.5">WR</text>
   <rect x="22" y="44" width="20" height="12" rx="2" fill="none" stroke="#ffffff" stroke-width="1.8"/>
   <path d="M27 44v-3a3 3 0 013-3h4a3 3 0 013 3v3" fill="none" stroke="#ffffff" stroke-width="1.8"/>
 </svg>`
@@ -273,6 +375,11 @@ const WR_LOGO_SVG = `<svg width="18" height="18" viewBox="0 0 64 72" fill="none"
 function buildIconCSS(): string {
   return `
     :host { all: initial; display: block; }
+    .wrv-fi-container {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
     .wrv-fi {
       display: flex;
       align-items: center;
@@ -284,7 +391,7 @@ function buildIconCSS(): string {
       background: transparent;
       cursor: pointer;
       padding: 0;
-      opacity: 0.65;
+      opacity: 0.85;
       transition: opacity 0.15s ease, transform 0.12s ease, filter 0.15s ease;
       outline: none;
       filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
@@ -300,6 +407,38 @@ function buildIconCSS(): string {
       outline-offset: 1px;
     }
     .wrv-fi:active {
+      transform: scale(0.93);
+    }
+    .wrv-fi-qso {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: 0.5px;
+      padding: 3px 5px;
+      border-radius: 3px;
+      border: none;
+      background: #22c55e;
+      color: #ffffff;
+      cursor: pointer;
+      white-space: nowrap;
+      opacity: 0.9;
+      transition: opacity 0.15s ease, transform 0.12s ease, background 0.15s ease;
+      outline: none;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));
+    }
+    .wrv-fi-qso:hover {
+      opacity: 1;
+      background: #16a34a;
+      transform: scale(1.08);
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+    }
+    .wrv-fi-qso:focus-visible {
+      opacity: 1;
+      outline: 2px solid #6366f1;
+      outline-offset: 1px;
+    }
+    .wrv-fi-qso:active {
       transform: scale(0.93);
     }
   `

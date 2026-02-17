@@ -170,6 +170,17 @@ async function createCredential(
       { key: 'url', value: origin, encrypted: false, type: 'url' },
     ]
 
+    // Store submit button selector for reliable auto-submit on future visits
+    const submitSelector = detectSubmitButtonSelector()
+    if (submitSelector) {
+      fields.push({
+        key: 'submit_selector',
+        value: submitSelector,
+        encrypted: false,
+        type: 'text' as const,
+      })
+    }
+
     const item = await vaultAPI.createItem({
       category: 'password',
       title,
@@ -300,7 +311,145 @@ async function writeNeverSaveList(list: string[]): Promise<void> {
 }
 
 // ============================================================================
-// §5  Helpers
+// §5  Domain Remap (Reliable Future Matching)
+// ============================================================================
+
+/**
+ * Remap a vault item's domain to the given origin.
+ *
+ * Called when the user manually selects a non-matching entry from the popover.
+ * Updates the vault item's domain field so the icon turns green next time
+ * on this site, enabling reliable one-click autofill.
+ *
+ * Also stores the submit button selector if found, so auto-submit works
+ * reliably on future visits (even if the site's UI changes).
+ */
+export async function remapItemDomain(
+  itemId: string,
+  newOrigin: string,
+  submitSelector?: string,
+): Promise<void> {
+  try {
+    const item = await vaultAPI.getItem(itemId)
+
+    // Build the update payload
+    const updates: { domain: string; fields: Field[] } = {
+      domain: normalizeToOrigin(newOrigin),
+      fields: [...item.fields],
+    }
+
+    // Add/update the alternate_url field to store original + new domain
+    const existingAltUrls = item.fields.find(f => f.key === 'alternate_urls')
+    const altUrls: string[] = existingAltUrls?.value
+      ? JSON.parse(existingAltUrls.value)
+      : []
+
+    // Preserve the old domain as an alternate if it's different
+    if (item.domain && item.domain !== updates.domain) {
+      if (!altUrls.includes(item.domain)) {
+        altUrls.push(item.domain)
+      }
+    }
+
+    // Add the new origin if not already present
+    if (!altUrls.includes(updates.domain)) {
+      altUrls.push(updates.domain)
+    }
+
+    if (existingAltUrls) {
+      updates.fields = updates.fields.map(f =>
+        f.key === 'alternate_urls'
+          ? { ...f, value: JSON.stringify(altUrls) }
+          : f
+      )
+    } else {
+      updates.fields.push({
+        key: 'alternate_urls',
+        value: JSON.stringify(altUrls),
+        encrypted: false,
+        type: 'text' as const,
+      })
+    }
+
+    // Store submit button selector for reliable auto-submit
+    if (submitSelector) {
+      const existingSelector = updates.fields.find(f => f.key === 'submit_selector')
+      if (existingSelector) {
+        updates.fields = updates.fields.map(f =>
+          f.key === 'submit_selector'
+            ? { ...f, value: submitSelector }
+            : f
+        )
+      } else {
+        updates.fields.push({
+          key: 'submit_selector',
+          value: submitSelector,
+          encrypted: false,
+          type: 'text' as const,
+        })
+      }
+    }
+
+    await vaultAPI.updateItem(itemId, updates)
+    console.log('[CRED-STORE] Domain remapped:', itemId, '→', updates.domain)
+  } catch (err) {
+    console.error('[CRED-STORE] Error remapping domain:', err)
+    throw err
+  }
+}
+
+/**
+ * Check if any vault items match the current domain.
+ *
+ * Returns matching items sorted by relevance (exact match first, then
+ * alternate_urls matches).
+ */
+export async function findMatchingItemsForDomain(
+  domain: string,
+): Promise<VaultItem[]> {
+  try {
+    const items = await vaultAPI.listItems({ category: 'password' })
+    const matches: VaultItem[] = []
+
+    // First pass: check primary domain (available on list items)
+    const unmatched: VaultItem[] = []
+    for (const item of items) {
+      if (domainMatches(item.domain, domain)) {
+        matches.push(item)
+      } else {
+        unmatched.push(item)
+      }
+    }
+
+    // Second pass: for unmatched items, fetch full data to check
+    // alternate_urls (listItems returns empty fields[] for security).
+    // Only fetch if there are unmatched items to avoid unnecessary API calls.
+    if (unmatched.length > 0) {
+      const fullItemChecks = unmatched.map(async (item) => {
+        try {
+          const fullItem = await vaultAPI.getItem(item.id)
+          const altUrlsField = fullItem.fields.find(f => f.key === 'alternate_urls')
+          if (altUrlsField?.value) {
+            const altUrls: string[] = JSON.parse(altUrlsField.value)
+            if (altUrls.some(url => domainMatches(url, domain))) {
+              matches.push(fullItem)
+            }
+          }
+        } catch {
+          // Skip items that can't be fetched
+        }
+      })
+      await Promise.all(fullItemChecks)
+    }
+
+    return matches
+  } catch {
+    return []
+  }
+}
+
+// ============================================================================
+// §6  Helpers
 // ============================================================================
 
 /**
@@ -331,4 +480,83 @@ function extractFieldValue(fields: Field[], keys: string[]): string {
     if (field?.value) return field.value
   }
   return ''
+}
+
+/**
+ * Detect the submit button on the current page and return a CSS selector for it.
+ *
+ * Tries to build a unique, resilient selector by using (in order):
+ *   1. button[type="submit"] or input[type="submit"] within a form with a password field
+ *   2. First visible button near a password field matching login/signup patterns
+ *
+ * Returns null if no suitable button is found.
+ */
+export function detectSubmitButtonSelector(): string | null {
+  // Find forms with password fields
+  const passwordFields = document.querySelectorAll<HTMLInputElement>('input[type="password"]')
+  for (const pwField of passwordFields) {
+    const form = pwField.closest('form')
+    if (!form) continue
+
+    // Try explicit submit
+    const explicit = form.querySelector<HTMLElement>('input[type="submit"], button[type="submit"]')
+    if (explicit) return buildSelector(explicit)
+
+    // Try default button
+    const buttons = form.querySelectorAll<HTMLButtonElement>('button')
+    for (const btn of buttons) {
+      const t = btn.type.toLowerCase()
+      if (t === '' || t === 'submit') return buildSelector(btn)
+    }
+  }
+
+  // Fallback: look for common login/signup buttons on page
+  const buttonPatterns = [
+    /log\s*in/i, /sign\s*in/i, /anmeld/i, /einloggen/i,
+    /submit/i, /sign\s*up/i, /register/i, /registrier/i,
+  ]
+
+  const allButtons = document.querySelectorAll<HTMLElement>('button, input[type="submit"]')
+  for (const btn of allButtons) {
+    const text = (btn.textContent || (btn as HTMLInputElement).value || '').trim()
+    for (const pattern of buttonPatterns) {
+      if (pattern.test(text)) return buildSelector(btn)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Build a CSS selector for a given element.
+ * Tries to generate a unique, stable selector.
+ */
+function buildSelector(el: HTMLElement): string {
+  // If it has an ID, use it
+  if (el.id) return `#${CSS.escape(el.id)}`
+
+  // Build a selector from tag + attributes
+  const tag = el.tagName.toLowerCase()
+  const type = el.getAttribute('type')
+  const name = el.getAttribute('name')
+
+  let selector = tag
+  if (type) selector += `[type="${CSS.escape(type)}"]`
+  if (name) selector += `[name="${CSS.escape(name)}"]`
+
+  // If unique, return as-is
+  if (document.querySelectorAll(selector).length === 1) return selector
+
+  // Add text content as additional discriminator via :nth-of-type
+  const parent = el.parentElement
+  if (parent) {
+    const siblings = parent.querySelectorAll<HTMLElement>(selector)
+    for (let i = 0; i < siblings.length; i++) {
+      if (siblings[i] === el) {
+        return `${buildSelector(parent)} > ${selector}:nth-of-type(${i + 1})`
+      }
+    }
+  }
+
+  return selector
 }

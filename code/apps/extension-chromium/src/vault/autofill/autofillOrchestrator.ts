@@ -69,10 +69,21 @@ import {
 } from './hardening'
 import type { ExtractedCredentials } from '../../../../../packages/shared/src/vault/insertionPipeline'
 import { initHASync, haCheck, isHAEnforced, onHAChange } from './haGuard'
-import { syncFieldIcons, clearAllFieldIcons } from './fieldIcons'
-import { showPopover, hidePopover, isPopoverVisible } from './inlinePopover'
-import { hideOverlay } from './overlayManager'
-import { initWritesKillSwitch } from './writesKillSwitch'
+import { syncFieldIcons, clearAllFieldIcons, setFieldIconMatchState, setQsoButtonVisible, hasVaultMatch, setQsoClickHandler } from './fieldIcons'
+import {
+  showPopover,
+  hidePopover,
+  isPopoverVisible,
+  fillFieldsFromVaultItem,
+  autoSubmitAfterFill,
+  loadQsoAutoConsent,
+} from './inlinePopover'
+import { showFillPreview } from './fillPreview'
+import { safeSubmitAfterFill, resolveSubmitTarget } from './submitGuard'
+import type { SubmitSafetyInput } from './submitGuard'
+// overlayManager preview overlay removed — autofill now uses icon-click flow
+import { initWritesKillSwitch, areWritesDisabled } from './writesKillSwitch'
+import { setPopoverFillActive } from './committer'
 import { resolveQsoState, executeQsoFill } from './qso/qsoEngine'
 import type { QsoState, QsoCandidate } from './qso/qsoEngine'
 import { showQsoIcon, hideQsoIcon, qsoStateToVisual } from './qso/qsoIcon'
@@ -81,6 +92,9 @@ import { updateRemapState, teardownRemap } from './qso/remapManager'
 import { hideRemapIcon } from './qso/remapIcon'
 import { hideMappingWizard } from './qso/mappingWizard'
 import { listItemsForIndex } from '../api'
+import * as vaultAPI from '../api'
+import { findMatchingItemsForDomain } from './credentialStore'
+import type { VaultItem } from '../types'
 
 // ============================================================================
 // §1  State
@@ -96,6 +110,9 @@ let _lastQsoState: QsoState | null = null
 
 /** Callback for consumers (e.g., overlay manager) to receive scan results. */
 let _onScanResult: ((result: ScanResult) => void) | null = null
+
+/** Vault items that match the current domain (for direct-fill). */
+let _matchedItems: VaultItem[] = []
 
 // ============================================================================
 // §2  Public API
@@ -188,6 +205,7 @@ export function teardownAutofill(): void {
   _unsubscribeHA = null
   _lastScan = null
   _lastQsoState = null
+  _matchedItems = []
   _onScanResult = null
   _initialized = false
   auditLog('info', 'AUTOFILL_TEARDOWN', 'Autofill pipeline torn down')
@@ -225,7 +243,6 @@ function handleToggleChange(state: AutofillToggleState): void {
     quickSelectClose()
     hideTriggerIcon()
     hidePopover()
-    hideOverlay()
     clearAllFieldIcons()
     hideQsoIcon()
     hideQsoPicker()
@@ -233,6 +250,7 @@ function handleToggleChange(state: AutofillToggleState): void {
     clearIndex()
     _lastScan = null
     _lastQsoState = null
+    _matchedItems = []
     return
   }
 
@@ -283,6 +301,43 @@ async function updateQsoAsync(): Promise<void> {
   } catch {
     // Non-fatal — QSO is optional UX; autofill still works via field icons
     hideQsoIcon()
+  }
+}
+
+// ============================================================================
+// §3.3  Domain Match Detection (Icon Color State)
+// ============================================================================
+
+/**
+ * Check if the current domain has matching vault credentials.
+ *
+ * Updates:
+ *   - Field icon colors (grey ↔ green)
+ *   - _matchedItems cache (for direct-fill on green icon click)
+ *
+ * Non-blocking — errors are swallowed (icons stay grey on failure).
+ */
+async function checkDomainMatchesAsync(): Promise<void> {
+  try {
+    const currentOrigin = window.location.origin
+    const [matches, autoConsented] = await Promise.all([
+      findMatchingItemsForDomain(currentOrigin),
+      loadQsoAutoConsent(),
+    ])
+    _matchedItems = matches
+    const hasMatch = matches.length > 0
+
+    setFieldIconMatchState(hasMatch)
+    setQsoButtonVisible(hasMatch && autoConsented)
+
+    if (hasMatch) {
+      auditLog('info', 'DOMAIN_MATCH_FOUND', `Found ${matches.length} credential(s) matching ${window.location.hostname}`)
+    }
+  } catch {
+    // Non-fatal — icons remain grey, QSO hidden
+    _matchedItems = []
+    setFieldIconMatchState(false)
+    setQsoButtonVisible(false)
   }
 }
 
@@ -355,8 +410,7 @@ function handleSPANavigation(): void {
   auditLog('info', 'SPA_NAVIGATION', `SPA navigation detected: ${window.location.pathname}`)
   emitTelemetryEvent('safe_mode_fallback', { reason: 'spa_navigation' })
 
-  // Dismiss any open UI (overlay, popover, quickselect, save bar, field icons, QSO)
-  hideOverlay()
+  // Dismiss any open UI (popover, quickselect, save bar, field icons, QSO)
   quickSelectClose()
   hideTriggerIcon()
   hideSaveBar()
@@ -366,6 +420,7 @@ function handleSPANavigation(): void {
   hideQsoPicker()
   teardownRemap()
   _lastQsoState = null
+  _matchedItems = []
 
   // Invalidate and rescan
   invalidateScanCache()
@@ -383,6 +438,19 @@ function handleSPANavigation(): void {
  * managers where icons are always visible and the vault-locked state
  * is handled at interaction time (popover shows "unlock" prompt).
  */
+/** Field kinds that get the WRVault icon (password-manager fields only). */
+const PASSWORD_FIELD_KINDS = new Set([
+  'login.password',
+  'login.new_password',
+  'login.username',
+  'login.email',
+])
+
+/** Filter candidates to only password/login fields for icon placement. */
+function filterPasswordCandidates(candidates: FieldCandidate[]): FieldCandidate[] {
+  return candidates.filter(c => c.matchedKind && PASSWORD_FIELD_KINDS.has(c.matchedKind))
+}
+
 function runScan(): ScanResult {
   const startTime = performance.now()
   // Always scan with all sections ON for field detection + icon placement.
@@ -393,14 +461,20 @@ function runScan(): ScanResult {
   _lastScan = result
   _onScanResult?.(result)
 
-  // Place WRVault icons inside every detected form field
-  syncFieldIcons(result.candidates, handleFieldIconClick)
+  // Place WRVault icons only on password/login fields
+  const iconCandidates = filterPasswordCandidates(result.candidates)
+  syncFieldIcons(iconCandidates, handleFieldIconClick)
+  setQsoClickHandler(handleQsoButtonClick)
 
   emitTelemetryEvent('scan_complete', {
     candidateCount: result.candidates.length,
     hintCount: result.hints.length,
     elementsEvaluated: result.elementsEvaluated,
   }, durationMs)
+
+  // ── Domain match check: determine if current domain has matching credentials ──
+  // This updates field icon colors (grey → green) based on vault matches.
+  checkDomainMatchesAsync().catch(() => {})
 
   // ── QSO: resolve state after scan if autofill is active ──
   // QSO icon placement is async (vault API call) but non-blocking.
@@ -419,8 +493,10 @@ function startObserver(): void {
   startWatching(scanToggles, (result) => {
     _lastScan = result
     _onScanResult?.(result)
-    // Update field icons when DOM changes add/remove form fields
-    syncFieldIcons(result.candidates, handleFieldIconClick)
+    // Update field icons only on password/login fields
+    const iconCandidates = filterPasswordCandidates(result.candidates)
+    syncFieldIcons(iconCandidates, handleFieldIconClick)
+    setQsoClickHandler(handleQsoButtonClick)
   })
 }
 
@@ -429,9 +505,10 @@ function startObserver(): void {
 // ============================================================================
 
 /**
- * Handle a click on a WRVault field icon inside a form field.
+ * Handle a click on a WRVault shield icon inside a form field.
  *
- * Opens the inline popover with Auto/Manual mode toggle.
+ * Always opens the inline popover regardless of match state.
+ * Direct fill + auto-submit is handled by the separate QSO button.
  */
 import type { FieldCandidate } from '../../../../../packages/shared/src/vault/insertionPipeline'
 
@@ -440,33 +517,160 @@ async function handleFieldIconClick(
   candidate: FieldCandidate,
   iconRect: DOMRect,
 ): Promise<void> {
-  // NOTE: Do NOT gate on isAutofillActive() here.
-  // Icons are always visible and the popover handles vault-locked / empty
-  // states with a CTA that redirects the user to the vault manager.
-
   // Close any existing popover
   if (isPopoverVisible()) {
     hidePopover()
   }
 
   const allCandidates = _lastScan?.candidates ?? []
+  const domainHasMatch = hasVaultMatch()
 
+  openPopoverForField(element, candidate, allCandidates, iconRect, domainHasMatch)
+}
+
+/**
+ * Handle a click on the QSO (Quick Sign-On) button next to a field icon.
+ *
+ * The QSO button is only visible when match + auto mode are both active
+ * (State D). Performs direct fill + guarded auto-submit.
+ * If security guards block the submit, degrades to fill-only.
+ */
+async function handleQsoButtonClick(
+  element: HTMLElement,
+  candidate: FieldCandidate,
+  iconRect: DOMRect,
+): Promise<void> {
+  const allCandidates = _lastScan?.candidates ?? []
+
+  if (_matchedItems.length === 0) {
+    auditLog('warn', 'QSO_NO_MATCHES', 'QSO button clicked but no matched items')
+    return
+  }
+
+  const item = _matchedItems[0]
+
+  try {
+    const fullItem = await vaultAPI.getItemForFill(item.id) as VaultItem
+
+    if (areWritesDisabled()) {
+      auditLog('warn', 'WRITES_DISABLED_QSO', 'QSO fill blocked — writes disabled')
+      return
+    }
+
+    // ── Fill fields directly ──
+    setPopoverFillActive(true)
+    let filledCount = 0
+    try {
+      filledCount = fillFieldsFromVaultItem(fullItem, allCandidates, element)
+    } finally {
+      setPopoverFillActive(false)
+    }
+
+    auditLog('info', 'QSO_FILL', `QSO filled ${filledCount} fields from "${item.title}"`)
+    emitTelemetryEvent('direct_fill', { itemId: item.id, fieldCount: filledCount })
+
+    // ── Guarded auto-submit: use safeSubmitAfterFill with security gates ──
+    if (filledCount > 0) {
+      guardedAutoSubmit(allCandidates, 'qso_button')
+    }
+  } catch (err) {
+    auditLog('error', 'QSO_FILL_ERROR', `QSO fill failed: ${redactError(err)}`)
+    // Fallback: open popover so user can fill manually
+    openPopoverForField(element, candidate, allCandidates, iconRect, true)
+  }
+}
+
+/**
+ * Attempt a guarded form submit after fill. Uses the 12-gate security
+ * pipeline from submitGuard.ts. If any gate fails, the form is NOT
+ * submitted (values remain filled — degrade to fill-only).
+ */
+function guardedAutoSubmit(
+  candidates: FieldCandidate[],
+  source: string,
+): void {
+  // Resolve the form from filled candidates
+  let form: HTMLFormElement | null = null
+  for (const c of candidates) {
+    const el = c.element as HTMLElement
+    if (el && document.contains(el)) {
+      form = el.closest('form')
+      if (form) break
+    }
+  }
+
+  const submitEl = form ? resolveSubmitTarget(form) : null
+  if (!submitEl) {
+    auditLog('info', 'GUARDED_SUBMIT_NO_BUTTON',
+      `No submit button found for guarded submit (source: ${source})`)
+    return
+  }
+
+  const input: SubmitSafetyInput = {
+    form,
+    submitEl,
+    submitFingerprint: null,
+    originTier: _matchedItems.length > 0 ? 'exact' : 'none',
+    partialScan: _lastScan?.partial ?? false,
+    isTrusted: true,
+    mutationGuard: null,
+  }
+
+  const result = safeSubmitAfterFill(input)
+
+  if (result.submitted) {
+    auditLog('info', 'GUARDED_SUBMIT_OK',
+      `Guarded submit succeeded (source: ${source})`)
+    emitTelemetryEvent('guarded_submit', { source, code: result.code })
+  } else {
+    auditLog('warn', 'GUARDED_SUBMIT_BLOCKED',
+      `Guarded submit blocked: ${result.reason ?? result.code} (source: ${source}). Degrading to fill-only.`)
+    emitTelemetryEvent('guarded_submit_blocked', {
+      source,
+      code: result.code,
+      reason: result.reason,
+    })
+  }
+}
+
+/**
+ * Open the inline popover for a given field.
+ */
+async function openPopoverForField(
+  element: HTMLElement,
+  candidate: FieldCandidate,
+  allCandidates: FieldCandidate[],
+  iconRect: DOMRect,
+  hasMatch: boolean,
+): Promise<void> {
   try {
     const result = await showPopover({
       anchorElement: element,
       candidate,
       allCandidates,
       iconRect,
+      hasMatch,
+      onModeChange: (mode) => {
+        // When user toggles Auto/Manual in popover, update QSO button visibility
+        const isAuto = mode === 'auto'
+        const hasMatchNow = _matchedItems.length > 0
+        setQsoButtonVisible(hasMatchNow && isAuto)
+      },
     })
 
     if (result.action === 'filled') {
       auditLog('info', 'INLINE_FILL', `Inline popover filled ${result.fieldCount} fields from item ${result.itemId}`)
+      // Re-check domain matches after fill (the remap may have updated)
+      checkDomainMatchesAsync().catch(() => {})
     } else if (result.action === 'open_manager') {
-      // Send message to open the vault manager UI
       try {
-        chrome.runtime.sendMessage({ type: 'OPEN_VAULT_MANAGER' })
-      } catch {
-        // Extension context may be invalidated
+        // Open the vault lightbox directly on the current page (not the
+        // full orchestrator sidebar).  Dynamic import keeps the vault UI
+        // chunk out of the autofill critical path.
+        const { openVaultLightbox } = await import('../vault-ui-typescript')
+        openVaultLightbox()
+      } catch (e) {
+        auditLog('error', 'OPEN_MANAGER_FAIL', `Failed to open vault lightbox: ${redactError(e)}`)
       }
       auditLog('info', 'OPEN_MANAGER', 'User requested to open vault manager from popover')
     }

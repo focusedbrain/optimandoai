@@ -68,6 +68,9 @@ export {
   isNeverSaveDomain,
   addToNeverSaveList,
   removeFromNeverSaveList,
+  remapItemDomain,
+  findMatchingItemsForDomain,
+  detectSubmitButtonSelector,
 } from './credentialStore'
 export type { CredentialSaveResult } from './credentialStore'
 
@@ -88,16 +91,40 @@ export {
   syncFieldIcons,
   clearAllFieldIcons,
   getFieldIconCount,
+  setFieldIconMatchState,
+  setQsoButtonVisible,
+  hasVaultMatch,
+  setQsoClickHandler,
 } from './fieldIcons'
-export type { FieldIconHandle, IconClickHandler } from './fieldIcons'
+export type { FieldIconHandle, IconClickHandler, QsoClickHandler } from './fieldIcons'
+
+// ── QSO State Machine ──
+export {
+  QsoMatchStatus,
+  QsoAutoMode,
+  QsoUiState,
+  resolveQsoUiState,
+  shouldShowQsoButton,
+  shouldAutoSubmit,
+} from './qsoState'
 
 // ── Inline Popover (Auto/Manual fill dropdown) ──
 export {
   showPopover,
   hidePopover,
   isPopoverVisible,
+  fillFieldsFromVaultItem,
+  autoSubmitAfterFill,
+  loadQsoAutoConsent,
 } from './inlinePopover'
 export type { PopoverOptions, PopoverResult } from './inlinePopover'
+
+// ── Fill Preview (Secure overlay previews for Manual mode) ──
+export {
+  showFillPreview,
+  clearFillPreview,
+  isFillPreviewActive,
+} from './fillPreview'
 
 // ── Vault Index (in-memory search for QuickSelect) ──
 export {
