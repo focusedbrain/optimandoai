@@ -35,6 +35,7 @@ function detectVaultTheme(): VaultThemeName {
     const stored = localStorage.getItem('optimando-ui-theme')
     if (stored === 'standard' || stored === 'professional') return 'standard'
     if (stored === 'dark') return 'dark'
+    if (stored === 'pro' || stored === 'default') return 'pro'
   } catch { /* noop */ }
   return 'pro'
 }

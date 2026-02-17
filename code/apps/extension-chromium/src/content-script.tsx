@@ -9090,11 +9090,15 @@ function initializeExtension() {
 
     const savedTheme = localStorage.getItem('optimando-ui-theme')
 
-    if (savedTheme === 'dark' || savedTheme === 'standard') {
+    if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': savedTheme }) } catch {}
 
-      applyTheme(savedTheme)
+      if (savedTheme === 'pro') {
+        try { resetToDefaultTheme() } catch {}
+      } else {
+        applyTheme(savedTheme)
+      }
 
       } else {
 
@@ -9137,7 +9141,7 @@ function initializeExtension() {
 
         // Apply theme to sidebars
 
-        if (newTheme === 'default') {
+        if (newTheme === 'default' || newTheme === 'pro') {
 
           try { resetToDefaultTheme() } catch {}
 
@@ -31809,7 +31813,7 @@ ${pageText}
 
         console.log('🎨 Saved theme from localStorage:', savedTheme)
 
-        if (savedTheme === 'dark' || savedTheme === 'standard') {
+        if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
           themeSelect.value = savedTheme
 
@@ -42887,7 +42891,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'standard' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark' || t === 'pro') theme = t
 
         } catch {}
 
@@ -44814,7 +44818,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'standard' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark' || t === 'pro') theme = t
 
         } catch {}
 
