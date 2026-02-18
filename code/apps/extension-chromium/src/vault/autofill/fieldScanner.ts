@@ -934,53 +934,165 @@ function resolveLabel(element: HTMLElement): string {
 }
 
 // ============================================================================
-// §9  Form Context Detection
+// §9  Form Context Detection (Scoring-Based Intent Classifier)
 // ============================================================================
 
+/** Minimum score a form context must reach to be reported (avoids noise). */
+const FORM_INTENT_MIN_SCORE = 15
+
+/** Keyword regexes for field name/id/placeholder analysis. */
+const INTENT_FIELD_KEYWORDS = {
+  signup: /(?:register|sign[_\-.]?up|create[_\-.]?account|confirm[_\-.]?pass|repeat[_\-.]?pass|re[_\-.]?enter[_\-.]?pass|passwort[_\-.]?bestätigen)/i,
+  password_change: /(?:current[_\-.]?pass|old[_\-.]?pass|new[_\-.]?pass|change[_\-.]?pass|update[_\-.]?pass|altes[_\-.]?passwort|neues[_\-.]?passwort|aktuelles[_\-.]?passwort)/i,
+  login: /(?:log[_\-.]?in|sign[_\-.]?in|anmeld)/i,
+} as const
+
+/** Button / heading text patterns. */
+const INTENT_BUTTON_TEXT = {
+  signup: /(?:sign\s*up|create\s*account|register|registrieren|konto\s*erstellen|join\s*now)/i,
+  password_change: /(?:change\s*password|update\s*password|reset\s*password|passwort\s*ändern|passwort\s*aktualisieren)/i,
+  login: /(?:sign\s*in|log\s*in|anmelden|einloggen)/i,
+} as const
+
+/** URL path patterns (lightweight hints). */
+const INTENT_URL_PATHS = {
+  signup: /\/(?:sign[_\-]?up|register|create[_\-]?account|join)\b/i,
+  password_change: /\/(?:change[_\-]?password|update[_\-]?password|reset[_\-]?password|new[_\-]?password)\b/i,
+  login: /\/(?:log[_\-]?in|sign[_\-]?in|auth|sso)\b/i,
+} as const
+
 /**
- * Detect the form context for an element's enclosing <form>.
+ * Scoring-based form intent classifier.
  *
- * Inspects (in order):
- *   1. form.action URL
- *   2. form.id + form.className
- *   3. Submit button text within the form
+ * Analyses the enclosing `<form>` of any element (or a form element directly)
+ * and returns the most likely intent: login, signup, password_change,
+ * checkout, address, contact, or unknown.
  *
- * Cached per <form> element.
+ * Scoring dimensions:
+ *   1. Password field count + autocomplete attributes
+ *   2. Field name/id/placeholder keyword matches
+ *   3. Submit button / heading text
+ *   4. URL path hints
+ *   5. FORM_CONTEXT_SIGNALS regex (existing taxonomy patterns)
+ *
+ * Cached per `<form>` element (invalidated each scan cycle).
  */
-function detectFormContext(element: HTMLElement): FormContext {
-  const form = element.closest('form') as HTMLFormElement | null
+export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
+  const form = formOrElement.tagName === 'FORM'
+    ? formOrElement as HTMLFormElement
+    : formOrElement.closest('form') as HTMLFormElement | null
   if (!form) return 'unknown'
 
   const cached = _formContextCache.get(form)
   if (cached !== undefined) return cached
 
-  // Collect text to test against
-  const signals = [
-    form.action ?? '',
-    form.id ?? '',
-    form.className ?? '',
-  ]
+  const scores: Record<string, number> = {
+    login: 0,
+    signup: 0,
+    password_change: 0,
+    checkout: 0,
+    address: 0,
+    contact: 0,
+  }
 
-  // Submit button text
+  // ── 1. Password field analysis ──
+  const pwFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]'))
+  const hasNewPw = pwFields.some(f => f.autocomplete === 'new-password')
+  const hasCurrentPw = pwFields.some(f => f.autocomplete === 'current-password')
+
+  if (pwFields.length === 1 && !hasNewPw) {
+    scores.login += 20
+  }
+  if (pwFields.length >= 2 && !hasCurrentPw) {
+    scores.signup += 30
+  }
+  if (hasCurrentPw && hasNewPw) {
+    scores.password_change += 50
+  } else if (hasNewPw && !hasCurrentPw && pwFields.length >= 2) {
+    scores.signup += 40
+  } else if (hasNewPw && pwFields.length === 1) {
+    // Single new-password field — could be either signup or password_change
+    scores.signup += 20
+    scores.password_change += 15
+  }
+  if (hasCurrentPw && !hasNewPw) {
+    scores.login += 20
+  }
+  if (pwFields.length >= 2 && hasCurrentPw) {
+    scores.password_change += 25
+  }
+
+  // ── 2. Field name/id/placeholder keyword scan ──
+  const allInputs = form.querySelectorAll<HTMLInputElement>('input, select, textarea')
+  for (const input of allInputs) {
+    const attrs = [input.name, input.id, input.placeholder, input.getAttribute('aria-label') ?? ''].join(' ')
+    if (INTENT_FIELD_KEYWORDS.signup.test(attrs)) scores.signup += 25
+    if (INTENT_FIELD_KEYWORDS.password_change.test(attrs)) scores.password_change += 25
+    if (INTENT_FIELD_KEYWORDS.login.test(attrs)) scores.login += 15
+  }
+
+  // ── 3. Submit button / heading text ──
   const submitBtn = form.querySelector<HTMLElement>(
     'button[type="submit"], input[type="submit"], button:not([type])',
   )
-  if (submitBtn) {
-    signals.push(submitBtn.textContent ?? '')
-    signals.push((submitBtn as HTMLInputElement).value ?? '')
+  const btnText = submitBtn
+    ? ((submitBtn.textContent ?? '') + ' ' + ((submitBtn as HTMLInputElement).value ?? '')).trim()
+    : ''
+  if (btnText) {
+    if (INTENT_BUTTON_TEXT.signup.test(btnText)) scores.signup += 30
+    if (INTENT_BUTTON_TEXT.password_change.test(btnText)) scores.password_change += 30
+    if (INTENT_BUTTON_TEXT.login.test(btnText)) scores.login += 30
   }
 
-  const combined = signals.join(' ')
+  // Also check nearby headings (h1-h3 within or before the form)
+  const headings = form.querySelectorAll<HTMLElement>('h1, h2, h3')
+  for (const h of headings) {
+    const hText = h.textContent ?? ''
+    if (INTENT_BUTTON_TEXT.signup.test(hText)) scores.signup += 20
+    if (INTENT_BUTTON_TEXT.password_change.test(hText)) scores.password_change += 20
+    if (INTENT_BUTTON_TEXT.login.test(hText)) scores.login += 20
+  }
+
+  // ── 4. URL path hints ──
+  try {
+    const path = window.location.pathname
+    if (INTENT_URL_PATHS.signup.test(path)) scores.signup += 15
+    if (INTENT_URL_PATHS.password_change.test(path)) scores.password_change += 15
+    if (INTENT_URL_PATHS.login.test(path)) scores.login += 15
+  } catch { /* cross-origin guard */ }
+
+  // ── 5. Existing FORM_CONTEXT_SIGNALS regex (form action/id/class/button) ──
+  const formSignals = [
+    form.action ?? '',
+    form.id ?? '',
+    form.className ?? '',
+    btnText,
+  ].join(' ')
 
   for (const ctx of FORM_CONTEXT_SIGNALS) {
-    if (ctx.pattern.test(combined)) {
-      _formContextCache.set(form, ctx.context)
-      return ctx.context
+    if (ctx.pattern.test(formSignals)) {
+      scores[ctx.context] = (scores[ctx.context] ?? 0) + 20
     }
   }
 
-  _formContextCache.set(form, 'unknown')
-  return 'unknown'
+  // ── Pick winner ──
+  let best: FormContext = 'unknown'
+  let bestScore = 0
+  for (const [ctx, score] of Object.entries(scores)) {
+    if (score > bestScore) {
+      bestScore = score
+      best = ctx as FormContext
+    }
+  }
+
+  const result: FormContext = bestScore >= FORM_INTENT_MIN_SCORE ? best : 'unknown'
+  _formContextCache.set(form, result)
+  return result
+}
+
+/** Internal alias — called by the scan loop per element. */
+function detectFormContext(element: HTMLElement): FormContext {
+  return classifyFormIntent(element)
 }
 
 // ============================================================================

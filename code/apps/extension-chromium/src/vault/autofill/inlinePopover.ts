@@ -104,6 +104,10 @@ export function loadQsoAutoConsent(): Promise<boolean> {
 }
 
 /** Persist QSO Auto consent globally. */
+export function saveQsoAutoConsentPublic(consented: boolean): Promise<void> {
+  return saveQsoAutoConsent(consented)
+}
+
 function saveQsoAutoConsent(consented: boolean): Promise<void> {
   return new Promise((resolve) => {
     if (typeof chrome === 'undefined' || !chrome.storage?.local) {
@@ -328,13 +332,33 @@ async function loadVaultItems(): Promise<void> {
     _loading = true
     updateListUI()
 
-    // First check if vault is accessible
+    // Check if vault is accessible (retry once after a short delay if the
+    // first attempt fails — the background service worker may still be waking)
     let vaultOk = false
-    try {
-      const status = await vaultAPI.getVaultStatus()
-      vaultOk = status?.isUnlocked === true || status?.locked === false
-    } catch {
-      vaultOk = false
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const status = await vaultAPI.getVaultStatus()
+        vaultOk = status?.isUnlocked === true || status?.locked === false
+        if (vaultOk) break
+      } catch {
+        vaultOk = false
+      }
+      if (!vaultOk && attempt === 0) {
+        await new Promise(r => setTimeout(r, 600))
+      }
+    }
+
+    if (!vaultOk) {
+      // Try loading items directly as a fallback — if the vault is actually
+      // unlocked but /status failed, listItems will succeed
+      try {
+        const probe = await vaultAPI.listItems({ category: 'password' })
+        if (Array.isArray(probe)) {
+          vaultOk = true
+        }
+      } catch {
+        // Vault is genuinely locked
+      }
     }
 
     if (!vaultOk) {
@@ -345,13 +369,13 @@ async function loadVaultItems(): Promise<void> {
       return
     }
 
-    // Fetch all items (password + identity for registration forms)
-    const [passwords, identities] = await Promise.all([
-      vaultAPI.listItems({ category: 'password' }).catch(() => [] as VaultItem[]),
-      vaultAPI.listItems({ category: 'identity' }).catch(() => [] as VaultItem[]),
-    ])
+    // Login popup: ONLY password/credential items.
+    // Identity/company/business/custom data is handled by the DataVault popup.
+    const allItems = await vaultAPI.listItems({ category: 'password' }).catch(() => [] as VaultItem[])
 
-    _items = [...passwords, ...identities]
+    // Client-side safeguard: filter out non-password items in case the
+    // backend returns all categories despite the filter
+    _items = allItems.filter(item => item.category === 'password')
 
     // Sort: domain matches first, then favorites, then alphabetical
     const currentDomain = window.location.hostname.toLowerCase()
@@ -548,10 +572,8 @@ function updateListUI(specialState?: 'vault_locked'): void {
 
     const isDomainMatch = matchesDomain(item.domain, currentDomain)
     const username = getDisplayUsername(item)
-    const categoryIcon = item.category === 'identity' ? IDENTITY_SVG : LOCK_SVG
-
     row.innerHTML = `
-      <div class="wrv-pop-item-icon">${item.favorite ? STAR_SVG : categoryIcon}</div>
+      <div class="wrv-pop-item-icon">${item.favorite ? STAR_SVG : LOCK_SVG}</div>
       <div class="wrv-pop-item-text">
         <div class="wrv-pop-item-title">${escapeHtml(item.title)}</div>
         <div class="wrv-pop-item-meta">${escapeHtml(username)}</div>

@@ -344,6 +344,20 @@ export function openVaultLightbox() {
     applyModeStyles(false)
   })
 
+  // Close on Escape key
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove()
+      document.removeEventListener('keydown', escHandler)
+    }
+  }
+  document.addEventListener('keydown', escHandler)
+
+  // Close on backdrop click (outside the container)
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove()
+  })
+
   document.body.appendChild(overlay)
 
   // Initialize vault UI
@@ -2446,7 +2460,7 @@ async function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
       e.stopPropagation()
       try {
         const item = await vaultAPI.getItem(itemId)
-        const container = listDiv.closest('#wrvault-container') || document.querySelector('#wrvault-container')
+        const container = listDiv.closest('#vault-main-content') || document.querySelector('#vault-main-content')
         if (container) {
           renderEditDataDialog(container as HTMLElement, item)
         }
@@ -2466,7 +2480,7 @@ async function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
           // Refresh the view
           const containerId = (row as HTMLElement).getAttribute('data-container-id')
           const category = (row as HTMLElement).getAttribute('data-category')
-          const container = listDiv.closest('#wrvault-container') as HTMLElement
+          const container = (listDiv.closest('#vault-main-content') || document.querySelector('#vault-main-content')) as HTMLElement
           
           if (containerId) {
             loadContainerItems(container, containerId)

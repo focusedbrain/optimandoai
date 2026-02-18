@@ -172,6 +172,7 @@ export const LEGACY_KEY_MAP: Record<string, Record<string, FieldKind>> = {
     country:         'identity.country',
     email:           'identity.email',
     phone:           'identity.phone',
+    date_of_birth:   'identity.birthday',
     tax_id:          'identity.tax_id',
     additional_info: 'custom.textarea',
   },
@@ -401,7 +402,7 @@ export const ANTI_SIGNALS: DOMSignal[] = [
  * Heuristic patterns to classify the enclosing <form> as login, signup,
  * checkout, or address form.  These boost/suppress specific field kinds.
  */
-export type FormContext = 'login' | 'signup' | 'checkout' | 'address' | 'contact' | 'unknown'
+export type FormContext = 'login' | 'signup' | 'password_change' | 'checkout' | 'address' | 'contact' | 'unknown'
 
 export const FORM_CONTEXT_SIGNALS: Array<{
   context: FormContext
@@ -421,7 +422,13 @@ export const FORM_CONTEXT_SIGNALS: Array<{
   {
     context: 'signup',
     pattern: /(?:sign[_\-.]?up|register|regist|anmeld|erstell|create[_\-.]?account|join)/i,
-    boosts: ['login.email', 'login.new_password', 'identity.first_name', 'identity.last_name', 'identity.phone'],
+    boosts: ['login.email', 'login.new_password', 'identity.first_name', 'identity.last_name', 'identity.email', 'identity.phone'],
+    boostWeight: 20,
+  },
+  {
+    context: 'password_change',
+    pattern: /(?:change[_\-.]?pass|update[_\-.]?pass|reset[_\-.]?pass|new[_\-.]?pass|passwort[_\-.]?(?:ändern|aendern)|kennwort[_\-.]?ändern)/i,
+    boosts: ['login.new_password', 'login.password'],
     boostWeight: 20,
   },
   {
@@ -647,8 +654,10 @@ export const FIELD_REGISTRY: readonly FieldSignalSpec[] = [
       { source: 'input_type',   pattern: 'email',                       weight: 80 },
       { source: 'name_id',      pattern: RX.email.source,               weight: 65 },
       { source: 'label_text',   pattern: KW.email.join('|'),            weight: 50 },
-      { source: 'form_context', pattern: 'contact',                     weight: 10 },
-      // Disambiguated from login.email by form context: login form → login.email; other → identity.email
+      { source: 'form_context', pattern: 'contact',                     weight: 15 },
+      { source: 'form_context', pattern: 'signup',                      weight: 12 },
+      { source: 'form_context', pattern: 'checkout',                    weight: 12 },
+      { source: 'form_context', pattern: 'address',                     weight: 10 },
     ],
   },
 

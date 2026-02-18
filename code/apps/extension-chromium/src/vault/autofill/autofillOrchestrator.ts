@@ -68,7 +68,7 @@ import {
   redactError,
 } from './hardening'
 import type { ExtractedCredentials } from '../../../../../packages/shared/src/vault/insertionPipeline'
-import { initHASync, haCheck, isHAEnforced, onHAChange } from './haGuard'
+import { initHASync, haCheck, haCheckSilent, isHAEnforced, onHAChange } from './haGuard'
 import { syncFieldIcons, clearAllFieldIcons, setFieldIconMatchState, setQsoButtonVisible, hasVaultMatch, setQsoClickHandler } from './fieldIcons'
 import {
   showPopover,
@@ -95,6 +95,15 @@ import { listItemsForIndex } from '../api'
 import * as vaultAPI from '../api'
 import { findMatchingItemsForDomain } from './credentialStore'
 import type { VaultItem } from '../types'
+
+// ── DataVault PII Autofill Layer ──
+import {
+  initDataVault,
+  processScanForDataVault,
+  teardownDataVault,
+  handleDvSPANavigation,
+  cacheDvCandidates,
+} from './dataVaultOrchestrator'
 
 // ============================================================================
 // §1  State
@@ -168,10 +177,16 @@ export function initAutofill(
   runScan()
   startObserver()
 
-  // 8. Save-password watcher only starts if vault is active + HA allows it
-  if (isAutofillActive() && haCheck('auto_save')) {
-    startSavePasswordWatcher()
-  }
+  // 8. Always start the submit watcher for credential capture (password field
+  //    tracking, form submit hooks, XHR/fetch interception).  This must run
+  //    even when the vault is locked so we can capture registration credentials.
+  //    The save-bar + vault operations are gated inside the callback.
+  startSavePasswordWatcher()
+
+  // 9. Initialize DataVault PII autofill layer.
+  //    Checks denylist + profile availability and prepares icon placement.
+  //    Non-blocking — errors are swallowed (DataVault is optional UX).
+  initDataVault().catch(() => {})
 }
 
 /**
@@ -191,6 +206,7 @@ export function teardownAutofill(): void {
   hideQsoIcon()
   hideQsoPicker()
   teardownRemap()
+  teardownDataVault()
   unregisterShortcut()
   clearIndex()
   clearAuditLog()
@@ -236,9 +252,11 @@ export function getLastScan(): ScanResult | null {
 function handleToggleChange(state: AutofillToggleState): void {
   if (!state.vaultUnlocked || !state.enabled) {
     auditLog('info', 'TOGGLES_OFF', `Autofill disabled (vault=${state.vaultUnlocked ? 'unlocked' : 'locked'}, enabled=${state.enabled})`)
-    // Global off or vault locked → stop everything, dismiss any active overlay
+    // Global off or vault locked → stop UI overlays, but keep submit watcher
+    // running for credential capture (registration save prompts).
     stopWatching()
-    stopSubmitWatcher()
+    // NOTE: Do NOT stopSubmitWatcher() here — it must keep running to
+    // capture credentials from registration forms even when vault is locked.
     hideSaveBar()
     quickSelectClose()
     hideTriggerIcon()
@@ -247,6 +265,7 @@ function handleToggleChange(state: AutofillToggleState): void {
     hideQsoIcon()
     hideQsoPicker()
     teardownRemap()
+    teardownDataVault()
     clearIndex()
     _lastScan = null
     _lastQsoState = null
@@ -265,6 +284,9 @@ function handleToggleChange(state: AutofillToggleState): void {
 
   // Ensure submit watcher is running (only starts once per page)
   startSavePasswordWatcher()
+
+  // Re-initialize DataVault layer (may have been torn down when vault locked)
+  initDataVault().catch(() => {})
 }
 
 // ============================================================================
@@ -410,7 +432,7 @@ function handleSPANavigation(): void {
   auditLog('info', 'SPA_NAVIGATION', `SPA navigation detected: ${window.location.pathname}`)
   emitTelemetryEvent('safe_mode_fallback', { reason: 'spa_navigation' })
 
-  // Dismiss any open UI (popover, quickselect, save bar, field icons, QSO)
+  // Dismiss any open UI (popover, quickselect, save bar, field icons, QSO, DataVault)
   quickSelectClose()
   hideTriggerIcon()
   hideSaveBar()
@@ -419,6 +441,7 @@ function handleSPANavigation(): void {
   hideQsoIcon()
   hideQsoPicker()
   teardownRemap()
+  handleDvSPANavigation()
   _lastQsoState = null
   _matchedItems = []
 
@@ -446,9 +469,16 @@ const PASSWORD_FIELD_KINDS = new Set([
   'login.email',
 ])
 
-/** Filter candidates to only password/login fields for icon placement. */
+/** Form contexts where autofill login icons should NOT appear. */
+const ICON_SUPPRESSED_CONTEXTS = new Set<string>(['signup', 'password_change'])
+
+/** Filter candidates to only password/login fields on login forms for icon placement. */
 function filterPasswordCandidates(candidates: FieldCandidate[]): FieldCandidate[] {
-  return candidates.filter(c => c.matchedKind && PASSWORD_FIELD_KINDS.has(c.matchedKind))
+  return candidates.filter(c => {
+    if (!c.matchedKind || !PASSWORD_FIELD_KINDS.has(c.matchedKind)) return false
+    if (ICON_SUPPRESSED_CONTEXTS.has(c.formContext)) return false
+    return true
+  })
 }
 
 function runScan(): ScanResult {
@@ -471,6 +501,11 @@ function runScan(): ScanResult {
     hintCount: result.hints.length,
     elementsEvaluated: result.elementsEvaluated,
   }, durationMs)
+
+  // ── DataVault PII Autofill: place identity/company icons on detected fields ──
+  // processScanForDataVault is async (site learning + NLP booster) but non-blocking.
+  cacheDvCandidates(result.candidates)
+  processScanForDataVault(result).catch(() => {})
 
   // ── Domain match check: determine if current domain has matching credentials ──
   // This updates field icon colors (grey → green) based on vault matches.
@@ -497,6 +532,9 @@ function startObserver(): void {
     const iconCandidates = filterPasswordCandidates(result.candidates)
     syncFieldIcons(iconCandidates, handleFieldIconClick)
     setQsoClickHandler(handleQsoButtonClick)
+    // Update DataVault PII icons on identity/company fields
+    cacheDvCandidates(result.candidates)
+    processScanForDataVault(result).catch(() => {})
   })
 }
 
@@ -781,16 +819,18 @@ function startSavePasswordWatcher(): void {
   // Only register once
   if (_unsubscribeCredentials) return
 
-  // HA Mode: block automatic credential capture
-  if (!haCheck('auto_save')) return
-
+  // Always start the submit watcher hooks (password field tracking, form
+  // submit capture, XHR/fetch interception, history hooks).  These must run
+  // even when the vault is locked so we can capture registration credentials.
   startSubmitWatcher()
 
   _unsubscribeCredentials = onCredentialSubmit(async (creds: ExtractedCredentials) => {
     try {
-      // Gate: is the login section enabled?
-      const toggles = getEffectiveToggles()
-      if (!toggles.login) return
+      // Gate: password must be non-trivial
+      if (!creds.password || creds.password.length < 2) return
+
+      // Gate: HA Mode blocks automatic credential capture
+      if (!haCheckSilent('auto_save')) return
 
       // Gate: is this domain in the "never save" list?
       const blocked = await isNeverSaveDomain(creds.domain)
@@ -799,13 +839,15 @@ function startSavePasswordWatcher(): void {
         return
       }
 
-      // Gate: password must be non-trivial
-      if (!creds.password || creds.password.length < 2) return
-
       auditLog('info', 'SAVE_CREDENTIAL_DETECTED', `Credential submit detected for ${creds.domain} (form: ${creds.formType})`)
 
-      // Find existing matches in the vault
-      const existingMatches = await findExistingCredentials(creds.domain, creds.username)
+      // Find existing matches in the vault (may fail if vault is locked — that's ok)
+      let existingMatches: Array<{ itemId: string; username: string }> = []
+      try {
+        existingMatches = await findExistingCredentials(creds.domain, creds.username)
+      } catch {
+        // Vault may be locked — proceed without duplicate check
+      }
 
       // If exact duplicate (same username + password), don't bother prompting
       if (existingMatches.length > 0) {
@@ -840,7 +882,7 @@ function startSavePasswordWatcher(): void {
         emitTelemetryEvent('save_bar_cancel', {})
       }
 
-      // Execute the decision
+      // Execute the decision (may fail if vault is locked — save bar handles this)
       const result = await executeCredentialSave(decision, creds)
       if (result.success && (result.action === 'created' || result.action === 'updated')) {
         auditLog('info', 'CREDENTIAL_SAVED', `Credential ${result.action}: ${result.itemId}`)

@@ -885,8 +885,8 @@ export interface ExtractedCredentials {
   /** The form action URL (if available). */
   formAction?: string
 
-  /** Whether this is a signup (new-password) vs. login (current-password). */
-  formType: 'login' | 'signup' | 'unknown'
+  /** Whether this is a signup (new-password), login (current-password), or password change. */
+  formType: 'login' | 'signup' | 'password_change' | 'unknown'
 
   /** Timestamp. */
   extractedAt: number

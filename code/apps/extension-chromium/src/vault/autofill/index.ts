@@ -31,6 +31,7 @@ export {
   invalidateScanCache,
   startWatching,
   stopWatching,
+  classifyFormIntent,
 } from './fieldScanner'
 export type { ScanResult, ElementScore, FieldMapping, ScanConfig } from './fieldScanner'
 
@@ -116,6 +117,7 @@ export {
   fillFieldsFromVaultItem,
   autoSubmitAfterFill,
   loadQsoAutoConsent,
+  saveQsoAutoConsentPublic,
 } from './inlinePopover'
 export type { PopoverOptions, PopoverResult } from './inlinePopover'
 
@@ -235,6 +237,90 @@ export type { ModuleDescriptor, ModuleId, ModuleLayer, ImportRule, RefactorPhase
 // ── WebMCP Preview Adapter (leaf module — no reverse dependencies) ──
 export { handleWebMcpFillPreviewRequest } from './webMcpAdapter'
 export type { WebMcpFillPreviewParams, WebMcpAdapterResult } from './webMcpAdapter'
+
+// ── DataVault PII Autofill (identity/company field detection + fill) ──
+export {
+  initDataVault,
+  processScanForDataVault,
+  teardownDataVault,
+  handleDvSPANavigation,
+  setDvAutoMode,
+  cacheDvCandidates,
+} from './dataVaultOrchestrator'
+
+export {
+  listDataVaultProfiles,
+  getDataVaultProfile,
+  buildFieldMap,
+  getLastUsedProfileId,
+  setLastUsedProfileId,
+  isDvDenylisted,
+  addToDvDenylist,
+  removeFromDvDenylist,
+} from './dataVaultAdapter'
+export type {
+  DataVaultProfileType,
+  DataVaultProfileSummary,
+  DataVaultProfile,
+} from './dataVaultAdapter'
+
+export {
+  syncDvFieldIcons,
+  clearAllDvIcons,
+  getDvIconCount,
+  setDvProfileDataAvailable,
+  setDvIconMatchData,
+} from './dataVaultIcons'
+
+export {
+  showDvPopup,
+  hideDvPopup,
+  isDvPopupVisible,
+} from './dataVaultPopup'
+export type { DvPopupOptions, DvPopupResult } from './dataVaultPopup'
+
+export {
+  fillSingleField as dvFillSingleField,
+  fillAllMatchedFields as dvFillAllMatchedFields,
+} from './dataVaultFillEngine'
+export type {
+  FillFieldResult as DvFillFieldResult,
+  FillAllResult as DvFillAllResult,
+  FillOptions as DvFillOptions,
+} from './dataVaultFillEngine'
+
+// ── DataVault Site Learning (per-origin fingerprint→vaultKey persistence) ──
+export {
+  buildFieldFingerprint,
+  lookupLearnedMapping,
+  lookupLearnedMappingsBatch,
+  saveLearned,
+  removeLearned,
+  getLearnedMappings,
+  clearLearnedMappings,
+  fingerprintMatchScore,
+  LEARNED_CONFIDENCE_BOOST,
+} from './dvSiteLearning'
+export type {
+  FieldFingerprint,
+  LearnedMapping,
+} from './dvSiteLearning'
+
+// ── DataVault NLP Booster (optional pluggable interface) ──
+export {
+  semanticClassify,
+  extractTextFeatures,
+  registerNlpBackend,
+  unregisterNlpBackend,
+  setNlpBoosterEnabled,
+  isNlpBoosterEnabled,
+  NLP_BOOSTER_WEIGHT,
+} from './dvNlpBooster'
+export type {
+  TextFeatures,
+  NlpClassifyResult,
+  NlpBackend,
+} from './dvNlpBooster'
 
 // ── Writes Kill-Switch (global DOM write disable) ──
 export {
