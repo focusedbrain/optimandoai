@@ -171,22 +171,23 @@ export function initAutofill(
 
   auditLog('info', 'AUTOFILL_INIT', `Autofill pipeline initialized (HA=${isHAEnforced() ? 'ON' : 'OFF'})`)
 
-  // 7. Always start field scanning and icon placement.
+  // 7. Initialize DataVault PII autofill layer BEFORE scanning, so
+  //    processScanForDataVault sees _initialized=true on the first scan.
+  //    initDataVault sets _initialized=true synchronously, then loads
+  //    profiles async (icon coloring may update after icons are placed).
+  initDataVault().catch(() => {})
+
+  // 8. Always start field scanning and icon placement.
   //    Icons are shown regardless of vault lock state (like other password managers).
   //    The popover handles vault-locked state by prompting the user.
   runScan()
   startObserver()
 
-  // 8. Always start the submit watcher for credential capture (password field
+  // 9. Always start the submit watcher for credential capture (password field
   //    tracking, form submit hooks, XHR/fetch interception).  This must run
   //    even when the vault is locked so we can capture registration credentials.
   //    The save-bar + vault operations are gated inside the callback.
   startSavePasswordWatcher()
-
-  // 9. Initialize DataVault PII autofill layer.
-  //    Checks denylist + profile availability and prepares icon placement.
-  //    Non-blocking — errors are swallowed (DataVault is optional UX).
-  initDataVault().catch(() => {})
 }
 
 /**
@@ -275,6 +276,10 @@ function handleToggleChange(state: AutofillToggleState): void {
 
   auditLog('info', 'TOGGLES_CHANGED', 'Autofill toggles updated, rescanning')
 
+  // Re-initialize DataVault layer BEFORE scanning, so processScanForDataVault
+  // sees _initialized=true and can place icons on identity/company fields.
+  initDataVault().catch(() => {})
+
   // Active: invalidate cache and re-scan with new section toggles
   invalidateScanCache()
   runScan()
@@ -284,9 +289,6 @@ function handleToggleChange(state: AutofillToggleState): void {
 
   // Ensure submit watcher is running (only starts once per page)
   startSavePasswordWatcher()
-
-  // Re-initialize DataVault layer (may have been torn down when vault locked)
-  initDataVault().catch(() => {})
 }
 
 // ============================================================================

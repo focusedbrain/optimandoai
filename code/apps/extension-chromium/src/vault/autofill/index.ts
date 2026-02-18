@@ -244,7 +244,6 @@ export {
   processScanForDataVault,
   teardownDataVault,
   handleDvSPANavigation,
-  setDvAutoMode,
   cacheDvCandidates,
 } from './dataVaultOrchestrator'
 

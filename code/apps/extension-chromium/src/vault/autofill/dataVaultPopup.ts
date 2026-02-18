@@ -49,7 +49,6 @@ import type {
   DataVaultProfile,
   DataVaultProfileType,
 } from './dataVaultAdapter'
-import { saveQsoAutoConsentPublic } from './inlinePopover'
 import { fillSingleField, fillAllMatchedFields } from './dataVaultFillEngine'
 import type { FillAllResult } from './dataVaultFillEngine'
 import { buildFieldFingerprint, saveLearned } from './dvSiteLearning'
@@ -64,7 +63,6 @@ export interface DvPopupOptions {
   candidate: FieldCandidate
   allCandidates: FieldCandidate[]
   iconRect: DOMRect
-  isAutoMode: boolean
 }
 
 export type DvPopupResult =
@@ -72,7 +70,6 @@ export type DvPopupResult =
   | { action: 'filled_all'; fillResult: FillAllResult }
   | { action: 'remapped'; oldVaultKey: FieldKind | null; newVaultKey: FieldKind }
   | { action: 'denied'; origin: string }
-  | { action: 'mode_changed'; autoMode: boolean }
   | { action: 'dismissed' }
 
 // ============================================================================
@@ -211,19 +208,29 @@ function positionPopup(iconRect: DOMRect): void {
 // ============================================================================
 
 async function loadProfiles(options: DvPopupOptions): Promise<void> {
-  // Retry once if the first attempt fails (background service worker wake-up)
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Retry with increasing delays — background service worker or Electron
+  // backend may need time to wake up even though the vault is unlocked.
+  const retryDelays = [0, 400, 800, 1500]
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, retryDelays[attempt]))
+      if (!_host) return // popup was closed while waiting
+    }
     try {
       _profiles = await listDataVaultProfiles()
-      break
-    } catch {
-      if (attempt === 0) {
-        await new Promise(r => setTimeout(r, 600))
-      } else {
-        renderError()
-        return
-      }
+      if (_profiles.length > 0) break
+      // Empty result may mean the vault API is still warming up — retry
+      lastError = null
+    } catch (err) {
+      lastError = err
     }
+  }
+
+  if (lastError && _profiles.length === 0) {
+    renderError()
+    return
   }
 
   if (_profiles.length === 0) {
@@ -242,21 +249,39 @@ async function loadProfiles(options: DvPopupOptions): Promise<void> {
   try {
     await loadProfile(targetId!, options)
   } catch {
-    renderError()
+    // Profile fetch failed — retry once after a delay
+    await new Promise(r => setTimeout(r, 600))
+    if (!_host) return
+    try {
+      await loadProfile(targetId!, options)
+    } catch {
+      renderError()
+    }
   }
 }
 
 async function loadProfile(profileId: string, options: DvPopupOptions): Promise<void> {
   _loading = true
-  renderLoading()
-
-  try {
-    _activeProfile = await getDataVaultProfile(profileId)
-    _loading = false
-    renderContent(options)
-  } catch {
-    renderError()
+  if (_shadow?.querySelector('.dv-popup')) {
+    const container = _shadow.querySelector('.dv-popup')!
+    container.innerHTML = renderLoading()
   }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      _activeProfile = await getDataVaultProfile(profileId)
+      _loading = false
+      renderContent(options)
+      return
+    } catch {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+        if (!_host) return
+      }
+    }
+  }
+
+  renderError()
 }
 
 // ============================================================================
@@ -315,12 +340,6 @@ function renderContent(options: DvPopupOptions): void {
   container.innerHTML = `
     <div class="dv-header">
       <span class="dv-title">DataVault</span>
-      <div class="dv-mode-toggle" role="radiogroup" aria-label="Fill mode">
-        <button class="dv-mode-btn ${options.isAutoMode ? 'active' : ''}" data-mode="auto" role="radio" type="button"
-          aria-checked="${options.isAutoMode}">Auto</button>
-        <button class="dv-mode-btn ${!options.isAutoMode ? 'active' : ''}" data-mode="manual" role="radio" type="button"
-          aria-checked="${!options.isAutoMode}">Manual</button>
-      </div>
     </div>
     <div class="dv-type-tabs">
       ${(['private', 'business', 'company', 'custom'] as const)
@@ -384,16 +403,6 @@ function renderContent(options: DvPopupOptions): void {
 
 function wireEvents(options: DvPopupOptions): void {
   if (!_shadow) return
-
-  // Auto/Manual mode toggle
-  const modeBtns = _shadow.querySelectorAll<HTMLButtonElement>('.dv-mode-btn')
-  modeBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const newMode = btn.dataset.mode === 'auto'
-      handleModeToggle(newMode, options)
-    })
-  })
 
   // Profile type tabs (Private / Business / Company / Custom)
   const typeTabs = _shadow.querySelectorAll<HTMLButtonElement>('.dv-type-tab')
@@ -498,7 +507,9 @@ function handleFillAll(options: DvPopupOptions): void {
     return section === 'identity' || section === 'company'
   })
 
-  const fillResult = fillAllMatchedFields(dvCandidates, _activeProfile.fields)
+  const fillResult = fillAllMatchedFields(dvCandidates, _activeProfile.fields, {
+    minConfidence: 50,
+  })
 
   // Persist last used profile
   setLastUsedProfileId(window.location.origin, _activeProfile.itemId)
@@ -537,10 +548,22 @@ function buildMatchedFieldPreview(
   profile: DataVaultProfile,
 ): FieldPreview[] {
   const previews: FieldPreview[] = []
+  const seenElements = new Set<HTMLElement>()
+  const seenKinds = new Set<FieldKind>()
 
   for (const candidate of candidates) {
     const kind = candidate.matchedKind
     if (!kind) continue
+
+    // Skip duplicate entries for the same DOM element
+    const el = candidate.element as HTMLElement
+    if (seenElements.has(el)) continue
+    seenElements.add(el)
+
+    // Skip duplicate FieldKind entries (e.g., two email inputs on the page
+    // would both fill with the same profile value — showing it twice is noise)
+    if (seenKinds.has(kind)) continue
+    seenKinds.add(kind)
 
     // Only identity and company fields
     const section = kind.split('.')[0]
@@ -552,9 +575,9 @@ function buildMatchedFieldPreview(
     const spec = FIELD_BY_KIND.get(kind)
     const label = spec ? formatFieldLabel(kind) : kind
 
-    const el = candidate.element as HTMLInputElement
-    const currentValue = (el.value ?? '').trim()
-    const willFill = !!value && !currentValue && !el.disabled && !el.readOnly
+    const inputEl = candidate.element as HTMLInputElement
+    const currentValue = (inputEl.value ?? '').trim()
+    const willFill = !!value && !currentValue && !inputEl.disabled && !inputEl.readOnly
 
     previews.push({
       kind,
@@ -592,15 +615,28 @@ function getFormGroup(element: HTMLElement): HTMLElement | null {
   const roleForm = element.closest('[role="form"]')
   if (roleForm) return roleForm as HTMLElement
 
-  // Walk up to find a container with multiple inputs
+  // No <form> wrapper: walk up to find the broadest container that groups
+  // form fields together.  Keep going until the jump in input count becomes
+  // small (we want the tightest container that holds ALL related inputs).
+  let bestParent: HTMLElement | null = null
+  let bestCount = 0
   let parent = element.parentElement
   while (parent && parent !== document.body) {
     const inputs = parent.querySelectorAll('input, select, textarea')
-    if (inputs.length >= 2) return parent
+    if (inputs.length >= 2) {
+      bestParent = parent
+      bestCount = inputs.length
+    }
+    // Stop expanding once we've found a wide enough container (>= 3 fields)
+    // and the parent's input count hasn't grown (we've left the form area)
+    if (bestCount >= 3 && parent.parentElement) {
+      const parentInputs = parent.parentElement.querySelectorAll('input, select, textarea')
+      if (parentInputs.length === bestCount) break
+    }
     parent = parent.parentElement
   }
 
-  return document.body
+  return bestParent ?? document.body
 }
 
 function filterCandidatesByGroup(
@@ -661,19 +697,7 @@ async function handleRemap(options: DvPopupOptions, newKind: FieldKind): Promise
 }
 
 // ============================================================================
-// §10.2  Mode Toggle Handler
-// ============================================================================
-
-async function handleModeToggle(autoMode: boolean, options: DvPopupOptions): Promise<void> {
-  await saveQsoAutoConsentPublic(autoMode)
-  options.isAutoMode = autoMode
-  const result: DvPopupResult = { action: 'mode_changed', autoMode }
-  _resolve?.(result)
-  hideDvPopup()
-}
-
-// ============================================================================
-// §10.3  Profile Type Badge Helpers
+// §10.2  Profile Type Badge Helpers
 // ============================================================================
 
 const BADGE_ICONS: Record<DataVaultProfileType, string> = {
@@ -755,35 +779,6 @@ function buildCSS(): string {
       font-size: 13px;
       color: #c4b5fd;
       letter-spacing: 0.3px;
-    }
-
-    .dv-mode-toggle {
-      display: flex;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 6px;
-      padding: 2px;
-      gap: 0;
-    }
-
-    .dv-mode-btn {
-      all: unset;
-      padding: 4px 12px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      color: #64748b;
-      transition: all 0.15s ease;
-    }
-
-    .dv-mode-btn:hover {
-      color: #e2e8f0;
-    }
-
-    .dv-mode-btn.active {
-      background: rgba(99, 102, 241, 0.35);
-      color: #e2e8f0;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
     /* ── Profile type tabs (Private/Business/Company/Custom) ── */

@@ -107,11 +107,15 @@ export function fillSingleField(
 
   // Handle <select> elements
   if (el.tagName === 'SELECT') {
+    focusBeforeFill(el)
     return fillSelectElement(el as HTMLSelectElement, value)
   }
 
-  // Use native property setter for React/Vue compatibility
+  // Use native property setter for React/Vue compatibility.
+  // Focus → set value → dispatch events mimics real user interaction so
+  // floating labels and placeholder overlays hide properly.
   try {
+    focusBeforeFill(el)
     setNativeValue(el as HTMLInputElement | HTMLTextAreaElement, value)
     dispatchFillEvents(el)
     return { success: true, skipped: false }
@@ -333,13 +337,37 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
 }
 
 /**
- * Dispatch synthetic events to ensure frameworks pick up the value change.
+ * Dispatch synthetic events to ensure frameworks pick up the value change
+ * and the site's floating-label / placeholder-hiding logic activates.
+ *
+ * Sequence mirrors real user interaction:
+ *   focusin → focus → (value set) → input → change → blur → focusout
+ *
+ * Many sites use CSS rules like `input:not(:placeholder-shown) + label`
+ * or JS focus listeners to toggle inline label visibility. Without the
+ * focus/blur cycle, the old label text stays visible on top of the
+ * inserted value, making the field unreadable.
  */
 function dispatchFillEvents(element: HTMLElement): void {
   element.dispatchEvent(new Event('input', { bubbles: true, cancelable: false }))
   element.dispatchEvent(new Event('change', { bubbles: true, cancelable: false }))
-  // Some frameworks also need blur
   element.dispatchEvent(new Event('blur', { bubbles: true, cancelable: false }))
+  element.dispatchEvent(new FocusEvent('focusout', { bubbles: true, cancelable: false }))
+}
+
+/**
+ * Focus the element before setting its value. This ensures CSS pseudo-class
+ * rules (:focus, :not(:placeholder-shown)) and JS focus handlers fire
+ * before the value is written.
+ */
+function focusBeforeFill(element: HTMLElement): void {
+  try {
+    element.dispatchEvent(new FocusEvent('focusin', { bubbles: true, cancelable: false }))
+    element.dispatchEvent(new FocusEvent('focus', { bubbles: false, cancelable: false }))
+    ;(element as HTMLInputElement).focus?.()
+  } catch {
+    // Non-fatal — some elements may not support focus
+  }
 }
 
 // ============================================================================

@@ -44,7 +44,7 @@ import {
   getLastUsedProfileId,
   isDvDenylisted,
 } from './dataVaultAdapter'
-import { loadQsoAutoConsent } from './inlinePopover'
+import * as vaultAPI from '../api'
 import { auditLog, emitTelemetryEvent } from './hardening'
 import {
   buildFieldFingerprint,
@@ -66,11 +66,17 @@ import {
 let _initialized = false
 let _denylisted = false
 let _hasProfiles = false
-let _isAutoMode = false
 /** Cached default profile ID for icon coloring. */
 let _defaultProfileId: string | null = null
 /** Cached set of FieldKinds the default profile has values for. */
 let _profileAvailableKinds: Set<FieldKind> = new Set()
+/** Timer ID for deferred vault status polling (when vault was locked at init). */
+let _vaultPollTimer: ReturnType<typeof setTimeout> | null = null
+/** How many poll attempts have been made. */
+let _vaultPollCount = 0
+/** Max poll attempts before giving up (backoff: 3s, 5s, 8s, 12s, 18s → ~46s total). */
+const VAULT_POLL_MAX = 5
+const VAULT_POLL_DELAYS = [3000, 5000, 8000, 12000, 18000]
 
 // ============================================================================
 // §2  Field Kinds Filter
@@ -354,27 +360,102 @@ export async function initDataVault(): Promise<void> {
     return
   }
 
-  // Check if any DataVault profiles exist
-  try {
-    const profiles = await listDataVaultProfiles()
-    _hasProfiles = profiles.length > 0
+  // Check if any DataVault profiles exist (retry once for SW wake-up)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const profiles = await listDataVaultProfiles()
+      _hasProfiles = profiles.length > 0
+      if (_hasProfiles) {
+        await loadDefaultProfileFields(profiles.map(p => p.itemId))
+      }
+      break
+    } catch {
+      _hasProfiles = false
+      if (attempt === 0) await new Promise(r => setTimeout(r, 800))
+    }
+  }
 
-    // Pre-load the default profile's field map for icon coloring
-    if (_hasProfiles) {
+  auditLog('info', 'DV_INIT', `DataVault initialized (profiles=${_hasProfiles}, fields=${_profileAvailableKinds.size})`)
+
+  // If icons were already placed by a scan that ran while we were loading
+  // profiles, update their colors now that profile data is available.
+  if (_profileAvailableKinds.size > 0) {
+    setDvIconMatchData(_profileAvailableKinds)
+  }
+
+  // If profiles failed to load (vault likely locked), start polling for
+  // vault unlock so we can load profiles and color icons green when ready.
+  if (!_hasProfiles && !_denylisted) {
+    startVaultPoll()
+  }
+}
+
+// ============================================================================
+// §3.1  Vault Status Polling
+// ============================================================================
+
+/**
+ * Poll for vault unlock when profiles failed to load during init.
+ *
+ * The background script doesn't reliably broadcast vault unlock events to
+ * content scripts (the toggle sync wiring is incomplete). To compensate,
+ * we poll the vault API directly with exponential backoff.
+ *
+ * When the vault becomes available, we load profiles and update icon colors.
+ */
+function startVaultPoll(): void {
+  stopVaultPoll()
+  _vaultPollCount = 0
+  scheduleNextPoll()
+}
+
+function stopVaultPoll(): void {
+  if (_vaultPollTimer !== null) {
+    clearTimeout(_vaultPollTimer)
+    _vaultPollTimer = null
+  }
+}
+
+function scheduleNextPoll(): void {
+  if (_vaultPollCount >= VAULT_POLL_MAX) return
+  if (_hasProfiles) return
+
+  const delay = VAULT_POLL_DELAYS[_vaultPollCount] ?? VAULT_POLL_DELAYS[VAULT_POLL_DELAYS.length - 1]
+  _vaultPollTimer = setTimeout(pollVaultStatus, delay)
+}
+
+async function pollVaultStatus(): Promise<void> {
+  _vaultPollTimer = null
+  _vaultPollCount++
+
+  if (_hasProfiles || _denylisted || !_initialized) return
+
+  try {
+    const status = await vaultAPI.getVaultStatus()
+    const unlocked = status?.isUnlocked === true || status?.locked === false
+
+    if (!unlocked) {
+      scheduleNextPoll()
+      return
+    }
+
+    // Vault is now unlocked — load profiles
+    const profiles = await listDataVaultProfiles()
+    if (profiles.length > 0) {
+      _hasProfiles = true
       await loadDefaultProfileFields(profiles.map(p => p.itemId))
+      auditLog('info', 'DV_VAULT_POLL_OK', `Vault unlocked, loaded ${profiles.length} profiles (poll #${_vaultPollCount})`)
+
+      // Update icon colors now that profile data is available
+      if (_profileAvailableKinds.size > 0) {
+        setDvIconMatchData(_profileAvailableKinds)
+      }
+    } else {
+      scheduleNextPoll()
     }
   } catch {
-    _hasProfiles = false
+    scheduleNextPoll()
   }
-
-  // Load auto mode preference (reuses the same global setting)
-  try {
-    _isAutoMode = await loadQsoAutoConsent()
-  } catch {
-    _isAutoMode = false
-  }
-
-  auditLog('info', 'DV_INIT', `DataVault initialized (profiles=${_hasProfiles}, fields=${_profileAvailableKinds.size}, autoMode=${_isAutoMode})`)
 }
 
 /**
@@ -397,9 +478,14 @@ export async function processScanForDataVault(scanResult: ScanResult): Promise<v
   // Also promote login.email → identity.email on non-login forms, since
   // the scanner may pick login.email due to tie-breaking order even when
   // the field is actually an identity email (registration, checkout, contact).
+  //
+  // Include both accepted candidates AND hints (score 30-59): co-occurrence
+  // and site learning boosts may push hints above MEDIUM_CONFIDENCE_MIN.
   const isLoginForm = scanResult.formContext === 'login' || scanResult.formContext === 'password_change'
 
-  let allIdentityCompany = scanResult.candidates.filter(c => {
+  const allFields = [...scanResult.candidates, ...(scanResult.hints ?? [])]
+
+  let allIdentityCompany = allFields.filter(c => {
     if (!c.matchedKind) return false
     if (c.crossOrigin) return false
     const section = c.matchedKind.split('.')[0]
@@ -413,6 +499,19 @@ export async function processScanForDataVault(scanResult: ScanResult): Promise<v
 
     return false
   })
+
+  // Deduplicate by DOM element — the same field can appear as both
+  // identity.email (from scanner) and login.email→identity.email (promoted).
+  // Keep the candidate with the highest confidence per element.
+  const byElement = new Map<HTMLElement, FieldCandidate>()
+  for (const c of allIdentityCompany) {
+    const el = c.element as HTMLElement
+    const existing = byElement.get(el)
+    if (!existing || c.match.confidence > existing.match.confidence) {
+      byElement.set(el, c)
+    }
+  }
+  allIdentityCompany = Array.from(byElement.values())
 
   if (allIdentityCompany.length === 0) {
     clearAllDvIcons()
@@ -446,7 +545,10 @@ export async function processScanForDataVault(scanResult: ScanResult): Promise<v
     return
   }
 
-  // Step 6: place DataVault icons
+  // Step 6: cache the fully processed candidates for popup fill-all
+  _lastProcessedDvCandidates = dvCandidates
+
+  // Step 7: place DataVault icons
   syncDvFieldIcons(dvCandidates, handleDvIconClick)
 
   // If profile data hasn't been loaded yet (e.g. vault was locked at init),
@@ -457,6 +559,7 @@ export async function processScanForDataVault(scanResult: ScanResult): Promise<v
       if (profiles.length > 0) {
         _hasProfiles = true
         await loadDefaultProfileFields(profiles.map(p => p.itemId))
+        stopVaultPoll()
       }
     } catch {
       // Will stay grey — non-fatal
@@ -479,12 +582,15 @@ export async function processScanForDataVault(scanResult: ScanResult): Promise<v
 export function teardownDataVault(): void {
   clearAllDvIcons()
   hideDvPopup()
+  stopVaultPoll()
   _initialized = false
   _denylisted = false
   _hasProfiles = false
-  _isAutoMode = false
   _defaultProfileId = null
   _profileAvailableKinds = new Set()
+  _vaultPollCount = 0
+  _lastDvCandidates = []
+  _lastProcessedDvCandidates = []
 }
 
 /**
@@ -497,13 +603,6 @@ export function handleDvSPANavigation(): void {
   isDvDenylisted(window.location.origin).then(denied => {
     _denylisted = denied
   }).catch(() => {})
-}
-
-/**
- * Update auto mode state (called when user toggles in popover).
- */
-export function setDvAutoMode(auto: boolean): void {
-  _isAutoMode = auto
 }
 
 // ============================================================================
@@ -533,7 +632,6 @@ async function handleDvIconClick(
       candidate,
       allCandidates: allDvCandidates,
       iconRect,
-      isAutoMode: _isAutoMode,
     })
 
     if (result.action === 'filled_single') {
@@ -553,9 +651,6 @@ async function handleDvIconClick(
       auditLog('info', 'DV_DENY_ORIGIN', `DataVault denied for origin: ${result.origin}`)
       _denylisted = true
       clearAllDvIcons()
-    } else if (result.action === 'mode_changed') {
-      _isAutoMode = result.autoMode
-      auditLog('info', 'DV_MODE_CHANGE', `DataVault mode changed to ${result.autoMode ? 'auto' : 'manual'}`)
     }
   } catch (err) {
     auditLog('error', 'DV_POPUP_ERROR', 'DataVault popup error')
@@ -609,9 +704,19 @@ let _lastDvCandidates: FieldCandidate[] = []
 
 /** Cache DV candidates from the most recent scan. */
 export function cacheDvCandidates(candidates: FieldCandidate[]): void {
-  _lastDvCandidates = filterDvCandidates(candidates)
+  _lastDvCandidates = candidates
 }
 
+/**
+ * Return the DV candidates after full processing (promotion + boosting).
+ * Falls back to filtering the raw cache if processScanForDataVault hasn't
+ * set the processed list yet.
+ */
 function getLastDvCandidates(): FieldCandidate[] {
-  return _lastDvCandidates
+  return _lastProcessedDvCandidates.length > 0
+    ? _lastProcessedDvCandidates
+    : filterDvCandidates(_lastDvCandidates)
 }
+
+/** Fully processed DV candidates (after promotion + boosts). Set by processScanForDataVault. */
+let _lastProcessedDvCandidates: FieldCandidate[] = []

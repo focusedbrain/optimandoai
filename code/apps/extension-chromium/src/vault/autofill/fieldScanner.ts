@@ -981,10 +981,17 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
   const form = formOrElement.tagName === 'FORM'
     ? formOrElement as HTMLFormElement
     : formOrElement.closest('form') as HTMLFormElement | null
-  if (!form) return 'unknown'
 
-  const cached = _formContextCache.get(form)
-  if (cached !== undefined) return cached
+  // For formless layouts: find the closest container with >= 2 inputs
+  // and analyze it with the same heuristics (reduced weights since
+  // there's less structural certainty).
+  const container: HTMLElement | null = form ?? findFormlikeContainer(formOrElement)
+  if (!container) return classifyByFieldAndURL(formOrElement)
+
+  if (form) {
+    const cached = _formContextCache.get(form)
+    if (cached !== undefined) return cached
+  }
 
   const scores: Record<string, number> = {
     login: 0,
@@ -996,7 +1003,7 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
   }
 
   // ── 1. Password field analysis ──
-  const pwFields = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]'))
+  const pwFields = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="password"]'))
   const hasNewPw = pwFields.some(f => f.autocomplete === 'new-password')
   const hasCurrentPw = pwFields.some(f => f.autocomplete === 'current-password')
 
@@ -1011,7 +1018,6 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
   } else if (hasNewPw && !hasCurrentPw && pwFields.length >= 2) {
     scores.signup += 40
   } else if (hasNewPw && pwFields.length === 1) {
-    // Single new-password field — could be either signup or password_change
     scores.signup += 20
     scores.password_change += 15
   }
@@ -1023,7 +1029,7 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
   }
 
   // ── 2. Field name/id/placeholder keyword scan ──
-  const allInputs = form.querySelectorAll<HTMLInputElement>('input, select, textarea')
+  const allInputs = container.querySelectorAll<HTMLInputElement>('input, select, textarea')
   for (const input of allInputs) {
     const attrs = [input.name, input.id, input.placeholder, input.getAttribute('aria-label') ?? ''].join(' ')
     if (INTENT_FIELD_KEYWORDS.signup.test(attrs)) scores.signup += 25
@@ -1031,8 +1037,31 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
     if (INTENT_FIELD_KEYWORDS.login.test(attrs)) scores.login += 15
   }
 
+  // ── 2b. Autocomplete attribute hints (works for formless layouts) ──
+  for (const input of allInputs) {
+    const ac = (input.getAttribute('autocomplete') ?? '').toLowerCase()
+    if (CONTACT_AUTOCOMPLETE_HINTS.has(ac)) scores.contact += 10
+    if (ADDRESS_AUTOCOMPLETE_HINTS.has(ac)) scores.address += 10
+    if (CHECKOUT_AUTOCOMPLETE_HINTS.has(ac)) scores.checkout += 15
+  }
+
+  // ── 2c. Identity field count boost: if the form has name/email/phone/address
+  //        fields and NO password field, it's likely a contact or address form ──
+  if (pwFields.length === 0) {
+    let identityFieldCount = 0
+    for (const input of allInputs) {
+      const ac = (input.getAttribute('autocomplete') ?? '').toLowerCase()
+      const nameId = [input.name, input.id].join(' ').toLowerCase()
+      if (IDENTITY_FIELD_HINTS.test(ac) || IDENTITY_FIELD_HINTS.test(nameId)) {
+        identityFieldCount++
+      }
+    }
+    if (identityFieldCount >= 2) scores.contact += 15
+    if (identityFieldCount >= 4) scores.address += 15
+  }
+
   // ── 3. Submit button / heading text ──
-  const submitBtn = form.querySelector<HTMLElement>(
+  const submitBtn = container.querySelector<HTMLElement>(
     'button[type="submit"], input[type="submit"], button:not([type])',
   )
   const btnText = submitBtn
@@ -1044,8 +1073,8 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
     if (INTENT_BUTTON_TEXT.login.test(btnText)) scores.login += 30
   }
 
-  // Also check nearby headings (h1-h3 within or before the form)
-  const headings = form.querySelectorAll<HTMLElement>('h1, h2, h3')
+  // Also check nearby headings (h1-h3 within or before the container)
+  const headings = container.querySelectorAll<HTMLElement>('h1, h2, h3')
   for (const h of headings) {
     const hText = h.textContent ?? ''
     if (INTENT_BUTTON_TEXT.signup.test(hText)) scores.signup += 20
@@ -1063,9 +1092,9 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
 
   // ── 5. Existing FORM_CONTEXT_SIGNALS regex (form action/id/class/button) ──
   const formSignals = [
-    form.action ?? '',
-    form.id ?? '',
-    form.className ?? '',
+    form ? (form.action ?? '') : '',
+    container.id ?? '',
+    container.className ?? '',
     btnText,
   ].join(' ')
 
@@ -1086,8 +1115,62 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
   }
 
   const result: FormContext = bestScore >= FORM_INTENT_MIN_SCORE ? best : 'unknown'
-  _formContextCache.set(form, result)
+  if (form) _formContextCache.set(form, result)
   return result
+}
+
+/** Autocomplete values that hint at contact forms. */
+const CONTACT_AUTOCOMPLETE_HINTS = new Set([
+  'email', 'tel', 'tel-national', 'tel-local',
+])
+
+/** Autocomplete values that hint at address forms. */
+const ADDRESS_AUTOCOMPLETE_HINTS = new Set([
+  'street-address', 'address-line1', 'address-line2', 'address-level1',
+  'address-level2', 'postal-code', 'country', 'country-name',
+])
+
+/** Autocomplete values that hint at checkout forms. */
+const CHECKOUT_AUTOCOMPLETE_HINTS = new Set([
+  'cc-number', 'cc-name', 'cc-exp', 'cc-exp-month', 'cc-exp-year', 'cc-csc',
+])
+
+/** Regex for name/id attributes that suggest identity/contact fields. */
+const IDENTITY_FIELD_HINTS = /(?:first.?name|last.?name|full.?name|email|phone|tel|address|street|city|zip|postal|country)/i
+
+/**
+ * Walk up the DOM from an element to find a form-like container
+ * (a parent with >= 2 input/select/textarea children).
+ */
+function findFormlikeContainer(element: HTMLElement): HTMLElement | null {
+  let parent = element.parentElement
+  let best: HTMLElement | null = null
+  while (parent && parent !== document.body) {
+    const inputs = parent.querySelectorAll('input, select, textarea')
+    if (inputs.length >= 2) best = parent
+    if (best && inputs.length >= 3) return best
+    parent = parent.parentElement
+  }
+  return best
+}
+
+/**
+ * Fallback classifier for truly isolated fields (no form, no parent container).
+ * Uses URL and the element's own autocomplete/name attributes.
+ */
+function classifyByFieldAndURL(element: HTMLElement): FormContext {
+  try {
+    const path = window.location.pathname
+    if (INTENT_URL_PATHS.signup.test(path)) return 'signup'
+    if (INTENT_URL_PATHS.login.test(path)) return 'login'
+    if (INTENT_URL_PATHS.password_change.test(path)) return 'password_change'
+  } catch { /* cross-origin guard */ }
+
+  const ac = (element.getAttribute('autocomplete') ?? '').toLowerCase()
+  if (CONTACT_AUTOCOMPLETE_HINTS.has(ac)) return 'contact'
+  if (ADDRESS_AUTOCOMPLETE_HINTS.has(ac)) return 'address'
+
+  return 'unknown'
 }
 
 /** Internal alias — called by the scan loop per element. */
