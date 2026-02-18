@@ -301,6 +301,14 @@ function resolveComposedValue(
     if (street) return street
   }
 
+  // Birthday composition: compose from day/month/year for single-date inputs
+  if (kind === 'identity.birthday') {
+    const d = fieldMap.get('identity.birth_day')
+    const m = fieldMap.get('identity.birth_month')
+    const y = fieldMap.get('identity.birth_year')
+    if (d && m && y) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  }
+
   // Full name composition
   if (kind === 'identity.full_name') {
     const first = fieldMap.get('identity.first_name')

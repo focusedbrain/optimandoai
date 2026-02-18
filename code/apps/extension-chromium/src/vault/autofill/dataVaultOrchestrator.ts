@@ -161,6 +161,7 @@ const CO_OCCURRENCE_GROUPS: Array<{
     kinds: new Set<FieldKind>([
       'identity.first_name', 'identity.last_name', 'identity.full_name',
       'identity.email', 'identity.phone', 'identity.birthday',
+      'identity.birth_day', 'identity.birth_month', 'identity.birth_year',
     ]),
     minPresent: 2,
     boost: 10,

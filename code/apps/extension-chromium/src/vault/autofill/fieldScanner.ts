@@ -1122,6 +1122,7 @@ export function classifyFormIntent(formOrElement: HTMLElement): FormContext {
 /** Autocomplete values that hint at contact forms. */
 const CONTACT_AUTOCOMPLETE_HINTS = new Set([
   'email', 'tel', 'tel-national', 'tel-local',
+  'bday', 'bday-day', 'bday-month', 'bday-year',
 ])
 
 /** Autocomplete values that hint at address forms. */
@@ -1136,7 +1137,7 @@ const CHECKOUT_AUTOCOMPLETE_HINTS = new Set([
 ])
 
 /** Regex for name/id attributes that suggest identity/contact fields. */
-const IDENTITY_FIELD_HINTS = /(?:first.?name|last.?name|full.?name|email|phone|tel|address|street|city|zip|postal|country)/i
+const IDENTITY_FIELD_HINTS = /(?:first.?name|last.?name|full.?name|email|phone|tel|address|street|city|zip|postal|country|birth|dob|bday)/i
 
 /**
  * Walk up the DOM from an element to find a form-like container

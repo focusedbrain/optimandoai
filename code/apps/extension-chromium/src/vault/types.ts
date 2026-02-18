@@ -36,7 +36,7 @@ export {
 
 export type ContainerType = 'person' | 'company' | 'business'
 export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context'
-export type FieldType = 'text' | 'password' | 'email' | 'url' | 'number' | 'textarea'
+export type FieldType = 'text' | 'password' | 'email' | 'url' | 'number' | 'textarea' | 'select'
 
 // Standard field definitions for each category
 export interface StandardFieldDef {
@@ -59,7 +59,9 @@ export const IDENTITY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'country', label: 'Country', type: 'text', required: false, explanation: 'Country name' },
   { key: 'email', label: 'Email', type: 'email', required: false, explanation: 'Primary email address' },
   { key: 'phone', label: 'Phone Number', type: 'text', required: false, explanation: 'Primary phone number with country code' },
-  { key: 'date_of_birth', label: 'Date of Birth', type: 'text', required: false, explanation: 'Date of birth (DD.MM.YYYY or YYYY-MM-DD)' },
+  { key: 'birth_day', label: 'Birth Day', type: 'select', required: false, explanation: 'Day of birth (1-31)' },
+  { key: 'birth_month', label: 'Birth Month', type: 'select', required: false, explanation: 'Month of birth (1-12)' },
+  { key: 'birth_year', label: 'Birth Year', type: 'select', required: false, explanation: 'Year of birth' },
   { key: 'tax_id', label: 'Tax ID / SSN', type: 'text', required: false, explanation: 'Tax identification number or social security number' },
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
 ]

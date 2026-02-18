@@ -161,6 +161,27 @@ export function buildFieldMap(fields: Field[], category: string): Map<FieldKind,
     if (firstName && lastName && !map.has('identity.full_name')) {
       map.set('identity.full_name', `${firstName} ${lastName}`)
     }
+
+    // Legacy migration: split date_of_birth → birth_day/birth_month/birth_year
+    const legacyDob = map.get('identity.birthday')
+    if (legacyDob && !map.has('identity.birth_day')) {
+      const parsed = parseLegacyDob(legacyDob)
+      if (parsed) {
+        map.set('identity.birth_day', String(parsed.day))
+        map.set('identity.birth_month', String(parsed.month))
+        map.set('identity.birth_year', String(parsed.year))
+      }
+    }
+
+    // Compose identity.birthday from the 3 components if not already set
+    if (!map.has('identity.birthday')) {
+      const d = map.get('identity.birth_day')
+      const m = map.get('identity.birth_month')
+      const y = map.get('identity.birth_year')
+      if (d && m && y) {
+        map.set('identity.birthday', `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`)
+      }
+    }
   }
 
   // Map the item title as company.name if not already mapped
@@ -279,4 +300,22 @@ function normalizeOrigin(origin: string): string {
   } catch {
     return origin.toLowerCase().trim()
   }
+}
+
+/**
+ * Parse a legacy date_of_birth string into day/month/year.
+ * Supports: DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD
+ */
+function parseLegacyDob(value: string): { day: number; month: number; year: number } | null {
+  const trimmed = value.trim()
+
+  // YYYY-MM-DD (ISO)
+  let m = trimmed.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/)
+  if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) }
+
+  // DD.MM.YYYY or DD/MM/YYYY (European)
+  m = trimmed.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/)
+  if (m) return { day: parseInt(m[1]), month: parseInt(m[2]), year: parseInt(m[3]) }
+
+  return null
 }

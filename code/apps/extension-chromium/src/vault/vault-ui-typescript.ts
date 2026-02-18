@@ -3421,6 +3421,57 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
                 continue
               }
               
+              // Date of birth: render 3 select dropdowns in one row
+              if (field.key === 'birth_day' && i + 2 < standardFields.length && standardFields[i + 1].key === 'birth_month' && standardFields[i + 2].key === 'birth_year') {
+                const days = Array.from({ length: 31 }, (_, n) => n + 1)
+                const months = [
+                  'January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December',
+                ]
+                const currentYear = new Date().getFullYear()
+                const years = Array.from({ length: 120 }, (_, n) => currentYear - n)
+
+                const selectStyle = `
+                  width:100%;
+                  padding:12px 10px;
+                  border:1px solid var(--wrv-border);
+                  border-radius:8px;
+                  background:var(--wrv-bg-input);
+                  color:var(--wrv-text);
+                  font-size:13px;
+                  font-weight:500;
+                  box-sizing:border-box;
+                  transition:all 0.15s;
+                  cursor:pointer;
+                  appearance:auto;
+                `
+
+                fieldsHtml += `
+                  <div style="grid-column:span 2;">
+                    <div style="font-size:11px;color:var(--wrv-text-3);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;">Date of Birth</div>
+                    <div style="display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;">
+                      <select id="field-birth_day" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Day</option>
+                        ${days.map(d => `<option value="${d}">${d}</option>`).join('')}
+                      </select>
+                      <select id="field-birth_month" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Month</option>
+                        ${months.map((m, idx) => `<option value="${idx + 1}">${m}</option>`).join('')}
+                      </select>
+                      <select id="field-birth_year" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Year</option>
+                        ${years.map(y => `<option value="${y}">${y}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                `
+                i += 3
+                continue
+              }
+
               // Regular field rendering
               const isFullWidth = field.key === 'additional_info' || field.type === 'textarea'
               fieldsHtml += `
@@ -4080,7 +4131,21 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
     
     // Fill in fields
     item.fields.forEach(field => {
-      const input = addDialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+      // Migrate legacy date_of_birth → birth_day/birth_month/birth_year
+      if (field.key === 'date_of_birth' && field.value) {
+        const parsed = parseDateOfBirth(field.value)
+        if (parsed) {
+          const daySelect = addDialog.querySelector('#field-birth_day') as HTMLSelectElement
+          const monthSelect = addDialog.querySelector('#field-birth_month') as HTMLSelectElement
+          const yearSelect = addDialog.querySelector('#field-birth_year') as HTMLSelectElement
+          if (daySelect) daySelect.value = String(parsed.day)
+          if (monthSelect) monthSelect.value = String(parsed.month)
+          if (yearSelect) yearSelect.value = String(parsed.year)
+        }
+        return
+      }
+
+      const input = addDialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       if (input) {
         input.value = field.value || ''
       }
@@ -4188,6 +4253,24 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
       })
     }
   }, 100)
+}
+
+/**
+ * Parse a legacy date_of_birth string into day/month/year components.
+ * Supports: DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD, MM/DD/YYYY (US)
+ */
+function parseDateOfBirth(value: string): { day: number; month: number; year: number } | null {
+  const trimmed = value.trim()
+
+  // YYYY-MM-DD (ISO)
+  let m = trimmed.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/)
+  if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) }
+
+  // DD.MM.YYYY or DD/MM/YYYY (European)
+  m = trimmed.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/)
+  if (m) return { day: parseInt(m[1]), month: parseInt(m[2]), year: parseInt(m[3]) }
+
+  return null
 }
 
 // Helper function to escape HTML
