@@ -237,7 +237,7 @@ export function openVaultLightbox() {
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
       <div id="wrv-mode-toggle" style="
-        display:inline-flex;
+        display:none;
         border-radius:6px;
         overflow:hidden;
         border:1px solid rgba(var(--wrv-accent-rgb),0.25);
@@ -478,6 +478,10 @@ async function initVaultUI(container: HTMLElement) {
 
 // Render Create Vault Screen
 function renderCreateVaultScreen(container: HTMLElement) {
+  // Hide the Auto/Manual toggle — vault doesn't exist yet
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'none'
+
   container.innerHTML = `
     <div style="max-width:580px;margin:40px auto;text-align:center;">
       <div style="font-size:64px;margin-bottom:24px;">🔐</div>
@@ -778,6 +782,10 @@ function renderCreateVaultScreen(container: HTMLElement) {
 
 // Render Unlock Screen
 async function renderUnlockScreen(container: HTMLElement) {
+  // Hide the Auto/Manual toggle while vault is locked
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'none'
+
   // Load available vaults - always ensure dropdown has options even if API fails
   let availableVaults: Array<{ id: string, name: string, created: number }> = []
   let connectionError: string | null = null
@@ -1042,6 +1050,10 @@ function buildSidebarCategoriesHTML(tier: VaultTier): string {
 
 // Render Vault Dashboard (Main UI)
 function renderVaultDashboard(container: HTMLElement) {
+  // Show the Auto/Manual toggle now that the vault is unlocked
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'inline-flex'
+
   container.innerHTML = `
     <div style="display:flex;height:100%;gap:0;">
       <!-- Sidebar -->
