@@ -7,7 +7,7 @@ import { z } from 'zod'
 /**
  * Container schemas
  */
-export const ContainerTypeSchema = z.enum(['person', 'company', 'business'])
+export const ContainerTypeSchema = z.enum(['person', 'company'])
 
 export const ContainerSchema = z.object({
   id: z.string(),
@@ -46,7 +46,7 @@ export const FieldSchema = z.object({
 /**
  * Item schemas
  */
-export const ItemCategorySchema = z.enum(['password', 'identity', 'company', 'business', 'custom'])
+export const ItemCategorySchema = z.enum(['password', 'identity', 'company', 'custom'])
 
 export const VaultItemSchema = z.object({
   id: z.string(),

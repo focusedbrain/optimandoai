@@ -27,7 +27,7 @@ import { LEGACY_KEY_MAP } from '../../../../../packages/shared/src/vault/fieldTa
 // ============================================================================
 
 /** Profile category for the DataVault popup, matching the vault UI badges. */
-export type DataVaultProfileType = 'private' | 'business' | 'company' | 'custom'
+export type DataVaultProfileType = 'private' | 'company' | 'custom'
 
 /** Summary for listing profiles in the popup (no field values). */
 export interface DataVaultProfileSummary {
@@ -60,13 +60,12 @@ const DV_DENYLIST_KEY = 'wrv_dv_denylist'
 const MAX_DENYLIST_ORIGINS = 500
 
 /** Item categories that are DataVault candidates. */
-const DV_CATEGORIES = new Set(['identity', 'company', 'business', 'custom'])
+const DV_CATEGORIES = new Set(['identity', 'company', 'custom'])
 
 /** Map vault item category to popup profile type. */
 function categoryToProfileType(category: string): DataVaultProfileType {
   switch (category) {
     case 'identity':  return 'private'
-    case 'business':  return 'business'
     case 'company':   return 'company'
     case 'custom':    return 'custom'
     default:          return 'custom'
@@ -77,7 +76,6 @@ function categoryToProfileType(category: string): DataVaultProfileType {
 function categoryToSection(category: string): VaultSection {
   switch (category) {
     case 'identity':  return 'identity'
-    case 'business':  return 'company'
     case 'company':   return 'company'
     default:          return 'identity'
   }
@@ -185,7 +183,7 @@ export function buildFieldMap(fields: Field[], category: string): Map<FieldKind,
   }
 
   // Map the item title as company.name if not already mapped
-  if ((category === 'company' || category === 'business') && !map.has('company.name')) {
+  if (category === 'company' && !map.has('company.name')) {
     // Company items often use title as the company name
     // Only set if no explicit company.name field exists
   }

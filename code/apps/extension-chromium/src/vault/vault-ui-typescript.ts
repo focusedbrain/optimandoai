@@ -6,7 +6,7 @@
 import * as vaultAPI from './api'
 import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult } from './types'
 import {
-  IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS, BUSINESS_STANDARD_FIELDS,
+  IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS,
   PASSWORD_STANDARD_FIELDS, AUTOMATION_SECRET_STANDARD_FIELDS, HANDSHAKE_CONTEXT_STANDARD_FIELDS,
   PAYMENT_FIELDS,
   CATEGORY_UI_MAP, RECORD_TYPE_DISPLAY, RECORD_TYPE_MIN_TIER,
@@ -984,7 +984,6 @@ const SIDEBAR_CATEGORY_CONFIG: Record<string, {
   password:          { viewAction: 'view-passwords', viewLabel: 'View Passwords' },
   identity:          { containerType: 'person', viewAction: 'view-identities', viewLabel: 'View Identities', containersId: 'person-containers' },
   company:           { containerType: 'company', viewAction: 'view-companies', viewLabel: 'View Companies', containersId: 'company-containers' },
-  business:          { containerType: 'business', viewAction: 'view-businesses', viewLabel: 'View Businesses', containersId: 'business-containers' },
   custom:            { viewAction: 'view-data', viewLabel: 'View Data', containersId: 'custom-containers' },
   document:          { viewAction: 'view-documents', viewLabel: 'View Documents' },
   handshake_context: { viewAction: 'view-handshake-context', viewLabel: 'View Context Items' },
@@ -1188,8 +1187,6 @@ function renderVaultDashboard(container: HTMLElement) {
       loadVaultItems(container, 'identity')
     } else if (action === 'view-companies') {
       loadVaultItems(container, 'company')
-    } else if (action === 'view-businesses') {
-      loadVaultItems(container, 'business')
     } else if (action === 'view-data') {
       loadVaultItems(container, 'custom')
     } else if (action === 'view-documents') {
@@ -1206,8 +1203,6 @@ function renderVaultDashboard(container: HTMLElement) {
       renderAddDataDialog(container, 'identity')
     } else if (action === 'add-company') {
       renderAddDataDialog(container, 'company')
-    } else if (action === 'add-business') {
-      renderAddDataDialog(container, 'business')
     } else if (action === 'add-custom') {
       renderAddDataDialog(container, 'custom')
     } else if (action === 'upload-document') {
@@ -1379,17 +1374,6 @@ function addAddButtonsToTree(container: HTMLElement) {
     addCompanyBtn.style.cssText = 'padding:7px 10px;background:rgba(var(--wrv-accent-rgb),0.08);border-radius:6px;cursor:pointer;font-size:12px;margin-top:4px;border:1px solid rgba(var(--wrv-accent-rgb),0.15);transition:all 0.15s;'
     addCompanyBtn.textContent = '+ Add Company'
     companySubcategories.insertBefore(addCompanyBtn, companySubcategories.querySelector('#company-containers'))
-  }
-  
-  // Business category
-  const businessSubcategories = container.querySelector('.vault-subcategories[data-parent="business"]')
-  if (businessSubcategories && !businessSubcategories.querySelector('[data-action="add-business"]')) {
-    const addBusinessBtn = document.createElement('div')
-    addBusinessBtn.className = 'vault-subcategory-btn'
-    addBusinessBtn.setAttribute('data-action', 'add-business')
-    addBusinessBtn.style.cssText = 'padding:7px 10px;background:rgba(var(--wrv-accent-rgb),0.08);border-radius:6px;cursor:pointer;font-size:12px;margin-top:4px;border:1px solid rgba(var(--wrv-accent-rgb),0.15);transition:all 0.15s;'
-    addBusinessBtn.textContent = '+ Add Business'
-    businessSubcategories.insertBefore(addBusinessBtn, businessSubcategories.querySelector('#business-containers'))
   }
   
   // Custom category
@@ -2339,11 +2323,6 @@ async function loadContainersIntoTree(container: HTMLElement) {
       companyDiv.innerHTML = ''
     }
     
-    const businessDiv = container.querySelector('#business-containers') as HTMLElement
-    if (businessDiv) {
-      businessDiv.innerHTML = ''
-    }
-    
     const customDiv = container.querySelector('#custom-containers') as HTMLElement
     if (customDiv) {
       customDiv.innerHTML = ''
@@ -2549,7 +2528,6 @@ function renderListItemRow(item: VaultItem): string {
     password: '🔑',
     identity: '👤',
     company: '🏢',
-    business: '💼',
     custom: '📝',
     document: '📄',
     handshake_context: '🤝'
@@ -2999,7 +2977,7 @@ function renderItemCard(item: VaultItem): string {
 }
 
 // Render Add Data Dialog
-function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context') {
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context') {
   // Documents use their own dedicated upload dialog — redirect immediately.
   if (preselectedCategory === 'document') {
     renderDocumentUploadDialog(container)
@@ -3172,9 +3150,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     } else if (category === 'company') {
       standardFields = COMPANY_STANDARD_FIELDS
       titleLabel = 'Company Name'
-    } else if (category === 'business') {
-      standardFields = BUSINESS_STANDARD_FIELDS
-      titleLabel = 'Business Name'
     } else if (category === 'custom') {
       isCustomData = true
       titleLabel = 'Data Group Name'
@@ -3296,7 +3271,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       return
     }
     
-    // Standard form for password/identity/company/business
+    // Standard form for password/identity/company
     formContainer.innerHTML = `
       ${category !== 'identity' ? `
       <div style="margin-bottom:20px;">
@@ -3523,7 +3498,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         </div>
       </div>
       
-      ${(category === 'identity' || category === 'company' || category === 'business') ? `
+      ${(category === 'identity' || category === 'company') ? `
       <div id="vault-payment-section" style="margin-bottom:16px;border:1px solid var(--wrv-border);border-radius:10px;overflow:hidden;">
         <button type="button" id="vault-payment-toggle" style="
           width:100%;
@@ -3672,7 +3647,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       })
     })
 
-    // ── Payment Methods section (identity / company / business only) ──
+    // ── Payment Methods section (identity / company only) ──
     const paymentToggle = dialog.querySelector('#vault-payment-toggle')
     const paymentFields = dialog.querySelector('#vault-payment-fields') as HTMLElement | null
     const paymentChevron = dialog.querySelector('#vault-payment-chevron') as SVGElement | null
@@ -3894,7 +3869,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
             password: 'service name',
             identity: 'identity name',
             company: 'company name',
-            business: 'business name',
             custom: 'data group name',
             document: 'document name',
             handshake_context: 'context name'
@@ -3936,7 +3910,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         else if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
         else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
         else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
-        else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
         
         // Collect standard field values
         standardFields.forEach(field => {
@@ -3973,7 +3946,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
           })
         }
 
-        // Collect payment method fields (identity / company / business)
+        // Collect payment method fields (identity / company)
         const paymentEntries = dialog.querySelectorAll('.payment-method-entry')
         let paymentIdx = 0
         paymentEntries.forEach((entry) => {
@@ -4016,11 +3989,11 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         return
       }
       
-      // For identity/company/business: Create container first, then item with container_id
+      // For identity/company: Create container first, then item with container_id
       // For password/custom: Create item directly without container
       let containerId: string | undefined
-      if (category === 'identity' || category === 'company' || category === 'business') {
-        const containerType = category === 'identity' ? 'person' : category === 'company' ? 'company' : 'business'
+      if (category === 'identity' || category === 'company') {
+        const containerType = category === 'identity' ? 'person' : 'company'
         try {
           console.log('[VAULT UI] Creating container:', containerType, title)
           const container = await vaultAPI.createContainer(containerType, title, false)
@@ -4065,7 +4038,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       closeDialog()
       
       // Show success notification
-      showSuccessNotification(`Successfully saved ${category === 'password' ? 'password' : category === 'identity' ? 'identity' : category === 'company' ? 'company' : category === 'business' ? 'business' : 'data'}!`)
+      showSuccessNotification(`Successfully saved ${category === 'password' ? 'password' : category === 'identity' ? 'identity' : category === 'company' ? 'company' : 'data'}!`)
       
       // One-time QSO onboarding dialog on first password entry creation
       if (category === 'password') {
@@ -4188,7 +4161,6 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
           if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
           else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
           else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
-          else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
           
           standardFields.forEach(field => {
             const input = addDialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement

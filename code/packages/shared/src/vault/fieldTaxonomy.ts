@@ -37,7 +37,7 @@ export type VaultSection = 'login' | 'identity' | 'company' | 'custom'
 export const SECTION_META: Record<VaultSection, { label: string; icon: string; description: string }> = {
   login:    { label: 'Logins & Passwords', icon: '🔑', description: 'Website and app credentials' },
   identity: { label: 'Identity & Address', icon: '👤', description: 'Personal information, address, phone' },
-  company:  { label: 'Company & Business', icon: '🏢', description: 'Organisation details, VAT, tax IDs' },
+  company:  { label: 'Company', icon: '🏢', description: 'Organisation details, VAT, tax IDs' },
   custom:   { label: 'Custom Fields',      icon: '📝', description: 'User-defined key/value entries' },
 } as const
 
@@ -186,21 +186,6 @@ export const LEGACY_KEY_MAP: Record<string, Record<string, FieldKind>> = {
     additional_info: 'custom.textarea',
   },
   company: {
-    ceo_first_name:  'company.ceo_first_name',
-    ceo_surname:     'company.ceo_last_name',
-    street:          'company.street',
-    street_number:   'company.street_number',
-    postal_code:     'company.postal_code',
-    city:            'company.city',
-    state:           'company.state',
-    country:         'company.country',
-    email:           'company.email',
-    phone:           'company.phone',
-    vat_number:      'company.vat_number',
-    tax_id:          'company.tax_id',
-    additional_info: 'custom.textarea',
-  },
-  business: {
     ceo_first_name:  'company.ceo_first_name',
     ceo_surname:     'company.ceo_last_name',
     street:          'company.street',

@@ -67,7 +67,6 @@ describe('Free tier', () => {
     expect(canAccessCategory(tier, 'password')).toBe(false)
     expect(canAccessCategory(tier, 'identity')).toBe(false)
     expect(canAccessCategory(tier, 'company')).toBe(false)
-    expect(canAccessCategory(tier, 'business')).toBe(false)
     expect(canAccessCategory(tier, 'custom')).toBe(false)
   })
 
@@ -117,11 +116,10 @@ describe('Pro tier', () => {
     expect(values).toContain('password')
     expect(values).toContain('identity')
     expect(values).toContain('company')
-    expect(values).toContain('business')
     expect(values).toContain('custom')
     expect(values).toContain('document')
     expect(values).not.toContain('handshake_context')
-    expect(values).toHaveLength(7)
+    expect(values).toHaveLength(6)
   })
 })
 
@@ -151,7 +149,7 @@ describe('Publisher tier', () => {
     const opts = getCategoryOptionsForTier(tier)
     const values = opts.map(o => o.value)
     expect(values).toContain('handshake_context')
-    expect(values).toHaveLength(8)
+    expect(values).toHaveLength(7)
   })
 
   it('canAccessCategory gates handshake_context correctly', () => {
@@ -173,10 +171,9 @@ describe('Category ↔ RecordType mapping', () => {
     expect(LEGACY_CATEGORY_TO_RECORD_TYPE['password']).toBe('human_credential')
   })
 
-  it('identity/company/business map to pii_record', () => {
+  it('identity/company map to pii_record', () => {
     expect(LEGACY_CATEGORY_TO_RECORD_TYPE['identity']).toBe('pii_record')
     expect(LEGACY_CATEGORY_TO_RECORD_TYPE['company']).toBe('pii_record')
-    expect(LEGACY_CATEGORY_TO_RECORD_TYPE['business']).toBe('pii_record')
   })
 
   it('RECORD_TYPE_TO_DEFAULT_CATEGORY round-trips for automation_secret', () => {

@@ -331,7 +331,7 @@ export async function listItemsForIndex(): Promise<IndexProjection[]> {
   const result = await apiCall('/items', body)
   if (!Array.isArray(result)) return []
 
-  const FILLABLE: Set<string> = new Set(['password', 'identity', 'company', 'business'])
+  const FILLABLE: Set<string> = new Set(['password', 'identity', 'company'])
 
   return result
     .filter((item: any) => FILLABLE.has(item.category))

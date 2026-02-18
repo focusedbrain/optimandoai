@@ -342,7 +342,7 @@ function renderContent(options: DvPopupOptions): void {
       <span class="dv-title">DataVault</span>
     </div>
     <div class="dv-type-tabs">
-      ${(['private', 'business', 'company', 'custom'] as const)
+      ${(['private', 'company', 'custom'] as const)
         .filter(t => existingTypes.has(t))
         .map(t => `
           <button class="dv-type-tab ${profile.type === t ? 'active' : ''}" data-type="${t}" type="button">
@@ -702,7 +702,6 @@ async function handleRemap(options: DvPopupOptions, newKind: FieldKind): Promise
 
 const BADGE_ICONS: Record<DataVaultProfileType, string> = {
   private: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12"><path d="M6 1a2.5 2.5 0 0 0-2.5 2.5v0A2.5 2.5 0 0 0 6 6a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 6 1zm-3 7a1 1 0 0 0-1 1v.5C2 10.88 3.79 11.5 6 11.5s4-.62 4-2V9a1 1 0 0 0-1-1H3z" fill="currentColor"/></svg>`,
-  business: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12"><path d="M4 2a1 1 0 0 0-1 1v1H2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H9V3a1 1 0 0 0-1-1H4zm0 1h4v1H4V3zm-2 3h8v4H2V6z" fill="currentColor"/></svg>`,
   company: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12"><path d="M3 1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H3zm1 2h1v1H4V3zm3 0h1v1H7V3zM4 5.5h1v1H4v-1zm3 0h1v1H7v-1zM4 8h4v2H4V8z" fill="currentColor"/></svg>`,
   custom: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12"><path d="M6 .5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L6 9.57 2.48 11.35l.67-3.93L.3 4.64l3.94-.57L6 .5z" fill="currentColor"/></svg>`,
 }
@@ -713,7 +712,6 @@ function profileTypeBadgeIcon(type: DataVaultProfileType): string {
 
 const PROFILE_TYPE_LABELS: Record<DataVaultProfileType, string> = {
   private: 'Private Data',
-  business: 'Business Data',
   company: 'Company Data',
   custom: 'Custom Data',
 }
@@ -847,10 +845,6 @@ function buildCSS(): string {
     .dv-badge-private {
       background: rgba(99, 102, 241, 0.2);
       color: #a78bfa;
-    }
-    .dv-badge-business {
-      background: rgba(234, 179, 8, 0.2);
-      color: #fbbf24;
     }
     .dv-badge-company {
       background: rgba(59, 130, 246, 0.2);

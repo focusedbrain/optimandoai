@@ -30,12 +30,12 @@ export {
 /**
  * Container types for organizational grouping
  */
-export type ContainerType = 'person' | 'company' | 'business'
+export type ContainerType = 'person' | 'company'
 
 /**
  * Item categories
  */
-export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context'
+export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context'
 
 /**
  * Field types for dynamic form rendering

@@ -620,8 +620,7 @@ function categoryToSection(category: string): 'login' | 'identity' | 'company' |
   switch (category) {
     case 'password': return 'login'
     case 'identity': return 'identity'
-    case 'company':
-    case 'business': return 'company'
+    case 'company': return 'company'
     default: return 'custom'
   }
 }

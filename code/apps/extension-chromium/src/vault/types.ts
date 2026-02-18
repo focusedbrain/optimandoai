@@ -34,8 +34,8 @@ export {
   matchDomainGlob,
 } from './capabilities'
 
-export type ContainerType = 'person' | 'company' | 'business'
-export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context'
+export type ContainerType = 'person' | 'company'
+export type ItemCategory = 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context'
 export type FieldType = 'text' | 'password' | 'email' | 'url' | 'number' | 'textarea' | 'select'
 
 // Standard field definitions for each category
@@ -66,7 +66,7 @@ export const IDENTITY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
 ]
 
-// Payment method fields (reusable across Identity, Company, Business)
+// Payment method fields (reusable across Identity and Company)
 export const PAYMENT_FIELDS: StandardFieldDef[] = [
   { key: 'iban', label: 'IBAN', type: 'text', required: false, explanation: 'International Bank Account Number (e.g. DE89 3704 0044 0532 0130 00)' },
   { key: 'bic', label: 'BIC / SWIFT', type: 'text', required: false, explanation: 'Bank Identifier Code or SWIFT code' },
@@ -96,12 +96,6 @@ export const COMPANY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'tax_id', label: 'Tax ID', type: 'text', required: false, explanation: 'Business tax identification number' },
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
 ]
-
-// Standard fields for Business (same as Company)
-export const BUSINESS_STANDARD_FIELDS: StandardFieldDef[] = COMPANY_STANDARD_FIELDS.map(f => ({
-  ...f,
-  explanation: f.explanation.replace('Company', 'Business').replace('company', 'business')
-}))
 
 // Standard fields for Password entries
 export const PASSWORD_STANDARD_FIELDS: StandardFieldDef[] = [

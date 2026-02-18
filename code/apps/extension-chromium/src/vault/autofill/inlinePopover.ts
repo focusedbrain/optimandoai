@@ -370,7 +370,7 @@ async function loadVaultItems(): Promise<void> {
     }
 
     // Login popup: ONLY password/credential items.
-    // Identity/company/business/custom data is handled by the DataVault popup.
+    // Identity/company/custom data is handled by the DataVault popup.
     const allItems = await vaultAPI.listItems({ category: 'password' }).catch(() => [] as VaultItem[])
 
     // Client-side safeguard: filter out non-password items in case the

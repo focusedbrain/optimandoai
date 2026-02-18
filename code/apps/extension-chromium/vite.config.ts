@@ -48,7 +48,7 @@ export default defineConfig({
     alias: {
       '@shared-extension': path.resolve(__dirname, '../../packages/shared-extension/src'),
       '@shared': path.resolve(__dirname, '../../packages/shared/src'),
-    }
+    },
   },
   build: {
     // Disable Vite's modulepreload polyfill — it references `document` and
