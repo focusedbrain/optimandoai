@@ -229,7 +229,7 @@ export const VaultUI: React.FC = () => {
               />
 
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {(['all', 'password', 'identity', 'company', 'business', 'custom'] as const).map((cat) => (
+                {(['all', 'password', 'identity', 'company', 'custom'] as const).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}

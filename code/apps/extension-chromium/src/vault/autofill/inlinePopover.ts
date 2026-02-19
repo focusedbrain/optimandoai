@@ -34,6 +34,10 @@ import type { FieldCandidate } from '../../../../../packages/shared/src/vault/in
 import { setValueSafely, setPopoverFillActive } from './committer'
 import { auditLog, emitTelemetryEvent } from './hardening'
 import { areWritesDisabled } from './writesKillSwitch'
+import { resolveSubmitTarget, safeSubmitAfterFill } from './submitGuard'
+import type { SubmitSafetyInput } from './submitGuard'
+import { remapItemDomain, detectSubmitButtonSelector } from './credentialStore'
+import { showFillPreview } from './fillPreview'
 
 // ============================================================================
 // §1  Types
@@ -48,6 +52,11 @@ export interface PopoverOptions {
   allCandidates: FieldCandidate[]
   /** Approximate rect of the icon that was clicked. */
   iconRect: DOMRect
+  /** Whether this domain has at least one matching vault credential. */
+  hasMatch?: boolean
+  /** Called when the user toggles Auto/Manual mode inside the popover.
+   *  The orchestrator uses this to update QSO button visibility on field icons. */
+  onModeChange?: (mode: 'auto' | 'manual') => void
 }
 
 export type PopoverResult =
@@ -75,8 +84,39 @@ let _clickOutsideHandler: ((e: MouseEvent) => void) | null = null
 let _keydownHandler: ((e: KeyboardEvent) => void) | null = null
 let _activeIndex = -1
 
-// Persist mode across opens
-let _persistedMode: FillMode = 'auto'
+// Persist mode across opens — default to manual (safe); auto requires consent
+let _persistedMode: FillMode = 'manual'
+
+// Global QSO Auto consent key in chrome.storage.local
+const QSO_AUTO_CONSENT_KEY = 'wrv_qso_auto_consent'
+
+/** Read the persisted QSO Auto consent from chrome.storage.local. */
+export function loadQsoAutoConsent(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve(false)
+      return
+    }
+    chrome.storage.local.get(QSO_AUTO_CONSENT_KEY, (result) => {
+      resolve(result[QSO_AUTO_CONSENT_KEY] === true)
+    })
+  })
+}
+
+/** Persist QSO Auto consent globally. */
+export function saveQsoAutoConsentPublic(consented: boolean): Promise<void> {
+  return saveQsoAutoConsent(consented)
+}
+
+function saveQsoAutoConsent(consented: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve()
+      return
+    }
+    chrome.storage.local.set({ [QSO_AUTO_CONSENT_KEY]: consented }, () => resolve())
+  })
+}
 
 // ============================================================================
 // §3  Public API
@@ -87,9 +127,15 @@ let _persistedMode: FillMode = 'auto'
  *
  * Returns a promise that resolves when the user interacts (fill, dismiss, or open manager).
  */
-export function showPopover(options: PopoverOptions): Promise<PopoverResult> {
+export async function showPopover(options: PopoverOptions): Promise<PopoverResult> {
   hidePopover()
   _options = options
+
+  // Restore persisted QSO Auto consent from chrome.storage
+  const autoConsented = await loadQsoAutoConsent()
+  _persistedMode = autoConsented ? 'auto' : 'manual'
+
+  // Use the globally persisted mode — Auto is a global setting
   _mode = _persistedMode
   _items = []
   _filteredItems = []
@@ -161,9 +207,6 @@ function renderPopover(): void {
   list.setAttribute('role', 'listbox')
   list.setAttribute('aria-label', 'Vault entries')
   container.appendChild(list)
-
-  // Footer
-  container.appendChild(buildFooter())
 
   _shadow.appendChild(container)
 
@@ -280,22 +323,6 @@ function buildSearchBar(): HTMLElement {
   return bar
 }
 
-function buildFooter(): HTMLElement {
-  const footer = document.createElement('div')
-  footer.className = 'wrv-pop-footer'
-
-  const openBtn = document.createElement('button')
-  openBtn.className = 'wrv-pop-open-mgr'
-  openBtn.setAttribute('type', 'button')
-  openBtn.innerHTML = `Open Password Manager <span class="wrv-pop-arrow">&rarr;</span>`
-  openBtn.addEventListener('click', () => {
-    resolveAndClose({ action: 'open_manager' })
-  })
-  footer.appendChild(openBtn)
-
-  return footer
-}
-
 // ============================================================================
 // §5  Data Loading
 // ============================================================================
@@ -305,13 +332,33 @@ async function loadVaultItems(): Promise<void> {
     _loading = true
     updateListUI()
 
-    // First check if vault is accessible
+    // Check if vault is accessible (retry once after a short delay if the
+    // first attempt fails — the background service worker may still be waking)
     let vaultOk = false
-    try {
-      const status = await vaultAPI.getVaultStatus()
-      vaultOk = status?.isUnlocked === true || status?.locked === false
-    } catch {
-      vaultOk = false
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const status = await vaultAPI.getVaultStatus()
+        vaultOk = status?.isUnlocked === true || status?.locked === false
+        if (vaultOk) break
+      } catch {
+        vaultOk = false
+      }
+      if (!vaultOk && attempt === 0) {
+        await new Promise(r => setTimeout(r, 600))
+      }
+    }
+
+    if (!vaultOk) {
+      // Try loading items directly as a fallback — if the vault is actually
+      // unlocked but /status failed, listItems will succeed
+      try {
+        const probe = await vaultAPI.listItems({ category: 'password' })
+        if (Array.isArray(probe)) {
+          vaultOk = true
+        }
+      } catch {
+        // Vault is genuinely locked
+      }
     }
 
     if (!vaultOk) {
@@ -322,13 +369,13 @@ async function loadVaultItems(): Promise<void> {
       return
     }
 
-    // Fetch all items (password + identity for registration forms)
-    const [passwords, identities] = await Promise.all([
-      vaultAPI.listItems({ category: 'password' }).catch(() => [] as VaultItem[]),
-      vaultAPI.listItems({ category: 'identity' }).catch(() => [] as VaultItem[]),
-    ])
+    // Login popup: ONLY password/credential items.
+    // Identity/company/custom data is handled by the DataVault popup.
+    const allItems = await vaultAPI.listItems({ category: 'password' }).catch(() => [] as VaultItem[])
 
-    _items = [...passwords, ...identities]
+    // Client-side safeguard: filter out non-password items in case the
+    // backend returns all categories despite the filter
+    _items = allItems.filter(item => item.category === 'password')
 
     // Sort: domain matches first, then favorites, then alphabetical
     const currentDomain = window.location.hostname.toLowerCase()
@@ -358,26 +405,91 @@ async function loadVaultItems(): Promise<void> {
 
 function filterItems(): void {
   const currentDomain = window.location.hostname.toLowerCase()
+  const currentUrl = window.location.href.toLowerCase()
 
   if (_mode === 'auto') {
     // In auto mode: show domain matches only, or all if no matches
     const domainMatches = _items.filter(item => matchesDomain(item.domain, currentDomain))
     _filteredItems = domainMatches.length > 0 ? domainMatches : _items.slice(0, 5)
   } else {
-    // In manual mode: filter by search query
+    // In manual mode: filter by search query, sort by relevance
     if (!_searchQuery) {
-      _filteredItems = _items
-    } else {
-      _filteredItems = _items.filter(item => {
-        const haystack = [
-          item.title,
-          item.domain || '',
-          ...item.fields.filter(f => !f.encrypted && f.type !== 'password').map(f => f.value),
-        ].join(' ').toLowerCase()
-        return haystack.includes(_searchQuery)
+      // No search query: show all items, sorted by domain similarity
+      _filteredItems = [..._items].sort((a, b) => {
+        const aScore = domainSimilarityScore(a.domain, a.title, currentDomain, currentUrl)
+        const bScore = domainSimilarityScore(b.domain, b.title, currentDomain, currentUrl)
+        return bScore - aScore
       })
+    } else {
+      // With search query: filter + sort by relevance
+      const scored = _items
+        .map(item => {
+          const haystack = [
+            item.title,
+            item.domain || '',
+            ...item.fields.filter(f => !f.encrypted && f.type !== 'password').map(f => f.value),
+          ].join(' ').toLowerCase()
+          const matchesQuery = haystack.includes(_searchQuery)
+          const score = matchesQuery
+            ? domainSimilarityScore(item.domain, item.title, currentDomain, currentUrl) + 10
+            : 0
+          return { item, matchesQuery, score }
+        })
+        .filter(entry => entry.matchesQuery)
+        .sort((a, b) => b.score - a.score)
+
+      _filteredItems = scored.map(s => s.item)
     }
   }
+}
+
+/**
+ * Compute a relevance score for sorting items by how likely they match
+ * the current page. Higher = more likely match.
+ *
+ * Uses domain fragment matching, path similarity, and title keywords
+ * to rank items even when no exact domain match exists.
+ */
+function domainSimilarityScore(
+  itemDomain: string | undefined,
+  itemTitle: string,
+  currentDomain: string,
+  currentUrl: string,
+): number {
+  let score = 0
+  if (!itemDomain && !itemTitle) return score
+
+  const d = (itemDomain || '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  const titleLower = itemTitle.toLowerCase()
+
+  // Exact domain match
+  if (matchesDomain(itemDomain, currentDomain)) {
+    score += 100
+    return score
+  }
+
+  // Partial domain overlap (e.g., "facebook" in both domains)
+  const domainParts = d.split('.').filter(p => p.length > 2)
+  const currentParts = currentDomain.split('.').filter(p => p.length > 2)
+  for (const part of domainParts) {
+    if (currentDomain.includes(part)) score += 20
+  }
+  for (const part of currentParts) {
+    if (d.includes(part)) score += 15
+  }
+
+  // Title contains domain fragments from current page
+  for (const part of currentParts) {
+    if (titleLower.includes(part)) score += 10
+  }
+
+  // Domain fragments appear in current URL
+  for (const part of domainParts) {
+    if (currentUrl.includes(part)) score += 8
+  }
+
+  // Favorites get a small boost
+  return score
 }
 
 function matchesDomain(itemDomain: string | undefined, currentDomain: string): boolean {
@@ -460,15 +572,13 @@ function updateListUI(specialState?: 'vault_locked'): void {
 
     const isDomainMatch = matchesDomain(item.domain, currentDomain)
     const username = getDisplayUsername(item)
-    const categoryIcon = item.category === 'identity' ? IDENTITY_SVG : LOCK_SVG
-
     row.innerHTML = `
-      <div class="wrv-pop-item-icon">${item.favorite ? STAR_SVG : categoryIcon}</div>
+      <div class="wrv-pop-item-icon">${item.favorite ? STAR_SVG : LOCK_SVG}</div>
       <div class="wrv-pop-item-text">
         <div class="wrv-pop-item-title">${escapeHtml(item.title)}</div>
         <div class="wrv-pop-item-meta">${escapeHtml(username)}</div>
       </div>
-      ${isDomainMatch ? '<span class="wrv-pop-item-badge">This site</span>' : ''}
+      <span class="wrv-pop-item-badge">${_mode === 'auto' ? 'QSO' : 'Auto-Fill'}</span>
     `
 
     row.addEventListener('click', (e) => {
@@ -513,7 +623,17 @@ function getDisplayUsername(item: VaultItem): string {
 // §7  Mode Switching
 // ============================================================================
 
-function switchMode(mode: FillMode): void {
+async function switchMode(mode: FillMode): Promise<void> {
+  if (mode === 'auto') {
+    // Check if user has already consented to QSO Auto globally
+    const alreadyConsented = await loadQsoAutoConsent()
+    if (!alreadyConsented) {
+      const accepted = await showQsoConsentDialog()
+      if (!accepted) return
+      await saveQsoAutoConsent(true)
+    }
+  }
+
   _mode = mode
   _persistedMode = mode
   _searchQuery = ''
@@ -521,6 +641,11 @@ function switchMode(mode: FillMode): void {
   filterItems()
   updateListUI()
   updateModeUI()
+
+  // If switching back to manual, revoke the global consent
+  if (mode === 'manual') {
+    saveQsoAutoConsent(false).catch(() => {})
+  }
 
   // Focus search in manual mode
   if (mode === 'manual' && _shadow) {
@@ -531,7 +656,146 @@ function switchMode(mode: FillMode): void {
     }
   }
 
+  // Notify the orchestrator so it can update QSO button visibility on field icons
+  _options?.onModeChange?.(mode)
+
   emitTelemetryEvent('popover_mode_switch', { mode })
+}
+
+/**
+ * Show a consent dialog inside the popover Shadow DOM when the user
+ * switches to Auto mode for the first time.
+ */
+function showQsoConsentDialog(): Promise<boolean> {
+  return new Promise((resolve) => {
+    // Render in its own full-page Shadow DOM host (not inside the small popover)
+    const host = document.createElement('div')
+    host.setAttribute('data-wrv-consent-host', '')
+    host.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:auto;'
+
+    const shadow = host.attachShadow({ mode: 'closed' })
+
+    const style = document.createElement('style')
+    style.textContent = buildConsentCSS()
+    shadow.appendChild(style)
+
+    const overlay = document.createElement('div')
+    overlay.className = 'wrv-consent-overlay'
+    overlay.innerHTML = `
+      <div class="wrv-consent-dialog">
+        <div class="wrv-consent-icon">${SHIELD_SM_SVG}</div>
+        <div class="wrv-consent-title">Enable QSO Auto Mode</div>
+        <div class="wrv-consent-body">
+          By enabling <strong>Auto</strong> mode, you consent to 1-click
+          Quick Sign-On (QSO). When a matching credential is found, the
+          QSO button will auto-fill your username and password and
+          automatically click the login button — no extra confirmation needed.
+          <br><br>
+          This is a <strong>global setting</strong> that stays active across all
+          sites until you switch back to Manual.
+        </div>
+        <div class="wrv-consent-actions">
+          <button class="wrv-consent-btn wrv-consent-btn--cancel" type="button">Cancel</button>
+          <button class="wrv-consent-btn wrv-consent-btn--accept" type="button">Enable Auto QSO</button>
+        </div>
+      </div>
+    `
+
+    const cleanup = () => { try { host.remove() } catch { /* noop */ } }
+
+    overlay.querySelector('.wrv-consent-btn--cancel')?.addEventListener('click', () => {
+      cleanup()
+      resolve(false)
+    })
+    overlay.querySelector('.wrv-consent-btn--accept')?.addEventListener('click', () => {
+      cleanup()
+      resolve(true)
+    })
+
+    shadow.appendChild(overlay)
+    document.documentElement.appendChild(host)
+  })
+}
+
+function buildConsentCSS(): string {
+  return `
+    :host { all: initial; display: block; }
+    .wrv-consent-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    .wrv-consent-dialog {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 28px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+      text-align: center;
+    }
+    .wrv-consent-icon {
+      margin: 0 auto 12px;
+      width: 40px;
+      height: 40px;
+    }
+    .wrv-consent-icon svg {
+      width: 40px;
+      height: 40px;
+    }
+    .wrv-consent-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 12px;
+    }
+    .wrv-consent-body {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #475569;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    .wrv-consent-body strong {
+      color: #1e293b;
+    }
+    .wrv-consent-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    .wrv-consent-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .wrv-consent-btn:active {
+      transform: scale(0.96);
+    }
+    .wrv-consent-btn--cancel {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .wrv-consent-btn--cancel:hover {
+      background: #e2e8f0;
+    }
+    .wrv-consent-btn--accept {
+      background: #22c55e;
+      color: #ffffff;
+    }
+    .wrv-consent-btn--accept:hover {
+      background: #16a34a;
+    }
+  `
 }
 
 function updateModeUI(): void {
@@ -558,7 +822,7 @@ function updateModeUI(): void {
 // §8  Fill Logic
 // ============================================================================
 
-function fillFromItem(item: VaultItem): void {
+async function fillFromItem(item: VaultItem): Promise<void> {
   if (!_options) return
 
   // ── Kill-switch gate: abort fill if writes are globally disabled ──
@@ -569,58 +833,250 @@ function fillFromItem(item: VaultItem): void {
     return
   }
 
-  // Signal to the dev-only write canary that this is a legitimate fill path
-  setPopoverFillActive(true)
-
-  const candidates = _options.allCandidates
-  let filledCount = 0
-
+  // Fetch the full decrypted item — listItems() returns items with empty
+  // fields[] for security, so we must call getItem() to get actual values.
+  let fullItem: VaultItem
   try {
-    // Map item fields to page fields and fill
-    for (const candidate of candidates) {
-      const el = candidate.element as HTMLInputElement
-      if (!el || !document.contains(el)) continue
-
-      const matchedKind = candidate.matchedKind
-      if (!matchedKind) continue
-
-      // Find the best vault field for this candidate's kind
-      const vaultField = findMatchingField(item, matchedKind)
-      if (!vaultField || !vaultField.value) continue
-
-      const result = setValueSafely(el, vaultField.value)
-      if (result.success) {
-        filledCount++
-      }
-    }
-
-    // If no matches via kind mapping, try heuristic fill for the clicked field
-    if (filledCount === 0 && _options.anchorElement) {
-      const el = _options.anchorElement as HTMLInputElement
-      const inputType = (el.type || '').toLowerCase()
-      let value = ''
-
-      if (inputType === 'password') {
-        value = getFieldValue(item, 'password') || ''
-      } else if (inputType === 'email' || el.name?.toLowerCase().includes('email')) {
-        value = getFieldValue(item, 'email') || getFieldValue(item, 'username') || ''
-      } else {
-        value = getFieldValue(item, 'username') || getFieldValue(item, 'email') || ''
-      }
-
-      if (value) {
-        const result = setValueSafely(el, value)
-        if (result.success) filledCount++
-      }
-    }
-  } finally {
-    setPopoverFillActive(false)
+    fullItem = await vaultAPI.getItem(item.id) as VaultItem
+  } catch (err) {
+    auditLog('error', 'POPOVER_FILL_FETCH_ERROR', `Failed to fetch full item "${item.title}": ${err}`)
+    return
   }
 
-  auditLog('info', 'POPOVER_FILL', `Filled ${filledCount} fields from item "${item.title}"`)
-  emitTelemetryEvent('popover_fill', { itemId: item.id, fieldCount: filledCount })
+  const candidates = _options.allCandidates
 
-  resolveAndClose({ action: 'filled', itemId: item.id, fieldCount: filledCount })
+  // ── Domain remap: ALWAYS update the item's domain to the current origin
+  // when the user picks an entry from the popover. This ensures the strict
+  // origin-match check (used for green icon + QSO button) works on revisit,
+  // even when the site's subdomain or URL structure changes. ──
+  const origin = window.location.origin
+  const submitSelector = detectSubmitButtonSelector() ?? undefined
+  try {
+    await remapItemDomain(fullItem.id, origin, submitSelector)
+    auditLog('info', 'DOMAIN_REMAP', `Remapped item "${fullItem.title}" to ${origin} for future matching`)
+  } catch {
+    auditLog('warn', 'REMAP_FAILED', `Failed to remap item "${fullItem.title}" to ${origin}`)
+  }
+
+  if (_mode === 'auto') {
+    // ── AUTO mode: inject values directly + guarded auto-submit ──
+    setPopoverFillActive(true)
+    let filledCount = 0
+    try {
+      filledCount = fillFieldsFromVaultItem(fullItem, candidates, _options.anchorElement)
+    } finally {
+      setPopoverFillActive(false)
+    }
+
+    auditLog('info', 'POPOVER_FILL', `Filled ${filledCount} fields from item "${fullItem.title}"`)
+    emitTelemetryEvent('popover_fill', { itemId: fullItem.id, fieldCount: filledCount })
+
+    resolveAndClose({ action: 'filled', itemId: fullItem.id, fieldCount: filledCount })
+
+    // Guarded submit: use security gates from submitGuard.ts
+    if (filledCount > 0) {
+      popoverGuardedSubmit(candidates, fullItem.title)
+    }
+  } else {
+    // ── MANUAL mode: autofill only, no auto-submit ──
+    // Values are injected into the real fields but the login button
+    // is NOT clicked automatically. The user clicks Login/Sign-in manually.
+    setPopoverFillActive(true)
+    let filledCount = 0
+    try {
+      filledCount = fillFieldsFromVaultItem(fullItem, candidates, _options.anchorElement)
+    } finally {
+      setPopoverFillActive(false)
+    }
+
+    auditLog('info', 'POPOVER_AUTOFILL', `Auto-filled ${filledCount} fields from item "${fullItem.title}" (manual mode — no submit)`)
+    emitTelemetryEvent('popover_autofill', { itemId: fullItem.id, fieldCount: filledCount })
+
+    resolveAndClose({ action: 'filled', itemId: fullItem.id, fieldCount: filledCount })
+  }
+}
+
+/**
+ * Attempt a guarded form submit from the popover auto-mode path.
+ * Uses the 12-gate security pipeline from submitGuard.ts.
+ * If any gate fails, degrades to fill-only (values remain filled).
+ */
+function popoverGuardedSubmit(
+  candidates: FieldCandidate[],
+  itemTitle: string,
+): void {
+  let form: HTMLFormElement | null = null
+  for (const c of candidates) {
+    const el = c.element as HTMLElement
+    if (el && document.contains(el)) {
+      form = el.closest('form')
+      if (form) break
+    }
+  }
+
+  const submitEl = form ? resolveSubmitTarget(form) : null
+  if (!submitEl) {
+    auditLog('info', 'POPOVER_SUBMIT_NO_BUTTON',
+      `No submit button found for guarded submit after filling "${itemTitle}"`)
+    return
+  }
+
+  const input: SubmitSafetyInput = {
+    form,
+    submitEl,
+    submitFingerprint: null,
+    originTier: 'exact',
+    partialScan: false,
+    isTrusted: true,
+    mutationGuard: null,
+  }
+
+  const result = safeSubmitAfterFill(input)
+
+  if (result.submitted) {
+    auditLog('info', 'POPOVER_GUARDED_SUBMIT_OK',
+      `Guarded submit succeeded after filling "${itemTitle}"`)
+    emitTelemetryEvent('popover_guarded_submit', { code: result.code })
+  } else {
+    auditLog('warn', 'POPOVER_GUARDED_SUBMIT_BLOCKED',
+      `Guarded submit blocked: ${result.reason ?? result.code} for "${itemTitle}". Degrading to fill-only.`)
+    emitTelemetryEvent('popover_guarded_submit_blocked', {
+      code: result.code,
+      reason: result.reason,
+    })
+  }
+}
+
+/**
+ * Fill form fields with values from a vault item.
+ *
+ * Exported for use by the orchestrator for direct-fill (green icon, single match)
+ * without opening the popover.
+ */
+export function fillFieldsFromVaultItem(
+  item: VaultItem,
+  candidates: FieldCandidate[],
+  anchorElement?: HTMLElement | null,
+): number {
+  let filledCount = 0
+
+  // Map item fields to page fields and fill
+  for (const candidate of candidates) {
+    const el = candidate.element as HTMLInputElement
+    if (!el || !document.contains(el)) continue
+
+    const matchedKind = candidate.matchedKind
+    if (!matchedKind) continue
+
+    // Find the best vault field for this candidate's kind
+    const vaultField = findMatchingField(item, matchedKind)
+    if (!vaultField || !vaultField.value) continue
+
+    const result = setValueSafely(el, vaultField.value)
+    if (result.success) {
+      filledCount++
+    }
+  }
+
+  // If no matches via kind mapping, try heuristic fill for the clicked field
+  if (filledCount === 0 && anchorElement) {
+    const el = anchorElement as HTMLInputElement
+    const inputType = (el.type || '').toLowerCase()
+    let value = ''
+
+    if (inputType === 'password') {
+      value = getFieldValue(item, 'password') || ''
+    } else if (inputType === 'email' || el.name?.toLowerCase().includes('email')) {
+      value = getFieldValue(item, 'email') || getFieldValue(item, 'username') || ''
+    } else {
+      value = getFieldValue(item, 'username') || getFieldValue(item, 'email') || ''
+    }
+
+    if (value) {
+      const result = setValueSafely(el, value)
+      if (result.success) filledCount++
+    }
+  }
+
+  return filledCount
+}
+
+/**
+ * Find and click the submit/login button after a successful fill.
+ *
+ * Exported for use by the orchestrator for direct-fill auto-submit.
+ */
+export function autoSubmitAfterFill(candidates: FieldCandidate[]): void {
+  // Find the form enclosing the filled fields
+  let form: HTMLFormElement | null = null
+  for (const candidate of candidates) {
+    const el = candidate.element as HTMLElement
+    if (el && document.contains(el)) {
+      form = el.closest('form')
+      if (form) break
+    }
+  }
+
+  // Try to find and click the submit button
+  const submitEl = form ? resolveSubmitTarget(form) : findSubmitButtonOnPage()
+  if (!submitEl) {
+    auditLog('info', 'AUTO_SUBMIT_NO_BUTTON', 'No submit button found for auto-submit')
+    return
+  }
+
+  // Small delay to let frameworks process the filled values
+  setTimeout(() => {
+    try {
+      if (form && typeof form.requestSubmit === 'function') {
+        if (submitEl instanceof HTMLButtonElement || submitEl instanceof HTMLInputElement) {
+          form.requestSubmit(submitEl)
+        } else {
+          form.requestSubmit()
+        }
+      } else {
+        submitEl.click()
+      }
+      auditLog('info', 'AUTO_SUBMIT_SUCCESS', 'Auto-submitted form after fill')
+      emitTelemetryEvent('auto_submit', { method: form ? 'requestSubmit' : 'click' })
+    } catch {
+      // Fallback: just click the button
+      try {
+        submitEl.click()
+        auditLog('info', 'AUTO_SUBMIT_FALLBACK', 'Auto-submitted via click fallback')
+      } catch {
+        auditLog('warn', 'AUTO_SUBMIT_FAILED', 'Auto-submit failed')
+      }
+    }
+  }, 150)
+}
+
+/**
+ * Find a submit button on the page when there's no enclosing form.
+ * Searches for common login/signup button patterns.
+ */
+function findSubmitButtonOnPage(): HTMLElement | null {
+  const buttonPatterns = [
+    /log\s*in/i, /sign\s*in/i, /anmeld/i, /einloggen/i,
+    /submit/i, /continue/i, /weiter/i, /next/i,
+    /sign\s*up/i, /register/i, /registrier/i, /erstellen/i,
+  ]
+
+  // Check all buttons and inputs on the page
+  const allButtons = document.querySelectorAll<HTMLElement>(
+    'button, input[type="submit"], a[role="button"]',
+  )
+
+  for (const btn of allButtons) {
+    const text = (btn.textContent || (btn as HTMLInputElement).value || '').trim()
+    const rect = btn.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) continue
+
+    for (const pattern of buttonPatterns) {
+      if (pattern.test(text)) return btn
+    }
+  }
+
+  return null
 }
 
 function findMatchingField(item: VaultItem, kind: string): Field | null {
@@ -991,13 +1447,19 @@ function buildPopoverCSS(): string {
       text-overflow: ellipsis;
     }
     .wrv-pop-item-badge {
-      font-size: 10px;
-      background: rgba(99, 102, 241, 0.18);
-      color: ${t['--wrv-accent']};
-      padding: 2px 6px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: #22c55e;
+      color: #ffffff;
+      padding: 3px 7px;
       border-radius: 4px;
       flex-shrink: 0;
-      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .wrv-pop-item-badge:hover {
+      background: #16a34a;
     }
 
     /* ── Loading ── */
@@ -1090,39 +1552,12 @@ function buildPopoverCSS(): string {
       outline-offset: 2px;
     }
 
-    /* ── Footer ── */
-    .wrv-pop-footer {
-      border-top: 1px solid rgba(255,255,255,0.08);
-      padding: 6px 10px;
-    }
-    .wrv-pop-open-mgr {
-      width: 100%;
-      padding: 6px 10px;
-      border: none;
-      border-radius: 4px;
-      background: transparent;
-      color: ${t['--wrv-accent']};
-      font-family: ${t['--wrv-font-family']};
-      font-size: ${t['--wrv-font-size-sm']};
-      cursor: pointer;
-      text-align: center;
-      transition: background 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-    }
-    .wrv-pop-open-mgr:hover {
-      background: rgba(99, 102, 241, 0.10);
-    }
-    .wrv-pop-arrow {
-      font-size: 14px;
-    }
-
     @media (prefers-reduced-motion: reduce) {
       .wrv-pop { animation: none; }
       .wrv-pop-spinner { animation: none; }
     }
+
+    /* Consent dialog CSS removed — now rendered in its own Shadow DOM host via buildConsentCSS() */
   `
 }
 

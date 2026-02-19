@@ -6,7 +6,7 @@
 import * as vaultAPI from './api'
 import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult } from './types'
 import {
-  IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS, BUSINESS_STANDARD_FIELDS,
+  IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS,
   PASSWORD_STANDARD_FIELDS, AUTOMATION_SECRET_STANDARD_FIELDS, HANDSHAKE_CONTEXT_STANDARD_FIELDS,
   PAYMENT_FIELDS,
   CATEGORY_UI_MAP, RECORD_TYPE_DISPLAY, RECORD_TYPE_MIN_TIER,
@@ -35,6 +35,7 @@ function detectVaultTheme(): VaultThemeName {
     const stored = localStorage.getItem('optimando-ui-theme')
     if (stored === 'standard' || stored === 'professional') return 'standard'
     if (stored === 'dark') return 'dark'
+    if (stored === 'pro' || stored === 'default') return 'pro'
   } catch { /* noop */ }
   return 'pro'
 }
@@ -175,9 +176,23 @@ function ensureConnected(): Promise<void> {
   return connectionPromise
 }
 
+/**
+ * After closing a dialog that replaced #vault-main-content,
+ * re-render the full dashboard and reload items.
+ */
+function restoreDashboardAfterDialogClose(container: HTMLElement) {
+  renderVaultDashboard(container)
+  setTimeout(() => {
+    loadContainersIntoTree(container)
+    addAddButtonsToTree(container)
+    loadVaultItems(container, 'all')
+  }, 100)
+}
+
 export function openVaultLightbox() {
   const overlay = document.createElement('div')
   overlay.id = 'wrvault-overlay'
+  overlay.setAttribute('data-wrv-no-autofill', '')
   overlay.style.cssText = `position:fixed;inset:0;background:var(--wrv-overlay);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)`
 
   // Inject theme-aware CSS custom properties
@@ -220,19 +235,48 @@ export function openVaultLightbox() {
       </div>
       <div id="wrv-tier-badge" style="margin-left:8px;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:rgba(var(--wrv-accent-rgb),0.12);color:var(--wrv-accent);border:1px solid rgba(var(--wrv-accent-rgb),0.20);">free</div>
     </div>
-    <button id="wrv-close" style="
-      background: rgba(var(--wrv-accent-rgb),0.10);
-      border: 1px solid rgba(var(--wrv-accent-rgb),0.20);
-      color: var(--wrv-accent);
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      cursor: pointer;
-      font-size: 16px;
-      font-weight: 600;
-      transition: all 0.15s;
-      display:flex;align-items:center;justify-content:center;
-    ">×</button>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div id="wrv-mode-toggle" style="
+        display:none;
+        border-radius:6px;
+        overflow:hidden;
+        border:1px solid rgba(var(--wrv-accent-rgb),0.25);
+        font-size:11px;
+        font-weight:600;
+        cursor:pointer;
+        user-select:none;
+      ">
+        <button id="wrv-mode-auto" type="button" style="
+          padding:4px 10px;
+          border:none;
+          cursor:pointer;
+          font-size:11px;
+          font-weight:600;
+          transition:all 0.15s;
+        ">Auto</button>
+        <button id="wrv-mode-manual" type="button" style="
+          padding:4px 10px;
+          border:none;
+          cursor:pointer;
+          font-size:11px;
+          font-weight:600;
+          transition:all 0.15s;
+        ">Manual</button>
+      </div>
+      <button id="wrv-close" style="
+        background: rgba(var(--wrv-accent-rgb),0.10);
+        border: 1px solid rgba(var(--wrv-accent-rgb),0.20);
+        color: var(--wrv-accent);
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 600;
+        transition: all 0.15s;
+        display:flex;align-items:center;justify-content:center;
+      ">×</button>
+    </div>
   `
 
   // Main content area
@@ -261,6 +305,57 @@ export function openVaultLightbox() {
   })
   closeBtn?.addEventListener('click', () => {
     overlay.remove()
+  })
+
+  // ── Auto/Manual mode toggle ──
+  const autoBtn = header.querySelector('#wrv-mode-auto') as HTMLButtonElement
+  const manualBtn = header.querySelector('#wrv-mode-manual') as HTMLButtonElement
+
+  function applyModeStyles(isAuto: boolean) {
+    if (isAuto) {
+      autoBtn.style.background = 'var(--wrv-accent)'
+      autoBtn.style.color = '#fff'
+      manualBtn.style.background = 'transparent'
+      manualBtn.style.color = 'var(--wrv-header-text, #cbd5e1)'
+    } else {
+      manualBtn.style.background = 'var(--wrv-accent)'
+      manualBtn.style.color = '#fff'
+      autoBtn.style.background = 'transparent'
+      autoBtn.style.color = 'var(--wrv-header-text, #cbd5e1)'
+    }
+  }
+
+  // Load initial state
+  loadAutoConsentForVault().then(isAuto => applyModeStyles(isAuto))
+
+  autoBtn?.addEventListener('click', async () => {
+    const alreadyConsented = await loadAutoConsentForVault()
+    if (!alreadyConsented) {
+      const accepted = await showVaultAutoConsentDialog()
+      if (!accepted) return
+    }
+    // Always persist — ensures the setting sticks even after manual toggle
+    await saveAutoConsent(true)
+    applyModeStyles(true)
+  })
+
+  manualBtn?.addEventListener('click', async () => {
+    await saveAutoConsent(false)
+    applyModeStyles(false)
+  })
+
+  // Close on Escape key
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove()
+      document.removeEventListener('keydown', escHandler)
+    }
+  }
+  document.addEventListener('keydown', escHandler)
+
+  // Close on backdrop click (outside the container)
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove()
   })
 
   document.body.appendChild(overlay)
@@ -383,6 +478,10 @@ async function initVaultUI(container: HTMLElement) {
 
 // Render Create Vault Screen
 function renderCreateVaultScreen(container: HTMLElement) {
+  // Hide the Auto/Manual toggle — vault doesn't exist yet
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'none'
+
   container.innerHTML = `
     <div style="max-width:580px;margin:40px auto;text-align:center;">
       <div style="font-size:64px;margin-bottom:24px;">🔐</div>
@@ -683,6 +782,10 @@ function renderCreateVaultScreen(container: HTMLElement) {
 
 // Render Unlock Screen
 async function renderUnlockScreen(container: HTMLElement) {
+  // Hide the Auto/Manual toggle while vault is locked
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'none'
+
   // Load available vaults - always ensure dropdown has options even if API fails
   let availableVaults: Array<{ id: string, name: string, created: number }> = []
   let connectionError: string | null = null
@@ -889,7 +992,6 @@ const SIDEBAR_CATEGORY_CONFIG: Record<string, {
   password:          { viewAction: 'view-passwords', viewLabel: 'View Passwords' },
   identity:          { containerType: 'person', viewAction: 'view-identities', viewLabel: 'View Identities', containersId: 'person-containers' },
   company:           { containerType: 'company', viewAction: 'view-companies', viewLabel: 'View Companies', containersId: 'company-containers' },
-  business:          { containerType: 'business', viewAction: 'view-businesses', viewLabel: 'View Businesses', containersId: 'business-containers' },
   custom:            { viewAction: 'view-data', viewLabel: 'View Data', containersId: 'custom-containers' },
   document:          { viewAction: 'view-documents', viewLabel: 'View Documents' },
   handshake_context: { viewAction: 'view-handshake-context', viewLabel: 'View Context Items' },
@@ -948,6 +1050,10 @@ function buildSidebarCategoriesHTML(tier: VaultTier): string {
 
 // Render Vault Dashboard (Main UI)
 function renderVaultDashboard(container: HTMLElement) {
+  // Show the Auto/Manual toggle now that the vault is unlocked
+  const modeToggle = document.getElementById('wrv-mode-toggle')
+  if (modeToggle) modeToggle.style.display = 'inline-flex'
+
   container.innerHTML = `
     <div style="display:flex;height:100%;gap:0;">
       <!-- Sidebar -->
@@ -1093,8 +1199,6 @@ function renderVaultDashboard(container: HTMLElement) {
       loadVaultItems(container, 'identity')
     } else if (action === 'view-companies') {
       loadVaultItems(container, 'company')
-    } else if (action === 'view-businesses') {
-      loadVaultItems(container, 'business')
     } else if (action === 'view-data') {
       loadVaultItems(container, 'custom')
     } else if (action === 'view-documents') {
@@ -1111,8 +1215,6 @@ function renderVaultDashboard(container: HTMLElement) {
       renderAddDataDialog(container, 'identity')
     } else if (action === 'add-company') {
       renderAddDataDialog(container, 'company')
-    } else if (action === 'add-business') {
-      renderAddDataDialog(container, 'business')
     } else if (action === 'add-custom') {
       renderAddDataDialog(container, 'custom')
     } else if (action === 'upload-document') {
@@ -1196,7 +1298,7 @@ async function loadVaultItemsByContainer(container: HTMLElement, containerType: 
       return
     }
     
-    renderContainerData(listDiv, allItems)
+    await renderContainerData(listDiv, allItems)
   } catch (err: any) {
     console.error('[VAULT UI] Error loading items by container:', err)
     listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:var(--wrv-danger);">Error loading items: ${err.message || err}</div>`
@@ -1204,8 +1306,8 @@ async function loadVaultItemsByContainer(container: HTMLElement, containerType: 
 }
 
 // Legacy function - now uses renderContainerData for consistency
-function renderItemsList(listDiv: HTMLElement, items: any[]) {
-  renderContainerData(listDiv, items)
+async function renderItemsList(listDiv: HTMLElement, items: any[]) {
+  await renderContainerData(listDiv, items)
 }
 
 async function loadVaultItems(container: HTMLElement, category: string) {
@@ -1233,7 +1335,7 @@ async function loadVaultItems(container: HTMLElement, category: string) {
     }
 
     // Use professional rendering for all items
-    renderContainerData(listDiv, items)
+    await renderContainerData(listDiv, items)
   } catch (err: any) {
     console.error('[VAULT] Error loading items:', err)
     listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:var(--wrv-danger);">Error loading items: ${err.message || err}. Please try again.</div>`
@@ -1284,17 +1386,6 @@ function addAddButtonsToTree(container: HTMLElement) {
     addCompanyBtn.style.cssText = 'padding:7px 10px;background:rgba(var(--wrv-accent-rgb),0.08);border-radius:6px;cursor:pointer;font-size:12px;margin-top:4px;border:1px solid rgba(var(--wrv-accent-rgb),0.15);transition:all 0.15s;'
     addCompanyBtn.textContent = '+ Add Company'
     companySubcategories.insertBefore(addCompanyBtn, companySubcategories.querySelector('#company-containers'))
-  }
-  
-  // Business category
-  const businessSubcategories = container.querySelector('.vault-subcategories[data-parent="business"]')
-  if (businessSubcategories && !businessSubcategories.querySelector('[data-action="add-business"]')) {
-    const addBusinessBtn = document.createElement('div')
-    addBusinessBtn.className = 'vault-subcategory-btn'
-    addBusinessBtn.setAttribute('data-action', 'add-business')
-    addBusinessBtn.style.cssText = 'padding:7px 10px;background:rgba(var(--wrv-accent-rgb),0.08);border-radius:6px;cursor:pointer;font-size:12px;margin-top:4px;border:1px solid rgba(var(--wrv-accent-rgb),0.15);transition:all 0.15s;'
-    addBusinessBtn.textContent = '+ Add Business'
-    businessSubcategories.insertBefore(addBusinessBtn, businessSubcategories.querySelector('#business-containers'))
   }
   
   // Custom category
@@ -1510,30 +1601,37 @@ async function downloadDocument(docId: string) {
 
 /** Show the document upload dialog (file picker + notes). */
 function renderDocumentUploadDialog(parentContainer: HTMLElement) {
-  const overlay = document.createElement('div')
-  overlay.id = 'vault-doc-upload-overlay'
-  overlay.style.cssText = `
-    position:fixed;inset:0;
-    background:rgba(0,0,0,0.7);
-    z-index:100002;
-    display:flex;align-items:center;justify-content:center;
-  `
+  const savedContent = parentContainer.innerHTML
 
   const dialog = document.createElement('div')
+  dialog.id = 'vault-doc-upload-overlay'
+  dialog.setAttribute('data-wrv-no-autofill', '')
   dialog.style.cssText = `
-    background:var(--wrv-bg-content, #0e0e14);
-    border:1px solid var(--wrv-border, rgba(var(--wrv-accent-rgb),0.12));
-    border-radius:16px;
-    width:560px;max-width:90vw;
+    height:100%;
+    overflow-y:auto;
     padding:28px 32px;
-    box-shadow:0 20px 60px rgba(0,0,0,0.6);
     color:var(--wrv-text, #ededf0);
-    max-height:80vh;overflow-y:auto;
   `
 
   dialog.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <h3 style="margin:0;font-size:18px;font-weight:700;color:var(--wrv-text);">📄 Upload Document</h3>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="doc-upload-back" style="
+          background:var(--wrv-bg-card);
+          border:1px solid var(--wrv-border);
+          padding:6px 14px;
+          border-radius:8px;
+          color:var(--wrv-text-2);
+          font-size:13px;
+          font-weight:600;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          gap:6px;
+          transition:all 0.15s;
+        " onmouseenter="this.style.background='var(--wrv-bg-input)';this.style.color='var(--wrv-text)'" onmouseleave="this.style.background='var(--wrv-bg-card)';this.style.color='var(--wrv-text-2)'">← Back</button>
+        <h3 style="margin:0;font-size:18px;font-weight:700;color:var(--wrv-text);">📄 Upload Document</h3>
+      </div>
       <button id="doc-upload-close" style="background:none;border:none;color:var(--wrv-text-3);font-size:22px;cursor:pointer;padding:4px 8px;">✕</button>
     </div>
 
@@ -1592,13 +1690,17 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
     <div id="doc-upload-status" style="display:none;margin-top:12px;padding:10px;border-radius:8px;font-size:13px;text-align:center;"></div>
   `
 
-  overlay.appendChild(dialog)
+  parentContainer.innerHTML = ''
+  parentContainer.appendChild(dialog)
 
-  // Close handlers
-  const close = () => overlay.remove()
+  // Close handlers — restore vault dashboard
+  const close = () => {
+    parentContainer.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(parentContainer)
+  }
+  dialog.querySelector('#doc-upload-back')?.addEventListener('click', close)
   dialog.querySelector('#doc-upload-close')?.addEventListener('click', close)
   dialog.querySelector('#doc-upload-cancel')?.addEventListener('click', close)
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 
   // File state
   let selectedFile: File | null = null
@@ -1687,7 +1789,6 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
     }
   })
 
-  document.body.appendChild(overlay)
 }
 
 // =============================================================================
@@ -1867,21 +1968,16 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
   const isEdit = !!existingItem
   const dialogTitle = isEdit ? 'Edit HS Context' : 'New HS Context'
 
-  const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;'
+  // Render inline in the vault content area
+  const savedContent = parentContainer.innerHTML
 
   const dialog = document.createElement('div')
+  dialog.setAttribute('data-wrv-no-autofill', '')
   dialog.style.cssText = `
-    background:var(--wrv-bg);
-    border:1px solid var(--wrv-border);
-    border-radius:16px;
-    padding:24px;
-    width:680px;
-    max-width:90vw;
-    max-height:85vh;
+    height:100%;
     overflow-y:auto;
+    padding:24px;
     color:var(--wrv-text);
-    box-shadow:0 12px 48px rgba(0,0,0,0.25);
   `
 
   // Build field values from existing item
@@ -1889,7 +1985,23 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
 
   dialog.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-      <h2 style="margin:0;font-size:18px;color:var(--wrv-text);">🤝 ${dialogTitle}</h2>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="hc-dialog-back" style="
+          background:var(--wrv-bg-card);
+          border:1px solid var(--wrv-border);
+          padding:6px 14px;
+          border-radius:8px;
+          color:var(--wrv-text-2);
+          font-size:13px;
+          font-weight:600;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          gap:6px;
+          transition:all 0.15s;
+        " onmouseenter="this.style.background='var(--wrv-bg-input)';this.style.color='var(--wrv-text)'" onmouseleave="this.style.background='var(--wrv-bg-card)';this.style.color='var(--wrv-text-2)'">← Back</button>
+        <h2 style="margin:0;font-size:18px;color:var(--wrv-text);">🤝 ${dialogTitle}</h2>
+      </div>
       <button id="hc-dialog-close" style="background:none;border:none;color:var(--wrv-text-3);font-size:20px;cursor:pointer;padding:4px 8px;">&times;</button>
     </div>
 
@@ -1972,12 +2084,16 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
     <div id="hc-dialog-status" style="display:none;margin-top:12px;padding:10px;border-radius:8px;font-size:12px;text-align:center;"></div>
   `
 
-  overlay.appendChild(dialog)
+  parentContainer.innerHTML = ''
+  parentContainer.appendChild(dialog)
 
-  const close = () => overlay.remove()
+  const close = () => {
+    parentContainer.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(parentContainer)
+  }
+  dialog.querySelector('#hc-dialog-back')?.addEventListener('click', close)
   dialog.querySelector('#hc-dialog-close')?.addEventListener('click', close)
   dialog.querySelector('#hc-dialog-cancel')?.addEventListener('click', close)
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 
   // Save handler
   dialog.querySelector('#hc-dialog-save')?.addEventListener('click', async () => {
@@ -2060,7 +2176,6 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
     }
   })
 
-  document.body.appendChild(overlay)
 }
 
 /**
@@ -2068,26 +2183,36 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
  * and shows "why allowed/blocked" in a transparent way.
  */
 function renderAttachEvalDialog(parentContainer: HTMLElement, itemId: string) {
-  const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100000;display:flex;align-items:center;justify-content:center;'
+  const savedContent = parentContainer.innerHTML
 
   const dialog = document.createElement('div')
+  dialog.setAttribute('data-wrv-no-autofill', '')
   dialog.style.cssText = `
-    background:var(--wrv-bg);
-    border:1px solid var(--wrv-border);
-    border-radius:16px;
-    padding:24px;
-    width:520px;
-    max-width:90vw;
-    max-height:80vh;
+    height:100%;
     overflow-y:auto;
+    padding:24px;
     color:var(--wrv-text);
-    box-shadow:0 12px 48px rgba(0,0,0,0.25);
   `
 
   dialog.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-      <h2 style="margin:0;font-size:16px;color:var(--wrv-text);">🔍 Test Attachment Eligibility</h2>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="eval-back" style="
+          background:var(--wrv-bg-card);
+          border:1px solid var(--wrv-border);
+          padding:6px 14px;
+          border-radius:8px;
+          color:var(--wrv-text-2);
+          font-size:13px;
+          font-weight:600;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          gap:6px;
+          transition:all 0.15s;
+        " onmouseenter="this.style.background='var(--wrv-bg-input)';this.style.color='var(--wrv-text)'" onmouseleave="this.style.background='var(--wrv-bg-card)';this.style.color='var(--wrv-text-2)'">← Back</button>
+        <h2 style="margin:0;font-size:16px;color:var(--wrv-text);">🔍 Test Attachment Eligibility</h2>
+      </div>
       <button id="eval-close" style="background:none;border:none;color:var(--wrv-text-3);font-size:20px;cursor:pointer;padding:4px 8px;">&times;</button>
     </div>
 
@@ -2114,11 +2239,15 @@ function renderAttachEvalDialog(parentContainer: HTMLElement, itemId: string) {
     <div id="eval-result" style="display:none;margin-top:16px;"></div>
   `
 
-  overlay.appendChild(dialog)
+  parentContainer.innerHTML = ''
+  parentContainer.appendChild(dialog)
 
-  const close = () => overlay.remove()
+  const close = () => {
+    parentContainer.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(parentContainer)
+  }
+  dialog.querySelector('#eval-back')?.addEventListener('click', close)
   dialog.querySelector('#eval-close')?.addEventListener('click', close)
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 
   dialog.querySelector('#eval-run-btn')?.addEventListener('click', async () => {
     const resultDiv = dialog.querySelector('#eval-result') as HTMLElement
@@ -2181,7 +2310,6 @@ function renderAttachEvalDialog(parentContainer: HTMLElement, itemId: string) {
     }
   })
 
-  document.body.appendChild(overlay)
 }
 
 // Load containers into tree structure
@@ -2207,11 +2335,6 @@ async function loadContainersIntoTree(container: HTMLElement) {
       companyDiv.innerHTML = ''
     }
     
-    const businessDiv = container.querySelector('#business-containers') as HTMLElement
-    if (businessDiv) {
-      businessDiv.innerHTML = ''
-    }
-    
     const customDiv = container.querySelector('#custom-containers') as HTMLElement
     if (customDiv) {
       customDiv.innerHTML = ''
@@ -2235,7 +2358,7 @@ async function loadContainerItems(container: HTMLElement, containerId: string) {
       return
     }
     
-    renderContainerData(listDiv, items)
+    await renderContainerData(listDiv, items)
   } catch (err: any) {
     console.error('[VAULT UI] Error loading container items:', err)
     listDiv.innerHTML = `<div style="text-align:center;padding:40px;color:var(--wrv-danger);">Error loading data: ${err.message || err}</div>`
@@ -2243,16 +2366,30 @@ async function loadContainerItems(container: HTMLElement, containerId: string) {
 }
 
 // Render container data professionally - Password Manager Style List View
-function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
+// Fetches full decrypted fields for items that need them (e.g. passwords).
+async function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
   if (items.length === 0) {
     listDiv.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--wrv-text-3);"><div style="font-size:48px;margin-bottom:16px;">📭</div><div style="font-size:16px;margin-bottom:8px;">No entries found</div><div style="font-size:13px;">Click "+ Add" to create your first entry</div></div>'
     return
   }
+
+  // The list API returns items with empty fields for security.
+  // Fetch full decrypted data for items that need field display.
+  const enriched = await Promise.all(items.map(async (item) => {
+    if (item.fields.length === 0) {
+      try {
+        return await vaultAPI.getItem(item.id)
+      } catch {
+        return item
+      }
+    }
+    return item
+  }))
   
   // Password manager style: Compact list with view/edit buttons
   listDiv.innerHTML = `
     <div style="padding:4px;">
-      ${items.map(item => renderListItemRow(item)).join('')}
+      ${enriched.map(item => renderListItemRow(item)).join('')}
     </div>
   `
   
@@ -2314,7 +2451,7 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
       e.stopPropagation()
       try {
         const item = await vaultAPI.getItem(itemId)
-        const container = listDiv.closest('#wrvault-container') || document.querySelector('#wrvault-container')
+        const container = listDiv.closest('#vault-main-content') || document.querySelector('#vault-main-content')
         if (container) {
           renderEditDataDialog(container as HTMLElement, item)
         }
@@ -2334,7 +2471,7 @@ function renderContainerData(listDiv: HTMLElement, items: VaultItem[]) {
           // Refresh the view
           const containerId = (row as HTMLElement).getAttribute('data-container-id')
           const category = (row as HTMLElement).getAttribute('data-category')
-          const container = listDiv.closest('#wrvault-container') as HTMLElement
+          const container = (listDiv.closest('#vault-main-content') || document.querySelector('#vault-main-content')) as HTMLElement
           
           if (containerId) {
             loadContainerItems(container, containerId)
@@ -2403,7 +2540,6 @@ function renderListItemRow(item: VaultItem): string {
     password: '🔑',
     identity: '👤',
     company: '🏢',
-    business: '💼',
     custom: '📝',
     document: '📄',
     handshake_context: '🤝'
@@ -2629,10 +2765,11 @@ function renderListItemRow(item: VaultItem): string {
 // Render item view modal (Password Manager Style)
 function renderItemViewModal(item: VaultItem) {
   const overlay = document.createElement('div')
+  overlay.setAttribute('data-wrv-no-autofill', '')
   overlay.style.cssText = `
     position:fixed;
     inset:0;
-    background:rgba(0,0,0,0.25);
+    background:transparent;
     z-index:2147483651;
     display:flex;
     align-items:center;
@@ -2852,7 +2989,7 @@ function renderItemCard(item: VaultItem): string {
 }
 
 // Render Add Data Dialog
-function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'business' | 'custom' | 'document' | 'handshake_context') {
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context') {
   // Documents use their own dedicated upload dialog — redirect immediately.
   if (preselectedCategory === 'document') {
     renderDocumentUploadDialog(container)
@@ -2863,30 +3000,17 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     renderHandshakeContextDialog(container)
     return
   }
-  const overlay = document.createElement('div')
-  overlay.id = 'vault-add-data-overlay'
-  overlay.style.cssText = `
-    position:fixed;
-    inset:0;
-    background:rgba(0,0,0,0.25);
-    z-index:2147483650;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    overflow-y:auto;
-  `
-  
+  // Render the Add Data form inline inside the vault's main content area.
+  // Save current content so we can restore on cancel/close.
+  const savedContent = container.innerHTML
+
   const dialog = document.createElement('div')
+  dialog.id = 'vault-add-data-overlay'
+  dialog.setAttribute('data-wrv-no-autofill', '')
   dialog.style.cssText = `
-    background:var(--wrv-bg);
-    border-radius:14px;
-    width:92vw;
-    max-width:900px;
-    max-height:90vh;
+    height:100%;
     overflow-y:auto;
     color:var(--wrv-text);
-    box-shadow:var(--wrv-shadow);
-    border:1px solid var(--wrv-border-accent);
   `
   
   // Category options filtered by the user's tier (capability-gated)
@@ -2895,7 +3019,23 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
   dialog.innerHTML = `
     <div style="padding:28px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-        <h2 style="font-size:20px;font-weight:700;">Add Data</h2>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button id="vault-add-data-back" style="
+            background:var(--wrv-bg-card);
+            border:1px solid var(--wrv-border);
+            padding:6px 14px;
+            border-radius:8px;
+            color:var(--wrv-text-2);
+            font-size:13px;
+            font-weight:600;
+            cursor:pointer;
+            display:flex;
+            align-items:center;
+            gap:6px;
+            transition:all 0.15s;
+          " onmouseenter="this.style.background='var(--wrv-bg-input)';this.style.color='var(--wrv-text)'" onmouseleave="this.style.background='var(--wrv-bg-card)';this.style.color='var(--wrv-text-2)'">← Back</button>
+          <h2 style="font-size:20px;font-weight:700;margin:0;">Add Data</h2>
+        </div>
         <button id="vault-add-data-close" style="
           background:var(--wrv-bg-card);
           border:1px solid var(--wrv-border);
@@ -2971,8 +3111,8 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     </div>
   `
   
-  overlay.appendChild(dialog)
-  document.body.appendChild(overlay)
+  container.innerHTML = ''
+  container.appendChild(dialog)
   
   // Populate select options programmatically AFTER dialog is in DOM
   const categorySelect = dialog.querySelector('#vault-add-category') as HTMLSelectElement
@@ -3022,9 +3162,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     } else if (category === 'company') {
       standardFields = COMPANY_STANDARD_FIELDS
       titleLabel = 'Company Name'
-    } else if (category === 'business') {
-      standardFields = BUSINESS_STANDARD_FIELDS
-      titleLabel = 'Business Name'
     } else if (category === 'custom') {
       isCustomData = true
       titleLabel = 'Data Group Name'
@@ -3146,7 +3283,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       return
     }
     
-    // Standard form for password/identity/company/business
+    // Standard form for password/identity/company
     formContainer.innerHTML = `
       ${category !== 'identity' ? `
       <div style="margin-bottom:20px;">
@@ -3271,6 +3408,57 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
                 continue
               }
               
+              // Date of birth: render 3 select dropdowns in one row
+              if (field.key === 'birth_day' && i + 2 < standardFields.length && standardFields[i + 1].key === 'birth_month' && standardFields[i + 2].key === 'birth_year') {
+                const days = Array.from({ length: 31 }, (_, n) => n + 1)
+                const months = [
+                  'January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December',
+                ]
+                const currentYear = new Date().getFullYear()
+                const years = Array.from({ length: 120 }, (_, n) => currentYear - n)
+
+                const selectStyle = `
+                  width:100%;
+                  padding:12px 10px;
+                  border:1px solid var(--wrv-border);
+                  border-radius:8px;
+                  background:var(--wrv-bg-input);
+                  color:var(--wrv-text);
+                  font-size:13px;
+                  font-weight:500;
+                  box-sizing:border-box;
+                  transition:all 0.15s;
+                  cursor:pointer;
+                  appearance:auto;
+                `
+
+                fieldsHtml += `
+                  <div style="grid-column:span 2;">
+                    <div style="font-size:11px;color:var(--wrv-text-3);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:6px;">Date of Birth</div>
+                    <div style="display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:8px;">
+                      <select id="field-birth_day" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Day</option>
+                        ${days.map(d => `<option value="${d}">${d}</option>`).join('')}
+                      </select>
+                      <select id="field-birth_month" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Month</option>
+                        ${months.map((m, idx) => `<option value="${idx + 1}">${m}</option>`).join('')}
+                      </select>
+                      <select id="field-birth_year" style="${selectStyle}"
+                        onfocus="this.style.borderColor='var(--wrv-border-accent)'" onblur="this.style.borderColor='var(--wrv-border)'">
+                        <option value="">Year</option>
+                        ${years.map(y => `<option value="${y}">${y}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                `
+                i += 3
+                continue
+              }
+
               // Regular field rendering
               const isFullWidth = field.key === 'additional_info' || field.type === 'textarea'
               fieldsHtml += `
@@ -3322,7 +3510,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         </div>
       </div>
       
-      ${(category === 'identity' || category === 'company' || category === 'business') ? `
+      ${(category === 'identity' || category === 'company') ? `
       <div id="vault-payment-section" style="margin-bottom:16px;border:1px solid var(--wrv-border);border-radius:10px;overflow:hidden;">
         <button type="button" id="vault-payment-toggle" style="
           width:100%;
@@ -3471,7 +3659,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       })
     })
 
-    // ── Payment Methods section (identity / company / business only) ──
+    // ── Payment Methods section (identity / company only) ──
     const paymentToggle = dialog.querySelector('#vault-payment-toggle')
     const paymentFields = dialog.querySelector('#vault-payment-fields') as HTMLElement | null
     const paymentChevron = dialog.querySelector('#vault-payment-chevron') as SVGElement | null
@@ -3611,14 +3799,10 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
   categorySelect.addEventListener('change', () => {
     const selectedCategory = categorySelect.value
     if (selectedCategory === 'document') {
-      // Close the Add Data dialog and open the Upload Document dialog instead
-      overlay.remove()
       renderDocumentUploadDialog(container)
       return
     }
     if (selectedCategory === 'handshake_context') {
-      // Close the Add Data dialog and open the Handshake Context dialog instead
-      overlay.remove()
       renderHandshakeContextDialog(container)
       return
     }
@@ -3627,11 +3811,13 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     }
   })
   
-  // Close handlers
+  // Close handlers — restore the vault dashboard
   const closeDialog = () => {
-    overlay.remove()
+    container.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(container)
   }
   
+  dialog.querySelector('#vault-add-data-back')?.addEventListener('click', closeDialog)
   dialog.querySelector('#vault-add-data-close')?.addEventListener('click', closeDialog)
   dialog.querySelector('#vault-add-data-cancel')?.addEventListener('click', closeDialog)
   
@@ -3695,7 +3881,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
             password: 'service name',
             identity: 'identity name',
             company: 'company name',
-            business: 'business name',
             custom: 'data group name',
             document: 'document name',
             handshake_context: 'context name'
@@ -3737,7 +3922,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         else if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
         else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
         else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
-        else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
         
         // Collect standard field values
         standardFields.forEach(field => {
@@ -3774,7 +3958,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
           })
         }
 
-        // Collect payment method fields (identity / company / business)
+        // Collect payment method fields (identity / company)
         const paymentEntries = dialog.querySelectorAll('.payment-method-entry')
         let paymentIdx = 0
         paymentEntries.forEach((entry) => {
@@ -3817,11 +4001,11 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         return
       }
       
-      // For identity/company/business: Create container first, then item with container_id
+      // For identity/company: Create container first, then item with container_id
       // For password/custom: Create item directly without container
       let containerId: string | undefined
-      if (category === 'identity' || category === 'company' || category === 'business') {
-        const containerType = category === 'identity' ? 'person' : category === 'company' ? 'company' : 'business'
+      if (category === 'identity' || category === 'company') {
+        const containerType = category === 'identity' ? 'person' : 'company'
         try {
           console.log('[VAULT UI] Creating container:', containerType, title)
           const container = await vaultAPI.createContainer(containerType, title, false)
@@ -3866,7 +4050,12 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       closeDialog()
       
       // Show success notification
-      showSuccessNotification(`Successfully saved ${category === 'password' ? 'password' : category === 'identity' ? 'identity' : category === 'company' ? 'company' : category === 'business' ? 'business' : 'data'}!`)
+      showSuccessNotification(`Successfully saved ${category === 'password' ? 'password' : category === 'identity' ? 'identity' : category === 'company' ? 'company' : 'data'}!`)
+      
+      // One-time QSO onboarding dialog on first password entry creation
+      if (category === 'password') {
+        showQsoOnboardingIfNeeded()
+      }
       
       // Store current category view to refresh it
       const listDiv = container.querySelector('#vault-items-list') as HTMLElement
@@ -3898,12 +4087,6 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     }
   })
   
-  // Click outside to close
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      closeDialog()
-    }
-  })
 }
 
 // Render Edit Data Dialog (similar to Add Data Dialog but pre-filled)
@@ -3913,12 +4096,11 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
   
   // Wait for dialog to be rendered, then fill in the data
   setTimeout(() => {
-    const overlay = document.querySelector('#vault-add-data-overlay')
-    const dialog = overlay?.querySelector('div') as HTMLElement
-    if (!dialog) return
+    const addDialog = document.querySelector('#vault-add-data-overlay') as HTMLElement
+    if (!addDialog) return
     
     // Set category (should already be set, but ensure it)
-    const categorySelect = dialog.querySelector('#vault-add-category') as HTMLSelectElement
+    const categorySelect = addDialog.querySelector('#vault-add-category') as HTMLSelectElement
     if (categorySelect) {
       categorySelect.value = item.category
       categorySelect.dispatchEvent(new Event('change'))
@@ -3926,7 +4108,7 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
     
     // Fill in title (except for identity which generates from name fields)
     if (item.category !== 'identity') {
-      const titleInput = dialog.querySelector('#vault-add-title') as HTMLInputElement
+      const titleInput = addDialog.querySelector('#vault-add-title') as HTMLInputElement
       if (titleInput) {
         titleInput.value = item.title
       }
@@ -3934,14 +4116,28 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
     
     // Fill in fields
     item.fields.forEach(field => {
-      const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+      // Migrate legacy date_of_birth → birth_day/birth_month/birth_year
+      if (field.key === 'date_of_birth' && field.value) {
+        const parsed = parseDateOfBirth(field.value)
+        if (parsed) {
+          const daySelect = addDialog.querySelector('#field-birth_day') as HTMLSelectElement
+          const monthSelect = addDialog.querySelector('#field-birth_month') as HTMLSelectElement
+          const yearSelect = addDialog.querySelector('#field-birth_year') as HTMLSelectElement
+          if (daySelect) daySelect.value = String(parsed.day)
+          if (monthSelect) monthSelect.value = String(parsed.month)
+          if (yearSelect) yearSelect.value = String(parsed.year)
+        }
+        return
+      }
+
+      const input = addDialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
       if (input) {
         input.value = field.value || ''
       }
     })
     
     // Update save button to say "Update" and change handler
-    const saveBtn = dialog.querySelector('#vault-add-data-save') as HTMLElement
+    const saveBtn = addDialog.querySelector('#vault-add-data-save') as HTMLElement
     if (saveBtn) {
       saveBtn.textContent = 'Update Data'
       
@@ -3954,15 +4150,15 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
         
         let title: string
         if (category === 'identity') {
-          const firstName = (dialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
-          const surname = (dialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
+          const firstName = (addDialog.querySelector('#field-first_name') as HTMLInputElement)?.value.trim()
+          const surname = (addDialog.querySelector('#field-surname') as HTMLInputElement)?.value.trim()
           if (!firstName || !surname) {
             alert('Please enter both first name and surname')
             return
           }
           title = `${firstName} ${surname}`
         } else {
-          title = (dialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
+          title = (addDialog.querySelector('#vault-add-title') as HTMLInputElement)?.value.trim()
           if (!title) {
             alert('Please enter a title')
             return
@@ -3977,10 +4173,9 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
           if (category === 'password') standardFields = PASSWORD_STANDARD_FIELDS
           else if (category === 'identity') standardFields = IDENTITY_STANDARD_FIELDS
           else if (category === 'company') standardFields = COMPANY_STANDARD_FIELDS
-          else if (category === 'business') standardFields = BUSINESS_STANDARD_FIELDS
           
           standardFields.forEach(field => {
-            const input = dialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
+            const input = addDialog.querySelector(`#field-${field.key}`) as HTMLInputElement | HTMLTextAreaElement
             if (input && input.value.trim()) {
               fields.push({
                 key: field.key,
@@ -3993,7 +4188,7 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
           })
           
           // Collect custom fields
-          const customFieldsContainer = dialog.querySelector('#vault-custom-fields') as HTMLElement
+          const customFieldsContainer = addDialog.querySelector('#vault-custom-fields') as HTMLElement
           if (customFieldsContainer) {
             customFieldsContainer.querySelectorAll('.remove-custom-field').forEach((btn) => {
               const fieldDiv = btn.parentElement?.parentElement
@@ -4022,11 +4217,10 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
           await vaultAPI.updateItem(item.id, {
             title,
             fields,
-            domain: category === 'password' ? (dialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined
+            domain: category === 'password' ? (addDialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined
           })
           
-          // Close dialog and refresh
-          overlay?.remove()
+          // Restore dashboard and refresh
           
           // Refresh the view
           if (item.container_id) {
@@ -4043,6 +4237,24 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
       })
     }
   }, 100)
+}
+
+/**
+ * Parse a legacy date_of_birth string into day/month/year components.
+ * Supports: DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD, MM/DD/YYYY (US)
+ */
+function parseDateOfBirth(value: string): { day: number; month: number; year: number } | null {
+  const trimmed = value.trim()
+
+  // YYYY-MM-DD (ISO)
+  let m = trimmed.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/)
+  if (m) return { year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) }
+
+  // DD.MM.YYYY or DD/MM/YYYY (European)
+  m = trimmed.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/)
+  if (m) return { day: parseInt(m[1]), month: parseInt(m[2]), year: parseInt(m[3]) }
+
+  return null
 }
 
 // Helper function to escape HTML
@@ -4135,8 +4347,8 @@ function renderSettingsScreen(container: HTMLElement) {
       <div id="autofill-settings-section" style="background:rgba(var(--wrv-accent-rgb),0.04);border:1px solid rgba(var(--wrv-accent-rgb),0.15);border-radius:12px;padding:24px;margin-bottom:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
           <div>
-            <h3 style="font-size:16px;font-weight:600;color:var(--wrv-text);margin:0;">Secure Insert Overlay</h3>
-            <p style="font-size:12px;color:var(--wrv-text-3);margin:4px 0 0 0;">Auto-detect and fill form fields with vault data</p>
+            <h3 style="font-size:16px;font-weight:600;color:var(--wrv-text);margin:0;">Quick Sign-On (QSO)</h3>
+            <p style="font-size:12px;color:var(--wrv-text-3);margin:4px 0 0 0;">Show autofill icons on form fields for one-click sign-on</p>
           </div>
           <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
             <input type="checkbox" id="autofill-global-toggle" style="opacity:0;width:0;height:0;">
@@ -4336,7 +4548,7 @@ function renderSettingsScreen(container: HTMLElement) {
     updateSectionDisabledState(enabled)
     try {
       await vaultAPI.updateSettings({ autofillEnabled: enabled } as any)
-      showStatus(enabled ? 'Secure Insert Overlay enabled' : 'Secure Insert Overlay disabled')
+      showStatus(enabled ? 'Quick Sign-On enabled' : 'Quick Sign-On disabled')
       console.log('[VAULT] Autofill global toggle:', enabled)
     } catch (err: any) {
       console.error('[VAULT] Error updating autofill toggle:', err)
@@ -4391,3 +4603,376 @@ function renderSettingsScreen(container: HTMLElement) {
 }
 
 
+// ============================================================================
+// QSO Onboarding Dialog — shown once on first password entry creation
+// ============================================================================
+
+const QSO_ONBOARDING_KEY = 'wrv_qso_onboarding_seen'
+const QSO_AUTO_CONSENT_KEY = 'wrv_qso_auto_consent'
+
+function loadOnboardingSeen(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve(false)
+      return
+    }
+    chrome.storage.local.get(QSO_ONBOARDING_KEY, (result) => {
+      resolve(result[QSO_ONBOARDING_KEY] === true)
+    })
+  })
+}
+
+function saveOnboardingSeen(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve()
+      return
+    }
+    chrome.storage.local.set({ [QSO_ONBOARDING_KEY]: true }, () => resolve())
+  })
+}
+
+function saveAutoConsent(enabled: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve()
+      return
+    }
+    chrome.storage.local.set({ [QSO_AUTO_CONSENT_KEY]: enabled }, () => resolve())
+  })
+}
+
+function loadAutoConsentForVault(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      resolve(false)
+      return
+    }
+    chrome.storage.local.get(QSO_AUTO_CONSENT_KEY, (result) => {
+      resolve(result[QSO_AUTO_CONSENT_KEY] === true)
+    })
+  })
+}
+
+/**
+ * Consent dialog shown from the vault header when toggling to Auto mode.
+ * Same design as the popover consent dialog — full-page Shadow DOM overlay.
+ */
+function showVaultAutoConsentDialog(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const host = document.createElement('div')
+    host.setAttribute('data-wrv-vault-consent-host', '')
+    host.style.cssText = 'position:fixed;inset:0;z-index:2147483655;pointer-events:auto;'
+
+    const shadow = host.attachShadow({ mode: 'closed' })
+
+    const style = document.createElement('style')
+    style.textContent = `
+      :host { all: initial; display: block; }
+      .wrv-vc-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrv-vc-dialog {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 28px;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+        text-align: center;
+      }
+      .wrv-vc-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #22c55e;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        padding: 3px 8px;
+        border-radius: 5px;
+        margin-bottom: 14px;
+      }
+      .wrv-vc-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 12px;
+      }
+      .wrv-vc-body {
+        font-size: 13px;
+        line-height: 1.6;
+        color: #475569;
+        margin-bottom: 20px;
+        text-align: left;
+      }
+      .wrv-vc-body strong {
+        color: #1e293b;
+      }
+      .wrv-vc-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+      }
+      .wrv-vc-btn {
+        padding: 10px 20px;
+        border-radius: 8px;
+        border: none;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.1s ease;
+      }
+      .wrv-vc-btn:active {
+        transform: scale(0.96);
+      }
+      .wrv-vc-btn--cancel {
+        background: #f1f5f9;
+        color: #64748b;
+      }
+      .wrv-vc-btn--cancel:hover {
+        background: #e2e8f0;
+      }
+      .wrv-vc-btn--accept {
+        background: #22c55e;
+        color: #ffffff;
+      }
+      .wrv-vc-btn--accept:hover {
+        background: #16a34a;
+      }
+    `
+    shadow.appendChild(style)
+
+    const overlay = document.createElement('div')
+    overlay.className = 'wrv-vc-overlay'
+    overlay.innerHTML = `
+      <div class="wrv-vc-dialog">
+        <div class="wrv-vc-badge">QSO</div>
+        <div class="wrv-vc-title">Enable QSO Auto Mode</div>
+        <div class="wrv-vc-body">
+          By enabling <strong>Auto</strong> mode, you consent to 1-click
+          Quick Sign-On (QSO). When a matching credential is found, the
+          QSO button will auto-fill your username and password and
+          automatically click the login button — no extra confirmation needed.
+          <br><br>
+          This is a <strong>global setting</strong> that stays active across all
+          sites until you switch back to Manual.
+        </div>
+        <div class="wrv-vc-actions">
+          <button class="wrv-vc-btn wrv-vc-btn--cancel" type="button">Cancel</button>
+          <button class="wrv-vc-btn wrv-vc-btn--accept" type="button">Enable Auto QSO</button>
+        </div>
+      </div>
+    `
+
+    const cleanup = () => { try { host.remove() } catch { /* noop */ } }
+
+    overlay.querySelector('.wrv-vc-btn--cancel')?.addEventListener('click', () => {
+      cleanup()
+      resolve(false)
+    })
+    overlay.querySelector('.wrv-vc-btn--accept')?.addEventListener('click', () => {
+      cleanup()
+      resolve(true)
+    })
+
+    shadow.appendChild(overlay)
+    document.documentElement.appendChild(host)
+  })
+}
+
+/**
+ * Show the QSO onboarding dialog if this is the first password entry
+ * the user has ever created. The dialog explains Manual vs Auto mode
+ * and offers to enable Auto (QSO) immediately.
+ *
+ * Shown at most once; persisted via `wrv_qso_onboarding_seen`.
+ */
+async function showQsoOnboardingIfNeeded(): Promise<void> {
+  try {
+    const alreadySeen = await loadOnboardingSeen()
+    if (alreadySeen) return
+    
+    const userChoice = await showQsoOnboardingDialog()
+    
+    await saveOnboardingSeen()
+    
+    if (userChoice === 'auto') {
+      await saveAutoConsent(true)
+    }
+  } catch {
+    // Non-fatal — don't block the save flow
+  }
+}
+
+function showQsoOnboardingDialog(): Promise<'auto' | 'manual'> {
+  return new Promise((resolve) => {
+    const host = document.createElement('div')
+    host.setAttribute('data-wrv-onboarding-host', '')
+    host.style.cssText = 'position:fixed;inset:0;z-index:2147483655;pointer-events:auto;'
+
+    const shadow = host.attachShadow({ mode: 'closed' })
+
+    const style = document.createElement('style')
+    style.textContent = `
+      :host { all: initial; display: block; }
+      .wrv-onboard-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrv-onboard-dialog {
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 32px;
+        max-width: 420px;
+        width: 90%;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+        text-align: center;
+      }
+      .wrv-onboard-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #22c55e;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+      .wrv-onboard-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 8px;
+      }
+      .wrv-onboard-subtitle {
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 20px;
+      }
+      .wrv-onboard-modes {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        text-align: left;
+        margin-bottom: 24px;
+      }
+      .wrv-onboard-mode {
+        padding: 14px 16px;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+      }
+      .wrv-onboard-mode-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 4px;
+      }
+      .wrv-onboard-mode-desc {
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.5;
+      }
+      .wrv-onboard-note {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 20px;
+      }
+      .wrv-onboard-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+      }
+      .wrv-onboard-btn {
+        padding: 11px 22px;
+        border-radius: 8px;
+        border: none;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.1s ease;
+      }
+      .wrv-onboard-btn:active {
+        transform: scale(0.96);
+      }
+      .wrv-onboard-btn--manual {
+        background: #f1f5f9;
+        color: #475569;
+      }
+      .wrv-onboard-btn--manual:hover {
+        background: #e2e8f0;
+      }
+      .wrv-onboard-btn--auto {
+        background: #22c55e;
+        color: #ffffff;
+      }
+      .wrv-onboard-btn--auto:hover {
+        background: #16a34a;
+      }
+    `
+    shadow.appendChild(style)
+
+    const overlay = document.createElement('div')
+    overlay.className = 'wrv-onboard-overlay'
+    overlay.innerHTML = `
+      <div class="wrv-onboard-dialog">
+        <div class="wrv-onboard-badge">QSO</div>
+        <div class="wrv-onboard-title">Quick Sign-On (QSO)</div>
+        <div class="wrv-onboard-subtitle">Choose how WR Vault fills your credentials</div>
+        <div class="wrv-onboard-modes">
+          <div class="wrv-onboard-mode">
+            <div class="wrv-onboard-mode-label">Manual Mode</div>
+            <div class="wrv-onboard-mode-desc">
+              One click fills your credentials into the login form.
+              You click the site's Login button yourself.
+            </div>
+          </div>
+          <div class="wrv-onboard-mode">
+            <div class="wrv-onboard-mode-label">Auto Mode (QSO)</div>
+            <div class="wrv-onboard-mode-desc">
+              One click fills your credentials and automatically clicks
+              Login for you — only on verified pages with security checks.
+            </div>
+          </div>
+        </div>
+        <div class="wrv-onboard-note">You can change this anytime in the popover settings.</div>
+        <div class="wrv-onboard-actions">
+          <button class="wrv-onboard-btn wrv-onboard-btn--manual" type="button">Keep Manual</button>
+          <button class="wrv-onboard-btn wrv-onboard-btn--auto" type="button">Enable Auto (QSO)</button>
+        </div>
+      </div>
+    `
+
+    const cleanup = () => { try { host.remove() } catch { /* noop */ } }
+
+    overlay.querySelector('.wrv-onboard-btn--manual')?.addEventListener('click', () => {
+      cleanup()
+      resolve('manual')
+    })
+    overlay.querySelector('.wrv-onboard-btn--auto')?.addEventListener('click', () => {
+      cleanup()
+      resolve('auto')
+    })
+
+    shadow.appendChild(overlay)
+    document.documentElement.appendChild(host)
+  })
+}

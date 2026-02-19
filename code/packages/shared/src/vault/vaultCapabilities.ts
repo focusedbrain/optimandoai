@@ -199,7 +199,7 @@ export const RECORD_TYPE_DISPLAY: Record<VaultRecordType, RecordTypeDisplayInfo>
   pii_record: {
     label: 'Data Manager',
     icon: '\u{1F464}',
-    description: 'Personal identity, company, and business information',
+    description: 'Personal identity and company information',
     section: 'Data Manager',
     minTier: 'pro',
   },
@@ -240,7 +240,6 @@ export type LegacyItemCategory =
   | 'password'
   | 'identity'
   | 'company'
-  | 'business'
   | 'custom'
   | 'document'
   | 'handshake_context'
@@ -253,7 +252,6 @@ export const LEGACY_CATEGORY_TO_RECORD_TYPE: Record<LegacyItemCategory, VaultRec
   password: 'human_credential',
   identity: 'pii_record',
   company: 'pii_record',
-  business: 'pii_record',
   custom: 'custom',
   document: 'document',
   handshake_context: 'handshake_context',
@@ -261,7 +259,7 @@ export const LEGACY_CATEGORY_TO_RECORD_TYPE: Record<LegacyItemCategory, VaultRec
 
 /**
  * Map VaultRecordType → default legacy ItemCategory for DB storage.
- * For pii_record the specific sub-type (identity/company/business) is
+ * For pii_record the specific sub-type (identity/company) is
  * determined by context, so we default to 'identity'.
  * null = new type with no legacy equivalent (schema extension needed).
  */
@@ -325,12 +323,6 @@ export const CATEGORY_UI_MAP: Record<LegacyItemCategory, CategoryUILabel> = {
     icon: '\u{1F3E2}',
     recordType: 'pii_record',
   },
-  business: {
-    sidebarLabel: 'Business Data',
-    createDialogLabel: 'Business Data',
-    icon: '\u{1F4BC}',
-    recordType: 'pii_record',
-  },
   custom: {
     sidebarLabel: 'Custom Data',
     createDialogLabel: 'Custom Data',
@@ -364,7 +356,6 @@ export const ALL_ITEM_CATEGORIES: readonly LegacyItemCategory[] = [
   'password',
   'identity',
   'company',
-  'business',
   'custom',
   'document',
   'handshake_context',

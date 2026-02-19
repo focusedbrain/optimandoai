@@ -7,16 +7,23 @@ import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 // ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
 // Wrapped in try/catch so autofill issues never break the main extension.
-try {
-  if (document.body) {
-    initAutofill()
-  } else {
-    document.addEventListener('DOMContentLoaded', () => {
-      try { initAutofill() } catch { /* autofill init failed silently */ }
-    }, { once: true })
+//
+// IMPORTANT: Skip autofill on the extension's own pages (sidepanel, popup,
+// vault manager).  The autofill overlay interferes with the vault's own
+// input fields and prevents users from adding/editing credentials.
+const _isExtensionPage = window.location.protocol === 'chrome-extension:'
+if (!_isExtensionPage) {
+  try {
+    if (document.body) {
+      initAutofill()
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        try { initAutofill() } catch { /* autofill init failed silently */ }
+      }, { once: true })
+    }
+  } catch {
+    // Autofill init failed — extension continues to work normally
   }
-} catch {
-  // Autofill init failed — extension continues to work normally
 }
 
 // Per-Tab Activation System
@@ -9084,11 +9091,15 @@ function initializeExtension() {
 
     const savedTheme = localStorage.getItem('optimando-ui-theme')
 
-    if (savedTheme === 'dark' || savedTheme === 'standard') {
+    if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
         try { chrome.storage?.local?.set({ 'optimando-ui-theme': savedTheme }) } catch {}
 
-      applyTheme(savedTheme)
+      if (savedTheme === 'pro') {
+        try { resetToDefaultTheme() } catch {}
+      } else {
+        applyTheme(savedTheme)
+      }
 
       } else {
 
@@ -9131,7 +9142,7 @@ function initializeExtension() {
 
         // Apply theme to sidebars
 
-        if (newTheme === 'default') {
+        if (newTheme === 'default' || newTheme === 'pro') {
 
           try { resetToDefaultTheme() } catch {}
 
@@ -30042,6 +30053,8 @@ ${pageText}
 
     overlay.id = 'wrvault-overlay'
 
+    overlay.setAttribute('data-wrv-no-autofill', '')
+
     overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:2147483649;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)`
 
     const container = document.createElement('div')
@@ -31846,7 +31859,7 @@ ${pageText}
 
         console.log('🎨 Saved theme from localStorage:', savedTheme)
 
-        if (savedTheme === 'dark' || savedTheme === 'standard') {
+        if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
           themeSelect.value = savedTheme
 
@@ -42924,7 +42937,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'standard' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark' || t === 'pro') theme = t
 
         } catch {}
 
@@ -44851,7 +44864,7 @@ ${pageText}
 
           const t = localStorage.getItem('optimando-ui-theme')
 
-          if (t === 'standard' || t === 'dark') theme = t
+          if (t === 'standard' || t === 'dark' || t === 'pro') theme = t
 
         } catch {}
 

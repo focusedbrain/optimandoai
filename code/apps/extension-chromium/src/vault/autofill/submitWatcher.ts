@@ -32,6 +32,7 @@ import type {
 } from '../../../../../packages/shared/src/vault/insertionPipeline'
 import type { FormContext } from '../../../../../packages/shared/src/vault/fieldTaxonomy'
 import { FORM_CONTEXT_SIGNALS } from '../../../../../packages/shared/src/vault/fieldTaxonomy'
+import { classifyFormIntent } from './fieldScanner'
 
 // ============================================================================
 // §1  Constants
@@ -46,14 +47,18 @@ const DEDUP_WINDOW_MS = 3000
 /** Auto-dismiss timeout for save bar (ms). */
 export const SAVE_BAR_TIMEOUT_MS = 30_000
 
-/** URL patterns that indicate auth-related XHR/fetch calls. */
+/** URL patterns that indicate auth-related XHR/fetch calls (login + registration). */
 const AUTH_URL_PATTERNS = [
   /\/log[_\-.]?in/i,
   /\/sign[_\-.]?in/i,
+  /\/sign[_\-.]?up/i,
+  /\/register/i,
+  /\/registrieren/i,
+  /\/create[_\-.]?account/i,
   /\/auth/i,
   /\/session/i,
   /\/token/i,
-  /\/api\/v?\d*\/?(?:log[_\-.]?in|sign[_\-.]?in|auth|register|signup)/i,
+  /\/api\/v?\d*\/?(?:log[_\-.]?in|sign[_\-.]?in|auth|register|signup|sign[_\-.]?up|create[_\-.]?account)/i,
   /\/anmeld/i,
   /\/oauth/i,
   /\/sso/i,
@@ -87,6 +92,17 @@ let _originalPushState: typeof history.pushState | null = null
 let _originalReplaceState: typeof history.replaceState | null = null
 let _passwordFocusHandler: ((e: FocusEvent) => void) | null = null
 let _passwordInputHandler: ((e: Event) => void) | null = null
+
+/** Pending registration credential waiting for success confirmation. */
+let _pendingRegCreds: { creds: ExtractedCredentials; form: WeakRef<HTMLFormElement>; path: string } | null = null
+let _regSuccessTimer: ReturnType<typeof setTimeout> | null = null
+let _regSuccessObserver: MutationObserver | null = null
+
+/** How long to wait for a registration success signal (ms). */
+const REG_SUCCESS_TIMEOUT_MS = 8000
+
+/** Text patterns that indicate a successful registration / account creation. */
+const REG_SUCCESS_TEXT = /(?:welcome|account\s*created|registration\s*(?:successful|complete)|verify\s*(?:your\s*)?email|check\s*(?:your\s*)?(?:inbox|email)|willkommen|konto\s*erstellt|registrierung\s*(?:erfolgreich|abgeschlossen))/i
 
 // ============================================================================
 // §3  Public API (implements ISubmitWatcher)
@@ -133,6 +149,12 @@ export function startSubmitWatcher(): void {
   // Hook beforeunload — catch cases where submit causes navigation
   // without a submit event (e.g., link-based login buttons)
   _beforeUnloadHandler = () => {
+    // If there are pending registration credentials waiting for success,
+    // the page navigating away IS the success signal — commit them.
+    if (_pendingRegCreds) {
+      commitPendingRegistration()
+      return
+    }
     tryExtractFromActivePasswordField()
   }
   window.addEventListener('beforeunload', _beforeUnloadHandler)
@@ -194,6 +216,9 @@ export function stopSubmitWatcher(): void {
     _originalReplaceState = null
   }
 
+  // Clean up pending registration
+  cancelPendingRegistration()
+
   _callbacks = []
   _lastExtracted = null
   _interactedPasswordFields = new WeakSet()
@@ -231,21 +256,48 @@ function handleFormSubmit(form: HTMLFormElement): void {
   // Find username/email field
   const usernameField = findUsernameField(form)
 
-  // Determine form type (login vs signup)
+  // Determine form type (login vs signup vs password_change)
   const formType = classifyFormType(form, passwordFields)
+
+  // ── Confirm-password mismatch guard ──
+  // If this is a signup/password_change form with 2+ password fields that
+  // have different values, the user likely has a typo — skip extraction.
+  if ((formType === 'signup' || formType === 'password_change') && passwordFields.length >= 2) {
+    const vals = passwordFields.map(f => f.value)
+    const newPwField = passwordFields.find(f =>
+      f.autocomplete === 'new-password' ||
+      /(?:new|confirm|repeat|re[_\-.]?enter)/i.test(f.name + f.id),
+    )
+    const confirmFields = passwordFields.filter(f => f !== newPwField && f.autocomplete !== 'current-password')
+    if (newPwField && confirmFields.length > 0) {
+      const mismatch = confirmFields.some(f => f.value !== newPwField.value)
+      if (mismatch) return
+    } else if (passwordFields.length === 2 && vals[0] !== vals[1]) {
+      // Two password fields with different values — likely a mismatch
+      return
+    }
+  }
 
   // Use the first non-empty password (for login), or the "new-password" if signup
   const password = selectPassword(passwordFields, formType)
   if (!password) return
 
-  emitCredentials({
+  const creds: ExtractedCredentials = {
     domain: window.location.origin,
     username: usernameField?.value?.trim() ?? '',
     password,
     formAction: form.action || undefined,
     formType,
     extractedAt: Date.now(),
-  })
+  }
+
+  // ── Registration: defer emission until success signal ──
+  if (formType === 'signup') {
+    waitForRegistrationSuccess(creds, form)
+    return
+  }
+
+  emitCredentials(creds)
 }
 
 // ============================================================================
@@ -355,14 +407,22 @@ function tryExtractFromActivePasswordField(): void {
       ? classifyFormType(form as HTMLFormElement, passwordFields)
       : 'unknown'
 
-    emitCredentials({
+    const creds: ExtractedCredentials = {
       domain: window.location.origin,
       username: usernameField?.value?.trim() ?? '',
       password: pwField.value,
       formAction: (form as HTMLFormElement)?.action || undefined,
       formType,
       extractedAt: Date.now(),
-    })
+    }
+
+    // ── Registration: defer emission until success signal ──
+    if (formType === 'signup' && form) {
+      waitForRegistrationSuccess(creds, form as HTMLFormElement)
+      return
+    }
+
+    emitCredentials(creds)
     return // Only emit once per trigger
   }
 }
@@ -473,42 +533,143 @@ function selectPassword(
 // ============================================================================
 
 /**
- * Classify a form as login, signup, or unknown.
+ * Classify a form as login, signup, password_change, or unknown.
+ *
+ * Delegates to the shared scoring-based classifier in fieldScanner.ts
+ * and maps the full FormContext to the credential-relevant subset.
  */
 function classifyFormType(
   form: HTMLFormElement,
-  passwordFields: HTMLInputElement[],
+  _passwordFields: HTMLInputElement[],
 ): ExtractedCredentials['formType'] {
-  // Multiple password fields → likely signup
-  if (passwordFields.length >= 2) return 'signup'
-
-  // autocomplete="new-password" on any field → signup
-  if (passwordFields.some(f => f.autocomplete === 'new-password')) return 'signup'
-
-  // Check form context signals
-  const signals = [
-    form.action ?? '',
-    form.id ?? '',
-    form.className ?? '',
-  ]
-  const submitBtn = form.querySelector<HTMLElement>(
-    'button[type="submit"], input[type="submit"], button:not([type])',
-  )
-  if (submitBtn) {
-    signals.push(submitBtn.textContent ?? '')
-    signals.push((submitBtn as HTMLInputElement).value ?? '')
-  }
-  const combined = signals.join(' ')
-
-  for (const ctx of FORM_CONTEXT_SIGNALS) {
-    if (ctx.context === 'login' && ctx.pattern.test(combined)) return 'login'
-    if (ctx.context === 'signup' && ctx.pattern.test(combined)) return 'signup'
-  }
-
-  // Single password field with autocomplete="current-password" → login
-  if (passwordFields.some(f => f.autocomplete === 'current-password')) return 'login'
-
+  const intent = classifyFormIntent(form)
+  if (intent === 'login') return 'login'
+  if (intent === 'signup') return 'signup'
+  if (intent === 'password_change') return 'password_change'
   return 'unknown'
+}
+
+// ============================================================================
+// §7.5  Registration Success Detection
+// ============================================================================
+
+/**
+ * Defer credential emission for signup forms until a success signal is
+ * detected.  This prevents the "Save password?" prompt from appearing
+ * when registration fails (validation error, duplicate email, etc.).
+ *
+ * Success signals (any one triggers emission):
+ *   - URL path changes (pushState, popstate, navigation)
+ *   - The submitted form disappears from the DOM
+ *   - Common success text appears in the page body
+ *   - Page unloads entirely (beforeunload — likely success redirect)
+ *
+ * If no signal fires within REG_SUCCESS_TIMEOUT_MS (8s), the pending
+ * credentials are discarded.
+ */
+function waitForRegistrationSuccess(
+  creds: ExtractedCredentials,
+  form: HTMLFormElement,
+): void {
+  // Cancel any previous pending registration
+  cancelPendingRegistration()
+
+  const startPath = window.location.pathname + window.location.search
+  _pendingRegCreds = { creds, form: new WeakRef(form), path: startPath }
+
+  // ── Success check: runs periodically and on DOM changes ──
+  const checkSuccess = (): boolean => {
+    if (!_pendingRegCreds) return false
+
+    // 1. URL path changed
+    const currentPath = window.location.pathname + window.location.search
+    if (currentPath !== _pendingRegCreds.path) {
+      commitPendingRegistration()
+      return true
+    }
+
+    // 2. Form disappeared from DOM
+    const formEl = _pendingRegCreds.form.deref()
+    if (!formEl || !formEl.isConnected) {
+      commitPendingRegistration()
+      return true
+    }
+
+    // 3. Success text appeared in the page
+    try {
+      const bodyText = document.body?.innerText ?? ''
+      if (REG_SUCCESS_TEXT.test(bodyText)) {
+        commitPendingRegistration()
+        return true
+      }
+    } catch { /* ignore */ }
+
+    return false
+  }
+
+  // ── MutationObserver: watch for DOM changes that signal success ──
+  _regSuccessObserver = new MutationObserver(() => {
+    checkSuccess()
+  })
+  _regSuccessObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  })
+
+  // ── popstate: detect browser-level navigation ──
+  const onPopState = () => { checkSuccess() }
+  window.addEventListener('popstate', onPopState, { once: true })
+
+  // ── Periodic check (handles pushState we might miss) ──
+  let elapsed = 0
+  const interval = setInterval(() => {
+    elapsed += 500
+    if (checkSuccess() || elapsed >= REG_SUCCESS_TIMEOUT_MS) {
+      clearInterval(interval)
+      window.removeEventListener('popstate', onPopState)
+      // If we timed out without success, discard
+      if (elapsed >= REG_SUCCESS_TIMEOUT_MS && _pendingRegCreds) {
+        cancelPendingRegistration()
+      }
+    }
+  }, 500)
+
+  // ── Timeout: hard stop ──
+  _regSuccessTimer = setTimeout(() => {
+    clearInterval(interval)
+    window.removeEventListener('popstate', onPopState)
+    cancelPendingRegistration()
+  }, REG_SUCCESS_TIMEOUT_MS + 100)
+
+  // ── beforeunload: if page navigates away, emit immediately ──
+  const onBeforeUnload = () => {
+    clearInterval(interval)
+    window.removeEventListener('popstate', onPopState)
+    commitPendingRegistration()
+  }
+  window.addEventListener('beforeunload', onBeforeUnload, { once: true })
+}
+
+/** Emit the pending registration credentials and clean up. */
+function commitPendingRegistration(): void {
+  if (!_pendingRegCreds) return
+  const creds = _pendingRegCreds.creds
+  cancelPendingRegistration()
+  emitCredentials(creds)
+}
+
+/** Discard the pending registration and clean up watchers. */
+function cancelPendingRegistration(): void {
+  _pendingRegCreds = null
+  if (_regSuccessTimer) {
+    clearTimeout(_regSuccessTimer)
+    _regSuccessTimer = null
+  }
+  if (_regSuccessObserver) {
+    _regSuccessObserver.disconnect()
+    _regSuccessObserver = null
+  }
 }
 
 // ============================================================================

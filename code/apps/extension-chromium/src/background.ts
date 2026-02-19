@@ -239,7 +239,7 @@ function _auditExportLog(
  * @param maxWaitMs  Maximum time to wait for the handshake (default 5 s)
  * @returns true if the secret is now available, false otherwise
  */
-async function ensureLaunchSecret(maxWaitMs = 5000): Promise<boolean> {
+async function ensureLaunchSecret(maxWaitMs = 10000): Promise<boolean> {
   if (_launchSecret) return true;
 
   // Trigger WebSocket (re)connection — this is a no-op if already connected
@@ -329,11 +329,14 @@ async function performHealthCheck(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
     
-    // Try the primary endpoint first
+    // Use /api/health instead of /api/orchestrator/status — the health endpoint
+    // is always available and doesn't depend on optional services like the DB.
+    // /api/orchestrator/status can return 500 if the SQLite service fails to init,
+    // causing the extension to incorrectly report "Desktop app not running."
     let healthy = false;
     
     try {
-      const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+      const response = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
         method: 'GET',
         headers: _electronHeaders(),
         signal: controller.signal
@@ -2012,7 +2015,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // After a machine restart or service-worker restart the WebSocket
         // handshake may not have completed yet.  Without the secret every
         // HTTP request to Electron (except /api/health) returns 401.
-        const hasSecret = await ensureLaunchSecret(5000);
+        const hasSecret = await ensureLaunchSecret(10000);
 
         if (!hasSecret) {
           // Secret still missing – check if Electron is at least alive
@@ -2034,7 +2037,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         // ── Step 0b: Authenticated health check ──
-        const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
+        // Use /api/health rather than /api/orchestrator/status so we don't
+        // false-negative when the SQLite orchestrator service is still initializing.
+        const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
           method: 'GET',
           headers: _electronHeaders(),
           signal: AbortSignal.timeout(3000),
@@ -2074,7 +2079,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
           method: 'POST',
           headers: _electronHeaders(),
-          signal: AbortSignal.timeout(180000), // 3 min timeout
+          signal: AbortSignal.timeout(130000), // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
         });
         const waitData = await waitResponse.json();
         console.log('[BG] AUTH_LOGIN response:', waitData);

@@ -37,7 +37,7 @@ export type VaultSection = 'login' | 'identity' | 'company' | 'custom'
 export const SECTION_META: Record<VaultSection, { label: string; icon: string; description: string }> = {
   login:    { label: 'Logins & Passwords', icon: '🔑', description: 'Website and app credentials' },
   identity: { label: 'Identity & Address', icon: '👤', description: 'Personal information, address, phone' },
-  company:  { label: 'Company & Business', icon: '🏢', description: 'Organisation details, VAT, tax IDs' },
+  company:  { label: 'Company', icon: '🏢', description: 'Organisation details, VAT, tax IDs' },
   custom:   { label: 'Custom Fields',      icon: '📝', description: 'User-defined key/value entries' },
 } as const
 
@@ -64,6 +64,9 @@ export type FieldKind =
   | 'identity.email'
   | 'identity.phone'
   | 'identity.birthday'
+  | 'identity.birth_day'
+  | 'identity.birth_month'
+  | 'identity.birth_year'
   | 'identity.street'
   | 'identity.street_number'
   | 'identity.address_line2'
@@ -112,6 +115,9 @@ export const FIELD_SECTION: Record<FieldKind, VaultSection> = {
   'identity.email':        'identity',
   'identity.phone':        'identity',
   'identity.birthday':     'identity',
+  'identity.birth_day':    'identity',
+  'identity.birth_month':  'identity',
+  'identity.birth_year':   'identity',
   'identity.street':       'identity',
   'identity.street_number':'identity',
   'identity.address_line2':'identity',
@@ -172,25 +178,14 @@ export const LEGACY_KEY_MAP: Record<string, Record<string, FieldKind>> = {
     country:         'identity.country',
     email:           'identity.email',
     phone:           'identity.phone',
+    date_of_birth:   'identity.birthday',
+    birth_day:       'identity.birth_day',
+    birth_month:     'identity.birth_month',
+    birth_year:      'identity.birth_year',
     tax_id:          'identity.tax_id',
     additional_info: 'custom.textarea',
   },
   company: {
-    ceo_first_name:  'company.ceo_first_name',
-    ceo_surname:     'company.ceo_last_name',
-    street:          'company.street',
-    street_number:   'company.street_number',
-    postal_code:     'company.postal_code',
-    city:            'company.city',
-    state:           'company.state',
-    country:         'company.country',
-    email:           'company.email',
-    phone:           'company.phone',
-    vat_number:      'company.vat_number',
-    tax_id:          'company.tax_id',
-    additional_info: 'custom.textarea',
-  },
-  business: {
     ceo_first_name:  'company.ceo_first_name',
     ceo_surname:     'company.ceo_last_name',
     street:          'company.street',
@@ -316,6 +311,9 @@ const KW = {
   fullName:     ['full name', 'name', 'vollständiger name', 'your name', 'ihr name', 'display name', 'anzeigename'],
   phone:        ['phone', 'telephone', 'tel', 'telefon', 'telefonnummer', 'phone number', 'rufnummer', 'handy', 'mobile', 'mobil', 'cell'],
   birthday:     ['birthday', 'birth date', 'date of birth', 'geburtstag', 'geburtsdatum', 'dob', 'born'],
+  birthDay:     ['birth day', 'day of birth', 'geburtstag', 'tag', 'day', 'dd'],
+  birthMonth:   ['birth month', 'month of birth', 'geburtsmonat', 'monat', 'month', 'mm'],
+  birthYear:    ['birth year', 'year of birth', 'geburtsjahr', 'jahr', 'year', 'yyyy'],
   street:       ['street', 'straße', 'strasse', 'address', 'adresse', 'address line 1', 'adresszeile 1', 'street address'],
   streetNumber: ['house number', 'hausnummer', 'street number', 'nr', 'number', 'nummer', 'haus-nr', 'no.', 'bldg'],
   addressLine2: ['address line 2', 'adresszeile 2', 'apt', 'suite', 'unit', 'apartment', 'wohnung', 'zusatz', 'floor', 'etage', 'c/o'],
@@ -354,6 +352,9 @@ const RX = {
   fullName:     /(?:^|[_\-.])(full[_\-.]?name|display[_\-.]?name|name)(?:$|[_\-.])/i,
   phone:        /(?:^|[_\-.])(phone|tel(?:ephone)?|mobile|cell|handy|rufnummer)(?:$|[_\-.])/i,
   birthday:     /(?:^|[_\-.])(birth(?:day|date)?|dob|date[_\-.]?of[_\-.]?birth|geburts(?:tag|datum))(?:$|[_\-.])/i,
+  birthDay:     /(?:^|[_\-.])(birth[_\-.]?day|day[_\-.]?of[_\-.]?birth|bday|dob[_\-.]?day|dd)(?:$|[_\-.])/i,
+  birthMonth:   /(?:^|[_\-.])(birth[_\-.]?month|month[_\-.]?of[_\-.]?birth|bmonth|dob[_\-.]?month|mm)(?:$|[_\-.])/i,
+  birthYear:    /(?:^|[_\-.])(birth[_\-.]?year|year[_\-.]?of[_\-.]?birth|byear|dob[_\-.]?year|yyyy)(?:$|[_\-.])/i,
   street:       /(?:^|[_\-.])(street|str(?:asse|aße)?|address[_\-.]?(?:line)?[_\-.]?1?|addr1?)(?:$|[_\-.])/i,
   streetNumber: /(?:^|[_\-.])(house[_\-.]?(?:no|num|number)|street[_\-.]?(?:no|num|number)|haus[_\-.]?nr|bldg|addr[_\-.]?num)(?:$|[_\-.])/i,
   addressLine2: /(?:^|[_\-.])(address[_\-.]?(?:line)?[_\-.]?2|addr2|apt|suite|unit|apartment)(?:$|[_\-.])/i,
@@ -401,7 +402,7 @@ export const ANTI_SIGNALS: DOMSignal[] = [
  * Heuristic patterns to classify the enclosing <form> as login, signup,
  * checkout, or address form.  These boost/suppress specific field kinds.
  */
-export type FormContext = 'login' | 'signup' | 'checkout' | 'address' | 'contact' | 'unknown'
+export type FormContext = 'login' | 'signup' | 'password_change' | 'checkout' | 'address' | 'contact' | 'unknown'
 
 export const FORM_CONTEXT_SIGNALS: Array<{
   context: FormContext
@@ -421,7 +422,13 @@ export const FORM_CONTEXT_SIGNALS: Array<{
   {
     context: 'signup',
     pattern: /(?:sign[_\-.]?up|register|regist|anmeld|erstell|create[_\-.]?account|join)/i,
-    boosts: ['login.email', 'login.new_password', 'identity.first_name', 'identity.last_name', 'identity.phone'],
+    boosts: ['login.email', 'login.new_password', 'identity.first_name', 'identity.last_name', 'identity.email', 'identity.phone'],
+    boostWeight: 20,
+  },
+  {
+    context: 'password_change',
+    pattern: /(?:change[_\-.]?pass|update[_\-.]?pass|reset[_\-.]?pass|new[_\-.]?pass|passwort[_\-.]?(?:ändern|aendern)|kennwort[_\-.]?ändern)/i,
+    boosts: ['login.new_password', 'login.password'],
     boostWeight: 20,
   },
   {
@@ -647,8 +654,10 @@ export const FIELD_REGISTRY: readonly FieldSignalSpec[] = [
       { source: 'input_type',   pattern: 'email',                       weight: 80 },
       { source: 'name_id',      pattern: RX.email.source,               weight: 65 },
       { source: 'label_text',   pattern: KW.email.join('|'),            weight: 50 },
-      { source: 'form_context', pattern: 'contact',                     weight: 10 },
-      // Disambiguated from login.email by form context: login form → login.email; other → identity.email
+      { source: 'form_context', pattern: 'contact',                     weight: 15 },
+      { source: 'form_context', pattern: 'signup',                      weight: 12 },
+      { source: 'form_context', pattern: 'checkout',                    weight: 12 },
+      { source: 'form_context', pattern: 'address',                     weight: 10 },
     ],
   },
 
@@ -681,6 +690,54 @@ export const FIELD_REGISTRY: readonly FieldSignalSpec[] = [
       { source: 'input_type',   pattern: 'date',                        weight: 30 },
       { source: 'name_id',      pattern: RX.birthday.source,            weight: 65 },
       { source: 'label_text',   pattern: KW.birthday.join('|'),         weight: 50 },
+    ],
+  },
+
+  {
+    kind: 'identity.birth_day',
+    section: 'identity',
+    sensitive: false,
+    inputType: 'text',
+    fillable: true,
+    legacyKeys: ['birth_day'],
+    signals: [
+      { source: 'autocomplete', pattern: 'bday-day',                    weight: 95, authoritative: true },
+      { source: 'name_id',      pattern: RX.birthDay.source,            weight: 65 },
+      { source: 'label_text',   pattern: KW.birthDay.join('|'),         weight: 45 },
+      { source: 'form_context', pattern: 'contact',                     weight: 10 },
+      { source: 'form_context', pattern: 'signup',                      weight: 10 },
+    ],
+  },
+
+  {
+    kind: 'identity.birth_month',
+    section: 'identity',
+    sensitive: false,
+    inputType: 'text',
+    fillable: true,
+    legacyKeys: ['birth_month'],
+    signals: [
+      { source: 'autocomplete', pattern: 'bday-month',                  weight: 95, authoritative: true },
+      { source: 'name_id',      pattern: RX.birthMonth.source,          weight: 65 },
+      { source: 'label_text',   pattern: KW.birthMonth.join('|'),       weight: 45 },
+      { source: 'form_context', pattern: 'contact',                     weight: 10 },
+      { source: 'form_context', pattern: 'signup',                      weight: 10 },
+    ],
+  },
+
+  {
+    kind: 'identity.birth_year',
+    section: 'identity',
+    sensitive: false,
+    inputType: 'text',
+    fillable: true,
+    legacyKeys: ['birth_year'],
+    signals: [
+      { source: 'autocomplete', pattern: 'bday-year',                   weight: 95, authoritative: true },
+      { source: 'name_id',      pattern: RX.birthYear.source,           weight: 65 },
+      { source: 'label_text',   pattern: KW.birthYear.join('|'),        weight: 45 },
+      { source: 'form_context', pattern: 'contact',                     weight: 10 },
+      { source: 'form_context', pattern: 'signup',                      weight: 10 },
     ],
   },
 

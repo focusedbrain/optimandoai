@@ -148,6 +148,7 @@ import os from 'node:os'
 import { execSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import express from 'express'
+import * as http from 'node:http'
 import * as net from 'net'
 import { loadAllMiniApps, loadTier1MiniApps, loadTier2MiniApps, loadTier3MiniApps } from './main/miniapps/loader'
 import * as crypto from 'crypto'
@@ -522,6 +523,9 @@ let win: BrowserWindow | null
 let pendingLaunchMode: 'screenshot' | 'stream' | null = null
 let tray: Tray | null = null
 let activeStop: null | (() => Promise<string>) = null
+// HTTP bridge server — started early so /api/health is reachable immediately.
+// Full Express routes mount on this server once initialization completes.
+let httpBridgeServer: http.Server | null = null
 // Track connected WS clients (extension bridge)
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
@@ -635,6 +639,11 @@ function handleDeepLink(raw: string) {
     }
   } catch { }
 }
+
+// Remove the default Electron application menu globally.
+// This prevents the template-style menu (File, Edit, View, …) from ever
+// flashing on screen, even during BrowserWindow creation edge cases.
+Menu.setApplicationMenu(null)
 
 // Check if app was started with --hidden flag (auto-start on login)
 const startHidden = process.argv.includes('--hidden')
@@ -1377,7 +1386,7 @@ async function createWindow() {
 
 function createTray() {
   try {
-    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'))
+    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'))
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
     tray.on('click', async () => {
@@ -1624,6 +1633,30 @@ console.log('[MAIN] About to call app.whenReady()')
 app.whenReady().then(async () => {
   console.log('[MAIN] ===== APP READY =====')
   try {
+    // ========== STRUCTURED BOOT LOG ==========
+    // Written to ~/.opengiraffe/logs/main.log so we can diagnose startup
+    // issues in packaged builds where console output is not visible.
+    const bootInfo = {
+      ts: new Date().toISOString(),
+      version: app.getVersion(),
+      argv: process.argv,
+      startHidden,
+      isPackaged: app.isPackaged,
+      execPath: process.execPath,
+      resourcesPath: process.resourcesPath,
+      platform: process.platform,
+      pid: process.pid,
+    }
+    console.log('[BOOT] Boot info:', JSON.stringify(bootInfo))
+    try {
+      const fs = await import('fs')
+      const bootLogDir = path.join(os.homedir(), '.opengiraffe', 'logs')
+      if (!fs.existsSync(bootLogDir)) fs.mkdirSync(bootLogDir, { recursive: true })
+      const bootLogPath = path.join(bootLogDir, 'main.log')
+      fs.appendFileSync(bootLogPath, JSON.stringify(bootInfo) + '\n')
+      console.log('[BOOT] Boot info written to', bootLogPath)
+    } catch {}
+
     // Register Electron's shell.openExternal as the URL opener for SSO login
     // This is more reliable than the 'open' npm package in Electron context
     setUrlOpener((url: string) => shell.openExternal(url))
@@ -1770,8 +1803,21 @@ app.whenReady().then(async () => {
     // User can open the dashboard via tray icon or extension.
   }
   
-  console.log('[MAIN] Startup complete - hasValidSession:', hasValidSession)
-  
+  console.log('[MAIN] Startup complete - hasValidSession:', hasValidSession, 'startHidden:', startHidden)
+  // Append decision to boot log
+  try {
+    const fs = await import('fs')
+    const bootLogPath = path.join(os.homedir(), '.opengiraffe', 'logs', 'main.log')
+    fs.appendFileSync(bootLogPath, JSON.stringify({
+      ts: new Date().toISOString(),
+      event: 'startup-decision',
+      hasValidSession,
+      startHidden,
+      windowCreated: false,
+      mode: 'tray-only',
+    }) + '\n')
+  } catch {}
+
   // Load Gmail API credentials if saved
   try {
     const { loadCredentialsFromDisk } = await import('./mailguard/gmail-api')
@@ -1834,7 +1880,42 @@ app.whenReady().then(async () => {
 
   // Ensure ports are available before starting servers
   await ensurePortsAvailable()
-  
+
+  // ========== EARLY HTTP BRIDGE (health endpoint only) ==========
+  // Start a minimal HTTP server immediately so the Chrome extension
+  // can detect the desktop app is alive while the rest of init proceeds.
+  // The full Express app is mounted on this server later (see startHttpServer).
+  try {
+    httpBridgeServer = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url?.split('?')[0] === '/api/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          ok: true,
+          timestamp: Date.now(),
+          version: app.getVersion(),
+          ready: false,
+          starting: true,
+          pid: process.pid
+        }))
+        return
+      }
+      // All other routes: 503 until Express mounts
+      res.writeHead(503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: false, error: 'Initializing...' }))
+    })
+    httpBridgeServer.listen(HTTP_PORT, '127.0.0.1', () => {
+      console.log(`[BOOT] ✅ Early HTTP health bridge on http://127.0.0.1:${HTTP_PORT}`)
+    })
+    httpBridgeServer.on('error', (err: any) => {
+      console.error(`[BOOT] ❌ Early HTTP bridge error:`, err.message)
+      httpBridgeServer = null
+    })
+    httpBridgeServer.timeout = 10 * 60 * 1000
+    httpBridgeServer.keepAliveTimeout = 10 * 60 * 1000
+  } catch (err) {
+    console.error('[BOOT] Failed to start early HTTP bridge:', err)
+  }
+
   // WS bridge for extension (127.0.0.1:51247) with safe startup
   try {
     console.log('[MAIN] ===== ATTEMPTING TO START WEBSOCKET SERVER =====')
@@ -6543,72 +6624,48 @@ app.whenReady().then(async () => {
     // - NO silent fallback to alternative ports
     // ==========================================================================
     
-    let httpServerStarted = false
-    
-    const startHttpServer = (port: number): void => {
-      if (httpServerStarted) {
-        console.log('[BOOT] HTTP server already started, skipping duplicate start')
-        return
-      }
-      
-      console.log(`[BOOT] Starting HTTP API server on FIXED port ${port}...`)
-      console.log(`[BOOT] Extension expects: http://127.0.0.1:${port}`)
-      
-      const server = httpApp.listen(port, '127.0.0.1', () => {
-        httpServerStarted = true
-        // ==========================================================================
-        // AUTHORITATIVE BOOT LOG - Extension connectivity depends on this port
-        // ==========================================================================
-        console.log(`[BOOT] ✅ HTTP API listening on http://127.0.0.1:${port}`)
+    // ==========================================================================
+    // PHASE: MOUNT EXPRESS on the early HTTP bridge server
+    // ==========================================================================
+    // The early bridge (started right after ensurePortsAvailable) has been
+    // serving /api/health while all routes above were being registered.
+    // Now mount the full Express app so every route is reachable.
+    // ==========================================================================
+
+    if (httpBridgeServer) {
+      httpBridgeServer.removeAllListeners('request')
+      httpBridgeServer.on('request', httpApp)
+      console.log(`[BOOT] ✅ Full Express app mounted on http://127.0.0.1:${HTTP_PORT}`)
+      console.log(`[BOOT] Extension can now connect to Electron (all routes active)`)
+    } else {
+      // Fallback: early bridge failed to start, create a new server
+      console.log(`[BOOT] Starting HTTP API server on FIXED port ${HTTP_PORT}...`)
+      console.log(`[BOOT] Extension expects: http://127.0.0.1:${HTTP_PORT}`)
+
+      const server = httpApp.listen(HTTP_PORT, '127.0.0.1', () => {
+        console.log(`[BOOT] ✅ HTTP API listening on http://127.0.0.1:${HTTP_PORT}`)
         console.log(`[BOOT] Extension can now connect to Electron`)
-        
-        // Set longer server-level timeout (10 minutes) to support OAuth flows
-        server.timeout = 10 * 60 * 1000 // 10 minutes
-        server.keepAliveTimeout = 10 * 60 * 1000 // 10 minutes
-        console.log('[BOOT] HTTP server timeout set to 10 minutes for OAuth support')
+        server.timeout = 10 * 60 * 1000
+        server.keepAliveTimeout = 10 * 60 * 1000
       })
-      
+
       server.once('error', (err: any) => {
-        if (httpServerStarted) return // Ignore errors if already started successfully
-        
         if (err.code === 'EADDRINUSE') {
-          // ==========================================================================
-          // FATAL: Port conflict - extension will NOT be able to reach Electron
-          // ==========================================================================
-          console.error(`[BOOT] ❌ FATAL: Port ${port} is already in use`)
-          console.error(`[BOOT] ❌ Another process is blocking the required port`)
-          console.error(`[BOOT] ❌ The Chrome extension expects Electron on port ${port}`)
-          console.error(`[BOOT] ❌ Electron CANNOT use a different port - extension would fail`)
-          console.error(`[BOOT]`)
-          console.error(`[BOOT] To fix this issue:`)
-          console.error(`[BOOT]   1. Check what process is using port ${port}:`)
-          console.error(`[BOOT]      Windows: netstat -ano | findstr :${port}`)
-          console.error(`[BOOT]      macOS/Linux: lsof -i :${port}`)
-          console.error(`[BOOT]   2. Stop that process or close the previous WRDesk instance`)
-          console.error(`[BOOT]   3. Restart WRDesk Orchestrator`)
-          console.error(`[BOOT]`)
-          console.error(`[BOOT] Exiting to prevent silent extension connectivity failure...`)
-          
-          // Show dialog to user before exiting
+          console.error(`[BOOT] ❌ FATAL: Port ${HTTP_PORT} is already in use`)
+          console.error(`[BOOT] ❌ The Chrome extension expects Electron on port ${HTTP_PORT}`)
           dialog.showErrorBox(
             'WRDesk Orchestrator - Port Conflict',
-            `Port ${port} is already in use by another process.\n\n` +
+            `Port ${HTTP_PORT} is already in use by another process.\n\n` +
             `The Chrome extension requires Electron to be available on this exact port.\n\n` +
-            `Please close any previous WRDesk instance or other application using port ${port}, then restart WRDesk Orchestrator.`
+            `Please close any previous WRDesk instance or other application using port ${HTTP_PORT}, then restart WRDesk Orchestrator.`
           )
-          
-          // Exit the app - do NOT silently fall back to another port
           app.exit(1)
         } else {
           console.error('[BOOT] ❌ HTTP server error:', err.message)
-          console.error('[BOOT] Exiting due to server startup failure...')
           app.exit(1)
         }
       })
     }
-    
-    // Start the server on the FIXED port (no fallback)
-    startHttpServer(HTTP_PORT)
 
       // POST /api/vault/delete - Delete vault (must be unlocked)
       httpApp.post('/api/vault/delete', async (req, res) => {
