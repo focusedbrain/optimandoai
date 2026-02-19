@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "generated": "2026-02-16T22:44:25.182Z",
+  "generatedUnix": 1771281865,
+  "git": {
+    "commit": "c6881b7927bb25daab00d84643f818f2df116519",
+    "branch": "main",
+    "dirty": true
+  },
+  "versions": {
+    "electron_app": "0.0.0",
+    "extension": "0.0.1"
+  },
+  "artifacts": {
+    "electron": {
+      "apps/electron-vite-project/release/0.0.0/win-unpacked/resources/elevate.exe": {
+        "sha256": "9b1fbf0c11c520ae714af8aa9af12cfd48503eedecd7398d8992ee94d1b4dc37",
+        "size": 107520,
+        "name": "elevate.exe"
+      },
+      "apps/electron-vite-project/release/0.0.0/win-unpacked/WR Desk™.exe": {
+        "sha256": "ebc02b3a4729e35901d8a5b2d82de067d01c54c246bcdebff8f4632ff33a66b6",
+        "size": 177037824,
+        "name": "WR Desk™.exe"
+      },
+      "apps/electron-vite-project/release/0.0.0/WR Desk™-0.0.0-Setup.exe": {
+        "sha256": "36c59ae39e702cefc2a53174363587bef0c1f668434a3d28d8cedf810dc7c646",
+        "size": 141895365,
+        "name": "WR Desk™-0.0.0-Setup.exe"
+      }
+    },
+    "extension_zip": null,
+    "extension_dist": {
+      "apps/extension-chromium/dist/.vite/manifest.json": "81c335c9b4a1d75c2cf4698f808cdb12207fc146d3921502c8cf91d959058c55",
+      "apps/extension-chromium/dist/assets/backend-config-lightbox-init-9fI_hPTK.js": "3327e19717375de170452709d0788d8b6fcb1b2d461a2e581b045e41098145b1",
+      "apps/extension-chromium/dist/assets/background.ts-DBlZBrCn.js": "da7de536f4294253d0eb92b950cc75cbe798541092296ff57a42b397469bca01",
+      "apps/extension-chromium/dist/assets/beapBuildValidation-C3P4DLXX.js": "5b2736139c3bc8d9d16cbdc8c2b24d274b56aa426d7db5ae6ca7c6616a0f13ef",
+      "apps/extension-chromium/dist/assets/BeapPackageBuilder-D_WdyL6X.js": "99ba047252c0c0b25c28f60bcb35e0e3dc76290eb3c3f93157d0ae3bbdbc01f9",
+      "apps/extension-chromium/dist/assets/client-DSKFEfEy.js": "3291f6a70d353d5ae542ef07123998286d76238dab67ba4c9ccd398f84392b5a",
+      "apps/extension-chromium/dist/assets/content-script.tsx-loader-Dc4r_8jr.js": "580296b934b80555d44f1394e7212b95147a55ee692646b3ba719edb70e85975",
+      "apps/extension-chromium/dist/assets/content-script.tsx-s9pQKWvX.js": "5ce8872d906ac12c938405abd9a3855516f8106e162c678c427c0e192ced9ecf",
+      "apps/extension-chromium/dist/assets/electronRpc-Ciaq-Dk-.js": "6fa3a4c084d34a098470fb970ff0b129a92fdcafce26c1868244475de2490c59",
+      "apps/extension-chromium/dist/assets/getActiveAdapter-C5BL1rl3.js": "6b9a12ba8fd752d02b05857dea0005f06888fc9b47198ba23865497d34fc7cbd",
+      "apps/extension-chromium/dist/assets/index-CUdKwYKf.js": "8b28ff31d600d2d69702539e2c965b2d8bde0a98f2dbbf3df6deefca2d73bf08",
+      "apps/extension-chromium/dist/assets/mailguard-content-script.ts-CbexkNqY.js": "be45006c02bc3ae192c081c2c9d9dc0d58c2c26876b065f5536c042d0ea76225",
+      "apps/extension-chromium/dist/assets/mailguard-content-script.ts-loader-BIWqy9PK.js": "8485807cd14eb27870bf40217079f654a23bc2efb58379a3d119d554fda74b9d",
+      "apps/extension-chromium/dist/assets/model-CCr3I2nN.js": "28c1232227e452b13c1263846d7370a7d23120046d21f0d03dae6a5bfd7007ca",
+      "apps/extension-chromium/dist/assets/policy-lightbox-init-BM1Yv6mo.js": "0e64ebd67b64ca89b80c758176312998242ecb5464a94aaabdeeaf2a7b05e33f",
+      "apps/extension-chromium/dist/assets/popup-chat-ykEnK5ZW.js": "d1e8337d862dcfef7b767a3e4ea237ef0697e6ad88f25ae41c49a80625a716fd",
+      "apps/extension-chromium/dist/assets/preload-helper-C1FmrZbK.js": "ddabd08ef1896dd07a2c2a8d01a9963d181dcdaf1d3cb917b321965c3937dde9",
+      "apps/extension-chromium/dist/assets/sidepanel.html-BzoeFAXw.js": "9695b3ca7c734f575e47a2d3474ffcef49996c08100d24125eba18123193a76f",
+      "apps/extension-chromium/dist/assets/storageWrapper-BrzpFl1J.js": "506e11b08491cea1046a2ec5f4e898ec42098c0d9f3e19f732a12f389bcacc95",
+      "apps/extension-chromium/dist/assets/types-BcrEJsJu.js": "d5e89aedd2345822b210646d06cca81e0cb904d35e56740f8ecdacf22ae9547a",
+      "apps/extension-chromium/dist/assets/types-DIsOuerY.js": "6d91320268beb29ab31234bf85e3ab8cfe136b92bcc6a5607a035da9489d5053",
+      "apps/extension-chromium/dist/assets/TypeSystemService-QMbVOySk.js": "0bac5f945c3aec55f4d60d5d8bfa51a8ab8fbae8932d5eb5b0c5a1fa4f7f3564",
+      "apps/extension-chromium/dist/assets/vault-ui-typescript-CvoOGRTb.js": "2d1c74c7a3dbb85c2edf5b2d3554d9dd992ce84299258baa8526b9e171a3c815",
+      "apps/extension-chromium/dist/assets/wink-nlp-BGWfO0_g.js": "2e61fa917189e242a4a6985b86fd3aeccf42c6e28534d3e973510bdacdb2836d",
+      "apps/extension-chromium/dist/grid-display-v2.html": "4afb6db14ed3b166f752a982a1a02b0f9f80a875f685b2c7e29e351abf3d2514",
+      "apps/extension-chromium/dist/grid-display.html": "d81ed8d1278448a2e7039ba3298f1c4699abd5633bbdcc46a92aecb3c9a0c3e0",
+      "apps/extension-chromium/dist/grid-display.js": "fa1ac70b206e20a3835dcf5e1008da00674638125c7e46480fd0885c5fc6badd",
+      "apps/extension-chromium/dist/grid-script-backup.js": "4149cf76baf5a348a60e1f7dd4e0a2d40c1e2f890a82ae37b744824d7f3795b6",
+      "apps/extension-chromium/dist/grid-script-v2.js": "62f70d555d91786afc6a5ccadf1f70b7ba54906f0e351e7471b0504b3351b230",
+      "apps/extension-chromium/dist/grid-script.js": "c055aa6e2b1b851dc31f654c1067df4a912ebdd406814b1aaf37d6d649f31789",
+      "apps/extension-chromium/dist/grid.html": "b20b6035cd5409aed83bb13eaaaeb0587362d8150b501b1015b7171454c0f949",
+      "apps/extension-chromium/dist/manifest.json": "de48027f34b5b2557eedfee34084f8ef08b268daa25308518427a7187b7e79d1",
+      "apps/extension-chromium/dist/orchestration.html": "39978bfcc8a38ad7b28b26643b691ed988971533b1c2e6ff347445723d45531f",
+      "apps/extension-chromium/dist/orchestration.js": "d1f0b477d2d2f34ef5197cb8a4a232d4c8953027a9e82a158f034d30eb304d9e",
+      "apps/extension-chromium/dist/popup.html": "930a335a8dd432b5e28bba5ced8ca627d053a01db6f1c2432a1abdf36ff460bc",
+      "apps/extension-chromium/dist/popup.js": "767dea598d4298125c54981d43c4468f463f886dc9114b6fefb52fb556e9584e",
+      "apps/extension-chromium/dist/service-worker-loader.js": "1d8ed9eed57b2776f5a98e92691e20c0e74246a4e25a8c8c088b594ac37727e0",
+      "apps/extension-chromium/dist/silent-launch.html": "d0eaf0c593c335e9b7c435b14829fb32f75022c088961de04622a558ccdbf564",
+      "apps/extension-chromium/dist/src/popup-chat.html": "93cd3c05a995b2a955f91cd3941713f3c809abd99325bf88d702358a119556d6",
+      "apps/extension-chromium/dist/src/sidepanel.html": "bf9b80c1dd3bf924c1401240c95bb3fcbaf5370f45f7117e1d4f76fd151466d9"
+    }
+  },
+  "config": {
+    "apps/electron-vite-project/electron-builder.json": "df5662d542a3dc9e4e3751708ae0a11e41b17ac4f8aea34e0659eaac600b299c",
+    "apps/electron-vite-project/package.json": "bfe1b1a1df7182944736d6f57d020839496b0549bb801f345a44340d95048214",
+    "apps/extension-chromium/manifest.config.ts": "5929144bdeed9ad532df460668e1a518ee942a5650e7fdd4ee88e25973f4cf65",
+    "packages/shared/src/vault/insertionPipeline.ts": "512bda369a4520c62f23074beaabd794f16093edb217ade7c8ee6a37ab46a9ec"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "note": "All hashes are hex-encoded SHA-256 digests"
+  },
+  "selfHash": "7644d55a612cb6aa19586327af0689d4112e10ec766020803f7259ca45a94631"
+}

@@ -32,6 +32,8 @@ import {
 import type { FieldKind } from '../../../../../packages/shared/src/vault/fieldTaxonomy'
 import { guardElement, auditLog, emitTelemetryEvent, redactError } from './hardening'
 import { attachGuard, type MutationGuardHandle, type GuardStatus } from './mutationGuard'
+import { isHAEnforced } from './haGuard'
+import { areWritesDisabled, onWritesDisabledChange } from './writesKillSwitch'
 
 // ============================================================================
 // §1  Types
@@ -131,6 +133,7 @@ let _clipboardTimers: ReturnType<typeof setTimeout>[] = []
 let _styleSheet: CSSStyleSheet | null = null
 let _placement: Placement = 'below'
 let _mutationGuard: MutationGuardHandle | null = null
+let _killSwitchUnsub: (() => void) | null = null
 
 // ============================================================================
 // §4  Public API
@@ -148,7 +151,12 @@ let _mutationGuard: MutationGuardHandle | null = null
  * one is visible will dismiss the previous one with 'cancel'.
  */
 export function showOverlay(session: OverlaySession): Promise<UserDecision> {
-  // Tear down any existing overlay
+  // Tear down any existing overlay — mark the displaced session as 'dismissed'
+  // so it cannot be committed via a stale reference.
+  if (_session && _session.state === 'preview') {
+    _session.state = 'dismissed'
+    auditLog('info', 'OVERLAY_SESSION_DISPLACED', `Previous session dismissed by new showOverlay (id redacted)`)
+  }
   if (_resolve) {
     _resolve({ action: 'cancel' })
   }
@@ -168,9 +176,18 @@ export function showOverlay(session: OverlaySession): Promise<UserDecision> {
   _maskStates = new Map()
   session.targets.forEach((_, i) => _maskStates.set(i, 'masked'))
 
+  // ── Defense-in-depth: log session creation context (no raw domains/UUIDs) ──
+  const ha = isHAEnforced()
+  const level = ha ? 'security' : 'info'
+  auditLog(
+    level,
+    'OVERLAY_SESSION_CREATED',
+    `state=${session.state} origin=${session.origin} ha=${ha} fields=${session.targets.length}`,
+  )
+
   emitTelemetryEvent('overlay_shown', {
     fieldCount: session.targets.length,
-    profileTitle: session.profile.title,
+    haMode: ha,
   })
 
   return new Promise<UserDecision>((resolve) => {
@@ -202,8 +219,12 @@ export function showOverlay(session: OverlaySession): Promise<UserDecision> {
 /**
  * Programmatically dismiss the overlay.
  * Resolves the pending promise with { action: 'cancel' }.
+ * Marks the active session as 'dismissed' so it cannot be committed.
  */
 export function hideOverlay(): void {
+  if (_session && _session.state === 'preview') {
+    _session.state = 'dismissed'
+  }
   if (_resolve) {
     _resolve({ action: 'cancel' })
   }
@@ -215,6 +236,14 @@ export function hideOverlay(): void {
  */
 export function isOverlayVisible(): boolean {
   return _host !== null && _shadow !== null
+}
+
+/**
+ * Return the active session's ID, or null if no session is active.
+ * Used for concurrency enforcement (MAX_ACTIVE_SESSIONS=1).
+ */
+export function getActiveSessionId(): string | null {
+  return _session?.id ?? null
 }
 
 /**
@@ -297,6 +326,7 @@ function teardownInternal(): void {
   // Remove observers
   if (_mutationGuard) { _mutationGuard.detach(); _mutationGuard = null }
   if (_resizeObserver) { _resizeObserver.disconnect(); _resizeObserver = null }
+  if (_killSwitchUnsub) { _killSwitchUnsub(); _killSwitchUnsub = null }
 
   // Remove listeners
   document.removeEventListener('keydown', onDocumentKeydown, true)
@@ -516,6 +546,32 @@ function buildFooter(): HTMLElement {
   insertBtn.innerHTML = '<span aria-hidden="true">\u2713</span> Insert'
   insertBtn.addEventListener('click', onInsertClick)
   footer.appendChild(insertBtn)
+
+  // ── Kill-switch badge: disable Insert and show warning when writes are globally disabled ──
+  const writesDisabledBadge = el('div', {
+    class: 'wrv-writes-disabled-badge',
+    'aria-live': 'polite',
+  })
+  writesDisabledBadge.textContent = '\u26D4 Writes disabled'
+  writesDisabledBadge.style.display = 'none'
+  footer.appendChild(writesDisabledBadge)
+
+  function applyKillSwitchState(disabled: boolean): void {
+    if (disabled) {
+      insertBtn.disabled = true
+      insertBtn.setAttribute('aria-disabled', 'true')
+      insertBtn.title = 'Autofill writes are globally disabled by operator'
+      writesDisabledBadge.style.display = ''
+    } else {
+      insertBtn.disabled = false
+      insertBtn.removeAttribute('aria-disabled')
+      insertBtn.title = ''
+      writesDisabledBadge.style.display = 'none'
+    }
+  }
+
+  applyKillSwitchState(areWritesDisabled())
+  _killSwitchUnsub = onWritesDisabledChange(applyKillSwitchState)
 
   return footer
 }

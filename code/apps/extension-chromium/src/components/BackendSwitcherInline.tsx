@@ -196,9 +196,12 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
             }
           });
         } else {
-          // SSO failed for any reason - fall back to opening wrdesk.com
-          console.log('[AUTH] SSO failed, falling back to wrdesk.com. Reason:', response?.error || 'unknown');
-          chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+          const reason = response?.error || 'unknown';
+          console.log('[AUTH] SSO failed. Reason:', reason);
+          if (response?.electronNotRunning) {
+            chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+          }
+          // Non-fatal: user can retry clicking Sign In
         }
       });
     } catch (err) {

@@ -8,6 +8,7 @@ import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef,
 import {
   IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS, BUSINESS_STANDARD_FIELDS,
   PASSWORD_STANDARD_FIELDS, AUTOMATION_SECRET_STANDARD_FIELDS, HANDSHAKE_CONTEXT_STANDARD_FIELDS,
+  PAYMENT_FIELDS,
   CATEGORY_UI_MAP, RECORD_TYPE_DISPLAY, RECORD_TYPE_MIN_TIER,
   DEFAULT_BINDING_POLICY,
   canAccessCategory, getCategoryOptionsForTier, ALL_ITEM_CATEGORIES,
@@ -2631,12 +2632,12 @@ function renderItemViewModal(item: VaultItem) {
   overlay.style.cssText = `
     position:fixed;
     inset:0;
-    background:var(--wrv-overlay);
+    background:rgba(0,0,0,0.25);
     z-index:2147483651;
     display:flex;
     align-items:center;
     justify-content:center;
-    backdrop-filter:blur(6px);
+    overflow-y:auto;
   `
   
   const fieldsHtml = item.fields.map((field, index) => {
@@ -2867,12 +2868,12 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
   overlay.style.cssText = `
     position:fixed;
     inset:0;
-    background:var(--wrv-overlay);
+    background:rgba(0,0,0,0.25);
     z-index:2147483650;
     display:flex;
     align-items:center;
     justify-content:center;
-    backdrop-filter:blur(6px);
+    overflow-y:auto;
   `
   
   const dialog = document.createElement('div')
@@ -3321,6 +3322,53 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         </div>
       </div>
       
+      ${(category === 'identity' || category === 'company' || category === 'business') ? `
+      <div id="vault-payment-section" style="margin-bottom:16px;border:1px solid var(--wrv-border);border-radius:10px;overflow:hidden;">
+        <button type="button" id="vault-payment-toggle" style="
+          width:100%;
+          padding:12px 16px;
+          background:var(--wrv-bg-card);
+          border:none;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          gap:10px;
+          color:var(--wrv-text);
+          font-size:13px;
+          font-weight:600;
+          transition:all 0.15s;
+        ">
+          <svg id="vault-payment-chevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="transition:transform 0.2s;transform:rotate(0deg);">
+            <path d="M4.5 2L8.5 6L4.5 10" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span style="display:flex;align-items:center;gap:6px;">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="3.5" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><line x1="1" y1="6.5" x2="15" y2="6.5" stroke="currentColor" stroke-width="1.2"/><line x1="3" y1="9.5" x2="7" y2="9.5" stroke="currentColor" stroke-width="1"/></svg>
+            Payment Methods
+          </span>
+          <span style="font-size:11px;color:var(--wrv-text-3);font-weight:400;margin-left:auto;">Credit Card, IBAN, PayPal</span>
+        </button>
+        <div id="vault-payment-fields" style="display:none;padding:16px;background:var(--wrv-bg);border-top:1px solid var(--wrv-border);">
+          <div style="font-size:11px;color:var(--wrv-text-3);margin-bottom:14px;font-style:italic;">Add payment details for autofill on checkout and payment forms.</div>
+          <div id="vault-payment-methods-list">
+            <!-- Payment method entries will be added here -->
+          </div>
+          <button type="button" id="vault-add-payment-method" style="
+            width:100%;
+            padding:10px 14px;
+            background:rgba(var(--wrv-accent-rgb),0.08);
+            border:2px dashed rgba(var(--wrv-accent-rgb),0.3);
+            border-radius:8px;
+            color:var(--wrv-accent);
+            font-size:13px;
+            font-weight:500;
+            cursor:pointer;
+            transition:all 0.15s;
+            margin-top:8px;
+          " onmouseenter="this.style.background='rgba(var(--wrv-accent-rgb),0.15)'" onmouseleave="this.style.background='rgba(var(--wrv-accent-rgb),0.08)'">+ Add Payment Method</button>
+        </div>
+      </div>
+      ` : ''}
+
       <div style="margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div style="font-size:11px;color:var(--wrv-text-3);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Custom Fields</div>
@@ -3422,6 +3470,136 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         customFieldDiv.remove()
       })
     })
+
+    // ── Payment Methods section (identity / company / business only) ──
+    const paymentToggle = dialog.querySelector('#vault-payment-toggle')
+    const paymentFields = dialog.querySelector('#vault-payment-fields') as HTMLElement | null
+    const paymentChevron = dialog.querySelector('#vault-payment-chevron') as SVGElement | null
+    const paymentMethodsList = dialog.querySelector('#vault-payment-methods-list') as HTMLElement | null
+    const addPaymentMethodBtn = dialog.querySelector('#vault-add-payment-method')
+
+    if (paymentToggle && paymentFields && paymentChevron) {
+      let paymentOpen = false
+      paymentToggle.addEventListener('click', () => {
+        paymentOpen = !paymentOpen
+        paymentFields.style.display = paymentOpen ? 'block' : 'none'
+        paymentChevron.style.transform = paymentOpen ? 'rotate(90deg)' : 'rotate(0deg)'
+      })
+    }
+
+    if (addPaymentMethodBtn && paymentMethodsList) {
+      let paymentCounter = 0
+
+      const addPaymentEntry = (presetType?: string) => {
+        paymentCounter++
+        const idx = paymentCounter
+        const entry = document.createElement('div')
+        entry.className = 'payment-method-entry'
+        entry.dataset.paymentIdx = String(idx)
+        entry.style.cssText = 'background:var(--wrv-bg-card);border:1px solid var(--wrv-border);border-radius:8px;padding:14px;margin-bottom:10px;'
+        entry.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <select class="payment-type-select" style="
+              padding:8px 12px;
+              border:1px solid var(--wrv-border-accent);
+              border-radius:6px;
+              background:var(--wrv-bg-input);
+              color:var(--wrv-text);
+              font-size:13px;
+              font-weight:500;
+              cursor:pointer;
+            ">
+              <option value="bank_account"${presetType === 'bank_account' ? ' selected' : ''}>Bank Account (IBAN)</option>
+              <option value="credit_card"${presetType === 'credit_card' ? ' selected' : ''}>Credit / Debit Card</option>
+              <option value="paypal"${presetType === 'paypal' ? ' selected' : ''}>PayPal</option>
+            </select>
+            <button type="button" class="remove-payment-method" style="
+              background:var(--wrv-danger-bg);
+              border:1px solid var(--wrv-danger-border);
+              padding:5px 10px;
+              border-radius:6px;
+              color:var(--wrv-danger);
+              font-size:12px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.15s;
+            ">Remove</button>
+          </div>
+          <div class="payment-type-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          </div>
+        `
+        paymentMethodsList.appendChild(entry)
+
+        const typeSelect = entry.querySelector('.payment-type-select') as HTMLSelectElement
+        const fieldsContainer = entry.querySelector('.payment-type-fields') as HTMLElement
+
+        const renderPaymentFields = (type: string) => {
+          fieldsContainer.innerHTML = ''
+          const inputStyle = `
+            width:100%;padding:10px 12px;border:1px solid var(--wrv-border);border-radius:6px;
+            background:var(--wrv-bg-input);color:var(--wrv-text);font-size:13px;font-weight:500;
+            box-sizing:border-box;transition:all 0.15s;
+          `
+          const labelStyle = 'display:block;font-size:11px;color:var(--wrv-text-3);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;margin-bottom:4px;'
+
+          if (type === 'bank_account') {
+            fieldsContainer.style.gridTemplateColumns = '1fr 1fr'
+            fieldsContainer.innerHTML = `
+              <div style="grid-column:span 2;">
+                <label style="${labelStyle}">IBAN</label>
+                <input type="text" class="pay-iban" placeholder="e.g. DE89 3704 0044 0532 0130 00" style="${inputStyle}"/>
+              </div>
+              <div>
+                <label style="${labelStyle}">BIC / SWIFT</label>
+                <input type="text" class="pay-bic" placeholder="e.g. COBADEFFXXX" style="${inputStyle}"/>
+              </div>
+              <div>
+                <label style="${labelStyle}">Bank Name</label>
+                <input type="text" class="pay-bank-name" placeholder="Bank name" style="${inputStyle}"/>
+              </div>
+              <div style="grid-column:span 2;">
+                <label style="${labelStyle}">Account Holder</label>
+                <input type="text" class="pay-account-holder" placeholder="Name on the account" style="${inputStyle}"/>
+              </div>
+            `
+          } else if (type === 'credit_card') {
+            fieldsContainer.style.gridTemplateColumns = '1fr 1fr'
+            fieldsContainer.innerHTML = `
+              <div style="grid-column:span 2;">
+                <label style="${labelStyle}">Card Number</label>
+                <input type="password" class="pay-cc-number" placeholder="&bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull;" style="${inputStyle}"/>
+              </div>
+              <div style="grid-column:span 2;">
+                <label style="${labelStyle}">Cardholder Name</label>
+                <input type="text" class="pay-cc-holder" placeholder="Name on card" style="${inputStyle}"/>
+              </div>
+              <div>
+                <label style="${labelStyle}">Expiry Date</label>
+                <input type="text" class="pay-cc-expiry" placeholder="MM/YY" style="${inputStyle}"/>
+              </div>
+              <div>
+                <label style="${labelStyle}">CVV / CVC</label>
+                <input type="password" class="pay-cc-cvv" placeholder="&bull;&bull;&bull;" maxlength="4" style="${inputStyle}"/>
+              </div>
+            `
+          } else if (type === 'paypal') {
+            fieldsContainer.style.gridTemplateColumns = '1fr'
+            fieldsContainer.innerHTML = `
+              <div>
+                <label style="${labelStyle}">PayPal Email</label>
+                <input type="email" class="pay-paypal-email" placeholder="your@email.com" style="${inputStyle}"/>
+              </div>
+            `
+          }
+        }
+
+        renderPaymentFields(typeSelect.value)
+        typeSelect.addEventListener('change', () => renderPaymentFields(typeSelect.value))
+        entry.querySelector('.remove-payment-method')?.addEventListener('click', () => entry.remove())
+      }
+
+      addPaymentMethodBtn.addEventListener('click', () => addPaymentEntry())
+    }
   }
   
   // Generate form - default to password if no preselected category
@@ -3595,6 +3773,39 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
             }
           })
         }
+
+        // Collect payment method fields (identity / company / business)
+        const paymentEntries = dialog.querySelectorAll('.payment-method-entry')
+        let paymentIdx = 0
+        paymentEntries.forEach((entry) => {
+          paymentIdx++
+          const typeSelect = entry.querySelector('.payment-type-select') as HTMLSelectElement
+          const payType = typeSelect?.value || 'bank_account'
+          const prefix = paymentIdx > 1 ? `payment_${paymentIdx}_` : 'payment_'
+
+          if (payType === 'bank_account') {
+            const iban = (entry.querySelector('.pay-iban') as HTMLInputElement)?.value.trim()
+            const bic = (entry.querySelector('.pay-bic') as HTMLInputElement)?.value.trim()
+            const bankName = (entry.querySelector('.pay-bank-name') as HTMLInputElement)?.value.trim()
+            const holder = (entry.querySelector('.pay-account-holder') as HTMLInputElement)?.value.trim()
+            if (iban) fields.push({ key: `${prefix}iban`, value: iban, encrypted: true, type: 'text', explanation: 'IBAN – International Bank Account Number' })
+            if (bic) fields.push({ key: `${prefix}bic`, value: bic, encrypted: false, type: 'text', explanation: 'BIC / SWIFT code' })
+            if (bankName) fields.push({ key: `${prefix}bank_name`, value: bankName, encrypted: false, type: 'text', explanation: 'Bank or financial institution name' })
+            if (holder) fields.push({ key: `${prefix}account_holder`, value: holder, encrypted: false, type: 'text', explanation: 'Name on the bank account' })
+          } else if (payType === 'credit_card') {
+            const ccNum = (entry.querySelector('.pay-cc-number') as HTMLInputElement)?.value.trim()
+            const ccHolder = (entry.querySelector('.pay-cc-holder') as HTMLInputElement)?.value.trim()
+            const ccExpiry = (entry.querySelector('.pay-cc-expiry') as HTMLInputElement)?.value.trim()
+            const ccCvv = (entry.querySelector('.pay-cc-cvv') as HTMLInputElement)?.value.trim()
+            if (ccNum) fields.push({ key: `${prefix}cc_number`, value: ccNum, encrypted: true, type: 'password', explanation: 'Credit / debit card number' })
+            if (ccHolder) fields.push({ key: `${prefix}cc_holder`, value: ccHolder, encrypted: false, type: 'text', explanation: 'Cardholder name' })
+            if (ccExpiry) fields.push({ key: `${prefix}cc_expiry`, value: ccExpiry, encrypted: true, type: 'text', explanation: 'Card expiry date (MM/YY)' })
+            if (ccCvv) fields.push({ key: `${prefix}cc_cvv`, value: ccCvv, encrypted: true, type: 'password', explanation: 'Card verification value (CVV/CVC)' })
+          } else if (payType === 'paypal') {
+            const ppEmail = (entry.querySelector('.pay-paypal-email') as HTMLInputElement)?.value.trim()
+            if (ppEmail) fields.push({ key: `${prefix}paypal_email`, value: ppEmail, encrypted: false, type: 'email', explanation: 'PayPal account email' })
+          }
+        })
       }
       
       if (fields.length === 0) {

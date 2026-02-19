@@ -109,6 +109,7 @@ function PopupChatApp() {
   // ==========================================================================
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)  // null = loading
   const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   const [pictureError, setPictureError] = useState(false)
   
@@ -164,9 +165,11 @@ function PopupChatApp() {
   const handleSignIn = () => {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
+    setLoginError(null);
     chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
       setIsLoggingIn(false);
       if (response?.ok) {
+        setLoginError(null);
         setIsLoggedIn(true);
         setPictureError(false);
         // Fetch updated user info
@@ -181,9 +184,14 @@ function PopupChatApp() {
           }
         });
       } else {
-        // SSO failed for any reason - fall back to opening wrdesk.com
-        console.log('[AUTH] SSO failed, falling back to wrdesk.com. Reason:', response?.error || 'unknown');
-        chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+        const reason = response?.error || 'unknown';
+        console.log('[AUTH] SSO failed. Reason:', reason);
+        if (response?.electronNotRunning) {
+          setLoginError('Desktop app is not running. Please start WR Desk Orchestrator.');
+          chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+        } else {
+          setLoginError(reason);
+        }
       }
     });
   };
@@ -1910,6 +1918,20 @@ function PopupChatApp() {
             textAlign: 'center'
           }}>
             A browser window will open for secure sign-in...
+          </p>
+        )}
+        
+        {/* Login error message */}
+        {loginError && !isLoggingIn && (
+          <p style={{
+            fontSize: '12px',
+            color: theme === 'standard' ? '#dc2626' : '#f87171',
+            margin: 0,
+            textAlign: 'center',
+            lineHeight: '1.5',
+            maxWidth: '280px'
+          }}>
+            {loginError}
           </p>
         )}
       </div>

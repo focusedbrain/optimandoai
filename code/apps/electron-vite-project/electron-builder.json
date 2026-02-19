@@ -21,6 +21,18 @@
       "from": "THIRD_PARTY_LICENSES",
       "to": "licenses/electron-app",
       "filter": ["**/*"]
+    },
+    {
+      "from": "../../release-manifest.json",
+      "to": "release-manifest.json"
+    },
+    {
+      "from": "../../release-manifest.json.minisig",
+      "to": "release-manifest.json.minisig"
+    },
+    {
+      "from": "../../release.pub",
+      "to": "release.pub"
     }
   ],
   "win": {

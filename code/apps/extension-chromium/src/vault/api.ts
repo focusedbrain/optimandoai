@@ -255,6 +255,39 @@ export async function getItem(id: string): Promise<VaultItem> {
   return await apiCall('/item/get', { id })
 }
 
+/**
+ * Least-privilege projection of a vault item for autofill preview.
+ *
+ * Returns only the properties needed by the overlay pipeline:
+ *   - id, fields, domain, category, title
+ *
+ * Strips: container_id, favorite, created_at, updated_at, and any
+ * future top-level properties that the fill path does not need.
+ *
+ * The underlying endpoint is the same (/item/get) — the projection
+ * happens client-side to enforce data minimization even if the server
+ * returns extra fields.
+ */
+export interface FillProjection {
+  id: string
+  category: ItemCategory
+  title: string
+  fields: Field[]
+  domain?: string
+}
+
+export async function getItemForFill(id: string): Promise<FillProjection> {
+  const item = await apiCall('/item/get', { id })
+  // Client-side projection: keep only what the fill pipeline needs
+  return {
+    id: item.id,
+    category: item.category,
+    title: item.title,
+    fields: item.fields,
+    domain: item.domain,
+  }
+}
+
 export async function listItems(filters?: {
   container_id?: string
   category?: ItemCategory
@@ -271,6 +304,50 @@ export async function listItems(filters?: {
     return []
   }
   return result
+}
+
+/**
+ * Least-privilege listing for the search index builder.
+ *
+ * Returns items filtered by fillable categories (password, identity, company)
+ * and projects each item to metadata + non-sensitive field hints only.
+ * Sensitive field values (password type) are replaced with empty strings.
+ *
+ * The underlying endpoint is the same (/items) — the projection is
+ * client-side to enforce data minimization.
+ */
+export interface IndexProjection {
+  id: string
+  category: ItemCategory
+  title: string
+  domain?: string
+  favorite: boolean
+  updated_at: number
+  fields: Field[]
+}
+
+export async function listItemsForIndex(): Promise<IndexProjection[]> {
+  const body = {} // fetch all categories — filtered below
+  const result = await apiCall('/items', body)
+  if (!Array.isArray(result)) return []
+
+  const FILLABLE: Set<string> = new Set(['password', 'identity', 'company', 'business'])
+
+  return result
+    .filter((item: any) => FILLABLE.has(item.category))
+    .map((item: any): IndexProjection => ({
+      id: item.id,
+      category: item.category,
+      title: item.title,
+      domain: item.domain,
+      favorite: item.favorite,
+      updated_at: item.updated_at,
+      // Strip sensitive values — index only needs keys for search hints
+      fields: (item.fields ?? []).map((f: Field) => ({
+        ...f,
+        value: f.type === 'password' ? '' : f.value,
+      })),
+    }))
 }
 
 export async function searchItems(query: string, category?: ItemCategory): Promise<VaultItem[]> {

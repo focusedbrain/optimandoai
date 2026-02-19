@@ -5,7 +5,13 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test:e2e:webmcp": "WEBMCP_E2E=1 npx playwright test src/vault/autofill/__tests__/e2e-webmcp-preview.spec.ts",
+    "test:e2e:webmcp:win": "set WEBMCP_E2E=1 && npx playwright test src/vault/autofill/__tests__/e2e-webmcp-preview.spec.ts",
+    "test:e2e:no-write": "WEBMCP_E2E=1 npx playwright test src/vault/autofill/__tests__/e2e-webmcp-no-write.spec.ts",
+    "test:e2e:no-write:win": "set WEBMCP_E2E=1 && npx playwright test src/vault/autofill/__tests__/e2e-webmcp-no-write.spec.ts",
+    "test:e2e:all": "WEBMCP_E2E=1 npx playwright test src/vault/autofill/__tests__/e2e-webmcp-preview.spec.ts src/vault/autofill/__tests__/e2e-webmcp-no-write.spec.ts",
+    "test:e2e:all:win": "set WEBMCP_E2E=1 && npx playwright test src/vault/autofill/__tests__/e2e-webmcp-preview.spec.ts src/vault/autofill/__tests__/e2e-webmcp-no-write.spec.ts"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.2.0",

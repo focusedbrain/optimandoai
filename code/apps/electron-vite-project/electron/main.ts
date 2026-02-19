@@ -37,10 +37,13 @@ function logoutFast(): void {
   updateTrayMenu()
   console.log(`[AUTH][t+${Date.now() - t0}ms] Tray menu updated`)
   
-  // 5. Close dashboard window immediately
+  // 5. Destroy dashboard window immediately — destroy() bypasses the close
+  //    handler (which only hides the window) so the window is truly gone.
+  //    A fresh window is created on next login via openDashboardWindow().
   if (win && !win.isDestroyed()) {
-    win.close()
-    console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window closed`)
+    win.destroy()
+    win = null
+    console.log(`[AUTH][t+${Date.now() - t0}ms] Dashboard window destroyed`)
   }
   
   // 6. Close BEAP Inbox popup via WebSocket message to extension
@@ -233,6 +236,11 @@ async function openDashboardWindow(): Promise<void> {
     if (win) {
       win.show()
       win.focus()
+      // Open DevTools AFTER showing — never during createWindow() because
+      // docked DevTools can make a hidden BrowserWindow visible on Windows.
+      if (VITE_DEV_SERVER_URL) {
+        win.webContents.openDevTools({ mode: 'detach' })
+      }
     }
   }
   console.log('[AUTH] Dashboard window opened')
@@ -596,25 +604,17 @@ function handleDeepLink(raw: string) {
     const action = url.hostname // e.g., lmgtfy, start
     const mode = url.searchParams.get('mode') || ''
     
-    // Handle 'start' action - ensure app is running and VISIBLE
+    // Handle 'start' action - only show dashboard if authenticated
     if (action === 'start') {
-      console.log('[MAIN] Received start deep link - showing dashboard window')
-      // Ensure window exists and is visible
-      if (win && !win.isDestroyed()) {
-        if (win.isMinimized()) win.restore()
-        win.show()
-        win.focus()
-        console.log('[MAIN] Dashboard window shown and focused')
-      } else {
-        // Window doesn't exist, create it
-        console.log('[MAIN] Window not found, creating new window')
-        createWindow().then(() => {
-          if (win) {
-            win.show()
-            win.focus()
-          }
-        })
+      console.log('[MAIN] Received start deep link')
+      if (!hasValidSession) {
+        console.log('[MAIN] No valid session - ignoring start deep link (stay in tray)')
+        return
       }
+      console.log('[MAIN] Session valid - opening dashboard window')
+      openDashboardWindow().catch(err => {
+        console.error('[MAIN] Error opening dashboard from deep link:', err)
+      })
       return
     }
     
@@ -690,10 +690,10 @@ async function createWindow() {
     win.loadFile(indexPath)
   }
 
-  // Open DevTools in development for debugging
-  if (VITE_DEV_SERVER_URL) {
-    win.webContents.openDevTools()
-  }
+  // Open DevTools in development for debugging — detached mode prevents the
+  // BrowserWindow from becoming visible while it should still be hidden.
+  // NOTE: Only opened AFTER the window is shown via openDashboardWindow()
+  // to avoid the window flashing on screen during headless startup.
 
   if (pendingLaunchMode) {
     win.webContents.once('did-finish-load', () => {
@@ -1504,12 +1504,15 @@ function updateTrayMenu() {
 // NOTE: Single-instance lock is handled at the top of this file
 // Handle second instance: focus window and handle deep-links
 app.on('second-instance', (_e, argv) => {
-  console.log('[MAIN] Second instance detected, focusing existing window')
-  // Focus the existing window
-  if (win && !win.isDestroyed()) {
+  console.log('[MAIN] Second instance detected')
+  // Only show the window if user has a valid session — otherwise stay headless
+  if (hasValidSession && win && !win.isDestroyed()) {
+    console.log('[MAIN] Session valid - showing existing dashboard window')
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
+  } else {
+    console.log('[MAIN] No valid session or no window - staying in tray')
   }
   // Handle opengiraffe:// and wrcode:// deep-links (backward compatibility)
   const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
@@ -1628,6 +1631,27 @@ app.whenReady().then(async () => {
     // Setup console logging to file for debugging
     await setupFileLogging()
 
+    // ========== BUILD INTEGRITY CHECK (startup) ==========
+    // Run offline verification and log the result. If verification fails,
+    // the /api/integrity endpoint will report it, and the extension can
+    // react by enabling the writes kill-switch (defense-in-depth).
+    try {
+      const { verifyBuildIntegrity } = await import('./main/integrity/verifier')
+      const integrityStatus = verifyBuildIntegrity()
+      if (integrityStatus.verified) {
+        console.log(`[INTEGRITY] Build verified: ${integrityStatus.summary}`)
+      } else {
+        console.warn(`[INTEGRITY] ⚠ BUILD NOT VERIFIED: ${integrityStatus.summary}`)
+        for (const check of integrityStatus.checks) {
+          if (check.status === 'fail') {
+            console.warn(`[INTEGRITY]   FAIL: ${check.name} — ${check.detail}`)
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[INTEGRITY] Verification module error:', err.message)
+    }
+
     // ========== AUTH TEST IPC ==========
     // Manual trigger for Keycloak login test (no auto-start)
     ipcMain.handle('auth:test-login', async () => {
@@ -1652,6 +1676,22 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: dashboard:open')
     
+    // Get build integrity status (offline verification)
+    ipcMain.handle('integrity:status', async () => {
+      try {
+        const { verifyBuildIntegrity } = await import('./main/integrity/verifier')
+        return verifyBuildIntegrity()
+      } catch (err: any) {
+        return {
+          verified: false,
+          timestamp: Date.now(),
+          checks: [{ name: 'runtime', status: 'fail', detail: 'Verifier module error' }],
+          summary: 'Unverified: internal error',
+        }
+      }
+    })
+    console.log('[MAIN] IPC handler registered: integrity:status')
+
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
       console.log('[IPC] auth:status called')
@@ -2074,6 +2114,14 @@ app.whenReady().then(async () => {
             if (msg.type === 'OPEN_ANALYSIS_DASHBOARD') {
               // Open and focus the main window with Analysis Dashboard
               console.log('[MAIN] ===== RECEIVED OPEN_ANALYSIS_DASHBOARD =====')
+              
+              // Auth gate: only open dashboard if user has a valid session
+              if (!hasValidSession) {
+                console.log('[MAIN] ⚠️ No valid session - cannot open Analysis Dashboard')
+                socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Not authenticated' }))
+                return
+              }
+              
               // Update theme if provided in message
               // Map old theme names to new ones for backward compatibility
               if (msg.theme) {
@@ -2086,15 +2134,10 @@ app.whenReady().then(async () => {
                 }
               }
               try {
-                // Recreate window if it was closed or destroyed
-                if (!win || win.isDestroyed()) {
-                  console.log('[MAIN] Window not available, creating new window...')
-                  await createWindow()
-                }
+                // Use the auth-gated openDashboardWindow() which handles
+                // create-or-show logic and DevTools in the correct order.
+                await openDashboardWindow()
                 if (win && !win.isDestroyed()) {
-                  if (win.isMinimized()) win.restore()
-                  win.show()
-                  win.focus()
                   // Signal the renderer to switch to Analysis Dashboard view with theme
                   const phase = msg.phase || 'live'
                   win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme: currentExtensionTheme })
@@ -3045,6 +3088,27 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP-MINIAPPS] Error loading all tiers:', error)
         res.status(500).json({ ok: false, error: error.message || 'Failed to load mini-apps' })
+    // =================================================================
+    // Build Integrity Verification — offline, no network required
+    // =================================================================
+
+    // GET /api/integrity — Returns build verification status
+    httpApp.get('/api/integrity', async (_req, res) => {
+      try {
+        const { verifyBuildIntegrity } = await import('./main/integrity/verifier')
+        const status = verifyBuildIntegrity()
+        res.json(status)
+      } catch (error: any) {
+        console.error('[INTEGRITY] Verification error:', error.message)
+        res.json({
+          verified: false,
+          timestamp: Date.now(),
+          checks: [{ name: 'runtime', status: 'fail', detail: 'Verifier module error' }],
+          summary: 'Unverified: internal error',
+        })
+      }
+    })
+
     // =================================================================
     // Dashboard Window Control
     // =================================================================

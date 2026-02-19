@@ -515,6 +515,8 @@ export type CommitErrorCode =
   | 'SUSPICIOUS_DOM_MUTATION'   // MutationObserver detected adversarial change
   | 'MULTIPLE_ELEMENTS_MATCH'   // Ambiguous target (safety: refuse)
   | 'USER_CANCELLED'            // User dismissed overlay
+  // ── Kill-switch ──
+  | 'WRITES_DISABLED'           // Global writes kill-switch is active
 
 // ============================================================================
 // §3  SAFETY CHECK INTERFACES

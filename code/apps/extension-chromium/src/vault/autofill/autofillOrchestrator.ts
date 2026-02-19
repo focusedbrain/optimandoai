@@ -69,6 +69,18 @@ import {
 } from './hardening'
 import type { ExtractedCredentials } from '../../../../../packages/shared/src/vault/insertionPipeline'
 import { initHASync, haCheck, isHAEnforced, onHAChange } from './haGuard'
+import { syncFieldIcons, clearAllFieldIcons } from './fieldIcons'
+import { showPopover, hidePopover, isPopoverVisible } from './inlinePopover'
+import { hideOverlay } from './overlayManager'
+import { initWritesKillSwitch } from './writesKillSwitch'
+import { resolveQsoState, executeQsoFill } from './qso/qsoEngine'
+import type { QsoState, QsoCandidate } from './qso/qsoEngine'
+import { showQsoIcon, hideQsoIcon, qsoStateToVisual } from './qso/qsoIcon'
+import { showQsoPicker, hideQsoPicker } from './qso/qsoPicker'
+import { updateRemapState, teardownRemap } from './qso/remapManager'
+import { hideRemapIcon } from './qso/remapIcon'
+import { hideMappingWizard } from './qso/mappingWizard'
+import { listItemsForIndex } from '../api'
 
 // ============================================================================
 // §1  State
@@ -80,6 +92,7 @@ let _unsubscribeCredentials: (() => void) | null = null
 let _unsubscribeShortcut: (() => void) | null = null
 let _unsubscribeHA: (() => void) | null = null
 let _lastScan: ScanResult | null = null
+let _lastQsoState: QsoState | null = null
 
 /** Callback for consumers (e.g., overlay manager) to receive scan results. */
 let _onScanResult: ((result: ScanResult) => void) | null = null
@@ -110,6 +123,9 @@ export function initAutofill(
   // 2. Initialize toggle sync (reads chrome.storage.local + subscribes)
   initContentToggleSync()
 
+  // 2b. Initialize writes kill-switch sync (reads chrome.storage.local + subscribes)
+  initWritesKillSwitch()
+
   // 3. Subscribe to toggle changes
   _unsubscribeToggles = onToggleChange(handleToggleChange)
 
@@ -129,14 +145,15 @@ export function initAutofill(
 
   auditLog('info', 'AUTOFILL_INIT', `Autofill pipeline initialized (HA=${isHAEnforced() ? 'ON' : 'OFF'})`)
 
-  // 7. If autofill is already active, start everything
-  if (isAutofillActive()) {
-    runScan()
-    startObserver()
-    // HA Mode: save-password watcher is disabled (auto-save blocked)
-    if (haCheck('auto_save')) {
-      startSavePasswordWatcher()
-    }
+  // 7. Always start field scanning and icon placement.
+  //    Icons are shown regardless of vault lock state (like other password managers).
+  //    The popover handles vault-locked state by prompting the user.
+  runScan()
+  startObserver()
+
+  // 8. Save-password watcher only starts if vault is active + HA allows it
+  if (isAutofillActive() && haCheck('auto_save')) {
+    startSavePasswordWatcher()
   }
 }
 
@@ -152,6 +169,11 @@ export function teardownAutofill(): void {
   hideSaveBar()
   quickSelectClose()
   hideTriggerIcon()
+  hidePopover()
+  clearAllFieldIcons()
+  hideQsoIcon()
+  hideQsoPicker()
+  teardownRemap()
   unregisterShortcut()
   clearIndex()
   clearAuditLog()
@@ -165,6 +187,7 @@ export function teardownAutofill(): void {
   _unsubscribeShortcut = null
   _unsubscribeHA = null
   _lastScan = null
+  _lastQsoState = null
   _onScanResult = null
   _initialized = false
   auditLog('info', 'AUTOFILL_TEARDOWN', 'Autofill pipeline torn down')
@@ -195,14 +218,21 @@ export function getLastScan(): ScanResult | null {
 function handleToggleChange(state: AutofillToggleState): void {
   if (!state.vaultUnlocked || !state.enabled) {
     auditLog('info', 'TOGGLES_OFF', `Autofill disabled (vault=${state.vaultUnlocked ? 'unlocked' : 'locked'}, enabled=${state.enabled})`)
-    // Global off or vault locked → stop everything
+    // Global off or vault locked → stop everything, dismiss any active overlay
     stopWatching()
     stopSubmitWatcher()
     hideSaveBar()
     quickSelectClose()
     hideTriggerIcon()
+    hidePopover()
+    hideOverlay()
+    clearAllFieldIcons()
+    hideQsoIcon()
+    hideQsoPicker()
+    teardownRemap()
     clearIndex()
     _lastScan = null
+    _lastQsoState = null
     return
   }
 
@@ -219,6 +249,104 @@ function handleToggleChange(state: AutofillToggleState): void {
   startSavePasswordWatcher()
 }
 
+// ============================================================================
+// §3.4  QSO (Quick Sign-On) Integration
+// ============================================================================
+
+/**
+ * Fetch vault items and resolve QSO state.  Places or hides the QSO icon
+ * based on the result.  Non-blocking — errors are swallowed.
+ */
+async function updateQsoAsync(): Promise<void> {
+  try {
+    const items = await listItemsForIndex()
+    // listItemsForIndex returns IndexProjection[]; resolveQsoState accepts
+    // FillProjection[] (superset).  For state resolution only metadata is
+    // needed — the actual fill fetches via getItemForFill at commit time.
+    const state = await resolveQsoState(items as any)
+    _lastQsoState = state
+
+    if (state.status === 'BLOCKED' || state.status === 'NONE') {
+      hideQsoIcon()
+      return
+    }
+
+    // Find an anchor element for the QSO icon (prefer password field)
+    const anchor = findQsoAnchor(state)
+    if (!anchor) {
+      hideQsoIcon()
+      return
+    }
+
+    const visual = qsoStateToVisual(state)
+    showQsoIcon(anchor, visual, handleQsoIconClick)
+  } catch {
+    // Non-fatal — QSO is optional UX; autofill still works via field icons
+    hideQsoIcon()
+  }
+}
+
+/**
+ * Find the best anchor element for the QSO icon.
+ * Prefers the password field of the exact match, then any password candidate.
+ */
+function findQsoAnchor(state: QsoState): HTMLElement | null {
+  if (state.exactMatch?.passwordEl) return state.exactMatch.passwordEl
+  if (state.exactMatch?.usernameEl) return state.exactMatch.usernameEl
+
+  for (const c of state.candidates) {
+    if (c.passwordEl) return c.passwordEl
+    if (c.usernameEl) return c.usernameEl
+  }
+
+  return null
+}
+
+/**
+ * Handle click on the QSO icon.
+ *
+ * - EXACT_MATCH: fill+submit immediately
+ * - HAS_CANDIDATES: open picker for user selection
+ * - BLOCKED: no action (icon is disabled)
+ */
+async function handleQsoIconClick(e: MouseEvent): Promise<void> {
+  const ha = isHAEnforced()
+
+  // ── Hard gate: trusted click only ──
+  if (!e.isTrusted) {
+    auditLog(ha ? 'security' : 'warn', 'QSO_REJECT_UNTRUSTED', 'QSO rejected: untrusted click')
+    return
+  }
+
+  const state = _lastQsoState
+  if (!state) return
+
+  if (state.status === 'EXACT_MATCH' && state.exactMatch) {
+    const result = await executeQsoFill(state.exactMatch, e.isTrusted)
+    auditLog('info', 'QSO_CLICK_EXACT', 'QSO exact-match action completed')
+    emitTelemetryEvent('qso_click', { mode: 'exact', filled: result.filled, submitted: result.submitted })
+    return
+  }
+
+  if (state.status === 'HAS_CANDIDATES' && state.candidates.length > 0) {
+    const iconHost = document.getElementById('wrv-qso-icon')
+    if (!iconHost) return
+
+    showQsoPicker(iconHost, state.candidates, async (candidate: QsoCandidate, selectEvent: MouseEvent) => {
+      if (!selectEvent.isTrusted) {
+        auditLog(ha ? 'security' : 'warn', 'QSO_REJECT_UNTRUSTED', 'QSO picker rejected: untrusted click')
+        return
+      }
+      const result = await executeQsoFill(candidate, selectEvent.isTrusted)
+      auditLog('info', 'QSO_PICK_COMPLETE', 'QSO picker action completed')
+      emitTelemetryEvent('qso_click', { mode: 'picker', filled: result.filled, submitted: result.submitted })
+    })
+    return
+  }
+
+  // BLOCKED or NONE — no action
+}
+
 /**
  * Handle SPA navigation events (pushState/replaceState/popstate).
  * Auto-dismiss any open UI and trigger a fresh scan.
@@ -227,10 +355,17 @@ function handleSPANavigation(): void {
   auditLog('info', 'SPA_NAVIGATION', `SPA navigation detected: ${window.location.pathname}`)
   emitTelemetryEvent('safe_mode_fallback', { reason: 'spa_navigation' })
 
-  // Dismiss any open UI
+  // Dismiss any open UI (overlay, popover, quickselect, save bar, field icons, QSO)
+  hideOverlay()
   quickSelectClose()
   hideTriggerIcon()
   hideSaveBar()
+  hidePopover()
+  clearAllFieldIcons()
+  hideQsoIcon()
+  hideQsoPicker()
+  teardownRemap()
+  _lastQsoState = null
 
   // Invalidate and rescan
   invalidateScanCache()
@@ -239,14 +374,27 @@ function handleSPANavigation(): void {
   }
 }
 
-/** Run a scan with effective toggles and notify consumer. */
+/**
+ * Run a scan, place field icons, and notify consumer.
+ *
+ * IMPORTANT: Scanning always runs with all sections enabled so that
+ * icons appear on ALL detected fields (login, identity, company, etc.)
+ * regardless of vault lock state. This matches the UX of other password
+ * managers where icons are always visible and the vault-locked state
+ * is handled at interaction time (popover shows "unlock" prompt).
+ */
 function runScan(): ScanResult {
   const startTime = performance.now()
-  const toggles = getEffectiveToggles()
-  const result = collectCandidates(toggles)
+  // Always scan with all sections ON for field detection + icon placement.
+  // The toggles only gate actual data retrieval in the popover.
+  const scanToggles = { login: true, identity: true, company: true, custom: true }
+  const result = collectCandidates(scanToggles)
   const durationMs = performance.now() - startTime
   _lastScan = result
   _onScanResult?.(result)
+
+  // Place WRVault icons inside every detected form field
+  syncFieldIcons(result.candidates, handleFieldIconClick)
 
   emitTelemetryEvent('scan_complete', {
     candidateCount: result.candidates.length,
@@ -254,16 +402,77 @@ function runScan(): ScanResult {
     elementsEvaluated: result.elementsEvaluated,
   }, durationMs)
 
+  // ── QSO: resolve state after scan if autofill is active ──
+  // QSO icon placement is async (vault API call) but non-blocking.
+  if (isAutofillActive()) {
+    updateQsoAsync().catch(() => {})
+    // Remap detection runs after QSO to handle unmapped/missing credentials
+    updateRemapState().catch(() => {})
+  }
+
   return result
 }
 
-/** Start the MutationObserver with current effective toggles. */
+/** Start the MutationObserver. Always uses all-sections-enabled for icon placement. */
 function startObserver(): void {
-  const toggles = getEffectiveToggles()
-  startWatching(toggles, (result) => {
+  const scanToggles = { login: true, identity: true, company: true, custom: true }
+  startWatching(scanToggles, (result) => {
     _lastScan = result
     _onScanResult?.(result)
+    // Update field icons when DOM changes add/remove form fields
+    syncFieldIcons(result.candidates, handleFieldIconClick)
   })
+}
+
+// ============================================================================
+// §3.5  Field Icon → Inline Popover Pipeline
+// ============================================================================
+
+/**
+ * Handle a click on a WRVault field icon inside a form field.
+ *
+ * Opens the inline popover with Auto/Manual mode toggle.
+ */
+import type { FieldCandidate } from '../../../../../packages/shared/src/vault/insertionPipeline'
+
+async function handleFieldIconClick(
+  element: HTMLElement,
+  candidate: FieldCandidate,
+  iconRect: DOMRect,
+): Promise<void> {
+  // NOTE: Do NOT gate on isAutofillActive() here.
+  // Icons are always visible and the popover handles vault-locked / empty
+  // states with a CTA that redirects the user to the vault manager.
+
+  // Close any existing popover
+  if (isPopoverVisible()) {
+    hidePopover()
+  }
+
+  const allCandidates = _lastScan?.candidates ?? []
+
+  try {
+    const result = await showPopover({
+      anchorElement: element,
+      candidate,
+      allCandidates,
+      iconRect,
+    })
+
+    if (result.action === 'filled') {
+      auditLog('info', 'INLINE_FILL', `Inline popover filled ${result.fieldCount} fields from item ${result.itemId}`)
+    } else if (result.action === 'open_manager') {
+      // Send message to open the vault manager UI
+      try {
+        chrome.runtime.sendMessage({ type: 'OPEN_VAULT_MANAGER' })
+      } catch {
+        // Extension context may be invalidated
+      }
+      auditLog('info', 'OPEN_MANAGER', 'User requested to open vault manager from popover')
+    }
+  } catch (err) {
+    auditLog('error', 'POPOVER_ERROR', `Inline popover error: ${redactError(err)}`)
+  }
 }
 
 // ============================================================================

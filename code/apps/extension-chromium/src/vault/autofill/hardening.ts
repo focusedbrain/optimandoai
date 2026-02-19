@@ -842,10 +842,14 @@ export function countDomainMatches(profiles: VaultProfile[], domain: string): nu
 export function redactSecrets(text: string): string {
   return text
     // Redact values in key=value pairs where key suggests sensitivity
-    .replace(/(password|passwd|pass|secret|token|key|credential|auth)[=:]["']?[^\s"',}]*/gi, '$1=[REDACTED]')
+    .replace(/(password|passwd|pass|secret|token|key|credential|auth|cookie|session|bearer|api.?key|vsbt)[=:]["']?[^\s"',}]*/gi, '$1=[REDACTED]')
+    // Redact UUIDs (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[UUID_REDACTED]')
+    // Redact IBAN-like patterns (2 letters + 2 digits + 11-30 alphanumeric)
+    .replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, '[IBAN_REDACTED]')
     // Redact base64-like tokens (> 20 chars of base64 chars)
     .replace(/[A-Za-z0-9+/=]{20,}/g, '[TOKEN_REDACTED]')
-    // Redact email-like patterns in error contexts (not always needed, but defensive)
+    // Redact email-like patterns
     .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_REDACTED]')
 }
 
@@ -911,13 +915,133 @@ export interface AuditEntry {
   meta?: Record<string, string | number | boolean>
 }
 
-const MAX_AUDIT_ENTRIES = 500
+/** Maximum number of entries in the in-memory audit ring buffer. */
+export const MAX_AUDIT_ENTRIES = 500
+
+/** Maximum age (ms) of entries retained in the buffer. Default: 24 hours. */
+export const MAX_AUDIT_AGE_MS = 24 * 60 * 60 * 1000 // 86_400_000
+
+/** Hard cap on export output size in bytes. */
+export const MAX_EXPORT_BYTES = 512 * 1024 // 524_288
+
 let _auditBuffer: AuditEntry[] = []
 let _auditListeners: Array<(entry: AuditEntry) => void> = []
 
+// ============================================================================
+// §8.1  Meta Sanitization — fail-closed, allowlist-only
+// ============================================================================
+//
+// Every meta value passes through sanitizeMeta() before storage.
+// Keys not in the allowlist are silently DROPPED.
+// String values are redacted, truncated, and pattern-checked.
+// Non-primitive values are replaced with "[META_REDACTED]".
+//
+// This closes the leak vector where callers accidentally put PII in meta.
+//
+
+const META_ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'sessionId',
+  'tabId',
+  'fieldCount',
+  'candidateCount',
+  'evaluatedCount',
+  'elementsVisited',
+  'durationMs',
+  'ha',
+  'reason',
+  'code',
+  'state',
+  'partial',
+  'partialReason',
+  'originTier',
+  'matchTier',
+  'psl',
+  'action',
+  'channel',
+  'op',
+  'retryAfterMs',
+])
+
+const META_MAX_STRING_LEN = 80
+
+const META_PII_PATTERNS: readonly RegExp[] = [
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,         // UUID
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,                                  // email
+  /\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/,                                         // IBAN-like
+  /\b[A-Za-z0-9+/=]{20,}\b/,                                                  // base64-ish >20
+  /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,                      // JWT-ish
+]
+
+function sanitizeMetaValue(val: unknown): string | number | boolean | null {
+  if (val === null || val === undefined) return null
+  if (typeof val === 'boolean') return val
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null
+
+  if (typeof val === 'string') {
+    // Check PII patterns on the RAW string first (before redactSecrets
+    // partially replaces content and makes patterns unmatchable).
+    for (const pattern of META_PII_PATTERNS) {
+      if (pattern.test(val)) return '[META_REDACTED]'
+    }
+
+    // Run redactSecrets for key=value style redaction
+    let s = redactSecrets(val)
+    if (s.length > META_MAX_STRING_LEN) {
+      s = s.slice(0, META_MAX_STRING_LEN)
+    }
+
+    // Second pass: catch anything redactSecrets may have left behind
+    for (const pattern of META_PII_PATTERNS) {
+      if (pattern.test(s)) return '[META_REDACTED]'
+    }
+    return s
+  }
+
+  // object, array, function, symbol, bigint — not safe
+  return '[META_REDACTED]'
+}
+
+/**
+ * Sanitize a meta record for safe storage in audit entries.
+ *
+ * - Keys not in META_ALLOWED_KEYS are silently dropped.
+ * - String values are redacted (via redactSecrets), truncated to 80 chars,
+ *   and pattern-checked for residual PII.  If any pattern matches, the
+ *   value becomes "[META_REDACTED]".
+ * - Non-primitive values (objects, arrays, functions) become "[META_REDACTED]".
+ * - Returns undefined if the input is falsy or all keys are dropped.
+ *
+ * This function never throws.
+ */
+export function sanitizeMeta(
+  meta?: Record<string, unknown>,
+): Record<string, string | number | boolean> | undefined {
+  if (!meta || typeof meta !== 'object') return undefined
+
+  let result: Record<string, string | number | boolean> | undefined
+
+  try {
+    for (const key of Object.keys(meta)) {
+      if (!META_ALLOWED_KEYS.has(key)) continue
+
+      const safe = sanitizeMetaValue(meta[key])
+      if (safe === null) continue
+
+      if (!result) result = {}
+      result[key] = safe
+    }
+  } catch {
+    // Malformed meta (e.g., getter that throws) — fail closed
+    return undefined
+  }
+
+  return result
+}
+
 /**
  * Log an audit event.
- * Message is automatically redacted. Domain is automatically extracted.
+ * Message is automatically redacted. Meta is sanitized (allowlist + redact).
+ * Domain is automatically extracted. Never throws.
  */
 export function auditLog(
   level: AuditLevel,
@@ -925,16 +1049,42 @@ export function auditLog(
   message: string,
   meta?: Record<string, string | number | boolean>,
 ): void {
+  const safeMeta = sanitizeMeta(meta as Record<string, unknown> | undefined)
+
   const entry: AuditEntry = {
     ts: new Date().toISOString(),
     level,
     code,
     message: redactSecrets(message),
     domain: safeHostname(),
-    meta,
+    ...(safeMeta ? { meta: safeMeta } : {}),
+  }
+
+  // ── Time retention: prune entries older than MAX_AUDIT_AGE_MS ──
+  // Run BEFORE push so the new entry is never accidentally pruned.
+  // Parsing ISO timestamps is safe (Date.parse returns NaN on failure).
+  // We scan from the front since oldest entries are first.
+  try {
+    const cutoff = Date.now() - MAX_AUDIT_AGE_MS
+    let pruneUntil = 0
+    for (let i = 0; i < _auditBuffer.length; i++) {
+      const entryTs = Date.parse(_auditBuffer[i].ts)
+      if (Number.isNaN(entryTs) || entryTs < cutoff) {
+        pruneUntil = i + 1
+      } else {
+        break // buffer is chronologically ordered
+      }
+    }
+    if (pruneUntil > 0) {
+      _auditBuffer = _auditBuffer.slice(pruneUntil)
+    }
+  } catch {
+    // Never fail — age pruning is best-effort
   }
 
   _auditBuffer.push(entry)
+
+  // ── Ring buffer size cap ──
   if (_auditBuffer.length > MAX_AUDIT_ENTRIES) {
     _auditBuffer = _auditBuffer.slice(-MAX_AUDIT_ENTRIES)
   }
@@ -947,6 +1097,67 @@ export function auditLog(
   // Console output (development aid — level-gated)
   if (level === 'error' || level === 'security') {
     console.warn(`[WRV-AUDIT] [${level.toUpperCase()}] ${code}: ${entry.message}`)
+  }
+}
+
+/**
+ * Strict audit log wrapper for perimeter code (WebMCP, scanner, IPC handlers).
+ *
+ * Behavior:
+ *   1. Calls sanitizeMeta(meta) — allowlist + PII patterns.
+ *   2. If sanitizeMeta returns undefined (meta was fully rejected or empty),
+ *      drops meta entirely and logs without it.
+ *   3. In dev builds (import.meta.env.DEV), emits a console.warn if meta
+ *      was rejected — without printing the raw meta object.
+ *   4. Never throws in any build.
+ *
+ * Preferred over bare auditLog() for call-sites where meta comes from
+ * dynamic/external sources (MCP params, scan results, IPC payloads).
+ */
+export function auditLogSafe(
+  level: AuditLevel,
+  code: string,
+  message: string,
+  meta?: Record<string, unknown>,
+): void {
+  try {
+    let safeMeta: Record<string, string | number | boolean> | undefined
+    let metaRejected = false
+
+    if (meta && typeof meta === 'object') {
+      safeMeta = sanitizeMeta(meta)
+
+      // Detect if any key was dropped or any value was rejected
+      if (safeMeta === undefined && Object.keys(meta).length > 0) {
+        metaRejected = true
+      } else if (safeMeta) {
+        const inputKeys = Object.keys(meta)
+        const outputKeys = Object.keys(safeMeta)
+        if (outputKeys.length < inputKeys.length) {
+          metaRejected = true
+        }
+        for (const v of Object.values(safeMeta)) {
+          if (v === '[META_REDACTED]') {
+            metaRejected = true
+            break
+          }
+        }
+      }
+
+      // Dev-time warning: flag misuse WITHOUT printing raw meta
+      if (metaRejected) {
+        try {
+          if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+            console.warn(`[WRV-AUDIT] meta rejected for code=${code} — contains disallowed keys or PII patterns`)
+          }
+        } catch { /* import.meta unavailable in some test environments */ }
+      }
+    }
+
+    auditLog(level, code, message, safeMeta)
+  } catch {
+    // Absolute fail-safe: never throw from audit path
+    try { auditLog(level, code, message) } catch { /* swallow */ }
   }
 }
 
@@ -978,6 +1189,67 @@ export function getAuditLog(limit?: number): readonly AuditEntry[] {
  */
 export function clearAuditLog(): void {
   _auditBuffer = []
+}
+
+// ============================================================================
+// §8.3  Audit Log Export — JSONL format, size-capped, no PII
+// ============================================================================
+
+/** Schema version stamped into every export line for forward compatibility. */
+const AUDIT_EXPORT_SCHEMA = 'auditlog-v1'
+
+/**
+ * Export the audit log as JSONL (one JSON object per line).
+ *
+ * Each line contains: { schemaVersion, ts, level, code, message, domain, meta? }
+ *
+ * All values are already sanitized (message via redactSecrets, meta via sanitizeMeta).
+ * The export is hard-capped at MAX_EXPORT_BYTES.  If the full buffer exceeds that,
+ * only the **newest** entries that fit are included, and `truncated` is true.
+ *
+ * Never throws.
+ */
+export function exportAuditLogJsonl(): { jsonl: string; truncated: boolean } {
+  try {
+    // Build JSONL lines from newest to oldest (so we keep newest on truncation)
+    const lines: string[] = []
+    let totalBytes = 0
+    let truncated = false
+
+    for (let i = _auditBuffer.length - 1; i >= 0; i--) {
+      const entry = _auditBuffer[i]
+      const obj: Record<string, unknown> = {
+        schemaVersion: AUDIT_EXPORT_SCHEMA,
+        ts: entry.ts,
+        level: entry.level,
+        code: entry.code,
+        message: entry.message,
+        domain: entry.domain,
+      }
+      if (entry.meta) {
+        obj.meta = entry.meta
+      }
+
+      const line = JSON.stringify(obj)
+      const lineBytes = line.length + 1 // +1 for the newline
+
+      if (totalBytes + lineBytes > MAX_EXPORT_BYTES) {
+        truncated = true
+        break
+      }
+
+      lines.push(line)
+      totalBytes += lineBytes
+    }
+
+    // Reverse back to chronological order
+    lines.reverse()
+
+    return { jsonl: lines.join('\n'), truncated }
+  } catch {
+    // Serialization failure — fail closed with empty export
+    return { jsonl: '', truncated: false }
+  }
 }
 
 /**
