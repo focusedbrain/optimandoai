@@ -315,58 +315,94 @@ function interpolateStateBindings(
 // STAGE 5: CAPABILITY GAP FILL
 // ============================================================================
 
-const FEATURE_TO_GROUP_MAP: Record<string, string> = {
-  'textarea': 'ui.textarea',
-  'button': 'ui.button',
-  'input_field': 'ui.input',
-  'input': 'ui.input',
-  'label': 'ui.text',
-  'text': 'ui.text',
-  'display': 'ui.display',
-  'number': 'ui.display',
-  'save_action': 'ui.button',
-  'submit_action': 'ui.button',
-  'increment': 'ui.button',
-  'counter': 'ui.display'
+export type ScoredBlock = ScoredItem
+
+function normalizeCapability(value: string): string {
+  return value.trim().toLowerCase()
 }
 
+/**
+ * Deterministically finds the highest-scoring Tier-3 provider block for a feature.
+ *
+ * - Only searches Tier-3 scored blocks (caller supplies Tier-3 list)
+ * - Prefers higher score
+ * - Tie-break: lexicographically smallest block id (stable/deterministic)
+ */
+export function findBestProvider(feature: string, tier3: ScoredBlock[]): ScoredBlock | null {
+  const wanted = normalizeCapability(feature)
+  if (!wanted) return null
+
+  let best: ScoredBlock | null = null
+
+  for (const scored of tier3) {
+    const block = scored.item as AtomicBlock
+    const provides = block.provides
+    if (!provides || provides.length === 0) continue
+
+    const matches = provides.some(p => normalizeCapability(p) === wanted)
+    if (!matches) continue
+
+    if (!best) {
+      best = scored
+      continue
+    }
+
+    if (scored.score > best.score) {
+      best = scored
+      continue
+    }
+
+    if (scored.score === best.score) {
+      const currentId = (block.id || '').toLowerCase()
+      const bestBlock = best.item as AtomicBlock
+      const bestId = (bestBlock.id || '').toLowerCase()
+      if (currentId && bestId && currentId < bestId) {
+        best = scored
+      }
+    }
+  }
+
+  return best
+}
+
+/**
+ * Ensures that the selected blocks have the necessary capabilities to support the intent's features.
+ * If any required capabilities are missing, attempts to fill gaps by adding relevant Tier-3 blocks.
+ */
 export function ensureCapabilities(
   blocks: AtomicBlock[],
   intent: NormalizedIntent,
   split: TierSplit
 ): { blocks: AtomicBlock[], gapsFilled: number } {
-  const existingGroups = new Set<string>()
-  
-  // Track what groups already exist
+  const provided = new Set<string>()
+
   for (const block of blocks) {
-    if (block.group) {
-      existingGroups.add(block.group)
+    for (const cap of block.provides || []) {
+      const normalized = normalizeCapability(cap)
+      if (normalized) provided.add(normalized)
     }
   }
-  
+
   let gapsFilled = 0
   const filledBlocks = [...blocks]
   
   // Check each feature in intent
   for (const feature of intent.features) {
-    const requiredGroup = FEATURE_TO_GROUP_MAP[feature.toLowerCase()]
-    
-    if (!requiredGroup) continue // No mapping for this feature
-    if (existingGroups.has(requiredGroup)) continue // Already have this capability
-    
-    // Find best Tier-3 block matching this group
-    const candidate = split.tier3.find(item => {
-      const block = item.item as AtomicBlock
-      return block.group === requiredGroup
-    })
-    
-    if (candidate) {
-      const block = candidate.item as AtomicBlock
-      filledBlocks.push(JSON.parse(JSON.stringify(block))) // Clone
-      existingGroups.add(requiredGroup)
-      gapsFilled++
-      console.log(`[Selector] Gap-fill: Added ${requiredGroup} for feature "${feature}"`)
+    const wanted = normalizeCapability(feature)
+    if (!wanted) continue
+    if (provided.has(wanted)) continue
+
+    const candidate = findBestProvider(wanted, split.tier3)
+    if (!candidate) continue
+
+    const block = candidate.item as AtomicBlock
+    filledBlocks.push(JSON.parse(JSON.stringify(block)))
+    for (const cap of block.provides || []) {
+      const normalized = normalizeCapability(cap)
+      if (normalized) provided.add(normalized)
     }
+    gapsFilled++
+    console.log(`[Selector] Gap-fill: Added ${block.id} for feature "${feature}" (score=${candidate.score.toFixed(3)})`)
   }
   
   return { blocks: filledBlocks, gapsFilled }

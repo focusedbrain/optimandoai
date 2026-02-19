@@ -3,6 +3,7 @@ export type AtomicBlock = {
   id: string // unique block id
   type: 'atomic' // tier 3 type marker
   group?: string // block group, e.g., 'ui.action', 'ui.input', 'ui.display', 'logic.*'
+  provides?: string[] // optional declared capabilities for dynamic gap filling
   ui?: {
     kind: string // ui kind, e.g., 'text', 'input', 'textarea', 'button'
     label?: string // button/input label
@@ -35,6 +36,7 @@ export type Component = {
   name: string // component name
   description: string // component description
   intent_tags: string[] // semantic tags
+  provides?: string[] // optional declared capabilities
   blocks: string[] // array of tier3 block ids
   bindings?: Record<string, Record<string, any>> // bindings for blocks
   behaviour?: Record<string, any> // behaviour handlers
@@ -50,6 +52,7 @@ export type MiniApp = {
   name: string // mini-app name
   description: string // mini-app description
   intent_tags: string[] // semantic tags
+  provides?: string[] // optional declared capabilities
   components: string[] // array of tier2 component ids
   bindings?: Record<string, Record<string, any>> // bindings for components
   state?: Record<string, any> // initial state
