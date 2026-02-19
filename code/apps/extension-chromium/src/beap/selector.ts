@@ -415,57 +415,20 @@ export function selectMiniApp(
   intent: NormalizedIntent,
   registry: BEAPRegistry
 ): SelectionResult {
-  console.log('[Selector] Starting selection with', scored.length, 'scored items')
-  
   // Stage 1: Split by tier
   const split = splitByTier(scored)
-  console.log('[Selector] Split:', {
-    tier1: split.tier1.length,
-    tier2: split.tier2.length,
-    tier3: split.tier3.length
-  })
-  
   // Stage 2: Decide base tier using score gap logic
   const baseTier = decideBaseTier(split)
-  const bestT1 = split.tier1[0]?.score || 0
-  const bestT2 = split.tier2[0]?.score || 0
-  const bestT3 = split.tier3[0]?.score || 0
-  const gapT1T2 = bestT1 - bestT2
-  const gapT1T3 = bestT1 - bestT3
-  const gapT2T3 = bestT2 - bestT3
-  console.log('[Selector] Base tier:', baseTier, {
-    bestT1: bestT1.toFixed(4),
-    bestT2: bestT2.toFixed(4),
-    bestT3: bestT3.toFixed(4),
-    gaps: {
-      t1VsT2: gapT1T2.toFixed(4),
-      t1VsT3: gapT1T3.toFixed(4),
-      t2VsT3: gapT2T3.toFixed(4)
-    },
-    minBaseGap: CONFIG.MIN_BASE_GAP.toFixed(4)
-  })
-  
   // Stage 3: Select base blocks
   const selectedItems = selectBaseBlocks(baseTier, split)
-  console.log('[Selector] Selected base items:', selectedItems.length, selectedItems.map(s => ({
-    id: s.item.id,
-    tier: s.tier,
-    score: s.score.toFixed(4)
-  })))
-  
   // Stage 4: Expand downward
   let resolvedBlocks = expandDownward(selectedItems, registry)
-  console.log('[Selector] Resolved to', resolvedBlocks.length, 'atomic blocks')
-  
   // Stage 5: Ensure capabilities (gap fill)
   const gapResult = ensureCapabilities(resolvedBlocks, intent, split)
   resolvedBlocks = gapResult.blocks
-  console.log('[Selector] Gap-filled:', gapResult.gapsFilled, 'missing capabilities')
-  
   // Stage 6: Filter & cleanup
   const filterResult = filterBlocks(resolvedBlocks, intent.constraints)
   resolvedBlocks = filterResult.blocks
-  console.log('[Selector] Filtered:', filterResult.duplicatesRemoved, 'duplicates removed')
   
   // Final stats
   const stats = {
@@ -475,13 +438,6 @@ export function selectMiniApp(
     gapsFilled: gapResult.gapsFilled,
     duplicatesRemoved: filterResult.duplicatesRemoved
   }
-  
-  console.log('[Selector] Final result:', {
-    baseTier,
-    selectedCount: selectedItems.length,
-    resolvedCount: resolvedBlocks.length,
-    stats
-  })
   
   return {
     baseTier,
