@@ -317,6 +317,15 @@ function interpolateStateBindings(
 
 export type ScoredBlock = ScoredItem
 
+/**
+ * Normalize a capability/feature string for stable matching.
+ *
+ * We intentionally keep matching strict: a feature is satisfied only when it
+ * exactly matches one of the strings in `block.provides` after normalization.
+ *
+ * (Synonyms/rewrites belong in the intent normalizer and/or in the library
+ * data, not in selector logic.)
+ */
 function normalizeCapability(value: string): string {
   return value.trim().toLowerCase()
 }
@@ -327,6 +336,11 @@ function normalizeCapability(value: string): string {
  * - Only searches Tier-3 scored blocks (caller supplies Tier-3 list)
  * - Prefers higher score
  * - Tie-break: lexicographically smallest block id (stable/deterministic)
+ *
+ * Why Tier-3 only?
+ * - Stages 2–4 already decide the base tier and expand Tier-1/Tier-2 downward.
+ * - Stage 5 is only for filling missing capabilities with the smallest units
+ *   (atomic blocks) so the system stays composable and scalable.
  */
 export function findBestProvider(feature: string, tier3: ScoredBlock[]): ScoredBlock | null {
   const wanted = normalizeCapability(feature)
@@ -376,6 +390,8 @@ export function ensureCapabilities(
 ): { blocks: AtomicBlock[], gapsFilled: number } {
   const provided = new Set<string>()
 
+  // Build a set of capabilities already present in the current selection.
+  // If any selected block provides a feature, we treat it as satisfied.
   for (const block of blocks) {
     for (const cap of block.provides || []) {
       const normalized = normalizeCapability(cap)
@@ -390,13 +406,24 @@ export function ensureCapabilities(
   for (const feature of intent.features) {
     const wanted = normalizeCapability(feature)
     if (!wanted) continue
+
+    // Feature already satisfied by currently selected blocks.
     if (provided.has(wanted)) continue
 
+    // Gap fill:
+    // - deterministically select the highest-scoring Tier-3 block that provides
+    //   the missing feature (using precomputed scores)
+    // - if no provider exists, do nothing (fail gracefully)
     const candidate = findBestProvider(wanted, split.tier3)
     if (!candidate) continue
 
     const block = candidate.item as AtomicBlock
+
+    // Clone before adding to avoid mutating the registry instance downstream
+    // (e.g., interpolation writes to `ui.props.stateKey`).
     filledBlocks.push(JSON.parse(JSON.stringify(block)))
+
+    // Mark any capabilities this new block provides as satisfied.
     for (const cap of block.provides || []) {
       const normalized = normalizeCapability(cap)
       if (normalized) provided.add(normalized)

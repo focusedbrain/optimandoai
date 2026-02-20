@@ -3,7 +3,7 @@ export type AtomicBlock = {
   id: string // unique block id
   type: 'atomic' // tier 3 type marker
   group?: string // block group, e.g., 'ui.action', 'ui.input', 'ui.display', 'logic.*'
-  provides?: string[] // optional declared capabilities for dynamic gap filling
+  provides?: string[] // optional declared capabilities used by selector Stage 5 (capability gap fill)
   ui?: {
     kind: string // ui kind, e.g., 'text', 'input', 'textarea', 'button'
     label?: string // button/input label
