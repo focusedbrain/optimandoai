@@ -1,4 +1,4 @@
-﻿/// <reference types="chrome-types"/>
+/// <reference types="chrome-types"/>
 
 import './agent-manager-v2'
 import { initAutofill, teardownAutofill } from './vault/autofill'
@@ -32422,7 +32422,9 @@ ${pageText}
 
       const unlockBtn = document.getElementById('unlock-finetuned')
 
-      unlockBtn?.addEventListener('click', () => openBillingModal('subscription'))
+      unlockBtn?.addEventListener('click', () => {
+        window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
+      })
 
 
 
@@ -32552,7 +32554,10 @@ ${pageText}
 
     btnPAYG?.addEventListener('click', () => openBillingModal('payg'))
 
-    btnSub?.addEventListener('click', () => openBillingModal('subscription'))
+    // Subscription → open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
+    btnSub?.addEventListener('click', () => {
+      window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
+    })
 
 
 
