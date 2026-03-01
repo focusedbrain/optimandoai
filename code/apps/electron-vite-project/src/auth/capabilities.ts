@@ -111,6 +111,7 @@ export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: stri
  * 
  * SECURITY: Never invents roles client-side.
  * Priority order: enterprise > publisher_lifetime > publisher > pro > private_lifetime > private > free
+ * Note: WooCommerce 'private' → 'pro' alias is handled only in resolveTier() for wrdesk_plan claims.
  * 
  * @param keycloakRoles - Combined realm + client roles from token
  * @returns Tier based on role presence
@@ -145,14 +146,14 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'pro';
   }
   
-  // Private lifetime → maps to pro (WooCommerce naming: 'private' = Pro plan)
+  // Private lifetime
   if (normalizedRoles.includes('private_lifetime')) {
-    return 'pro';
+    return 'private_lifetime';
   }
-  
-  // Private annual → maps to pro (WooCommerce naming: 'private' = Pro plan)
+
+  // Private annual
   if (normalizedRoles.includes('private')) {
-    return 'pro';
+    return 'private';
   }
   
   // No tier role found - default to free (not an error, just no premium role)
