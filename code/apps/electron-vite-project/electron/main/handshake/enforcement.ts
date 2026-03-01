@@ -17,12 +17,10 @@ import type {
   HandshakeProcessResult,
   TierDecision,
   EffectivePolicy,
-  CapsulePolicy,
   AuthorizationResult,
-  HandshakeState,
   ActionType,
 } from './types'
-import { ReasonCode, HandshakeState as HS, INPUT_LIMITS, tierAtLeast } from './types'
+import { ReasonCode, HandshakeState as HS, INPUT_LIMITS } from './types'
 import type { ValidatedCapsule } from '../ingestion/types'
 import { runHandshakeVerification } from './pipeline'
 import { HANDSHAKE_PIPELINE } from './steps'
@@ -329,7 +327,7 @@ export { resolveEffectivePolicyFn as resolveEffectivePolicy }
 
 function buildInitiateRecord(
   input: VerifiedCapsuleInput,
-  ssoSession: SSOSession,
+  _ssoSession: SSOSession,
   tierDecision: TierDecision,
   effectivePolicy: EffectivePolicy,
 ): HandshakeRecord {
@@ -370,8 +368,8 @@ function buildInitiateRecord(
 function buildAcceptRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
-  ssoSession: SSOSession,
-  tierDecision: TierDecision,
+  _ssoSession: SSOSession,
+  _tierDecision: TierDecision,
   effectivePolicy: EffectivePolicy,
 ): HandshakeRecord {
   return {
@@ -400,7 +398,7 @@ function buildAcceptRecord(
 function buildRefreshRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
-  tierDecision: TierDecision,
+  _tierDecision: TierDecision,
 ): HandshakeRecord {
   return {
     ...existing,

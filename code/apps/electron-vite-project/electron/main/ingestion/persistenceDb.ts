@@ -11,7 +11,6 @@
 
 import type {
   IngestionAuditRecord,
-  ValidationReasonCode,
   SandboxQueueStatus,
 } from './types'
 

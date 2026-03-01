@@ -121,10 +121,10 @@ export const GetAutofillCandidatesRequestSchema = z.object({
 })
 
 export const AutofillSectionsSchema = z.object({
-  login: z.boolean().optional(),
-  identity: z.boolean().optional(),
-  company: z.boolean().optional(),
-  custom: z.boolean().optional(),
+  login: z.boolean(),
+  identity: z.boolean(),
+  company: z.boolean(),
+  custom: z.boolean(),
 })
 
 /** HA Mode state schema — validated at RPC boundary. */

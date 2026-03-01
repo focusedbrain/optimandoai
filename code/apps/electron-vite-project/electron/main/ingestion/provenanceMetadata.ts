@@ -45,7 +45,7 @@ export function buildProvenanceMetadata(
 
 export function buildTransportMetadata(
   rawInput: RawInput,
-  sourceType: SourceType,
+  _sourceType: SourceType,
 ): TransportMetadata {
   return {
     sender_address: rawInput.headers?.['from'] ?? rawInput.headers?.['From'] ?? undefined,

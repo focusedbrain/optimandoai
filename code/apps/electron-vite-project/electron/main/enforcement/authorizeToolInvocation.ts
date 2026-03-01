@@ -18,15 +18,10 @@
  */
 
 import {
-  isHandshakeActive,
-  authorizeAction,
-} from '../handshake/enforcement'
-import {
   getHandshakeRecord,
   insertAuditLogEntry,
 } from '../handshake/db'
-import { ReasonCode, HandshakeState as HS } from '../handshake/types'
-import type { HandshakeRecord, ActionType } from '../handshake/types'
+import { HandshakeState as HS } from '../handshake/types'
 
 // ── Types ──
 

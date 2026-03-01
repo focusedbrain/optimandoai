@@ -27,8 +27,6 @@ export const verifyChainIntegrity: PipelineStep = {
     }
 
     // Determine if sender is initiator or acceptor
-    const isInitiator = input.sender_wrdesk_user_id === handshakeRecord.initiator.wrdesk_user_id
-
     // The seq we expect from this sender is last_seq_received + 1
     // (from our perspective, we track what we received from them)
     const lastSeq = handshakeRecord.last_seq_received

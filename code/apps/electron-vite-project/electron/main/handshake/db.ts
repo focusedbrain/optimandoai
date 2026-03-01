@@ -7,8 +7,6 @@
 
 import type {
   HandshakeRecord,
-  ContextBlock,
-  ContextBlockInput,
   AuditLogEntry,
   HandshakeState,
 } from './types'

@@ -495,7 +495,7 @@ import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider } from './main/handshake/ipc'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
 import { setEmailSendFn } from './main/handshake/emailTransport'
-import { setEmailFunctions, startBeapEmailSync, type BeapSyncHandle } from './main/email/beapSync'
+import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)

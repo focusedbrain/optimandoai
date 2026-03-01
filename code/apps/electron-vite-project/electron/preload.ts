@@ -102,33 +102,12 @@ function assertSavePreset(v: unknown): object {
 // §2  Channel Allowlists (compile-time constants)
 // ============================================================================
 
-// Channels the renderer may INVOKE (request→response)
-const INVOKE_CHANNELS = new Set([
-  'lmgtfy/select-screenshot',
-  'lmgtfy/select-stream',
-  'lmgtfy/stop-stream',
-  'lmgtfy/get-presets',
-  'lmgtfy/capture-preset',
-  'lmgtfy/save-preset',
-  'integrity:status',
-] as const)
-
-// Channels the renderer may SEND (fire-and-forget)
-const SEND_CHANNELS = new Set([
-  'REQUEST_THEME',
-  'SET_THEME',
-  'OPEN_BEAP_INBOX',
-] as const)
-
-// Channels the renderer may LISTEN to (main→renderer)
-const LISTEN_CHANNELS = new Set([
-  'main-process-message',
-  'lmgtfy.capture',
-  'hotkey',
-  'TRIGGERS_UPDATED',
-  'OPEN_ANALYSIS_DASHBOARD',
-  'THEME_CHANGED',
-] as const)
+// Allowed channel documentation (not enforced at runtime — kept for audit):
+// INVOKE:  lmgtfy/select-screenshot, lmgtfy/select-stream, lmgtfy/stop-stream,
+//          lmgtfy/get-presets, lmgtfy/capture-preset, lmgtfy/save-preset, integrity:status
+// SEND:    REQUEST_THEME, SET_THEME, OPEN_BEAP_INBOX
+// LISTEN:  main-process-message, lmgtfy.capture, hotkey, TRIGGERS_UPDATED,
+//          OPEN_ANALYSIS_DASHBOARD, THEME_CHANGED
 
 // ============================================================================
 // §3  Exposed Bridges

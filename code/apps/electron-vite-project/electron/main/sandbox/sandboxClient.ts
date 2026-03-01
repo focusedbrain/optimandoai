@@ -77,7 +77,7 @@ export interface EnqueueResult {
 
 export function enqueueTask(db: any, task: SandboxTask): EnqueueResult {
   if (!validateTask(task)) {
-    return { success: false, task_id: task?.task_id ?? '', error: 'Invalid task schema' }
+    return { success: false, task_id: (task as any)?.task_id ?? '', error: 'Invalid task schema' }
   }
 
   const persisted = insertSandboxQueueItem(db, {

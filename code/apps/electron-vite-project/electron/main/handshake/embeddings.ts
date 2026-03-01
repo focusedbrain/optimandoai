@@ -5,7 +5,7 @@
  * Failure does NOT roll back block persistence.
  */
 
-import type { ScoredContextBlock, ContextBlock } from './types'
+import type { ScoredContextBlock } from './types'
 import {
   getPendingEmbeddingBlocks,
   markEmbeddingComplete,

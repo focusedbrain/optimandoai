@@ -39,7 +39,7 @@ export function shutdownWorker(): void {
 }
 
 export async function processTaskViaWorker(task: SandboxTask): Promise<SandboxResult> {
-  return new Promise<SandboxResult>((resolve, reject) => {
+  return new Promise<SandboxResult>((resolve) => {
     let w: ChildProcess
     try {
       w = ensureWorker()
