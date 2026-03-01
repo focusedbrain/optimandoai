@@ -300,7 +300,7 @@ export function headerMainTitleStyle(): React.CSSProperties {
 export function headerSubtitleStyle(t?: ThemeTokens): React.CSSProperties {
   return {
     fontSize: '12px',
-    color: t.isLight ? t.textMuted : 'rgba(255,255,255,0.75)',
+    color: t ? (t.isLight ? t.textMuted : 'rgba(255,255,255,0.75)') : 'rgba(255,255,255,0.75)',
     margin: '2px 0 0 0',
     lineHeight: 1.3,
   };

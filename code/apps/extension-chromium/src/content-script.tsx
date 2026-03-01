@@ -7817,7 +7817,7 @@ function initializeExtension() {
 
       /* WR Scan Text and Session ID Text */
 
-      .theme-pro .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
+      .theme-pro .wr-scan-text { color: ${csTheme().text} !important; }
 
       .theme-pro .session-id-text { color: white !important; }
 
@@ -7829,13 +7829,13 @@ function initializeExtension() {
 
       
 
-      .theme-dark .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
+      .theme-dark .wr-scan-text { color: ${csTheme().text} !important; }
 
       .theme-dark .session-id-text { color: white !important; }
 
     </style>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; padding-bottom: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().border}; padding-bottom: 10px;">
 
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
 
@@ -8422,7 +8422,7 @@ function initializeExtension() {
 
         .theme-pro .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
 
-        .theme-pro .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-pro .chat-docked .chat-msgs { background: ${csTheme().cardBg}; border-bottom: 1px solid rgba(255,255,255,0.20); }
 
         .theme-pro .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: white; }
 
@@ -8438,7 +8438,7 @@ function initializeExtension() {
 
         .theme-dark .chat-docked .chat-hdr { background: linear-gradient(135deg,#0f172a,#1e293b); border-bottom-color: rgba(255,255,255,0.20); color: #e5e7eb; }
 
-        .theme-dark .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-dark .chat-docked .chat-msgs { background: ${csTheme().cardBg}; border-bottom: 1px solid rgba(255,255,255,0.20); }
 
         .theme-dark .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
@@ -11429,9 +11429,9 @@ function initializeExtension() {
 
     overlay.innerHTML = `
 
-      <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
 
@@ -13323,7 +13323,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
 
           <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
 
@@ -25450,7 +25450,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 500px; max-height: 80vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
 
@@ -25702,7 +25702,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🛡 URL Whitelist Configuration</h2>
 
@@ -26024,7 +26024,7 @@ function initializeExtension() {
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
 
@@ -26038,7 +26038,7 @@ function initializeExtension() {
 
           <!-- Tab Navigation -->
 
-          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().headerBorder};">
+          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().border};">
 
             <button id="user-context-tab" style="
 
@@ -27338,7 +27338,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
 
@@ -28240,7 +28240,7 @@ ${pageText}
 
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;" onclick="event.stopPropagation()">
 
-            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Scope:</span>
+            <span style="font-size: 11px; color: ${csTheme().muted};">Scope:</span>
 
             <div class="scope-toggle" data-id="${app.id}" style="
 
@@ -28268,7 +28268,7 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: ${csTheme().muted};'}
 
               ">🗂 Session</span>
 
@@ -28284,7 +28284,7 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'account' ? `background: rgba(255,215,0,0.4); color: ${csTheme().muted};` : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'account' ? `background: ${csTheme().cardBg}; color: ${csTheme().muted};` : 'background: transparent; color: ${csTheme().muted};'}
 
               ">🏢 Account</span>
 
@@ -28292,13 +28292,13 @@ ${pageText}
 
           </div>
 
-          <p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8); line-height: 1.5;">
+          <p style="margin: 0; font-size: 13px; color: ${csTheme().text}; line-height: 1.5;">
 
             ${app.description.length > 150 ? app.description.slice(0, 150) + '...' : app.description}
 
           </p>
 
-          <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5); display: flex; justify-content: space-between; align-items: center;">
+          <div style="margin-top: 10px; font-size: 10px; color: ${csTheme().muted}; display: flex; justify-content: space-between; align-items: center;">
 
             <span>Updated: ${new Date(app.updatedAt).toLocaleDateString()}</span>
 
@@ -28328,7 +28328,7 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
 
@@ -28408,7 +28408,7 @@ ${pageText}
 
             ">
 
-              <p style="font-size: 14px; color: rgba(255,255,255,0.6);">
+              <p style="font-size: 14px; color: ${csTheme().muted};">
 
                 No mini-apps yet. Click "Mini-App Builder" to create your first one!
 
@@ -28674,7 +28674,7 @@ ${pageText}
 
               ">
 
-                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
+                <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
                   <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
@@ -28686,7 +28686,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
@@ -29016,7 +29016,7 @@ ${pageText}
 
               ">
 
-                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
+                <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
                   <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
@@ -29028,7 +29028,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
@@ -29396,7 +29396,7 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
 
           '</div>' +
 
@@ -29406,7 +29406,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+          '<div style="color: ${csTheme().muted}; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
 
             shortDesc +
 
@@ -29418,7 +29418,7 @@ ${pageText}
 
           '</div>' +
 
-          `<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
+          `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -29622,7 +29622,7 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
 
           '</div>' +
 
@@ -29632,7 +29632,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+          '<div style="color: ${csTheme().muted}; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
 
             shortDesc +
 
@@ -29644,7 +29644,7 @@ ${pageText}
 
           '</div>' +
 
-          `<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
+          `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -29838,7 +29838,7 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
 
@@ -30128,7 +30128,7 @@ ${pageText}
       initVaultUI()
     }).catch((error) => {
       console.error('[VAULT] Error loading vault UI:', error)
-      reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error loading vault UI. Please check console.</div>'
+      reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: ${csTheme().muted};">Error loading vault UI. Please check console.</div>'
     })
 
   }
@@ -31466,7 +31466,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
 
@@ -33146,7 +33146,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🖥 Display Ports Configuration</h2>
 
@@ -33718,7 +33718,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
 
@@ -33908,7 +33908,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
 
@@ -34280,7 +34280,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 520px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 18px;">🖥 Add Master Tabs</h2>
 
@@ -34640,7 +34640,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: ${csTheme().text}; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
           <h2 style="margin: 0; font-size: 22px;">🗂 Display Grid Browser Layouts</h2>
 
@@ -38294,7 +38294,7 @@ ${pageText}
 
         <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
 
@@ -39974,7 +39974,7 @@ ${pageText}
 
         <!-- Header -->
 
-        <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().headerBorder}; display:flex; align-items:center; justify-content:space-between;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;">
 
           <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
 
@@ -40400,7 +40400,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
 
@@ -40756,7 +40756,7 @@ ${pageText}
     if (sessionKey) {
       const idDisplay = document.createElement('div')
       idDisplay.className = 'session-id-display'
-      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
+      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: ${csTheme().muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
       idDisplay.innerHTML = `<span style="color: ${csTheme().muted}; margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
       parentDiv.appendChild(idDisplay)
     }
