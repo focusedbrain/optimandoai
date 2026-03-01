@@ -6,7 +6,12 @@
  * Pro, Dark) share the same structural pattern but use distinct color palettes.
  *
  * Reference design: WRVault lightbox — full available screen real estate,
- * colors matched to the active theme.
+ * colors matched to the active theme. WRVault VAULT_THEMES is the source of truth.
+ *
+ * Contrast rules:
+ *  - Dark panel → white/light text
+ *  - Light panel → black/dark text (#0f1419)
+ *  - Never use light text on light backgrounds or dark text on dark backgrounds
  */
 
 export type LightboxTheme = 'default' | 'dark' | 'professional';
@@ -14,19 +19,21 @@ export type LightboxTheme = 'default' | 'dark' | 'professional';
 // ─── Theme Token Sets ─────────────────────────────────────────────────────────
 
 interface ThemeTokens {
+  /** True when panel background is light (Standard theme) */
+  isLight: boolean;
   /** Main lightbox panel background */
   panelBg: string;
   /** Panel background as CSS value (may be gradient) */
   panelBgStyle: string;
   /** Header area background */
   headerBg: string;
-  /** Accent / brand gradient used on header and active elements */
+  /** Accent / brand gradient used on active elements and buttons */
   accentGradient: string;
   /** Accent solid color (for borders, highlights) */
   accentColor: string;
-  /** Primary text color */
+  /** Primary text color — always high-contrast against panelBg */
   text: string;
-  /** Secondary / muted text color */
+  /** Secondary / muted text color — still legible, not invisible */
   textMuted: string;
   /** Border color for dividers, cards, inputs */
   border: string;
@@ -34,10 +41,16 @@ interface ThemeTokens {
   inputBg: string;
   /** Input border */
   inputBorder: string;
+  /** Input text color — always high-contrast against inputBg */
+  inputText: string;
   /** Card / surface background */
   cardBg: string;
+  /** Card text color */
+  cardText: string;
   /** Tab / button inactive background */
   tabBg: string;
+  /** Tab inactive text */
+  tabText: string;
   /** Tab active background */
   tabActiveBg: string;
   /** Tab active text color */
@@ -48,14 +61,24 @@ interface ThemeTokens {
   closeBg: string;
   /** Close button hover background */
   closeHoverBg: string;
+  /** Close button icon color */
+  closeText: string;
   /** Success accent */
   success: string;
+  /** Success text — readable on panel background */
+  successText: string;
   /** Error accent */
   error: string;
+  /** Error text — readable on panel background */
+  errorText: string;
   /** Warning accent */
   warning: string;
+  /** Warning text */
+  warningText: string;
   /** Info accent */
   info: string;
+  /** Info text */
+  infoText: string;
   /** Scrollbar thumb color */
   scrollbarThumb: string;
   /** Scrollbar track color */
@@ -66,6 +89,7 @@ interface ThemeTokens {
 
 // ── Pro: vivid purple chrome — exact WRVault Pro palette ──
 const PRO_TOKENS: ThemeTokens = {
+  isLight: false,
   panelBg: '#1e1040',
   panelBgStyle: 'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
   headerBg: 'rgba(168,85,247,0.12)',
@@ -76,17 +100,25 @@ const PRO_TOKENS: ThemeTokens = {
   border: 'rgba(168,85,247,0.18)',
   inputBg: 'rgba(0,0,0,0.3)',
   inputBorder: 'rgba(168,85,247,0.30)',
+  inputText: '#f3f0ff',
   cardBg: 'rgba(168,85,247,0.06)',
+  cardText: '#f3f0ff',
   tabBg: 'rgba(168,85,247,0.08)',
+  tabText: '#f3f0ff',
   tabActiveBg: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
   tabActiveText: '#ffffff',
   overlay: 'rgba(30,10,60,0.92)',
   closeBg: 'rgba(168,85,247,0.18)',
   closeHoverBg: 'rgba(168,85,247,0.35)',
+  closeText: '#ffffff',
   success: '#4ade80',
-  error: '#ff3b30',
+  successText: '#4ade80',
+  error: '#ff6b6b',
+  errorText: '#ff6b6b',
   warning: '#fbbf24',
-  info: '#818cf8',
+  warningText: '#fbbf24',
+  info: '#a5b4fc',
+  infoText: '#a5b4fc',
   scrollbarThumb: 'rgba(168,85,247,0.4)',
   scrollbarTrack: 'rgba(168,85,247,0.08)',
   panelShadow: '0 20px 60px rgba(30,10,60,0.6)',
@@ -94,6 +126,7 @@ const PRO_TOKENS: ThemeTokens = {
 
 // ── Standard: LIGHT theme — exact WRVault Standard palette ──
 const STANDARD_TOKENS: ThemeTokens = {
+  isLight: true,
   panelBg: '#f8f9fb',
   panelBgStyle: '#f8f9fb',
   headerBg: '#ffffff',
@@ -102,19 +135,27 @@ const STANDARD_TOKENS: ThemeTokens = {
   text: '#0f1419',
   textMuted: '#536471',
   border: '#e1e8ed',
-  inputBg: '#f1f3f5',
+  inputBg: '#ffffff',
   inputBorder: '#d1d9e0',
+  inputText: '#0f1419',
   cardBg: '#ffffff',
+  cardText: '#0f1419',
   tabBg: '#f1f3f5',
+  tabText: '#0f1419',
   tabActiveBg: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
   tabActiveText: '#ffffff',
   overlay: 'rgba(15,20,25,0.60)',
   closeBg: 'rgba(15,20,25,0.08)',
   closeHoverBg: 'rgba(15,20,25,0.15)',
+  closeText: '#0f1419',
   success: '#16a34a',
+  successText: '#166534',
   error: '#dc2626',
+  errorText: '#991b1b',
   warning: '#d97706',
-  info: '#6366f1',
+  warningText: '#92400e',
+  info: '#4f46e5',
+  infoText: '#3730a3',
   scrollbarThumb: '#d1d9e0',
   scrollbarTrack: '#f1f3f5',
   panelShadow: '0 20px 60px rgba(15,23,42,0.12)',
@@ -122,6 +163,7 @@ const STANDARD_TOKENS: ThemeTokens = {
 
 // ── Dark: deep slate — exact WRVault Dark palette ──
 const DARK_TOKENS: ThemeTokens = {
+  isLight: false,
   panelBg: '#111827',
   panelBgStyle: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
   headerBg: 'rgba(30,41,59,0.8)',
@@ -132,17 +174,25 @@ const DARK_TOKENS: ThemeTokens = {
   border: 'rgba(148,163,184,0.15)',
   inputBg: 'rgba(15,23,42,0.8)',
   inputBorder: 'rgba(148,163,184,0.22)',
+  inputText: '#e7e9ea',
   cardBg: 'rgba(30,41,59,0.5)',
+  cardText: '#e7e9ea',
   tabBg: 'rgba(30,41,59,0.5)',
+  tabText: '#e7e9ea',
   tabActiveBg: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
   tabActiveText: '#ffffff',
   overlay: 'rgba(0,0,0,0.90)',
   closeBg: 'rgba(148,163,184,0.15)',
   closeHoverBg: 'rgba(148,163,184,0.25)',
+  closeText: '#e7e9ea',
   success: '#4ade80',
-  error: '#ef4444',
+  successText: '#4ade80',
+  error: '#f87171',
+  errorText: '#f87171',
   warning: '#fbbf24',
+  warningText: '#fbbf24',
   info: '#818cf8',
+  infoText: '#818cf8',
   scrollbarThumb: 'rgba(148,163,184,0.3)',
   scrollbarTrack: 'rgba(30,41,59,0.5)',
   panelShadow: '0 20px 60px rgba(0,0,0,0.7)',
@@ -183,14 +233,14 @@ export function overlayStyle(t: ThemeTokens): React.CSSProperties {
 
 /**
  * Returns inline styles for the main lightbox panel.
- * Uses 100% of available space (minus a small margin) for a full-screen feel.
+ * Uses full available space with a small margin for breathing room.
  */
 export function panelStyle(t: ThemeTokens): React.CSSProperties {
   return {
     flex: 1,
-    margin: '12px',
+    margin: '8px',
     background: t.panelBgStyle,
-    borderRadius: '16px',
+    borderRadius: '14px',
     border: `1px solid ${t.border}`,
     boxShadow: t.panelShadow,
     overflow: 'hidden',
@@ -203,14 +253,12 @@ export function panelStyle(t: ThemeTokens): React.CSSProperties {
 
 /**
  * Returns inline styles for the lightbox header bar.
- * Standard (light) theme uses border-bottom instead of coloured background.
  */
 export function headerStyle(t: ThemeTokens): React.CSSProperties {
-  const isLight = t.panelBgStyle === '#f8f9fb';
   return {
     padding: '18px 24px',
     background: t.headerBg,
-    color: isLight ? t.text : '#ffffff',
+    color: t.isLight ? t.text : '#ffffff',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -235,7 +283,7 @@ export function headerTitleStyle(): React.CSSProperties {
 
 /**
  * Returns inline styles for the main title in the header.
- * Inherits color from headerStyle so it adapts to light/dark themes.
+ * Color is inherited from headerStyle — do not set color here.
  */
 export function headerMainTitleStyle(): React.CSSProperties {
   return {
@@ -250,10 +298,9 @@ export function headerMainTitleStyle(): React.CSSProperties {
  * Returns inline styles for the subtitle/description in the header.
  */
 export function headerSubtitleStyle(t?: ThemeTokens): React.CSSProperties {
-  const isLight = t && t.panelBgStyle === '#f8f9fb';
   return {
     fontSize: '12px',
-    color: isLight ? t.textMuted : 'rgba(255,255,255,0.75)',
+    color: t.isLight ? t.textMuted : 'rgba(255,255,255,0.75)',
     margin: '2px 0 0 0',
     lineHeight: 1.3,
   };
@@ -263,11 +310,10 @@ export function headerSubtitleStyle(t?: ThemeTokens): React.CSSProperties {
  * Returns inline styles for the close (×) button.
  */
 export function closeButtonStyle(t: ThemeTokens): React.CSSProperties {
-  const isLight = t.panelBgStyle === '#f8f9fb';
   return {
     background: t.closeBg,
-    border: isLight ? `1px solid ${t.border}` : 'none',
-    color: isLight ? t.text : '#ffffff',
+    border: t.isLight ? `1px solid ${t.border}` : 'none',
+    color: t.closeText,
     width: '36px',
     height: '36px',
     borderRadius: '8px',
@@ -320,13 +366,12 @@ export function tabStyle(t: ThemeTokens, isActive: boolean, isDisabled?: boolean
     background: isActive ? t.tabActiveBg : t.tabBg,
     border: isActive ? 'none' : `1px solid ${t.border}`,
     borderRadius: '8px',
-    color: isActive ? t.tabActiveText : t.text,
+    color: isActive ? t.tabActiveText : t.tabText,
     fontSize: '13px',
     fontWeight: isActive ? 600 : 500,
     cursor: isDisabled ? 'not-allowed' : 'pointer',
     opacity: isDisabled ? 0.45 : 1,
     transition: 'all 0.18s',
-    boxShadow: isActive ? '0 4px 14px rgba(139, 92, 246, 0.3)' : 'none',
     whiteSpace: 'nowrap',
   };
 }
@@ -341,7 +386,7 @@ export function inputStyle(t: ThemeTokens): React.CSSProperties {
     background: t.inputBg,
     border: `1px solid ${t.inputBorder}`,
     borderRadius: '8px',
-    color: t.text,
+    color: t.inputText,
     fontSize: '13px',
     outline: 'none',
     boxSizing: 'border-box',
@@ -372,6 +417,7 @@ export function cardStyle(t: ThemeTokens): React.CSSProperties {
     border: `1px solid ${t.border}`,
     borderRadius: '12px',
     padding: '16px',
+    color: t.cardText,
   };
 }
 
@@ -390,7 +436,7 @@ export function primaryButtonStyle(t: ThemeTokens, disabled?: boolean): React.CS
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.6 : 1,
     transition: 'all 0.18s',
-    boxShadow: '0 4px 14px rgba(139, 92, 246, 0.35)',
+    boxShadow: t.isLight ? '0 2px 8px rgba(99,102,241,0.25)' : '0 4px 14px rgba(139,92,246,0.35)',
   };
 }
 
@@ -414,13 +460,31 @@ export function secondaryButtonStyle(t: ThemeTokens, disabled?: boolean): React.
 
 /**
  * Returns inline styles for a status/notification banner.
+ * Uses theme-aware text colors for proper contrast on any background.
  */
-export function notificationStyle(type: 'success' | 'error' | 'info' | 'warning'): React.CSSProperties {
+export function notificationStyle(type: 'success' | 'error' | 'info' | 'warning', t?: ThemeTokens): React.CSSProperties {
+  const isLight = t?.isLight ?? false;
   const colors = {
-    success: { bg: 'rgba(34,197,94,0.15)', border: 'rgba(34,197,94,0.4)', text: '#4ade80' },
-    error: { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.4)', text: '#f87171' },
-    info: { bg: 'rgba(129,140,248,0.15)', border: 'rgba(129,140,248,0.4)', text: '#818cf8' },
-    warning: { bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.4)', text: '#fbbf24' },
+    success: {
+      bg: isLight ? 'rgba(22,163,74,0.08)' : 'rgba(34,197,94,0.15)',
+      border: isLight ? 'rgba(22,163,74,0.3)' : 'rgba(34,197,94,0.4)',
+      text: isLight ? '#166534' : '#4ade80',
+    },
+    error: {
+      bg: isLight ? 'rgba(220,38,38,0.08)' : 'rgba(239,68,68,0.15)',
+      border: isLight ? 'rgba(220,38,38,0.3)' : 'rgba(239,68,68,0.4)',
+      text: isLight ? '#991b1b' : '#f87171',
+    },
+    info: {
+      bg: isLight ? 'rgba(79,70,229,0.08)' : 'rgba(129,140,248,0.15)',
+      border: isLight ? 'rgba(79,70,229,0.25)' : 'rgba(129,140,248,0.4)',
+      text: isLight ? '#3730a3' : '#a5b4fc',
+    },
+    warning: {
+      bg: isLight ? 'rgba(217,119,6,0.08)' : 'rgba(251,191,36,0.15)',
+      border: isLight ? 'rgba(217,119,6,0.3)' : 'rgba(251,191,36,0.4)',
+      text: isLight ? '#92400e' : '#fbbf24',
+    },
   };
   const c = colors[type];
   return {

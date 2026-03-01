@@ -28,7 +28,7 @@ if (!_isExtensionPage) {
 
 // ─── Unified Content-Script Theme Helper ─────────────────────────────────────
 // Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
-// Reads the same localStorage key as the rest of the app.
+// Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
 function csTheme() {
   let t: 'pro' | 'dark' | 'standard' = 'pro'
   try {
@@ -40,54 +40,57 @@ function csTheme() {
 
   // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
   if (t === 'dark') return {
-    grad:       'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-    panelBg:    'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-    headerGrad: 'rgba(30,41,59,0.8)',
-    border:     'rgba(148,163,184,0.15)',
-    borderAccent: 'rgba(148,163,184,0.22)',
-    cardBg:     'rgba(30,41,59,0.5)',
-    text:       '#e7e9ea',
-    muted:      '#94a3b8',
-    inputBg:    'rgba(15,23,42,0.8)',
-    accent:     '#818cf8',
-    accentGrad: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
-    overlay:    'rgba(0,0,0,0.90)',
-    shadow:     '0 20px 60px rgba(0,0,0,0.7)',
-    isLight:    false,
+    panelBg:      'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+    headerGrad:   'rgba(30,41,59,0.8)',
+    headerBorder: 'rgba(148,163,184,0.15)',
+    border:       'rgba(148,163,184,0.15)',
+    cardBg:       'rgba(30,41,59,0.5)',
+    text:         '#e7e9ea',
+    muted:        '#94a3b8',
+    inputBg:      'rgba(15,23,42,0.8)',
+    inputText:    '#e7e9ea',
+    accent:       '#818cf8',
+    accentGrad:   'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+    overlay:      'rgba(0,0,0,0.90)',
+    shadow:       '0 20px 60px rgba(0,0,0,0.7)',
+    successText:  '#4ade80', errorText: '#f87171', warnText: '#fbbf24', infoText: '#a5b4fc',
+    isLight:      false,
   }
   // ── Standard: light — WRVault Standard (#f8f9fb / dark text) ──
   if (t === 'standard') return {
-    grad:       '#f8f9fb',
-    panelBg:    '#f8f9fb',
-    headerGrad: '#ffffff',
-    border:     '#e1e8ed',
-    borderAccent: '#d1d9e0',
-    cardBg:     '#ffffff',
-    text:       '#0f1419',
-    muted:      '#536471',
-    inputBg:    '#f1f3f5',
-    accent:     '#6366f1',
-    accentGrad: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-    overlay:    'rgba(15,20,25,0.60)',
-    shadow:     '0 20px 60px rgba(15,23,42,0.12)',
-    isLight:    true,
+    panelBg:      '#f8f9fb',
+    headerGrad:   '#ffffff',
+    headerBorder: '#e1e8ed',
+    border:       '#e1e8ed',
+    cardBg:       '#ffffff',
+    text:         '#0f1419',
+    muted:        '#536471',
+    inputBg:      '#ffffff',
+    inputText:    '#0f1419',
+    accent:       '#6366f1',
+    accentGrad:   'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+    overlay:      'rgba(15,20,25,0.60)',
+    shadow:       '0 20px 60px rgba(15,23,42,0.12)',
+    successText:  '#166534', errorText: '#991b1b', warnText: '#92400e', infoText: '#3730a3',
+    isLight:      true,
   }
   // ── Pro (default): vivid purple — WRVault Pro (#1e1040 → #2d1b69) ──
   return {
-    grad:       'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
-    panelBg:    'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
-    headerGrad: 'rgba(168,85,247,0.12)',
-    border:     'rgba(168,85,247,0.18)',
-    borderAccent: 'rgba(168,85,247,0.30)',
-    cardBg:     'rgba(168,85,247,0.06)',
-    text:       '#f3f0ff',
-    muted:      '#c4b5fd',
-    inputBg:    'rgba(0,0,0,0.3)',
-    accent:     '#a855f7',
-    accentGrad: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
-    overlay:    'rgba(30,10,60,0.92)',
-    shadow:     '0 20px 60px rgba(30,10,60,0.6)',
-    isLight:    false,
+    panelBg:      'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
+    headerGrad:   'rgba(168,85,247,0.12)',
+    headerBorder: 'rgba(168,85,247,0.18)',
+    border:       'rgba(168,85,247,0.18)',
+    cardBg:       'rgba(168,85,247,0.06)',
+    text:         '#f3f0ff',
+    muted:        '#c4b5fd',
+    inputBg:      'rgba(0,0,0,0.3)',
+    inputText:    '#f3f0ff',
+    accent:       '#a855f7',
+    accentGrad:   'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
+    overlay:      'rgba(30,10,60,0.92)',
+    shadow:       '0 20px 60px rgba(30,10,60,0.6)',
+    successText:  '#4ade80', errorText: '#ff6b6b', warnText: '#fbbf24', infoText: '#a5b4fc',
+    isLight:      false,
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1546,7 +1549,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       background: ${csTheme().panelBg};
 
-      border: 1px solid rgba(255,255,255,0.3);
+      border: 1px solid ${csTheme().border};
 
       border-radius: 8px;
 
@@ -1620,7 +1623,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         background: rgba(255,255,255,0.98);
 
-        border: 1px solid rgba(255,255,255,0.3);
+        border: 1px solid ${csTheme().border};
 
         border-radius: 6px;
 
@@ -1698,7 +1701,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         background: rgba(255,255,255,0.98);
 
-        border: 1px solid rgba(255,255,255,0.3);
+        border: 1px solid ${csTheme().border};
 
         border-radius: 6px;
 
@@ -4160,7 +4163,7 @@ function initializeExtension() {
 
           const card = document.createElement('div')
 
-          card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+          card.style.cssText = 'background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; text-align: center; position: relative;'
 
           card.innerHTML = `
 
@@ -7579,7 +7582,7 @@ function initializeExtension() {
 
         padding: 20px;
 
-        border-bottom: 1px solid rgba(255,255,255,0.2);
+        border-bottom: 1px solid ${csTheme().border};
 
         display: flex;
 
@@ -7829,7 +7832,7 @@ function initializeExtension() {
 
     </style>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; padding-bottom: 10px;">
 
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
 
@@ -8069,7 +8072,7 @@ function initializeExtension() {
 
     <!-- WR Login Connection -->
 
-    <div id="wr-card" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+    <div id="wr-card" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
       <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
 
@@ -8139,7 +8142,7 @@ function initializeExtension() {
 
     <!-- Runtime Controls - Consolidated -->
 
-    <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <div id="quick-actions-card" style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
       <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Runtime Controls</h3>
 
@@ -8157,7 +8160,7 @@ function initializeExtension() {
 
         <button id="import-btn" style="padding: 10px; background: #9C27B0; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
 
-        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,0.25); grid-column: 1 / span 2; background: rgba(255,255,255,0.1);">
+        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid ${csTheme().border}; grid-column: 1 / span 2; background: ${csTheme().cardBg};">
 
           <span>🔒</span>
 
@@ -8298,7 +8301,7 @@ function initializeExtension() {
 
         .theme-pro #topbar-tabs .topbar-tab { color: white !important; }
 
-        .theme-dark #topbar-tabs .topbar-tab { background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.2) !important; color: #ffffff !important; }
+        .theme-dark #topbar-tabs .topbar-tab { background: ${csTheme().cardBg} !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
         .theme-standard #topbar-tabs .topbar-tab { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.15) !important; color: #0f172a !important; }
 
@@ -8306,9 +8309,9 @@ function initializeExtension() {
 
         /* Orchestration quick actions */
 
-        .theme-pro .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-pro .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
-        .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
         .theme-standard .quick-action { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.2) !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
 
@@ -8412,15 +8415,15 @@ function initializeExtension() {
 
         /* Pro (purple) */
 
-        .theme-pro .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked { background: ${csTheme().cardBg}; border-color: rgba(255,255,255,0.20); color: white; }
 
         .theme-pro .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
 
         .theme-pro .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
 
-        .theme-pro .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: white; }
 
-        .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: ${csTheme().text}; }
 
         .theme-pro .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
 
@@ -8428,13 +8431,13 @@ function initializeExtension() {
 
         /* Dark */
 
-        .theme-dark .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked { background: ${csTheme().cardBg}; border-color: rgba(255,255,255,0.20); color: #e5e7eb; }
 
         .theme-dark .chat-docked .chat-hdr { background: linear-gradient(135deg,#0f172a,#1e293b); border-bottom-color: rgba(255,255,255,0.20); color: #e5e7eb; }
 
         .theme-dark .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
 
-        .theme-dark .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
         .theme-dark .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
@@ -8454,7 +8457,7 @@ function initializeExtension() {
 
         .theme-standard .chat-docked .chat-btn { background:#ffffff; border:1px solid rgba(139, 92, 246, 0.2); color:#0f172a; }
 
-        .theme-standard .chat-docked .chat-send { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border:1px solid rgba(139, 92, 246, 0.3); color:#ffffff; }
+        .theme-standard .chat-docked .chat-send { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border:1px solid rgba(139, 92, 246, 0.3); color: ${csTheme().text}; }
 
       `
 
@@ -9283,13 +9286,13 @@ function initializeExtension() {
 
           </div>
 
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
 
-          <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
 
-          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
+          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
 
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
 
           <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">💬</button>
 
@@ -9307,7 +9310,7 @@ function initializeExtension() {
 
             <input id="session-name-input" class="session-id-text" type="text" value="" 
 
-                   style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: inherit; 
+                   style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: inherit; 
 
                           padding: 6px 10px; border-radius: 6px; font-size: 12px; width: 100%; 
 
@@ -9325,7 +9328,7 @@ function initializeExtension() {
 
           <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
 
-          <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
+          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
 
         </div>
 
@@ -9341,11 +9344,11 @@ function initializeExtension() {
 
         <div id="topbar-tabs" style="display:flex; gap:8px; margin-bottom:10px;">
 
-          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
+          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
 
-          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
+          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
 
-          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
+          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
 
         </div>
 
@@ -9359,7 +9362,7 @@ function initializeExtension() {
 
             <!-- Left: User Intent Detection (1/3) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
               <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
 
@@ -9385,7 +9388,7 @@ function initializeExtension() {
 
               </div>
 
-              <div id="detected-intent-demo" style="font-size: 10px; opacity: 0.9; line-height:1.5; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.18); border-radius:6px; padding:8px;">
+              <div id="detected-intent-demo" style="font-size: 10px; opacity: 0.9; line-height:1.5; background: rgba(0,0,0,0.25); border: 1px solid ${csTheme().border}; border-radius:6px; padding:8px;">
 
                 <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
@@ -9399,7 +9402,7 @@ function initializeExtension() {
 
             <!-- Right: Orchestration Logic (2/3) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
               <div style="display:flex; align-items:center; justify-content:space-between;">
 
@@ -9433,7 +9436,7 @@ function initializeExtension() {
 
         <div id="tab-content-session-goals" style="display:none;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+          <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
             <div style="display:flex; align-items:center; gap:6px;">
 
@@ -9485,7 +9488,7 @@ function initializeExtension() {
 
           <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">📧 Send Email</div>
 
@@ -9495,7 +9498,7 @@ function initializeExtension() {
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">📅 Manage Calendar</div>
 
@@ -9505,7 +9508,7 @@ function initializeExtension() {
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">🧹 Clean Up Draft</div>
 
@@ -9693,9 +9696,9 @@ function initializeExtension() {
 
     const inactiveBg = isProfessional ? 'rgba(2,6,23,0.03)' : 'rgba(255,255,255,0.1)'
 
-    const activeBorder = isProfessional ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.25)'
+    const activeBorder = isProfessional ? '1px solid #cbd5e1' : '1px solid ${csTheme().border}'
 
-    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)'
+    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : '1px solid ${csTheme().border}'
 
     const textColor = isProfessional ? '#0f172a' : 'white'
 
@@ -10313,7 +10316,7 @@ function initializeExtension() {
 
       position: sticky; top: 0; z-index: 1000;
 
-      padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2);
+      padding: 10px 20px; border-bottom: 1px solid ${csTheme().border};
 
       display: flex; gap: 10px; background: ${safeGradient};
 
@@ -11424,7 +11427,7 @@ function initializeExtension() {
 
       <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
 
@@ -11436,7 +11439,7 @@ function initializeExtension() {
 
         <!-- TABS: All Agents | Account | System -->
 
-        <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; gap: 10px;">
+        <div style="padding: 10px 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; gap: 10px;">
 
           <button class="agent-filter-tab" data-filter="all" style="padding: 8px 16px; background: rgba(255,255,255,0.3); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
@@ -11444,13 +11447,13 @@ function initializeExtension() {
 
           </button>
 
-          <button class="agent-filter-tab" data-filter="account" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+          <button class="agent-filter-tab" data-filter="account" style="padding: 8px 16px; background: ${csTheme().cardBg}; border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
 
             Account
 
           </button>
 
-          <button class="agent-filter-tab" data-filter="system" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+          <button class="agent-filter-tab" data-filter="system" style="padding: 8px 16px; background: ${csTheme().cardBg}; border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
 
             System
 
@@ -11494,7 +11497,7 @@ function initializeExtension() {
 
               </div>
 
-              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
+              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
 
             </div>
 
@@ -11510,7 +11513,7 @@ function initializeExtension() {
 
               </div>
 
-              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
+              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
 
             </div>
 
@@ -13168,11 +13171,11 @@ function initializeExtension() {
 
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory:</label>
 
-            <textarea id="agent-context" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
+            <textarea id="agent-context" style="width: 100%; height: 180px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
 
             </div>
 
@@ -13180,11 +13183,11 @@ function initializeExtension() {
 
           <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory Allocation:</label>
 
-              <select id="agent-memory" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+              <select id="agent-memory" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
                 <option value="low">Low (2MB)</option>
 
@@ -13202,7 +13205,7 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
 
@@ -13226,11 +13229,11 @@ function initializeExtension() {
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⚡ Priority Level:</label>
 
-            <select id="agent-priority" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+            <select id="agent-priority" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
               <option value="low">Low</option>
 
@@ -13246,7 +13249,7 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">🚀 Auto-Activation:</label>
 
@@ -13270,11 +13273,11 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⏱️ Response Delay:</label>
 
-            <input type="number" id="agent-delay" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
+            <input type="number" id="agent-delay" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
 
             <div style="margin-top: 8px; font-size: 10px; opacity: 0.7;">0-5000 milliseconds</div>
 
@@ -13316,7 +13319,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
 
           <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
 
@@ -13330,7 +13333,7 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg};">
 
           <div style="display: flex; gap: 10px; align-items: center;">
             <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
@@ -13535,7 +13538,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'exec-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -13572,14 +13575,14 @@ function initializeExtension() {
               </div>
               <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
             </div>
-            <div class="e-run-when-tag" style="display:${runWhenType === 'tag' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+            <div class="e-run-when-tag" style="display:${runWhenType === 'tag' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#3b82f6;font-size:12px">#</span>
                 <input type="text" placeholder="tag_name (e.g. create_chart)" class="e-run-tag" value="${conditions[0]?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
               <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this exact tag is detected in reasoning output</div>
             </div>
-            <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+            <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
                 <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
@@ -13615,7 +13618,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'e-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}'
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -14649,7 +14652,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = `trigger-${type}-row`
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14702,7 +14705,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.t-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 't-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}'
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -14776,7 +14779,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'reasoning-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14834,7 +14837,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'r-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid ${csTheme().border}'
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <select class="r-wcond-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:500">
@@ -15029,7 +15032,7 @@ function initializeExtension() {
 
         const agentCtxWrap = document.createElement('div')
 
-        agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+        agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border}'
 
         agentCtxWrap.innerHTML = `
 
@@ -15384,7 +15387,7 @@ function initializeExtension() {
 
           wrap.id = 'box-listening'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff;display:${capL.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};color:#fff;display:${capL.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15711,7 +15714,7 @@ function initializeExtension() {
 
           wrap.id = 'box-reasoning'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capR.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capR.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15769,7 +15772,7 @@ function initializeExtension() {
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings (moved from separate section) -->
-            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
                 Memory & Context
                 <span title="Configure which memory and context sources this agent can access during reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
@@ -15783,11 +15786,11 @@ function initializeExtension() {
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-read" type="checkbox">
-                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-write" type="checkbox">
-                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15797,11 +15800,11 @@ function initializeExtension() {
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-read" type="checkbox">
-                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-write" type="checkbox">
-                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15845,7 +15848,7 @@ function initializeExtension() {
 
           wrap.id = 'box-execution'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capE.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capE.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15870,7 +15873,7 @@ function initializeExtension() {
 
             </div>
 
-            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:8px">
+            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="display:flex;align-items:center;gap:10px">
                 <span style="font-weight:600;font-size:13px;white-space:nowrap">Execution Mode:</span>
                 <select id="E-execution-mode-main" style="flex:1;max-width:280px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
@@ -15991,7 +15994,7 @@ function initializeExtension() {
         const createSensorWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
           const row = document.createElement('div')
           row.className = 'sensor-workflow-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
           
           const header = document.createElement('div')
           header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
@@ -16116,11 +16119,11 @@ function initializeExtension() {
           const row = document.createElement('div')
           row.className = 'unified-trigger-row'
           row.dataset.triggerId = triggerId
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px'
           
           // ID display row
           const idRow = document.createElement('div')
-          idRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.1)'
+          idRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${csTheme().border}'
           idRow.innerHTML = `
             <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
@@ -16552,7 +16555,7 @@ function initializeExtension() {
               // Conditions section with condition type selector
               const condSection = document.createElement('div')
               condSection.className = 'workflow-conditions-section'
-              condSection.style.cssText = 'margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.15)'
+              condSection.style.cssText = 'margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid ${csTheme().border}'
               condSection.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                   <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Conditions (when to activate)</span>
@@ -16569,7 +16572,7 @@ function initializeExtension() {
               const createConditionRow = (initCond?: { conditionType?: string, field?: string, op?: string, value?: string, tag?: string, signal?: string }) => {
                 const condRow = document.createElement('div')
                 condRow.className = 'condition-row'
-                condRow.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                condRow.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:6px;padding:8px'
                 
                 const condType = initCond?.conditionType || 'boolean'
                 
@@ -16743,7 +16746,7 @@ function initializeExtension() {
                   <!-- Header -->
                   <div style="font-size:13px;color:#60a5fa;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
                     <span style="font-size:15px">🤖</span> AI Chat Capture
-                    <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);padding:0 5px;border-radius:50%">?</span>
+                    <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid ${csTheme().border};padding:0 5px;border-radius:50%">?</span>
                   </div>
                   <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:12px;line-height:1.4">
                     Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
@@ -16760,7 +16763,7 @@ function initializeExtension() {
                   </div>
 
                   <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
-                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px">
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
                       When should capture start?
                       <span title="Define what triggers the capture. You can monitor send button clicks and/or Enter key presses. The capture starts the moment the user sends their message." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
@@ -16817,7 +16820,7 @@ function initializeExtension() {
                         <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
                           <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
                           <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
-                          <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </label>
                       </div>
                     </div>
@@ -16889,13 +16892,13 @@ function initializeExtension() {
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">Wait</span>
                           <input type="number" class="trigger-quiet-period-ms" value="${init?.quietPeriodMs || '1500'}" style="width:60px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms with no changes</span>
-                          <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                         
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
                             <span style="font-size:10px;color:rgba(255,255,255,0.6)">Signal selector:</span>
-                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
@@ -16904,7 +16907,7 @@ function initializeExtension() {
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">Max wait:</span>
                           <input type="number" class="trigger-max-wait-time-ms" value="${init?.maxWaitTimeMs || '60000'}" style="width:70px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms</span>
-                          <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                       </div>
                     </div>
@@ -17403,7 +17406,7 @@ function initializeExtension() {
               const createParserRule = (initRule?: any) => {
                 const rule = document.createElement('div')
                 rule.className = 'dom-parser-rule'
-                rule.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                rule.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px;padding:8px'
                 rule.innerHTML = `
                   <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
                     <select class="dom-rule-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
@@ -17519,28 +17522,28 @@ function initializeExtension() {
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Interaction Modes <span style="opacity:0.6">(select one or more)</span></label>
                   <div style="display:flex;flex-direction:column;gap:8px">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">⌘ Overlay Button</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User clicks a button in the overlay UI</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🎤 Voice + Pointer (empty area)</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at empty space</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🖱️ Voice + Element</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at a specific element</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">✂️ Voice + Selection</div>
@@ -17838,7 +17841,7 @@ function initializeExtension() {
           
           // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
           const bottomSaveRow = document.createElement('div')
-          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15)'
+          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}'
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
           bottomSaveBtn.textContent = '💾 Save Trigger'
@@ -18041,7 +18044,7 @@ function initializeExtension() {
         const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
           const row = document.createElement('div')
           row.className = 'act-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px'
           
           // Header row with tag name and delete button
           const header = document.createElement('div')
@@ -18382,7 +18385,7 @@ function initializeExtension() {
 
                 const label = document.createElement('label')
 
-                label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:6px'
+                label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:6px'
 
                 const cb = document.createElement('input'); cb.type='checkbox'; cb.value=a.id; cb.className='E-agent'
 
@@ -18903,7 +18906,7 @@ function initializeExtension() {
             <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings -->
-            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
                 Memory & Context
                 <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
@@ -25443,7 +25446,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 500px; max-height: 80vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
 
@@ -25457,45 +25460,45 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🤖 Agent Name:</label>
 
-              <input type="text" id="new-agent-name" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
+              <input type="text" id="new-agent-name" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
 
             </div>
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎨 Agent Icon:</label>
 
               <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
 
-                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
+                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
 
-                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
+                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
 
-                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
+                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
 
-                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
+                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
 
-                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
+                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
 
-                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
+                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
 
-                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
+                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
 
-                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
+                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
 
-                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
+                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
 
-                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
+                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
 
-                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
+                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
 
-                <button class="icon-btn" data-icon="🌟" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🌟</button>
+                <button class="icon-btn" data-icon="🌟" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🌟</button>
 
               </div>
 
@@ -25507,7 +25510,7 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 15px; background: ${csTheme().cardBg};">
 
           <button id="add-agent-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
@@ -25677,7 +25680,7 @@ function initializeExtension() {
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
           <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
@@ -25695,7 +25698,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🛡️ URL Whitelist Configuration</h2>
 
@@ -25705,7 +25708,7 @@ function initializeExtension() {
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
 
@@ -25733,7 +25736,7 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Security Information</h3>
 
@@ -25753,7 +25756,7 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
           <button id="whitelist-save" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
@@ -26017,7 +26020,7 @@ function initializeExtension() {
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
 
@@ -26031,7 +26034,7 @@ function initializeExtension() {
 
           <!-- Tab Navigation -->
 
-          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3);">
+          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().headerBorder};">
 
             <button id="user-context-tab" style="
 
@@ -26045,7 +26048,7 @@ function initializeExtension() {
 
             <button id="publisher-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              padding: 10px 20px; background: ${csTheme().cardBg}; border: none; 
 
               color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
@@ -26055,7 +26058,7 @@ function initializeExtension() {
 
             <button id="account-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              padding: 10px 20px; background: ${csTheme().cardBg}; border: none; 
 
               color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
@@ -26071,7 +26074,7 @@ function initializeExtension() {
 
           <div id="user-context-content" style="display: block;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
 
@@ -26093,9 +26096,9 @@ function initializeExtension() {
 
               <textarea id="user-context-text" style="
 
-                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: white; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26107,15 +26110,15 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
-                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border: 1px solid ${csTheme().border}; color: white;
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
@@ -26133,7 +26136,7 @@ function initializeExtension() {
 
           <div id="publisher-context-content" style="display: none;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrdesk.com</h3>
 
@@ -26165,9 +26168,9 @@ function initializeExtension() {
 
               <textarea id="publisher-context-text" style="
 
-                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: white; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26179,15 +26182,15 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
-                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border: 1px solid ${csTheme().border}; color: white;
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
@@ -26205,13 +26208,13 @@ function initializeExtension() {
 
           <div id="account-context-content" style="display: none;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
 
               Account context is persistent across all sessions (e.g. a company's knowledgebase), while session context only applies within a single active session.
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
 
@@ -26221,15 +26224,15 @@ function initializeExtension() {
 
               </div>
 
-              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 10px;"></textarea>
+              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: ${csTheme().cardBg}; color: white; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 10px;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Upload PDF Files</h3>
 
-              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px; width: 100%;" />
+              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: ${csTheme().cardBg}; color: white; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px; width: 100%;" />
 
               <div id="account-pdf-list" style="margin-top: 10px; font-size: 12px; opacity: 0.8;">No PDF files uploaded</div>
 
@@ -26383,7 +26386,7 @@ function initializeExtension() {
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
@@ -26423,7 +26426,7 @@ function initializeExtension() {
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
@@ -26463,7 +26466,7 @@ function initializeExtension() {
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
@@ -27331,7 +27334,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
 
@@ -27341,39 +27344,39 @@ ${pageText}
 
         <div style="flex:1; padding: 20px; overflow-y:auto;">
 
-          <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
+          <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid ${csTheme().border}">
 
             <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
 
-            <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
+            <button id="mem-account-tab" style="padding:10px 16px; background: ${csTheme().cardBg}; border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
 
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 KnowledgeVault</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: ${csTheme().cardBg}; border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 KnowledgeVault</button>
 
           </div>
 
           <div id="mem-session" style="display:block">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-session-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 12px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-top: 12px;">
 
               <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
 
@@ -27391,21 +27394,21 @@ ${pageText}
 
           <div id="mem-account" style="display:none">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-account-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
@@ -27425,7 +27428,7 @@ ${pageText}
 
             </div>
 
-            <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); padding:10px; border-radius:8px;">
+            <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid ${csTheme().border}; padding:10px; border-radius:8px;">
 
               KnowledgeVault – Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
 
@@ -27445,19 +27448,19 @@ ${pageText}
 
                   <tr>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Title</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Title</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Type</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Type</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Evidence</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Root Cause</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Root Cause</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Fix</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Fix</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Status</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Status</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Actions</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Actions</th>
 
                   </tr>
 
@@ -27473,7 +27476,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 16px; border-top:1px solid rgba(255,255,255,0.3); display:flex; justify-content:flex-end; gap:12px; background: rgba(255,255,255,0.05)">
+        <div style="padding: 16px; border-top:1px solid ${csTheme().border}; display:flex; justify-content:flex-end; gap:12px; background: ${csTheme().cardBg}">
 
           <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
@@ -27623,7 +27626,7 @@ ${pageText}
 
       drawer.innerHTML = `
 
-        <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,.2);display:flex;justify-content:space-between;align-items:center">
+        <div style="padding:16px;border-bottom:1px solid ${csTheme().border};display:flex;justify-content:space-between;align-items:center">
 
           <div>
 
@@ -27755,7 +27758,7 @@ ${pageText}
 
           const cell = document.createElement('div')
 
-          cell.style.cssText = 'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center'
+          cell.style.cssText = 'background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center'
 
           const label = document.createElement('div')
 
@@ -28153,7 +28156,7 @@ ${pageText}
 
         <div class="miniapp-card" data-id="${app.id}" data-display-id="${app.displayId}" data-scope="${app.scope}" style="
 
-          background: rgba(255,255,255,0.1);
+          background: ${csTheme().cardBg};
 
           border: 1px solid ${app.scope === 'account' ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.2)'};
 
@@ -28177,7 +28180,7 @@ ${pageText}
 
                 background: rgba(255,255,255,0.15);
 
-                border: 1px solid rgba(255,255,255,0.3);
+                border: 1px solid ${csTheme().border};
 
                 color: white;
 
@@ -28321,7 +28324,7 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
 
@@ -28393,7 +28396,7 @@ ${pageText}
 
               padding: 40px;
 
-              background: rgba(255,255,255,0.05);
+              background: ${csTheme().cardBg};
 
               border: 2px dashed rgba(255,255,255,0.2);
 
@@ -28465,7 +28468,7 @@ ${pageText}
 
         ">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <h3 style="margin: 0; font-size: 18px;">🛠️ Mini-App Builder</h3>
 
@@ -28477,7 +28480,7 @@ ${pageText}
 
             <!-- Left Panel: Form -->
 
-            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid ${csTheme().border};">
 
               <div style="margin-bottom: 16px;">
 
@@ -28489,9 +28492,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28511,7 +28514,7 @@ ${pageText}
 
                 <div style="display: flex; gap: 12px;">
 
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
 
                     <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
 
@@ -28519,7 +28522,7 @@ ${pageText}
 
                   </label>
 
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
                     <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
 
@@ -28543,9 +28546,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28569,9 +28572,9 @@ ${pageText}
 
                   padding: 10px 20px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   color: white;
 
@@ -28649,7 +28652,7 @@ ${pageText}
 
                 background: rgba(0,0,0,0.3);
 
-                border: 1px solid rgba(255,255,255,0.1);
+                border: 1px solid ${csTheme().border};
 
                 border-radius: 8px;
 
@@ -28679,7 +28682,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
@@ -28775,7 +28778,7 @@ ${pageText}
 
         ">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <div style="display: flex; align-items: center; gap: 12px;">
 
@@ -28793,7 +28796,7 @@ ${pageText}
 
             <!-- Left Panel: Form -->
 
-            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid ${csTheme().border};">
 
               <input type="hidden" id="edit-miniapp-id">
 
@@ -28809,9 +28812,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28831,7 +28834,7 @@ ${pageText}
 
                 <div style="display: flex; gap: 12px;">
 
-                  <label id="edit-scope-session-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+                  <label id="edit-scope-session-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
 
                     <input type="radio" name="edit-scope" value="session" style="accent-color: #90EE90;">
 
@@ -28839,7 +28842,7 @@ ${pageText}
 
                   </label>
 
-                  <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+                  <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
                     <input type="radio" name="edit-scope" value="account" style="accent-color: #FFD700;">
 
@@ -28863,9 +28866,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28909,9 +28912,9 @@ ${pageText}
 
                     padding: 10px 20px;
 
-                    background: rgba(255,255,255,0.1);
+                    background: ${csTheme().cardBg};
 
-                    border: 1px solid rgba(255,255,255,0.3);
+                    border: 1px solid ${csTheme().border};
 
                     color: white;
 
@@ -28991,7 +28994,7 @@ ${pageText}
 
                 background: rgba(0,0,0,0.3);
 
-                border: 1px solid rgba(255,255,255,0.1);
+                border: 1px solid ${csTheme().border};
 
                 border-radius: 8px;
 
@@ -29021,7 +29024,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
@@ -29411,7 +29414,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
+          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">' +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -29637,7 +29640,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">' +
+          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">' +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -29831,7 +29834,7 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
 
@@ -29843,7 +29846,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
+          <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
 
             💡 Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
 
@@ -29851,15 +29854,15 @@ ${pageText}
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">📝 Memory Notes:</label>
 
             <textarea id="agent-memory-notes" style="
 
-              width: 100%; height: 300px; background: rgba(255,255,255,0.1);
+              width: 100%; height: 300px; background: ${csTheme().cardBg};
 
-              border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+              border: 1px solid ${csTheme().border}; color: white; padding: 15px;
 
               border-radius: 8px; font-size: 13px; resize: vertical;
 
@@ -29871,7 +29874,7 @@ ${pageText}
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">💾 Memory Sharing Settings:</label>
 
@@ -29901,7 +29904,7 @@ ${pageText}
 
         
 
-        <div style="padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 16px 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 12px; background: ${csTheme().cardBg};">
 
           <button id="agent-memory-cancel" style="
 
@@ -30085,11 +30088,11 @@ ${pageText}
 
     const header = document.createElement('div')
 
-    header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:space-between;`
+    header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;`
 
     header.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault – Password Manager</div>
-      <button id="wrv-close" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">×</button>
+      <button id="wrv-close" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">×</button>
     `
 
     const reactRoot = document.createElement('div')
@@ -30274,7 +30277,7 @@ ${pageText}
 
       const toolbar = document.createElement('div')
 
-      toolbar.style.cssText = 'position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.25); font-size:12px; pointer-events:auto; z-index:2147483648;'
+      toolbar.style.cssText = 'position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid ${csTheme().border}; font-size:12px; pointer-events:auto; z-index:2147483648;'
 
       const btnShot = document.createElement('button'); btnShot.textContent = 'Screenshot'; btnShot.style.cssText='background:#10b981;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
@@ -30304,7 +30307,7 @@ ${pageText}
 
       // Close control (×)
 
-      const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid ${csTheme().border};color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
       toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, labCommand, btnClose)
 
@@ -30530,7 +30533,7 @@ ${pageText}
 
           bar.id = 'og-trigger-savebar'
 
-          bar.style.cssText = `grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:${csTheme().accentGrad}; color:#ffffff; border:1px solid rgba(255,255,255,0.3); border-radius:8px;`
+          bar.style.cssText = `grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:${csTheme().accentGrad}; color:#ffffff; border:1px solid ${csTheme().border}; border-radius:8px;`
 
           
 
@@ -30546,7 +30549,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Create Trigger'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText='flex:1; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;'
+            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText='flex:1; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;'
             
             // Style placeholder text
             const placeholderStyle = document.createElement('style')
@@ -30582,7 +30585,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Optional Command'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:70px; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:70px; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;'
 
             commandRow.append(label, commandIn)
 
@@ -31459,13 +31462,13 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
 
           <div style="display:flex; gap:10px; align-items:center;">
 
-            <button id="settings-whitelist-btn" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
+            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
 
           <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
@@ -31479,7 +31482,7 @@ ${pageText}
 
             <!-- Account & Billing (TOP) -->
 
-            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / -1;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
 
               <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
 
@@ -31491,7 +31494,7 @@ ${pageText}
 
               <div style="display:flex; gap:10px;">
 
-                <button id="btn-payg" style="flex:1; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
+                <button id="btn-payg" style="flex:1; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
 
                 <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
 
@@ -31505,7 +31508,7 @@ ${pageText}
 
             <!-- API Keys Configuration (moved first) -->
 
-            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -31529,41 +31532,41 @@ ${pageText}
 
               <div id="api-keys-container" style="display: grid; gap: 6px;">
 
-                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">OpenAI</label>
 
-                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
                   <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Claude</label>
 
-                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
                   <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Gemini</label>
 
-                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
                   <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Grok</label>
 
-                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
                   <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
@@ -31577,7 +31580,7 @@ ${pageText}
 
             <!-- Local LLMs (next to API Keys) -->
 
-            <div id="local-llms-panel" style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
+            <div id="local-llms-panel" style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -31607,13 +31610,13 @@ ${pageText}
 
                     <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned local LLMs</span>
 
-                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color:white; padding:2px 6px; border-radius:999px;">PRO</span>
+                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid ${csTheme().border}; color:white; padding:2px 6px; border-radius:999px;">PRO</span>
 
                   </div>
 
                 </div>
 
-              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
+              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
 
                   🔒 Finetuned models are available for Pro subscribers.
 
@@ -31625,7 +31628,7 @@ ${pageText}
 
                   <div id="finetuned-items" style="display:grid; gap:6px;"></div>
 
-                  <button id="add-finetuned-row" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
+                  <button id="add-finetuned-row" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
 
                 </div>
 
@@ -31637,7 +31640,7 @@ ${pageText}
 
             <!-- Appearance (moved up) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
 
@@ -31645,7 +31648,7 @@ ${pageText}
 
                 <label style="display: inline-block; margin: 0;">Theme:</label>
 
-                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
+                <select id="optimando-theme-select" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
 
                   <option value="standard" selected>Standard</option>
                   <option value="pro">Pro</option>
@@ -31661,7 +31664,7 @@ ${pageText}
 
             <!-- System Settings -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
 
@@ -31671,7 +31674,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Max Agents:</label>
 
-                  <input type="number" value="10" min="5" max="20" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" value="10" min="5" max="20" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
@@ -31679,7 +31682,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Memory (hours):</label>
 
-                  <input type="number" value="24" min="1" max="168" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" value="24" min="1" max="168" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
@@ -31697,7 +31700,7 @@ ${pageText}
 
             <!-- Performance Settings -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚡ Performance</h4>
 
@@ -31707,7 +31710,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Reasoning Speed:</label>
 
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option>Conservative</option>
 
@@ -31723,7 +31726,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Auto-save Interval:</label>
 
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option>30 seconds</option>
 
@@ -31745,7 +31748,7 @@ ${pageText}
 
             <!-- Privacy & Security -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔒 Privacy & Security</h4>
 
@@ -31803,7 +31806,7 @@ ${pageText}
 
             <!-- Export/Import -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📦 Backup</h4>
 
@@ -32101,13 +32104,13 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.style.border = '1px solid ${csTheme().border}'
 
         row.innerHTML = `
 
-          <input class="api-name" placeholder="Name" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">
+          <input class="api-name" placeholder="Name" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">
 
-          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
           <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
@@ -32247,11 +32250,11 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.style.border = '1px solid ${csTheme().border}'
 
         row.innerHTML = (
 
-          '<select class="local-llm-select" style="width:100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+          '<select class="local-llm-select" style="width:100%; background: ${csTheme().cardBg}; border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">'+
 
             getLocalLLMOptionsHTML()+
 
@@ -32455,13 +32458,13 @@ ${pageText}
 
           row.style.borderRadius = '6px'
 
-          row.style.border = '1px solid rgba(255,255,255,0.18)'
+          row.style.border = '1px solid ${csTheme().border}'
 
           row.innerHTML = (
 
-            '<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            '<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">'+
 
-            '<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            '<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">'+
 
             '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>'
 
@@ -32605,13 +32608,13 @@ ${pageText}
 
                 '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
 
-                  '<button class="quick-topup" data-amount="10" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
+                  '<button class="quick-topup" data-amount="10" style="flex:1;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border};color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
 
-                  '<button class="quick-topup" data-amount="25" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
+                  '<button class="quick-topup" data-amount="25" style="flex:1;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border};color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
 
-                  '<button class="quick-topup" data-amount="50" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
+                  '<button class="quick-topup" data-amount="50" style="flex:1;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border};color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
 
-                  '<button class="quick-topup" data-amount="100" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$100</button>' +
+                  '<button class="quick-topup" data-amount="100" style="flex:1;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border};color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$100</button>' +
 
                 '</div>' +
 
@@ -32741,7 +32744,7 @@ ${pageText}
             .wr-plan-card .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
             .wr-plan-card .toggle-btn { flex: 1; border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
             .wr-plan-card .toggle-btn.active { background: #22c55e; color: #0b1e12; border: 0; }
-            .wr-plan-card .toggle-btn:not(.active) { background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: #fff; }
+            .wr-plan-card .toggle-btn:not(.active) { background: rgba(255,255,255,.15); border: 1px solid ${csTheme().border}; color: #fff; }
             .wr-plan-card .cta-btn { width: 100%; border: 0; color: white; border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer; margin-top: auto; font-weight: 600; }
             .wr-plan-note { font-size: 10px; opacity: .8; margin-top: 6px; line-height: 1.4; }
           `
@@ -32792,7 +32795,7 @@ ${pageText}
                 '</ul>' +
                 (isFreeTier
                   ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Active Plan</button>'
-                  : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>') +
+                  : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">Select Basic</button>') +
               '</div>' +
               // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
@@ -33132,7 +33135,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🖥️ Display Ports Configuration</h2>
 
@@ -33148,7 +33151,7 @@ ${pageText}
 
             <!-- Port 1 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
               <h4 style="margin: 0 0 15px 0; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port #1</h4>
 
@@ -33158,7 +33161,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Output Type:</label>
 
-                  <select id="port1-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33178,7 +33181,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Resolution:</label>
 
-                  <select id="port1-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="auto">Auto</option>
 
@@ -33196,7 +33199,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Position:</label>
 
-                  <select id="port1-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="center">Center</option>
 
@@ -33220,7 +33223,7 @@ ${pageText}
 
             <!-- Port 2 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #2</h4>
 
@@ -33230,7 +33233,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port2-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33250,7 +33253,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port2-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto" selected>Auto</option>
 
@@ -33268,7 +33271,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port2-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center" selected>Center</option>
 
@@ -33292,7 +33295,7 @@ ${pageText}
 
             <!-- Port 3 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #3</h4>
 
@@ -33302,7 +33305,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port3-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33322,7 +33325,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port3-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto">Auto</option>
 
@@ -33340,7 +33343,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port3-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center">Center</option>
 
@@ -33364,7 +33367,7 @@ ${pageText}
 
             <!-- Port 4 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #4</h4>
 
@@ -33374,7 +33377,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port4-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33394,7 +33397,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port4-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto">Auto</option>
 
@@ -33412,7 +33415,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port4-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center">Center</option>
 
@@ -33434,7 +33437,7 @@ ${pageText}
 
             <!-- Port 5 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #5</h4>
 
@@ -33444,7 +33447,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port5-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33464,7 +33467,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port5-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto" selected>Auto</option>
 
@@ -33482,7 +33485,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port5-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center" selected>Center</option>
 
@@ -33506,7 +33509,7 @@ ${pageText}
 
             <!-- Monitor Output -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📺 Monitor Output</h4>
 
@@ -33516,7 +33519,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="monitor-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="monitor-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron" selected>Electron App</option>
 
@@ -33532,7 +33535,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">API Port:</label>
 
-                  <input type="number" id="monitor-port" value="51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" id="monitor-port" value="51247" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
@@ -33558,7 +33561,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 15px; background: ${csTheme().cardBg};">
 
           <button id="display-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
@@ -33704,7 +33707,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
 
@@ -33720,7 +33723,7 @@ ${pageText}
 
             <!-- Web Sources (renamed from Helper Tabs) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources</h3>
 
@@ -33740,7 +33743,7 @@ ${pageText}
 
             <!-- Add Master View (renamed from Display Grid Screen) -->
 
-            <div id="add-hybrid-grid-config" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div id="add-hybrid-grid-config" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Add Master View</h3>
 
@@ -33760,7 +33763,7 @@ ${pageText}
 
             <!-- Display Grid Browser -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
               <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Browser</h3>
 
@@ -33782,7 +33785,7 @@ ${pageText}
 
               </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
           <button id="helpergrid-close" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
@@ -33860,7 +33863,7 @@ ${pageText}
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
           <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
@@ -33894,7 +33897,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
 
@@ -33904,7 +33907,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">URLs Configuration</h3>
 
@@ -33922,7 +33925,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
           <button id="save-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
@@ -34266,7 +34269,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 520px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 18px;">🖥️ Add Master Tabs</h2>
 
@@ -34278,7 +34281,7 @@ ${pageText}
 
           <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of master tabs</label>
 
-          <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; margin-bottom: 20px;">
+          <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid ${csTheme().border}; background: rgba(0,0,0,0.2); color: white; margin-bottom: 20px;">
 
             ${Array.from({ length: 5 }, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
 
@@ -34296,7 +34299,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
           <button id="hybrid-save-open" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
 
@@ -34368,7 +34371,7 @@ ${pageText}
 
               placeholder="https://example.com" 
 
-              style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-size: 12px;"
+              style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid ${csTheme().border}; background: rgba(0,0,0,0.2); color: white; font-size: 12px;"
 
             />
 
@@ -34626,7 +34629,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: ${csTheme().text}; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
           <h2 style="margin: 0; font-size: 22px;">🗂️ Display Grid Browser Layouts</h2>
 
@@ -34644,7 +34647,7 @@ ${pageText}
 
             <!-- ROW 1: 2-slot, 3-slot, 4-slot -->
 
-            <div id="btn-2-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-2-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34686,7 +34689,7 @@ ${pageText}
 
           
 
-            <div id="btn-3-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-3-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34730,7 +34733,7 @@ ${pageText}
 
 
 
-            <div id="btn-4-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-4-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34778,7 +34781,7 @@ ${pageText}
 
             <!-- ROW 2: 5-slot, 6-slot, 7-slot -->
 
-            <div id="btn-5-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-5-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34824,7 +34827,7 @@ ${pageText}
 
             </div>
 
-            <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-6-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34874,7 +34877,7 @@ ${pageText}
 
             
 
-            <div id="btn-7-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-7-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34928,7 +34931,7 @@ ${pageText}
 
                         <!-- ROW 3: 8-slot, 9-slot, 10-slot -->
 
-            <div id="btn-8-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-8-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -34982,7 +34985,7 @@ ${pageText}
 
           
 
-            <div id="btn-9-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-9-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -35038,7 +35041,7 @@ ${pageText}
 
 
 
-            <div id="btn-10-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-10-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
               <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
@@ -35106,7 +35109,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05); flex-shrink: 0;">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg}; flex-shrink: 0;">
 
           <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
@@ -38064,7 +38067,7 @@ ${pageText}
 
                     <input type="text" class="session-name-edit" data-session-id="${session.id}" value="${session.tabName || 'Unnamed Session'}" 
 
-                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #FFEF94; 
+                           style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: #FFEF94; 
 
                                   padding: 6px ${session.isActive ? '70px' : '40px'} 6px 10px; border-radius: 6px; font-size: 15px; font-weight: bold; 
 
@@ -38114,7 +38117,7 @@ ${pageText}
 
                 ${session.agentBoxes && session.agentBoxes.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px; margin: 8px 0;\">
 
                     <span style=\"font-size: 11px; font-weight: bold; color: #FFB366;\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
 
@@ -38124,7 +38127,7 @@ ${pageText}
 
                 ${session.agents && session.agents.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px; margin: 8px 0;\">
 
                     <span style=\"font-size: 11px; font-weight: bold; color: #90EE90;\">🤖 AI Agents (${session.agents.length})</span>
 
@@ -38142,7 +38145,7 @@ ${pageText}
 
                 ${session.hybridAgentBoxes && session.hybridAgentBoxes.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px; margin: 8px 0;\">
 
                     <span style=\"font-size: 11px; font-weight: bold; color: #B3E5FC;\">🖥️ Master Tabs (${session.hybridAgentBoxes.length})</span>
 
@@ -38166,7 +38169,7 @@ ${pageText}
 
                 ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 12px; margin: 10px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -38194,7 +38197,7 @@ ${pageText}
 
                 ${session.displayGrids && session.displayGrids.length > 0 ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 12px; margin: 10px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -38222,7 +38225,7 @@ ${pageText}
 
                 ${session.context && (session.context.userContext?.text || session.context.publisherContext?.text || (session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0)) ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: rgba(255,255,255,0.25); border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 12px; margin: 10px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -38280,7 +38283,7 @@ ${pageText}
 
         <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
             <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
 
@@ -38298,7 +38301,7 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
             <button id="clear-all-sessions" style="padding: 12px 30px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
@@ -39840,7 +39843,7 @@ ${pageText}
 
         return `
 
-          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
+          <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
 
             <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
 
@@ -39862,7 +39865,7 @@ ${pageText}
 
         <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <div>
 
@@ -39884,7 +39887,7 @@ ${pageText}
 
           <div style="flex: 1; padding: 20px; overflow-y: auto;">
 
-            <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
               <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6;">
 
@@ -39904,7 +39907,7 @@ ${pageText}
 
             
 
-            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <div style="background: ${csTheme().cardBg}; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
 
               <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
 
@@ -39960,7 +39963,7 @@ ${pageText}
 
         <!-- Header -->
 
-        <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:space-between;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().headerBorder}; display:flex; align-items:center; justify-content:space-between;">
 
           <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
 
@@ -39972,7 +39975,7 @@ ${pageText}
 
         <!-- Tabs -->
 
-        <div style="padding: 16px 24px 0; display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.2);">
+        <div style="padding: 16px 24px 0; display: flex; gap: 10px; border-bottom: 1px solid ${csTheme().border};">
 
           <button id="tab-reasoning" class="reasoning-tab active" style="padding: 10px 20px; background: rgba(255,255,255,0.25); border: none; border-bottom: 3px solid white; color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
@@ -39980,7 +39983,7 @@ ${pageText}
 
           </button>
 
-          <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
+          <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: ${csTheme().cardBg}; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
             🛠️ Workflows
 
@@ -40076,7 +40079,7 @@ ${pageText}
 
                 </div>
 
-                <div style="font-size: 12px; opacity: 0.95; line-height:1.6; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.25); border-radius:8px; padding:12px;">
+                <div style="font-size: 12px; opacity: 0.95; line-height:1.6; background: rgba(0,0,0,0.3); border: 1px solid ${csTheme().border}; border-radius:8px; padding:12px;">
 
                   <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
@@ -40098,17 +40101,17 @@ ${pageText}
 
                   <div style="display:flex; gap:8px;">
 
-                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
+                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
 
-                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
+                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
 
-                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻️ Feedback</button>
+                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻️ Feedback</button>
 
                   </div>
 
                 </div>
 
-                <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid rgba(255,255,255,0.25);">
+                <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid ${csTheme().border};">
 
                   [System] Orchestrator idle. Awaiting actions…
 
@@ -40368,7 +40371,7 @@ ${pageText}
 
         <div class="edit-url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
           <button class="add-edit-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
@@ -40386,7 +40389,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().headerBorder}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
 
@@ -40396,7 +40399,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources URLs</h3>
 
@@ -40414,7 +40417,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; background: ${csTheme().cardBg};">
 
           <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
 
@@ -41087,7 +41090,7 @@ ${pageText}
           </button>
           <button class="export-preset-btn" data-preset="config-only" style="
             width: 100%;
-            background: rgba(255,255,255,0.1);
+            background: ${csTheme().cardBg};
             border: 2px solid rgba(255,255,255,0.25);
             color: white;
             padding: 10px 15px;
@@ -41176,8 +41179,8 @@ ${pageText}
         </div>
         
         <button class="export-cancel-btn" style="
-          background: rgba(255,255,255,0.1);
-          border: 1px solid rgba(255,255,255,0.3);
+          background: ${csTheme().cardBg};
+          border: 1px solid ${csTheme().border};
           color: white;
           padding: 10px 20px;
           border-radius: 8px;
@@ -42359,7 +42362,7 @@ ${pageText}
             </button>
             <button class="import-close-btn" style="
               flex: 1;
-              background: rgba(255,255,255,0.1);
+              background: ${csTheme().cardBg};
               border: 2px solid rgba(255,255,255,0.3);
               color: white;
               padding: 12px 20px;
@@ -43009,7 +43012,7 @@ ${pageText}
 
       note.style.color = '#e5e7eb'
 
-      note.style.border = '1px solid rgba(255,255,255,0.18)'
+      note.style.border = '1px solid ${csTheme().border}'
 
       document.body.appendChild(note)
 
@@ -44714,7 +44717,7 @@ ${pageText}
 
       note.textContent = `Starting LETmeGIRAFFETHATFORYOU: ${mode}`
 
-      note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
+      note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid ${csTheme().border};border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
 
       document.body.appendChild(note)
 
