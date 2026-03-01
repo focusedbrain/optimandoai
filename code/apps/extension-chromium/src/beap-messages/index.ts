@@ -34,7 +34,7 @@ export {
 } from './components'
 
 // Component types
-export type { RecipientMode, SelectedRecipient, DeliveryMethod } from './components'
+export type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod } from './components'
 
 // Services
 export {

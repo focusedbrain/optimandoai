@@ -27,8 +27,10 @@ import { WRGuardWorkspace } from './wrguard'
 import { formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
 import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
-import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { useHandshakes } from './handshake/useHandshakes'
 import { useHandshakeStore } from './handshake/useHandshakeStore'
+import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import {
   getOurIdentity,
   createHandshakeRequestPayload,

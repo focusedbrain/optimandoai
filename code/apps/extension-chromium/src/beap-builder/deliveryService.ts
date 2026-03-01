@@ -1,16 +1,11 @@
 /**
  * Delivery Service
- * 
- * Handles external delivery of BEAP packages:
- * - Email delivery via connected accounts
- * - Messenger insertion (copy to clipboard or inject)
- * - Download (file, USB, wallet, offline)
- * 
- * INVARIANTS:
- * - External delivery is ONLY available in Drafts
- * - WR Chat uses Silent Mode (inline capsules only)
- * 
- * @version 1.0.0
+ *
+ * @deprecated For handshake-based sends, use handshakeRefresh.sendViaHandshakeRefresh() instead.
+ * This service is retained for non-handshake delivery methods (messenger, download).
+ * Email delivery for handshake messages is now handled by the backend via handshake.refresh RPC.
+ *
+ * @version 1.1.0
  */
 
 import type { DeliveryConfig, DeliveryMethod, BeapBuildResult } from './types'

@@ -1,64 +1,51 @@
 /**
  * HandshakeDetailsPanel Component
- * 
- * Detailed view of a handshake showing:
- * - Full fingerprint (grouped, copyable)
- * - Status (Local/Verified) with verify action
- * - Automation mode selector
- * - Policy override note
+ *
+ * Shows detailed handshake info from the backend HandshakeRecord.
+ * Groups handshakes by state (Active / Pending / Revoked).
+ * Actions per state:
+ *   - PENDING_ACCEPT (acceptor): Accept / Decline
+ *   - ACTIVE: Send Message / Revoke
+ *   - REVOKED/EXPIRED: View only
  */
 
-import React, { useState } from 'react'
-import type { Handshake, AutomationMode } from '../types'
-import { formatFingerprintGrouped } from '../fingerprint'
-import { 
-  BADGE_TEXT, 
-  AUTOMATION_LABELS, 
-  AUTOMATION_DESCRIPTIONS,
-  TOOLTIPS,
-  POLICY_NOTES,
-  ACTION_LABELS,
-  STATUS_MESSAGES,
-} from '../microcopy'
+import React from 'react'
+import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
 
 interface HandshakeDetailsPanelProps {
-  handshake: Handshake
+  handshake: HandshakeRecord
   theme?: 'default' | 'dark' | 'professional'
-  onAutomationChange?: (mode: AutomationMode) => void
-  onVerify?: () => void
+  onSendMessage?: (handshakeId: string) => void
+  onAccept?: (handshakeId: string) => void
+  onRevoke?: (handshakeId: string) => void
   onClose?: () => void
+}
+
+const STATE_CONFIG: Record<HandshakeState, { label: string; color: string; bg: string }> = {
+  PENDING_ACCEPT: { label: 'Pending', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  ACTIVE: { label: 'Active', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
+  REVOKED: { label: 'Revoked', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  EXPIRED: { label: 'Expired', color: '#6b7280', bg: 'rgba(107,114,128,0.15)' },
 }
 
 export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
   handshake,
   theme = 'default',
-  onAutomationChange,
-  onVerify,
+  onSendMessage,
+  onAccept,
+  onRevoke,
   onClose,
 }) => {
-  const [copySuccess, setCopySuccess] = useState(false)
-  const [showTooltip, setShowTooltip] = useState(false)
-  
   const isProfessional = theme === 'professional'
-  
-  const handleCopyFingerprint = async () => {
-    try {
-      await navigator.clipboard.writeText(handshake.fingerprint_full)
-      setCopySuccess(true)
-      setTimeout(() => setCopySuccess(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy fingerprint:', err)
-    }
-  }
-  
-  // Styles
+  const stateInfo = STATE_CONFIG[handshake.state] ?? STATE_CONFIG.EXPIRED
+
   const panelStyle: React.CSSProperties = {
     background: isProfessional ? '#ffffff' : 'rgba(30, 30, 40, 0.95)',
     borderRadius: '12px',
     border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
     overflow: 'hidden',
   }
-  
+
   const headerStyle: React.CSSProperties = {
     padding: '16px',
     borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
@@ -66,12 +53,12 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
     alignItems: 'center',
     justifyContent: 'space-between',
   }
-  
+
   const sectionStyle: React.CSSProperties = {
     padding: '16px',
     borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)'}`,
   }
-  
+
   const labelStyle: React.CSSProperties = {
     fontSize: '11px',
     fontWeight: 600,
@@ -79,40 +66,8 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
     marginBottom: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
   }
-  
-  const fingerprintStyle: React.CSSProperties = {
-    fontFamily: 'monospace',
-    fontSize: '12px',
-    color: isProfessional ? '#1f2937' : 'white',
-    background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
-    padding: '12px',
-    borderRadius: '8px',
-    wordBreak: 'break-all',
-    lineHeight: 1.6,
-    position: 'relative',
-  }
-  
-  const badgeStyle: React.CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    fontSize: '11px',
-    fontWeight: 600,
-    padding: '6px 12px',
-    borderRadius: '6px',
-    background: handshake.status === 'VERIFIED_WR' 
-      ? (isProfessional ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.15)')
-      : (isProfessional ? 'rgba(107, 114, 128, 0.1)' : 'rgba(255, 255, 255, 0.08)'),
-    color: handshake.status === 'VERIFIED_WR'
-      ? '#22c55e'
-      : (isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)'),
-    border: `1px solid ${handshake.status === 'VERIFIED_WR' ? 'rgba(34, 197, 94, 0.3)' : 'transparent'}`,
-  }
-  
+
   const buttonStyle: React.CSSProperties = {
     padding: '8px 14px',
     borderRadius: '6px',
@@ -122,181 +77,124 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
     border: 'none',
     transition: 'all 0.15s ease',
   }
-  
-  const automationButtonStyle = (mode: AutomationMode, isActive: boolean): React.CSSProperties => {
-    const colors = {
-      DENY: { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', text: '#ef4444' },
-      REVIEW: { bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', text: '#f59e0b' },
-      ALLOW: { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)', text: '#22c55e' },
-    }
-    const c = colors[mode]
-    
-    return {
-      ...buttonStyle,
-      flex: 1,
-      background: isActive ? c.bg : 'transparent',
-      border: `1px solid ${isActive ? c.border : (isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)')}`,
-      color: isActive ? c.text : (isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)'),
-      fontWeight: isActive ? 600 : 400,
-    }
-  }
-  
+
+  const isAcceptor = handshake.local_role === 'acceptor'
+
   return (
     <div style={panelStyle}>
       {/* Header */}
       <div style={headerStyle}>
         <div>
           <div style={{ fontSize: '16px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
-            {handshake.displayName}
+            {handshake.counterparty_email}
           </div>
-          {handshake.email && (
-            <div style={{ fontSize: '12px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.6)', marginTop: '2px' }}>
-              {handshake.email}
-            </div>
-          )}
+          <div style={{ fontSize: '12px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.6)', marginTop: '2px' }}>
+            {handshake.local_role === 'initiator' ? 'You initiated' : 'They initiated'}
+          </div>
         </div>
         {onClose && (
-          <button 
+          <button
             onClick={onClose}
-            style={{
-              ...buttonStyle,
-              background: 'transparent',
-              color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)',
-              padding: '4px 8px',
-            }}
+            style={{ ...buttonStyle, background: 'transparent', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)', padding: '4px 8px' }}
           >
             ✕
           </button>
         )}
       </div>
-      
-      {/* Fingerprint Section */}
+
+      {/* State */}
       <div style={sectionStyle}>
-        <div style={labelStyle}>
-          <span>{TOOLTIPS.FINGERPRINT_TITLE}</span>
-          <span 
-            style={{ cursor: 'help', fontSize: '12px' }}
-            onMouseEnter={() => setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-            title={TOOLTIPS.FINGERPRINT}
-          >
-            ⓘ
-          </span>
-        </div>
-        
-        <div style={fingerprintStyle}>
-          {formatFingerprintGrouped(handshake.fingerprint_full)}
-        </div>
-        
-        <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-          <button
-            onClick={handleCopyFingerprint}
+        <div style={labelStyle}>Status</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span
             style={{
-              ...buttonStyle,
-              background: isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
-              color: isProfessional ? '#1f2937' : 'white',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              padding: '6px 12px',
+              borderRadius: '6px',
+              background: stateInfo.bg,
+              color: stateInfo.color,
+              border: `1px solid ${stateInfo.color}33`,
             }}
           >
-            {copySuccess ? '✓ Copied' : `📋 ${ACTION_LABELS.COPY_FINGERPRINT}`}
-          </button>
-        </div>
-        
-        {/* Tooltip */}
-        {showTooltip && (
-          <div style={{
-            marginTop: '10px',
-            padding: '10px 12px',
-            background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
-            borderRadius: '6px',
-            fontSize: '11px',
-            color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)',
-            lineHeight: 1.5,
-          }}>
-            {TOOLTIPS.FINGERPRINT}
-          </div>
-        )}
-      </div>
-      
-      {/* Status Section */}
-      <div style={sectionStyle}>
-        <div style={labelStyle}>Verification Status</div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <span style={badgeStyle}>
-            {handshake.status === 'VERIFIED_WR' ? '✓' : '○'}
-            {handshake.status === 'VERIFIED_WR' ? BADGE_TEXT.VERIFIED : BADGE_TEXT.LOCAL}
+            {handshake.state === 'ACTIVE' ? '✓' : '○'} {stateInfo.label}
           </span>
-          
-          {handshake.status === 'VERIFIED_WR' && handshake.verified_at && (
+          {handshake.activated_at && (
             <span style={{ fontSize: '11px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)' }}>
-              {new Date(handshake.verified_at).toLocaleDateString()}
+              {new Date(handshake.activated_at).toLocaleDateString()}
             </span>
           )}
-          
-          {handshake.status === 'LOCAL' && onVerify && (
-            <button
-              onClick={onVerify}
-              style={{
-                ...buttonStyle,
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-                color: 'white',
-              }}
-            >
-              🔗 {ACTION_LABELS.VERIFY_WRCODE}
-            </button>
-          )}
         </div>
       </div>
-      
-      {/* Automation Mode Section */}
+
+      {/* Details */}
       <div style={sectionStyle}>
-        <div style={labelStyle}>
-          Automation
-          <span style={{ fontWeight: 400, textTransform: 'none', fontSize: '10px' }}>
-            (attack surface control)
-          </span>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {(['DENY', 'REVIEW', 'ALLOW'] as AutomationMode[]).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => onAutomationChange?.(mode)}
-              style={automationButtonStyle(mode, handshake.automation_mode === mode)}
-              title={AUTOMATION_DESCRIPTIONS[mode]}
-            >
-              {AUTOMATION_LABELS[mode]}
-            </button>
-          ))}
-        </div>
-        
-        <div style={{ 
-          marginTop: '10px', 
-          fontSize: '11px', 
-          color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)',
-          lineHeight: 1.5,
-        }}>
-          {AUTOMATION_DESCRIPTIONS[handshake.automation_mode]}
+        <div style={labelStyle}>Details</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <DetailRow label="Handshake ID" value={handshake.handshake_id.slice(0, 16) + '...'} isPro={isProfessional} />
+          <DetailRow label="Relationship" value={handshake.relationship_id.slice(0, 16) + '...'} isPro={isProfessional} />
+          <DetailRow label="Role" value={handshake.local_role} isPro={isProfessional} />
+          {handshake.sharing_mode && (
+            <DetailRow
+              label="Sharing Mode"
+              value={handshake.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}
+              isPro={isProfessional}
+            />
+          )}
+          <DetailRow label="Created" value={new Date(handshake.created_at).toLocaleString()} isPro={isProfessional} />
         </div>
       </div>
-      
-      {/* Policy Note */}
-      <div style={{ 
-        padding: '12px 16px',
-        background: isProfessional ? 'rgba(139, 92, 246, 0.05)' : 'rgba(139, 92, 246, 0.1)',
-        fontSize: '11px',
-        color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-      }}>
-        <span>ℹ️</span>
-        <span>{POLICY_NOTES.LOCAL_OVERRIDE}</span>
+
+      {/* Actions */}
+      <div style={{ padding: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {handshake.state === 'PENDING_ACCEPT' && isAcceptor && onAccept && (
+          <button
+            onClick={() => onAccept(handshake.handshake_id)}
+            style={{ ...buttonStyle, background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: 'white' }}
+          >
+            ✓ Accept
+          </button>
+        )}
+        {handshake.state === 'ACTIVE' && onSendMessage && (
+          <button
+            onClick={() => onSendMessage(handshake.handshake_id)}
+            style={{ ...buttonStyle, background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: 'white' }}
+          >
+            📤 Send Message
+          </button>
+        )}
+        {handshake.state === 'ACTIVE' && onRevoke && (
+          <button
+            onClick={() => onRevoke(handshake.handshake_id)}
+            style={{ ...buttonStyle, background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
+          >
+            Revoke
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
+const DetailRow: React.FC<{ label: string; value: string; isPro: boolean }> = ({ label, value, isPro }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <span style={{ fontSize: '11px', color: isPro ? '#9ca3af' : 'rgba(255,255,255,0.4)' }}>{label}</span>
+    <span
+      style={{
+        fontSize: '12px',
+        color: isPro ? '#1f2937' : 'white',
+        fontFamily: 'monospace',
+        background: isPro ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+      }}
+    >
+      {value}
+    </span>
+  </div>
+)
+
 export default HandshakeDetailsPanel
-
-

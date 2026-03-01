@@ -1,59 +1,73 @@
 /**
  * HandshakeAcceptModal Component
- * 
- * Modal for accepting an incoming handshake request:
- * - Shows sender info
- * - Displays fingerprint prominently
- * - Optional fingerprint comparison
- * - Automation mode selection (default: Review)
- * - Accept/Reject actions
+ *
+ * Modal for accepting an incoming handshake request.
+ * Calls handshake.accept RPC — all crypto and capsule building
+ * is handled by the backend pipeline.
+ *
+ * Sharing-mode selection:
+ *   - receive-only: user receives context but does not share back
+ *   - reciprocal:   both parties exchange context
  */
 
 import React, { useState } from 'react'
-import type { HandshakeAcceptRequest, AutomationMode } from '../types'
-import { formatFingerprintGrouped, compareFingerprints } from '../fingerprint'
-import { 
-  AUTOMATION_LABELS, 
-  AUTOMATION_DESCRIPTIONS,
-  TOOLTIPS,
-  POLICY_NOTES,
-  ACTION_LABELS,
-  STATUS_MESSAGES,
-} from '../microcopy'
+import type { HandshakeRecord } from '../rpcTypes'
+import { acceptHandshake, revokeHandshake } from '../handshakeRpc'
+
+type SharingMode = 'receive-only' | 'reciprocal'
 
 interface HandshakeAcceptModalProps {
-  request: HandshakeAcceptRequest
+  handshake: HandshakeRecord
+  fromAccountId: string
   theme?: 'default' | 'dark' | 'professional'
-  onAccept?: (automationMode: AutomationMode) => void
-  onReject?: () => void
+  onAccepted?: (handshakeId: string) => void
+  onDeclined?: (handshakeId: string) => void
   onClose?: () => void
 }
 
 export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
-  request,
+  handshake,
+  fromAccountId,
   theme = 'default',
-  onAccept,
-  onReject,
+  onAccepted,
+  onDeclined,
   onClose,
 }) => {
-  const [automationMode, setAutomationMode] = useState<AutomationMode>('REVIEW')
-  const [expectedFingerprint, setExpectedFingerprint] = useState(request.expected_fingerprint || '')
-  const [showCompare, setShowCompare] = useState(false)
-  
+  const [sharingMode, setSharingMode] = useState<SharingMode>('receive-only')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   const isProfessional = theme === 'professional'
-  
-  // Check fingerprint match
-  const fingerprintsMatch = expectedFingerprint 
-    ? compareFingerprints(request.received_fingerprint, expectedFingerprint)
-    : null
-  
-  // Styles
+
+  const handleAccept = async () => {
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      await acceptHandshake(handshake.handshake_id, sharingMode, fromAccountId)
+      onAccepted?.(handshake.handshake_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Accept failed')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDecline = async () => {
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      await revokeHandshake(handshake.handshake_id)
+      onDeclined?.(handshake.handshake_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Decline failed')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     background: 'rgba(0,0,0,0.6)',
     display: 'flex',
     alignItems: 'center',
@@ -61,7 +75,7 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
     zIndex: 10000,
     padding: '20px',
   }
-  
+
   const modalStyle: React.CSSProperties = {
     background: isProfessional ? '#ffffff' : 'rgba(30, 30, 40, 0.98)',
     borderRadius: '16px',
@@ -72,7 +86,7 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
     overflow: 'auto',
     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
   }
-  
+
   const headerStyle: React.CSSProperties = {
     padding: '20px 24px',
     borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`,
@@ -80,12 +94,12 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
     alignItems: 'center',
     gap: '12px',
   }
-  
+
   const sectionStyle: React.CSSProperties = {
     padding: '20px 24px',
     borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)'}`,
   }
-  
+
   const labelStyle: React.CSSProperties = {
     fontSize: '11px',
     fontWeight: 600,
@@ -94,37 +108,23 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
     letterSpacing: '0.5px',
     marginBottom: '10px',
   }
-  
-  const fingerprintStyle: React.CSSProperties = {
-    fontFamily: 'monospace',
-    fontSize: '13px',
-    color: isProfessional ? '#1f2937' : 'white',
-    background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
-    padding: '14px 16px',
-    borderRadius: '10px',
-    wordBreak: 'break-all',
-    lineHeight: 1.6,
-    border: `2px solid ${isProfessional ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
-  }
-  
+
   const buttonStyle: React.CSSProperties = {
     padding: '10px 18px',
     borderRadius: '8px',
     fontSize: '13px',
     fontWeight: 600,
-    cursor: 'pointer',
+    cursor: isSubmitting ? 'wait' : 'pointer',
     border: 'none',
     transition: 'all 0.15s ease',
   }
-  
-  const automationButtonStyle = (mode: AutomationMode, isActive: boolean): React.CSSProperties => {
+
+  const sharingButtonStyle = (mode: SharingMode, isActive: boolean): React.CSSProperties => {
     const colors = {
-      DENY: { bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)', text: '#ef4444' },
-      REVIEW: { bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', text: '#f59e0b' },
-      ALLOW: { bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.3)', text: '#22c55e' },
+      'receive-only': { bg: 'rgba(59,130,246,0.1)', border: 'rgba(59,130,246,0.3)', text: '#3b82f6' },
+      reciprocal: { bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.3)', text: '#22c55e' },
     }
     const c = colors[mode]
-    
     return {
       flex: 1,
       padding: '10px 12px',
@@ -138,7 +138,12 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
       transition: 'all 0.15s ease',
     }
   }
-  
+
+  const SHARING_DESCRIPTIONS: Record<SharingMode, string> = {
+    'receive-only': 'You receive context blocks from the counterparty but do not share back.',
+    reciprocal: 'Both parties can exchange context blocks bidirectionally.',
+  }
+
   return (
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
@@ -150,184 +155,91 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
               Incoming Handshake Request
             </div>
             <div style={{ fontSize: '12px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.6)', marginTop: '2px' }}>
-              from {request.sender_name}
-              {request.sender_organization && ` · ${request.sender_organization}`}
+              from {handshake.counterparty_email}
             </div>
           </div>
         </div>
-        
+
         {/* Sender Info */}
         <div style={sectionStyle}>
           <div style={labelStyle}>Sender</div>
           <div style={{ fontSize: '14px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
-            {request.sender_name}
+            {handshake.counterparty_email}
           </div>
-          {request.sender_email && (
-            <div style={{ fontSize: '13px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.6)', marginTop: '4px' }}>
-              {request.sender_email}
-            </div>
-          )}
-          {request.sender_organization && (
-            <div style={{ fontSize: '12px', color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
-              {request.sender_organization}
-            </div>
-          )}
+          <div style={{ fontSize: '12px', color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
+            Handshake ID: {handshake.handshake_id.slice(0, 12)}...
+          </div>
+          <div style={{ fontSize: '12px', color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+            Requested: {new Date(handshake.created_at).toLocaleDateString()}
+          </div>
         </div>
-        
-        {/* Fingerprint - PROMINENT */}
+
+        {/* Sharing Mode Selection */}
         <div style={sectionStyle}>
-          <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>{TOOLTIPS.FINGERPRINT_TITLE}</span>
-            <span 
-              style={{ cursor: 'help', fontSize: '12px', fontWeight: 400 }}
-              title={TOOLTIPS.FINGERPRINT}
-            >
-              ⓘ
-            </span>
-          </div>
-          
-          <div style={fingerprintStyle}>
-            {formatFingerprintGrouped(request.received_fingerprint)}
-          </div>
-          
-          {/* Compare Fingerprints */}
-          <button
-            onClick={() => setShowCompare(!showCompare)}
-            style={{
-              marginTop: '12px',
-              padding: '6px 12px',
-              background: 'transparent',
-              border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-              borderRadius: '6px',
-              fontSize: '11px',
-              color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.6)',
-              cursor: 'pointer',
-            }}
-          >
-            {showCompare ? '▼' : '▶'} {TOOLTIPS.COMPARE_FINGERPRINTS}
-          </button>
-          
-          {showCompare && (
-            <div style={{ marginTop: '12px' }}>
-              <div style={{ fontSize: '11px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>
-                Paste expected fingerprint to compare:
-              </div>
-              <input
-                type="text"
-                value={expectedFingerprint}
-                onChange={(e) => setExpectedFingerprint(e.target.value.toUpperCase().replace(/[^0-9A-F]/gi, ''))}
-                placeholder="Paste fingerprint here..."
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  fontFamily: 'monospace',
-                  fontSize: '12px',
-                  background: isProfessional ? 'white' : 'rgba(255,255,255,0.05)',
-                  border: `1px solid ${isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                  borderRadius: '8px',
-                  color: isProfessional ? '#1f2937' : 'white',
-                  boxSizing: 'border-box',
-                }}
-              />
-              
-              {expectedFingerprint && (
-                <div style={{
-                  marginTop: '10px',
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  background: fingerprintsMatch 
-                    ? 'rgba(34, 197, 94, 0.1)' 
-                    : 'rgba(239, 68, 68, 0.1)',
-                  color: fingerprintsMatch ? '#22c55e' : '#ef4444',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}>
-                  <span>{fingerprintsMatch ? '✓' : '✗'}</span>
-                  <span>
-                    {fingerprintsMatch ? STATUS_MESSAGES.FINGERPRINTS_MATCH : STATUS_MESSAGES.FINGERPRINTS_MISMATCH}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* Automation Mode */}
-        <div style={sectionStyle}>
-          <div style={labelStyle}>
-            Automation Mode
-            <span style={{ fontWeight: 400, textTransform: 'none', marginLeft: '4px' }}>
-              (attack surface)
-            </span>
-          </div>
-          
+          <div style={labelStyle}>Sharing Mode</div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {(['DENY', 'REVIEW', 'ALLOW'] as AutomationMode[]).map((mode) => (
+            {(['receive-only', 'reciprocal'] as SharingMode[]).map((mode) => (
               <button
                 key={mode}
-                onClick={() => setAutomationMode(mode)}
-                style={automationButtonStyle(mode, automationMode === mode)}
-                title={AUTOMATION_DESCRIPTIONS[mode]}
+                onClick={() => setSharingMode(mode)}
+                style={sharingButtonStyle(mode, sharingMode === mode)}
               >
-                {AUTOMATION_LABELS[mode]}
+                {mode === 'receive-only' ? 'Receive Only' : 'Reciprocal'}
               </button>
             ))}
           </div>
-          
-          <div style={{ 
-            marginTop: '10px', 
-            fontSize: '11px', 
-            color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)',
-            lineHeight: 1.5,
-          }}>
-            {AUTOMATION_DESCRIPTIONS[automationMode]}
+          <div
+            style={{
+              marginTop: '10px',
+              fontSize: '11px',
+              color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)',
+              lineHeight: 1.5,
+            }}
+          >
+            {SHARING_DESCRIPTIONS[sharingMode]}
           </div>
         </div>
-        
-        {/* Policy Note */}
-        <div style={{ 
-          padding: '14px 24px',
-          background: isProfessional ? 'rgba(139, 92, 246, 0.05)' : 'rgba(139, 92, 246, 0.1)',
-          fontSize: '11px',
-          color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.7)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-        }}>
-          <span>ℹ️</span>
-          <span>{POLICY_NOTES.LOCAL_OVERRIDE}</span>
-        </div>
-        
+
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              padding: '12px 24px',
+              background: 'rgba(239,68,68,0.1)',
+              color: '#ef4444',
+              fontSize: '12px',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         {/* Actions */}
-        <div style={{ 
-          padding: '20px 24px',
-          display: 'flex',
-          gap: '12px',
-          justifyContent: 'flex-end',
-        }}>
+        <div style={{ padding: '20px 24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button
-            onClick={onReject}
+            onClick={handleDecline}
+            disabled={isSubmitting}
             style={{
               ...buttonStyle,
               background: 'transparent',
-              border: `1px solid ${isProfessional ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+              border: '1px solid rgba(239,68,68,0.3)',
               color: '#ef4444',
+              opacity: isSubmitting ? 0.5 : 1,
             }}
           >
-            {ACTION_LABELS.REJECT_HANDSHAKE}
+            Decline
           </button>
           <button
-            onClick={() => onAccept?.(automationMode)}
+            onClick={handleAccept}
+            disabled={isSubmitting}
             style={{
               ...buttonStyle,
               background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
               color: 'white',
+              opacity: isSubmitting ? 0.5 : 1,
             }}
           >
-            ✓ {ACTION_LABELS.ACCEPT_HANDSHAKE}
+            {isSubmitting ? 'Processing...' : '✓ Accept Handshake'}
           </button>
         </div>
       </div>
@@ -336,5 +248,3 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
 }
 
 export default HandshakeAcceptModal
-
-

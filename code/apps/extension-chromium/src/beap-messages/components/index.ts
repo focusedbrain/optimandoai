@@ -17,12 +17,14 @@ export { BeapDraftComposer } from './BeapDraftComposer'
 export { RecipientModeSwitch } from './RecipientModeSwitch'
 export type { RecipientMode, RecipientModeSwitchProps } from './RecipientModeSwitch'
 export { RecipientHandshakeSelect } from './RecipientHandshakeSelect'
-export type { SelectedRecipient, RecipientHandshakeSelectProps } from './RecipientHandshakeSelect'
+export type { SelectedHandshakeRecipient, RecipientHandshakeSelectProps } from './RecipientHandshakeSelect'
+/** @deprecated Use SelectedHandshakeRecipient */
+export type { SelectedRecipient } from './RecipientHandshakeSelect'
 
 // Delivery method components
 export { DeliveryMethodPanel } from './DeliveryMethodPanel'
 export type { DeliveryMethod, DeliveryMethodPanelProps } from './DeliveryMethodPanel'
 
-// Re-export SelectedRecipient at top-level for convenience
-export type { SelectedRecipient as BeapRecipient } from './RecipientHandshakeSelect'
+// Re-export at top-level for convenience
+export type { SelectedHandshakeRecipient as BeapRecipient } from './RecipientHandshakeSelect'
 

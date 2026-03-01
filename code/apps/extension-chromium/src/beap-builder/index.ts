@@ -57,6 +57,14 @@ export {
   retryEmailSend
 } from './sendPipeline'
 
+// Handshake refresh (v3 — replaces BEAP_SEND_EMAIL for handshake sends)
+export {
+  sendViaHandshakeRefresh,
+  buildContextBlocks,
+  type UserMessage,
+  type HandshakeRefreshResult
+} from './handshakeRefresh'
+
 // Send hooks (v2.1)
 export { useSendBeapMessage } from './useSendBeapMessage'
 export { useWRChatSend, useQuickSend } from './useWRChatSend'

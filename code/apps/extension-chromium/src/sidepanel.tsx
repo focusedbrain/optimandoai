@@ -35,8 +35,11 @@ import { formatErrorForNotification, isConnectionError } from './utils/errorMess
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WRGuardWorkspace } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
-import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { useHandshakes } from './handshake/useHandshakes'
 import { useHandshakeStore } from './handshake/useHandshakeStore'
+import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
+import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 
@@ -313,12 +316,15 @@ function SidepanelOrchestrator() {
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
   
-  // Get handshakes from store
+  // Get handshakes from backend via RPC (new system)
+  const { handshakes: backendHandshakes, loading: handshakesLoading, refresh: refreshHandshakes } = useHandshakes('all')
+  
+  // Legacy store — kept for Full-Auto status and demo initialization
   const handshakes = useHandshakeStore(state => state.handshakes)
   const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
   const createPendingOutgoing = useHandshakeStore(state => state.createPendingOutgoingFromRequest)
   
-  // Initialize handshakes on mount
+  // Initialize legacy handshakes on mount (for backward compat)
   useEffect(() => {
     initializeHandshakes()
   }, [initializeHandshakes])
@@ -402,79 +408,89 @@ function SidepanelOrchestrator() {
     setIsSendingBeap(true)
     
     try {
-      // Build config for the package builder
-      // Extract CapsuleAttachment objects from draft attachments
-      const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
-      // Collect all raster page data as artefacts for the package
-      const rasterArtefacts: BeapPackageConfig['rasterArtefacts'] = []
-      for (const att of beapDraftAttachments) {
-        if (att.rasterPageData && att.rasterPageData.length > 0) {
-          for (const pageData of att.rasterPageData) {
-            rasterArtefacts.push({
-              artefactRef: pageData.artefactRef,
-              attachmentId: att.id,
-              page: pageData.page,
-              mime: pageData.mime,
-              base64: pageData.base64,
-              sha256: pageData.sha256,
-              width: pageData.width,
-              height: pageData.height,
-              bytes: pageData.bytes
-            })
+      // New path: if private mode with a handshake recipient, use handshake.refresh RPC
+      if (beapRecipientMode === 'private' && selectedRecipient && 'handshake_id' in selectedRecipient) {
+        const hsRecipient = selectedRecipient as any
+        const hsId = hsRecipient.handshake_id as string
+        const accountId = selectedEmailAccountId || 'default'
+        
+        const result = await sendViaHandshakeRefresh(hsId, { text: beapDraftMessage }, accountId)
+        
+        if (result.success) {
+          setNotification({ message: 'BEAP™ Message sent via handshake!', type: 'success' })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        } else {
+          setNotification({ message: result.error || 'Failed to send message', type: 'error' })
+        }
+      } else {
+        // Legacy path: use the package builder + delivery service
+        const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
+        const rasterArtefacts: BeapPackageConfig['rasterArtefacts'] = []
+        for (const att of beapDraftAttachments) {
+          if (att.rasterPageData && att.rasterPageData.length > 0) {
+            for (const pageData of att.rasterPageData) {
+              rasterArtefacts.push({
+                artefactRef: pageData.artefactRef,
+                attachmentId: att.id,
+                page: pageData.page,
+                mime: pageData.mime,
+                base64: pageData.base64,
+                sha256: pageData.sha256,
+                width: pageData.width,
+                height: pageData.height,
+                bytes: pageData.bytes
+              })
+            }
           }
         }
-      }
-      // Collect original file bytes for archival (per canon A.3.043)
-      // These will be encrypted as "original" class artefacts
-      const originalFiles: BeapPackageConfig['originalFiles'] = beapDraftAttachments.map(att => ({
-        attachmentId: att.id,
-        filename: att.name,
-        mime: att.mime,
-        base64: att.dataBase64
-      }))
-      const config: BeapPackageConfig = {
-        recipientMode: beapRecipientMode,
-        deliveryMethod: handshakeDelivery as DeliveryMethod,
-        selectedRecipient,
-        senderFingerprint: ourFingerprint,
-        senderFingerprintShort: ourFingerprintShort,
-        emailTo: beapDraftTo,
-        subject: 'BEAP™ Message',
-        messageBody: beapDraftMessage,
-        attachments: capsuleAttachments,
-        rasterArtefacts: rasterArtefacts.length > 0 ? rasterArtefacts : undefined,
-        // Original file bytes for archival (encrypted as "original" artefacts per canon A.3.043)
-        originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
-        // Only pass encrypted message for qBEAP/private mode
-        ...(beapRecipientMode === 'private' && {
-          encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
-        })
-      }
-      
-      // Log warning if qBEAP private build without encrypted message
-      if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
-        console.warn('[BEAP Builder] qBEAP private build without encryptedMessage: using transport plaintext only')
-      }
-      
-      // Execute the delivery action
-      const result = await executeDeliveryAction(config)
-      
-      if (result.success) {
-        // Show success notification based on delivery method
-        const actionLabel = handshakeDelivery === 'download' ? 'Package downloaded!' 
-          : handshakeDelivery === 'messenger' ? 'Payload copied to clipboard!' 
-          : 'BEAP™ Message sent!'
-        setNotification({ message: actionLabel, type: 'success' })
+        const originalFiles: BeapPackageConfig['originalFiles'] = beapDraftAttachments.map(att => ({
+          attachmentId: att.id,
+          filename: att.name,
+          mime: att.mime,
+          base64: att.dataBase64
+        }))
+        const config: BeapPackageConfig = {
+          recipientMode: beapRecipientMode,
+          deliveryMethod: handshakeDelivery as DeliveryMethod,
+          selectedRecipient,
+          senderFingerprint: ourFingerprint,
+          senderFingerprintShort: ourFingerprintShort,
+          emailTo: beapDraftTo,
+          subject: 'BEAP™ Message',
+          messageBody: beapDraftMessage,
+          attachments: capsuleAttachments,
+          rasterArtefacts: rasterArtefacts.length > 0 ? rasterArtefacts : undefined,
+          originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
+          ...(beapRecipientMode === 'private' && {
+            encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
+          })
+        }
         
-        // Clear form
-        setBeapDraftTo('')
-        setBeapDraftMessage('')
-        setBeapDraftEncryptedMessage('')
-        setBeapDraftSessionId('')
-        setBeapDraftAttachments([])
-        setSelectedRecipient(null)
-      } else {
-        setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+        if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
+          console.warn('[BEAP Builder] qBEAP private build without encryptedMessage: using transport plaintext only')
+        }
+        
+        const result = await executeDeliveryAction(config)
+        
+        if (result.success) {
+          const actionLabel = handshakeDelivery === 'download' ? 'Package downloaded!' 
+            : handshakeDelivery === 'messenger' ? 'Payload copied to clipboard!' 
+            : 'BEAP™ Message sent!'
+          setNotification({ message: actionLabel, type: 'success' })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        } else {
+          setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An unexpected error occurred'

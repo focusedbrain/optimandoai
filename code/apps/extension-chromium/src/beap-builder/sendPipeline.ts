@@ -371,19 +371,21 @@ async function dispatchByMethod(
 
 /**
  * Dispatch via Email
+ *
+ * @deprecated For handshake-based sends, the caller should use
+ * handshakeRefresh.sendViaHandshakeRefresh() directly.
+ * This code path is kept for non-handshake (pBEAP) email sends.
  */
 async function dispatchEmail(
   context: SendContext,
   outboxEntry: OutboxEntry
 ): Promise<DispatchResult> {
   try {
-    // Use existing email send mechanism
     const emailConfig = context.delivery.email
     if (!emailConfig?.to.length) {
       return { success: false, status: 'failed', error: 'No email recipients specified' }
     }
     
-    // Send message to background script for email dispatch
     const response = await chrome.runtime.sendMessage({
       type: 'BEAP_SEND_EMAIL',
       payload: {
@@ -414,7 +416,6 @@ async function dispatchEmail(
       }
     }
   } catch (error) {
-    // If chrome.runtime is not available (e.g., in test), simulate success
     console.log('[SendPipeline] Email dispatch (stub):', outboxEntry.packageId)
     return { success: true, status: 'sent' }
   }
