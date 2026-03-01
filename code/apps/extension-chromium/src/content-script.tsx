@@ -27,8 +27,8 @@ if (!_isExtensionPage) {
 }
 
 // ─── Unified Content-Script Theme Helper ─────────────────────────────────────
-// Single source of truth for theme colors used by all vanilla-JS lightboxes
-// in this content script. Reads the same localStorage key used everywhere else.
+// Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
+// Reads the same localStorage key as the rest of the app.
 function csTheme() {
   let t: 'pro' | 'dark' | 'standard' = 'pro'
   try {
@@ -38,42 +38,56 @@ function csTheme() {
     else t = 'pro'
   } catch { /* ignore */ }
 
+  // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
   if (t === 'dark') return {
-    grad:       'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-    panelBg:    'linear-gradient(160deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)',
-    headerGrad: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-    border:     'rgba(255,255,255,0.10)',
-    cardBg:     'rgba(255,255,255,0.05)',
-    text:       '#e2e8f0',
-    muted:      'rgba(226,232,240,0.55)',
-    inputBg:    'rgba(255,255,255,0.06)',
-    accent:     '#8b5cf6',
-    shadow:     '0 20px 50px rgba(0,0,0,0.7)',
+    grad:       'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+    panelBg:    'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+    headerGrad: 'rgba(30,41,59,0.8)',
+    border:     'rgba(148,163,184,0.15)',
+    borderAccent: 'rgba(148,163,184,0.22)',
+    cardBg:     'rgba(30,41,59,0.5)',
+    text:       '#e7e9ea',
+    muted:      '#94a3b8',
+    inputBg:    'rgba(15,23,42,0.8)',
+    accent:     '#818cf8',
+    accentGrad: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+    overlay:    'rgba(0,0,0,0.90)',
+    shadow:     '0 20px 60px rgba(0,0,0,0.7)',
+    isLight:    false,
   }
+  // ── Standard: light — WRVault Standard (#f8f9fb / dark text) ──
   if (t === 'standard') return {
-    grad:       'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-    panelBg:    'linear-gradient(160deg, #faf5ff 0%, #f3e8ff 60%, #faf5ff 100%)',
-    headerGrad: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-    border:     'rgba(147,51,234,0.15)',
+    grad:       '#f8f9fb',
+    panelBg:    '#f8f9fb',
+    headerGrad: '#ffffff',
+    border:     '#e1e8ed',
+    borderAccent: '#d1d9e0',
     cardBg:     '#ffffff',
-    text:       '#0f172a',
-    muted:      '#475569',
-    inputBg:    '#ffffff',
-    accent:     '#9333ea',
-    shadow:     '0 20px 50px rgba(147,51,234,0.18)',
+    text:       '#0f1419',
+    muted:      '#536471',
+    inputBg:    '#f1f3f5',
+    accent:     '#6366f1',
+    accentGrad: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+    overlay:    'rgba(15,20,25,0.60)',
+    shadow:     '0 20px 60px rgba(15,23,42,0.12)',
+    isLight:    true,
   }
-  // pro (default)
+  // ── Pro (default): vivid purple — WRVault Pro (#1e1040 → #2d1b69) ──
   return {
-    grad:       'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-    panelBg:    'linear-gradient(160deg, #1a0533 0%, #2d1052 40%, #1a0533 100%)',
-    headerGrad: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-    border:     'rgba(168,85,247,0.25)',
-    cardBg:     'rgba(168,85,247,0.08)',
-    text:       '#f5f3ff',
-    muted:      'rgba(245,243,255,0.65)',
-    inputBg:    'rgba(255,255,255,0.07)',
+    grad:       'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
+    panelBg:    'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
+    headerGrad: 'rgba(168,85,247,0.12)',
+    border:     'rgba(168,85,247,0.18)',
+    borderAccent: 'rgba(168,85,247,0.30)',
+    cardBg:     'rgba(168,85,247,0.06)',
+    text:       '#f3f0ff',
+    muted:      '#c4b5fd',
+    inputBg:    'rgba(0,0,0,0.3)',
     accent:     '#a855f7',
-    shadow:     '0 20px 50px rgba(0,0,0,0.7)',
+    accentGrad: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
+    overlay:    'rgba(30,10,60,0.92)',
+    shadow:     '0 20px 60px rgba(30,10,60,0.6)',
+    isLight:    false,
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1530,7 +1544,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     card.style.cssText = `
 
-      background: ${csTheme().grad};
+      background: ${csTheme().panelBg};
 
       border: 1px solid rgba(255,255,255,0.3);
 
@@ -5150,7 +5164,7 @@ function initializeExtension() {
       transform: translateY(-50%);
       width: 50px;
       height: 100px;
-      background: ${csTheme().grad};
+      background: ${csTheme().panelBg};
       color: white;
       display: flex;
       align-items: center;
@@ -5167,13 +5181,13 @@ function initializeExtension() {
     // Hover effect
     button.addEventListener('mouseenter', () => {
       button.style.width = '60px'
-      button.style.background = csTheme().grad
+      button.style.background = csTheme().panelBg
       button.style.boxShadow = '-6px 0 16px rgba(0,0,0,0.5)'
     })
     
     button.addEventListener('mouseleave', () => {
       button.style.width = '50px'
-      button.style.background = csTheme().grad
+      button.style.background = csTheme().panelBg
       button.style.boxShadow = '-4px 0 12px rgba(0,0,0,0.4)'
     })
     
@@ -7537,7 +7551,7 @@ function initializeExtension() {
 
       .lightbox-content {
 
-        background: ${csTheme().grad};
+        background: ${csTheme().panelBg};
 
         border-radius: 12px;
 
@@ -8232,7 +8246,7 @@ function initializeExtension() {
 
     height: 45px;
 
-    background: ${csTheme().grad};
+    background: ${csTheme().panelBg};
 
     color: white;
 
@@ -9971,7 +9985,7 @@ function initializeExtension() {
 
       } catch {
 
-        return csTheme().grad
+        return csTheme().panelBg
 
       }
 
@@ -10003,11 +10017,11 @@ function initializeExtension() {
 
       const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-      if (t === 'dark') return csTheme().grad
+      if (t === 'dark') return csTheme().panelBg
 
-      if (t === 'standard') return csTheme().grad
+      if (t === 'standard') return csTheme().panelBg
 
-      return csTheme().grad
+      return csTheme().panelBg
 
     }
 
@@ -10277,15 +10291,15 @@ function initializeExtension() {
 
         const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-        if (t === 'dark') return csTheme().grad
+        if (t === 'dark') return csTheme().panelBg
 
-        if (t === 'standard') return csTheme().grad
+        if (t === 'standard') return csTheme().panelBg
 
-        return csTheme().grad
+        return csTheme().panelBg
 
       } catch {
 
-        return csTheme().grad
+        return csTheme().panelBg
 
       }
 
@@ -11332,7 +11346,7 @@ function initializeExtension() {
 
       } catch {
 
-        return csTheme().grad
+        return csTheme().panelBg
 
       }
 
@@ -11392,11 +11406,11 @@ function initializeExtension() {
 
       const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-      if (t === 'dark') return csTheme().grad
+      if (t === 'dark') return csTheme().panelBg
 
-      if (t === 'standard') return csTheme().grad
+      if (t === 'standard') return csTheme().panelBg
 
-      return csTheme().grad
+      return csTheme().panelBg
 
     }
 
@@ -11404,7 +11418,7 @@ function initializeExtension() {
 
     // Force default look for Settings wrapper as well
 
-    const themeGradient = csTheme().grad
+    const themeGradient = csTheme().panelBg
 
     overlay.innerHTML = `
 
@@ -13300,7 +13314,7 @@ function initializeExtension() {
 
     configOverlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
 
@@ -25427,7 +25441,7 @@ function initializeExtension() {
 
     configOverlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 500px; max-height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 500px; max-height: 80vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -25679,7 +25693,7 @@ function initializeExtension() {
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -25993,7 +26007,7 @@ function initializeExtension() {
 
       <div style="
 
-        background: ${csTheme().grad}; 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
 
@@ -27315,7 +27329,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -28297,7 +28311,7 @@ ${pageText}
 
       <div style="
 
-        background: ${csTheme().grad}; 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
 
@@ -29807,7 +29821,7 @@ ${pageText}
 
       <div style="
 
-        background: ${csTheme().grad}; 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 85vw; max-width: 800px; height: auto; max-height: 80vh;
 
@@ -30516,7 +30530,7 @@ ${pageText}
 
           bar.id = 'og-trigger-savebar'
 
-          bar.style.cssText = `grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:${csTheme().grad}; color:#ffffff; border:1px solid rgba(255,255,255,0.3); border-radius:8px;`
+          bar.style.cssText = `grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:${csTheme().accentGrad}; color:#ffffff; border:1px solid rgba(255,255,255,0.3); border-radius:8px;`
 
           
 
@@ -31443,7 +31457,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -32543,7 +32557,7 @@ ${pageText}
 
       // Always use default gradient for a consistent, professional look
 
-      return csTheme().grad
+      return csTheme().panelBg
 
     }
 
@@ -33116,7 +33130,7 @@ ${pageText}
 
     configOverlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -33688,7 +33702,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -33878,7 +33892,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -34250,7 +34264,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 520px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 520px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -34610,7 +34624,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: ${csTheme().text}; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
@@ -37952,7 +37966,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
 
         <div style="text-align: center;">
 
@@ -38264,7 +38278,7 @@ ${pageText}
 
       overlay.innerHTML = `
 
-        <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
           <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -39942,7 +39956,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 1100px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1100px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
 
         <!-- Header -->
 
@@ -40370,7 +40384,7 @@ ${pageText}
 
     editOverlay.innerHTML = `
 
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
         <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
 
@@ -41047,7 +41061,7 @@ ${pageText}
     `
     
     overlay.innerHTML = `
-      <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 650px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 650px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
         <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">📤 Export Session</h2>
         <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.9;">Choose what to export and select a format:</p>
         
@@ -42315,7 +42329,7 @@ ${pageText}
       `
       
       overlay.innerHTML = `
-        <div style="background: ${csTheme().grad}; border-radius: 16px; width: 90vw; max-width: 500px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 500px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
           <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
           <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
@@ -43041,7 +43055,7 @@ ${pageText}
 
       const box = document.createElement('div')
 
-      box.style.cssText = `width:420px;background:${csTheme().grad};color:white;border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden`
+      box.style.cssText = `width:420px;background:${csTheme().panelBg};color:${csTheme().text};border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden`
 
       box.innerHTML = `
 
@@ -43193,7 +43207,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : csTheme().grad)
+      const hdr = csTheme().headerGrad
 
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
 
@@ -43812,7 +43826,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : csTheme().grad)
+      const hdr = csTheme().headerGrad
 
       container.style.background = bg
 
@@ -43896,7 +43910,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : csTheme().grad)
+      const hdr = csTheme().headerGrad
 
       const box = document.createElement('div')
 
@@ -44744,7 +44758,7 @@ ${pageText}
 
           } else {
 
-            btn.style.background = csTheme().grad
+            btn.style.background = csTheme().panelBg
 
             btn.style.color = '#ffffff'
 
@@ -44788,7 +44802,7 @@ ${pageText}
 
         } else {
 
-          btn.style.background = csTheme().grad
+          btn.style.background = csTheme().panelBg
 
           btn.style.color = '#ffffff'
 

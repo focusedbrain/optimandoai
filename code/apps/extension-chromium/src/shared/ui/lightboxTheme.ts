@@ -64,85 +64,88 @@ interface ThemeTokens {
   panelShadow: string;
 }
 
+// ── Pro: vivid purple chrome — exact WRVault Pro palette ──
 const PRO_TOKENS: ThemeTokens = {
-  panelBg: '#1a0533',
-  panelBgStyle: 'linear-gradient(160deg, #1a0533 0%, #2d1052 40%, #1a0533 100%)',
-  headerBg: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-  accentGradient: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
+  panelBg: '#1e1040',
+  panelBgStyle: 'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
+  headerBg: 'rgba(168,85,247,0.12)',
+  accentGradient: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
   accentColor: '#a855f7',
-  text: '#f5f3ff',
-  textMuted: 'rgba(245,243,255,0.65)',
-  border: 'rgba(168,85,247,0.25)',
-  inputBg: 'rgba(255,255,255,0.07)',
-  inputBorder: 'rgba(168,85,247,0.35)',
-  cardBg: 'rgba(168,85,247,0.08)',
-  tabBg: 'rgba(255,255,255,0.06)',
-  tabActiveBg: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
+  text: '#f3f0ff',
+  textMuted: '#c4b5fd',
+  border: 'rgba(168,85,247,0.18)',
+  inputBg: 'rgba(0,0,0,0.3)',
+  inputBorder: 'rgba(168,85,247,0.30)',
+  cardBg: 'rgba(168,85,247,0.06)',
+  tabBg: 'rgba(168,85,247,0.08)',
+  tabActiveBg: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
   tabActiveText: '#ffffff',
-  overlay: 'rgba(10,0,25,0.80)',
-  closeBg: 'rgba(255,255,255,0.15)',
-  closeHoverBg: 'rgba(255,255,255,0.25)',
+  overlay: 'rgba(30,10,60,0.92)',
+  closeBg: 'rgba(168,85,247,0.18)',
+  closeHoverBg: 'rgba(168,85,247,0.35)',
   success: '#4ade80',
-  error: '#f87171',
+  error: '#ff3b30',
   warning: '#fbbf24',
   info: '#818cf8',
   scrollbarThumb: 'rgba(168,85,247,0.4)',
   scrollbarTrack: 'rgba(168,85,247,0.08)',
-  panelShadow: '0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(168,85,247,0.2)',
+  panelShadow: '0 20px 60px rgba(30,10,60,0.6)',
 };
 
+// ── Standard: LIGHT theme — exact WRVault Standard palette ──
 const STANDARD_TOKENS: ThemeTokens = {
-  panelBg: '#faf5ff',
-  panelBgStyle: 'linear-gradient(160deg, #faf5ff 0%, #f3e8ff 60%, #faf5ff 100%)',
-  headerBg: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-  accentGradient: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
-  accentColor: '#9333ea',
-  text: '#0f172a',
-  textMuted: '#475569',
-  border: 'rgba(147,51,234,0.15)',
-  inputBg: '#ffffff',
-  inputBorder: 'rgba(147,51,234,0.25)',
+  panelBg: '#f8f9fb',
+  panelBgStyle: '#f8f9fb',
+  headerBg: '#ffffff',
+  accentGradient: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+  accentColor: '#6366f1',
+  text: '#0f1419',
+  textMuted: '#536471',
+  border: '#e1e8ed',
+  inputBg: '#f1f3f5',
+  inputBorder: '#d1d9e0',
   cardBg: '#ffffff',
-  tabBg: 'rgba(147,51,234,0.06)',
-  tabActiveBg: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)',
+  tabBg: '#f1f3f5',
+  tabActiveBg: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
   tabActiveText: '#ffffff',
-  overlay: 'rgba(15,7,26,0.55)',
-  closeBg: 'rgba(255,255,255,0.35)',
-  closeHoverBg: 'rgba(255,255,255,0.55)',
+  overlay: 'rgba(15,20,25,0.60)',
+  closeBg: 'rgba(15,20,25,0.08)',
+  closeHoverBg: 'rgba(15,20,25,0.15)',
   success: '#16a34a',
   error: '#dc2626',
   warning: '#d97706',
-  info: '#4f46e5',
-  scrollbarThumb: 'rgba(147,51,234,0.35)',
-  scrollbarTrack: 'rgba(147,51,234,0.06)',
-  panelShadow: '0 32px 80px rgba(147,51,234,0.18), 0 0 0 1px rgba(147,51,234,0.12)',
+  info: '#6366f1',
+  scrollbarThumb: '#d1d9e0',
+  scrollbarTrack: '#f1f3f5',
+  panelShadow: '0 20px 60px rgba(15,23,42,0.12)',
 };
 
+// ── Dark: deep slate — exact WRVault Dark palette ──
 const DARK_TOKENS: ThemeTokens = {
-  panelBg: '#0b1220',
-  panelBgStyle: 'linear-gradient(160deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)',
-  headerBg: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-  accentGradient: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
-  accentColor: '#8b5cf6',
-  text: '#e2e8f0',
-  textMuted: 'rgba(226,232,240,0.55)',
-  border: 'rgba(255,255,255,0.10)',
-  inputBg: 'rgba(255,255,255,0.05)',
-  inputBorder: 'rgba(255,255,255,0.15)',
-  cardBg: 'rgba(255,255,255,0.04)',
-  tabBg: 'rgba(255,255,255,0.05)',
-  tabActiveBg: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+  panelBg: '#111827',
+  panelBgStyle: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+  headerBg: 'rgba(30,41,59,0.8)',
+  accentGradient: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+  accentColor: '#818cf8',
+  text: '#e7e9ea',
+  textMuted: '#94a3b8',
+  border: 'rgba(148,163,184,0.15)',
+  inputBg: 'rgba(15,23,42,0.8)',
+  inputBorder: 'rgba(148,163,184,0.22)',
+  cardBg: 'rgba(30,41,59,0.5)',
+  tabBg: 'rgba(30,41,59,0.5)',
+  tabActiveBg: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
   tabActiveText: '#ffffff',
-  overlay: 'rgba(0,0,0,0.75)',
-  closeBg: 'rgba(255,255,255,0.10)',
-  closeHoverBg: 'rgba(255,255,255,0.20)',
+  overlay: 'rgba(0,0,0,0.90)',
+  closeBg: 'rgba(148,163,184,0.15)',
+  closeHoverBg: 'rgba(148,163,184,0.25)',
   success: '#4ade80',
-  error: '#f87171',
+  error: '#ef4444',
   warning: '#fbbf24',
   info: '#818cf8',
-  scrollbarThumb: 'rgba(139,92,246,0.4)',
-  scrollbarTrack: 'rgba(255,255,255,0.04)',
-  panelShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.07)',
+  scrollbarThumb: 'rgba(148,163,184,0.3)',
+  scrollbarTrack: 'rgba(30,41,59,0.5)',
+  panelShadow: '0 20px 60px rgba(0,0,0,0.7)',
 };
 
 // ─── Token Lookup ─────────────────────────────────────────────────────────────
@@ -200,17 +203,20 @@ export function panelStyle(t: ThemeTokens): React.CSSProperties {
 
 /**
  * Returns inline styles for the lightbox header bar.
+ * Standard (light) theme uses border-bottom instead of coloured background.
  */
 export function headerStyle(t: ThemeTokens): React.CSSProperties {
+  const isLight = t.panelBgStyle === '#f8f9fb';
   return {
     padding: '18px 24px',
     background: t.headerBg,
-    color: '#ffffff',
+    color: isLight ? t.text : '#ffffff',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexShrink: 0,
     gap: '12px',
+    borderBottom: `1px solid ${t.border}`,
   };
 }
 
@@ -229,12 +235,12 @@ export function headerTitleStyle(): React.CSSProperties {
 
 /**
  * Returns inline styles for the main title in the header.
+ * Inherits color from headerStyle so it adapts to light/dark themes.
  */
 export function headerMainTitleStyle(): React.CSSProperties {
   return {
     fontSize: '17px',
     fontWeight: 700,
-    color: '#ffffff',
     lineHeight: 1.2,
     margin: 0,
   };
@@ -243,10 +249,11 @@ export function headerMainTitleStyle(): React.CSSProperties {
 /**
  * Returns inline styles for the subtitle/description in the header.
  */
-export function headerSubtitleStyle(): React.CSSProperties {
+export function headerSubtitleStyle(t?: ThemeTokens): React.CSSProperties {
+  const isLight = t && t.panelBgStyle === '#f8f9fb';
   return {
     fontSize: '12px',
-    color: 'rgba(255,255,255,0.80)',
+    color: isLight ? t.textMuted : 'rgba(255,255,255,0.75)',
     margin: '2px 0 0 0',
     lineHeight: 1.3,
   };
@@ -256,10 +263,11 @@ export function headerSubtitleStyle(): React.CSSProperties {
  * Returns inline styles for the close (×) button.
  */
 export function closeButtonStyle(t: ThemeTokens): React.CSSProperties {
+  const isLight = t.panelBgStyle === '#f8f9fb';
   return {
     background: t.closeBg,
-    border: 'none',
-    color: '#ffffff',
+    border: isLight ? `1px solid ${t.border}` : 'none',
+    color: isLight ? t.text : '#ffffff',
     width: '36px',
     height: '36px',
     borderRadius: '8px',
