@@ -109,13 +109,22 @@ describe('Entry-Point Guard — Static Analysis', () => {
 
     // processHandshakeCapsule should only be called after distribution.target === 'handshake_pipeline'
     const callSites = content.match(/processHandshakeCapsule\s*\(/g) ?? []
-    // Exactly 1 import reference and 1 call site
-    expect(callSites.length).toBe(1)
+    // Both the RPC handler and HTTP route handler now call it — both are guarded by
+    // the distribution gate (distribution.target === 'handshake_pipeline' check first)
+    expect(callSites.length).toBeGreaterThanOrEqual(1)
 
-    // The call must be inside the handshake_pipeline block
+    // At least one call must be inside the handshake_pipeline block
     const handshakePipelineBlock = content.indexOf("distribution.target === 'handshake_pipeline'")
     const callSiteIndex = content.indexOf('processHandshakeCapsule(')
     expect(callSiteIndex).toBeGreaterThan(handshakePipelineBlock)
+
+    // All call sites must appear after a handshake_pipeline guard
+    const allCallSiteMatches = [...content.matchAll(/processHandshakeCapsule\s*\(/g)]
+    for (const match of allCallSiteMatches) {
+      // Find the nearest preceding handshake_pipeline guard
+      const before = content.slice(0, match.index)
+      expect(before).toContain("distribution.target === 'handshake_pipeline'")
+    }
   })
 
   test('all external-facing HTTP routes use processIncomingInput, not processHandshakeCapsule', () => {

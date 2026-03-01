@@ -17,6 +17,7 @@ import { processIncomingInput } from './ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import type { SSOSession } from '../handshake/types'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
+import { migrateHandshakeTables } from '../handshake/db'
 import {
   insertQuarantineRecord,
   listQuarantineRecords,
@@ -24,6 +25,18 @@ import {
   listSandboxQueueItems,
   insertIngestionAuditRecord,
 } from './persistenceDb'
+
+const migratedDbs = new WeakSet<object>()
+
+function ensureHandshakeMigration(db: any): void {
+  if (!db || migratedDbs.has(db)) return
+  migratedDbs.add(db)
+  try {
+    migrateHandshakeTables(db)
+  } catch (err: any) {
+    console.warn('[INGESTION IPC] Handshake migration warning:', err?.message)
+  }
+}
 
 export async function handleIngestionRPC(
   method: string,
@@ -78,6 +91,8 @@ export async function handleIngestionRPC(
             error: 'Vault must be unlocked for handshake operations',
           }
         }
+
+        ensureHandshakeMigration(db)
 
         try {
           const receiverPolicy = buildDefaultReceiverPolicy()
@@ -172,7 +187,7 @@ export async function handleIngestionRPC(
   }
 }
 
-export function registerIngestionRoutes(app: any, getDb: () => any): void {
+export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSession?: () => SSOSession | undefined): void {
   app.post('/api/ingestion/ingest', async (req: any, res: any) => {
     try {
       const db = getDb()
@@ -194,6 +209,37 @@ export function registerIngestionRoutes(app: any, getDb: () => any): void {
             provenance_json: JSON.stringify(result.audit),
           })
         } catch { /* dedup */ }
+        return res.json(result)
+      }
+
+      const { distribution } = result
+
+      if (distribution.target === 'handshake_pipeline') {
+        const ssoSession = getSsoSession?.()
+        if (ssoSession) {
+          ensureHandshakeMigration(db)
+          try {
+            const receiverPolicy = buildDefaultReceiverPolicy()
+            const handshakeResult = processHandshakeCapsule(
+              db,
+              distribution.validated_capsule,
+              receiverPolicy,
+              ssoSession,
+            )
+            return res.json({
+              success: handshakeResult.success,
+              handshake_result: handshakeResult,
+              distribution_target: 'handshake_pipeline',
+            })
+          } catch (err: any) {
+            return res.status(500).json({
+              success: false,
+              error: err?.message ?? 'Handshake processing failed',
+              distribution_target: 'handshake_pipeline',
+            })
+          }
+        }
+        // No active session — return distribution decision without executing handshake
       }
 
       res.json(result)

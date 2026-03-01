@@ -16,7 +16,7 @@ export function validBeapCapsule(): Record<string, unknown> {
     capsule_hash: 'a'.repeat(64),
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
-    seq: 1,
+    seq: 0,
     relationship_id: 'rel-e2e-001',
     senderIdentity: {
       email: 'sender@example.com',

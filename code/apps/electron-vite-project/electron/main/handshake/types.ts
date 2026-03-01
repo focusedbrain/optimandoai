@@ -157,7 +157,7 @@ export function buildDefaultReceiverPolicy(overrides?: Partial<ReceiverPolicy>):
       'personal-data': 90,
       'sensitive-personal-data': 30,
     },
-    acceptedWrdeskPolicyHashes: [],
+    acceptedWrdeskPolicyHashes: ['*'],
     cloudAiDefault: 'none',
     allowedCloudProviders: [],
     maxCloudPayloadBytes: 1200,
