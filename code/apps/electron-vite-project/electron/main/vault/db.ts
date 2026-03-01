@@ -351,6 +351,22 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
     // Run additive migration for document vault table (safe on every open)
     migrateDocumentTable(db)
 
+    // Run additive migration for handshake tables (safe on every open)
+    try {
+      const { migrateHandshakeTables } = await import('../handshake/db')
+      migrateHandshakeTables(db)
+    } catch (e: any) {
+      console.warn('[VAULT DB] ⚠️ Could not run handshake migrations:', e?.message)
+    }
+
+    // Run additive migration for ingestion tables (safe on every open)
+    try {
+      const { migrateIngestionTables } = await import('../ingestion/persistenceDb')
+      migrateIngestionTables(db)
+    } catch (e: any) {
+      console.warn('[VAULT DB] ⚠️ Could not run ingestion migrations:', e?.message)
+    }
+
     console.log('[VAULT DB] Opened better-sqlite3 vault database')
     return db
   } catch (error) {

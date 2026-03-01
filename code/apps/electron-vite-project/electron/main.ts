@@ -492,6 +492,8 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
+import { handleHandshakeRPC, registerHandshakeRoutes } from './main/handshake/ipc'
+import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
@@ -2069,6 +2071,54 @@ app.whenReady().then(async () => {
                 }))
               }
               return // Don't process further handlers
+            }
+
+            // ===== HANDSHAKE RPC HANDLING =====
+            if (msg.method && msg.method.startsWith('handshake.')) {
+              console.log('[MAIN] Processing handshake RPC:', msg.method)
+              try {
+                const { vaultService: vsForHandshake } = await import('./main/vault/rpc')
+                const db = (vsForHandshake as any).db
+                if (!db) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'Vault must be unlocked for handshake operations',
+                  }))
+                  return
+                }
+                const response = await handleHandshakeRPC(msg.method, msg.params, db)
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+                console.log('[MAIN] ✅ Handshake RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] ❌ Handshake RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error',
+                }))
+              }
+              return
+            }
+
+            // ===== INGESTION RPC HANDLING =====
+            if (msg.method && msg.method.startsWith('ingestion.')) {
+              console.log('[MAIN] Processing ingestion RPC:', msg.method)
+              try {
+                const { vaultService: vsForIngestion } = await import('./main/vault/rpc')
+                const db = (vsForIngestion as any).db
+                const response = await handleIngestionRPC(msg.method, msg.params, db)
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+                console.log('[MAIN] Ingestion RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] Ingestion RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error',
+                }))
+              }
+              return
             }
             
             if (!msg || !msg.type) {
@@ -4567,6 +4617,22 @@ app.whenReady().then(async () => {
         console.error('[HTTP-VAULT] Error in update settings:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
       }
+    })
+
+    // ===== INGESTION HTTP API ENDPOINTS =====
+    registerIngestionRoutes(httpApp, () => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        return vs?.db ?? null
+      } catch { return null }
+    })
+
+    // ===== HANDSHAKE HTTP API ENDPOINTS =====
+    registerHandshakeRoutes(httpApp, () => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        return vs?.db ?? null
+      } catch { return null }
     })
 
     // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====

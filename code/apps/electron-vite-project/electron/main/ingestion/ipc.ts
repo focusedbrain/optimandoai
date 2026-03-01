@@ -1,0 +1,224 @@
+/**
+ * Ingestion IPC handlers for WebSocket RPC and HTTP routes.
+ *
+ * Channels:
+ *   - ingestion.ingest: Extension → Main (forward raw external input)
+ *   - ingestion-result: Main → Extension (event, ingestion outcome)
+ *   - ingestion.quarantine-list: Extension → Main (read-only quarantine list)
+ *
+ * The extension SHALL NOT:
+ *   - Call the handshake layer directly
+ *   - Construct ValidatedCapsule instances
+ *   - Receive raw capsule data back
+ */
+
+import type { RawInput, SourceType, TransportMetadata } from './types'
+import { processIncomingInput } from './ingestionPipeline'
+import { processHandshakeCapsule } from '../handshake/enforcement'
+import type { SSOSession } from '../handshake/types'
+import { buildDefaultReceiverPolicy } from '../handshake/types'
+import {
+  insertQuarantineRecord,
+  listQuarantineRecords,
+  insertSandboxQueueItem,
+  listSandboxQueueItems,
+  insertIngestionAuditRecord,
+} from './persistenceDb'
+
+export async function handleIngestionRPC(
+  method: string,
+  params: any,
+  db: any,
+  ssoSession?: SSOSession,
+): Promise<any> {
+  switch (method) {
+    case 'ingestion.ingest': {
+      const { rawInput, sourceType, transportMeta } = params as {
+        rawInput: RawInput;
+        sourceType: SourceType;
+        transportMeta: TransportMetadata;
+      }
+
+      const result = await processIncomingInput(rawInput, sourceType, transportMeta)
+
+      // Always persist audit record if db available
+      if (db) {
+        try { insertIngestionAuditRecord(db, result.audit) } catch { /* non-fatal */ }
+      }
+
+      if (!result.success) {
+        if (db) {
+          try {
+            insertQuarantineRecord(db, {
+              raw_input_hash: result.audit.raw_input_hash,
+              source_type: result.audit.source_type,
+              origin_classification: result.audit.origin_classification,
+              input_classification: result.audit.input_classification,
+              validation_reason_code: result.validation_reason_code ?? 'INTERNAL_VALIDATION_ERROR',
+              validation_details: result.reason,
+              provenance_json: JSON.stringify(result.audit),
+            })
+          } catch { /* dedup via INSERT OR IGNORE */ }
+        }
+        return {
+          type: 'ingestion-result',
+          success: false,
+          reason: result.reason,
+          validation_reason_code: result.validation_reason_code,
+        }
+      }
+
+      const { distribution } = result
+
+      if (distribution.target === 'handshake_pipeline') {
+        if (!db) {
+          return {
+            type: 'ingestion-result',
+            success: false,
+            error: 'Vault must be unlocked for handshake operations',
+          }
+        }
+
+        try {
+          const receiverPolicy = buildDefaultReceiverPolicy()
+          if (!ssoSession) {
+            return {
+              type: 'ingestion-result',
+              success: false,
+              error: 'SSO session required for handshake processing',
+            }
+          }
+
+          const handshakeResult = processHandshakeCapsule(
+            db,
+            distribution.validated_capsule,
+            receiverPolicy,
+            ssoSession,
+          )
+
+          return {
+            type: 'ingestion-result',
+            success: handshakeResult.success,
+            handshake_result: handshakeResult,
+            distribution_target: 'handshake_pipeline',
+          }
+        } catch (err: any) {
+          return {
+            type: 'ingestion-result',
+            success: false,
+            error: err?.message ?? 'Handshake processing failed',
+            distribution_target: 'handshake_pipeline',
+          }
+        }
+      }
+
+      if (distribution.target === 'sandbox_sub_orchestrator') {
+        if (db) {
+          try {
+            insertSandboxQueueItem(db, {
+              raw_input_hash: result.audit.raw_input_hash,
+              validated_capsule_json: JSON.stringify(distribution.validated_capsule),
+              routing_reason: distribution.reason,
+            })
+          } catch { /* dedup via INSERT OR IGNORE */ }
+        }
+        return {
+          type: 'ingestion-result',
+          success: true,
+          distribution_target: 'sandbox_sub_orchestrator',
+          message: 'Queued for sandbox processing (future workstream)',
+        }
+      }
+
+      // Quarantine fallback
+      if (db) {
+        try {
+          insertQuarantineRecord(db, {
+            raw_input_hash: result.audit.raw_input_hash,
+            source_type: result.audit.source_type,
+            origin_classification: result.audit.origin_classification,
+            input_classification: result.audit.input_classification,
+            validation_reason_code: 'INTERNAL_VALIDATION_ERROR',
+            provenance_json: JSON.stringify(result.audit),
+          })
+        } catch { /* non-fatal */ }
+      }
+      return {
+        type: 'ingestion-result',
+        success: false,
+        distribution_target: 'quarantine',
+        reason: 'Capsule quarantined',
+      }
+    }
+
+    case 'ingestion.quarantine-list': {
+      if (!db) return { type: 'ingestion-quarantine-list', items: [] }
+      return {
+        type: 'ingestion-quarantine-list',
+        items: listQuarantineRecords(db, 100),
+      }
+    }
+
+    case 'ingestion.sandbox-queue': {
+      if (!db) return { type: 'ingestion-sandbox-queue', items: [] }
+      return {
+        type: 'ingestion-sandbox-queue',
+        items: listSandboxQueueItems(db, params?.status, 100),
+      }
+    }
+
+    default:
+      return { error: 'unknown_method' }
+  }
+}
+
+export function registerIngestionRoutes(app: any, getDb: () => any): void {
+  app.post('/api/ingestion/ingest', async (req: any, res: any) => {
+    try {
+      const db = getDb()
+      if (!db) return res.status(503).json({ error: 'vault_locked' })
+      const { rawInput, sourceType, transportMeta } = req.body
+      const result = await processIncomingInput(rawInput, sourceType, transportMeta)
+
+      try { insertIngestionAuditRecord(db, result.audit) } catch { /* non-fatal */ }
+
+      if (!result.success) {
+        try {
+          insertQuarantineRecord(db, {
+            raw_input_hash: result.audit.raw_input_hash,
+            source_type: result.audit.source_type,
+            origin_classification: result.audit.origin_classification,
+            input_classification: result.audit.input_classification,
+            validation_reason_code: result.validation_reason_code ?? 'INTERNAL_VALIDATION_ERROR',
+            validation_details: result.reason,
+            provenance_json: JSON.stringify(result.audit),
+          })
+        } catch { /* dedup */ }
+      }
+
+      res.json(result)
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message })
+    }
+  })
+
+  app.get('/api/ingestion/quarantine', (_req: any, res: any) => {
+    try {
+      const db = getDb()
+      if (!db) return res.status(503).json({ error: 'vault_locked' })
+      res.json({ items: listQuarantineRecords(db, 100) })
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message })
+    }
+  })
+
+  app.get('/api/ingestion/sandbox-queue', (req: any, res: any) => {
+    try {
+      const db = getDb()
+      if (!db) return res.status(503).json({ error: 'vault_locked' })
+      res.json({ items: listSandboxQueueItems(db, req.query.status, 100) })
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message })
+    }
+  })
+}

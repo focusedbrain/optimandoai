@@ -1,0 +1,424 @@
+/**
+ * Handshake persistence layer.
+ *
+ * All handshake tables live in the existing vault SQLCipher database.
+ * Migrations are additive — safe to call on every open.
+ */
+
+import type {
+  HandshakeRecord,
+  ContextBlock,
+  ContextBlockInput,
+  AuditLogEntry,
+  HandshakeState,
+} from './types'
+
+// ── Migration ──
+
+const HANDSHAKE_MIGRATIONS: Array<{
+  version: number;
+  description: string;
+  sql: string[];
+}> = [
+  {
+    version: 1,
+    description: 'Initial handshake schema',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS handshakes (
+        handshake_id TEXT PRIMARY KEY,
+        relationship_id TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('DRAFT','PENDING_ACCEPT','ACTIVE','EXPIRED','REVOKED')),
+        initiator_json TEXT NOT NULL,
+        acceptor_json TEXT,
+        local_role TEXT NOT NULL CHECK (local_role IN ('initiator','acceptor')),
+        sharing_mode TEXT CHECK (sharing_mode IN ('receive-only','reciprocal')),
+        reciprocal_allowed INTEGER NOT NULL DEFAULT 1,
+        tier_snapshot_json TEXT NOT NULL,
+        current_tier_signals_json TEXT NOT NULL,
+        last_seq_sent INTEGER NOT NULL DEFAULT 0,
+        last_seq_received INTEGER NOT NULL DEFAULT 0,
+        last_capsule_hash_sent TEXT NOT NULL DEFAULT '',
+        last_capsule_hash_received TEXT NOT NULL DEFAULT '',
+        effective_policy_json TEXT NOT NULL,
+        external_processing TEXT NOT NULL DEFAULT 'none',
+        created_at TEXT NOT NULL,
+        activated_at TEXT,
+        expires_at TEXT,
+        revoked_at TEXT,
+        revocation_source TEXT CHECK (revocation_source IN ('local-user','remote-capsule')),
+        initiator_wrdesk_policy_hash TEXT NOT NULL DEFAULT '',
+        initiator_wrdesk_policy_version TEXT NOT NULL DEFAULT '',
+        acceptor_wrdesk_policy_hash TEXT,
+        acceptor_wrdesk_policy_version TEXT
+      )`,
+
+      `CREATE INDEX IF NOT EXISTS idx_hs_relationship ON handshakes(relationship_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_hs_state ON handshakes(state)`,
+      `CREATE INDEX IF NOT EXISTS idx_hs_expires ON handshakes(expires_at)`,
+
+      `CREATE TABLE IF NOT EXISTS context_blocks (
+        sender_wrdesk_user_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        relationship_id TEXT NOT NULL,
+        handshake_id TEXT NOT NULL,
+        scope_id TEXT,
+        type TEXT NOT NULL,
+        data_classification TEXT NOT NULL CHECK (data_classification IN
+          ('public','business-confidential','personal-data','sensitive-personal-data')),
+        version INTEGER NOT NULL,
+        valid_until TEXT,
+        source TEXT NOT NULL CHECK (source IN ('received','sent')),
+        payload TEXT NOT NULL,
+        embedding_status TEXT NOT NULL DEFAULT 'pending' CHECK (embedding_status IN ('pending','complete','failed')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (sender_wrdesk_user_id, block_id, block_hash)
+      )`,
+
+      `CREATE INDEX IF NOT EXISTS idx_blocks_relationship ON context_blocks(relationship_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_type ON context_blocks(type)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_handshake ON context_blocks(handshake_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_valid ON context_blocks(valid_until)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_sender ON context_blocks(sender_wrdesk_user_id, block_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_embedding ON context_blocks(embedding_status)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_classification ON context_blocks(data_classification)`,
+
+      `CREATE TABLE IF NOT EXISTS context_block_versions (
+        sender_wrdesk_user_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        last_version INTEGER NOT NULL,
+        PRIMARY KEY (sender_wrdesk_user_id, block_id)
+      )`,
+
+      `CREATE TABLE IF NOT EXISTS context_embeddings (
+        sender_wrdesk_user_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        model_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (sender_wrdesk_user_id, block_id, block_hash)
+          REFERENCES context_blocks(sender_wrdesk_user_id, block_id, block_hash)
+          ON DELETE CASCADE
+      )`,
+
+      `CREATE TABLE IF NOT EXISTS seen_capsule_hashes (
+        handshake_id TEXT NOT NULL,
+        capsule_hash TEXT NOT NULL,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (handshake_id, capsule_hash)
+      )`,
+
+      `CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        action TEXT NOT NULL,
+        handshake_id TEXT,
+        capsule_type TEXT,
+        reason_code TEXT,
+        failed_step TEXT,
+        pipeline_duration_ms INTEGER,
+        actor_wrdesk_user_id TEXT,
+        metadata TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_handshake ON audit_log(handshake_id)`,
+
+      `CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL,
+        description TEXT NOT NULL
+      )`,
+    ],
+  },
+]
+
+export function migrateHandshakeTables(db: any): void {
+  // Ensure migrations table exists first
+  try {
+    db.prepare(`CREATE TABLE IF NOT EXISTS handshake_schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL,
+      description TEXT NOT NULL
+    )`).run()
+  } catch (e: any) {
+    console.warn('[HANDSHAKE DB] Could not create migrations table:', e?.message)
+  }
+
+  for (const migration of HANDSHAKE_MIGRATIONS) {
+    // Check if already applied
+    try {
+      const row = db.prepare(
+        'SELECT version FROM handshake_schema_migrations WHERE version = ?'
+      ).get(migration.version) as { version: number } | undefined
+      if (row) continue
+    } catch {
+      // Table may not exist yet — proceed
+    }
+
+    // Apply migration
+    const tx = db.transaction(() => {
+      for (const sql of migration.sql) {
+        try {
+          db.prepare(sql).run()
+        } catch (e: any) {
+          // Ignore "already exists" — additive migration
+          if (!e?.message?.includes('already exists') && !e?.message?.includes('duplicate')) {
+            console.warn(`[HANDSHAKE DB] Migration ${migration.version} statement warning:`, e?.message)
+          }
+        }
+      }
+      db.prepare(
+        'INSERT OR REPLACE INTO handshake_schema_migrations (version, applied_at, description) VALUES (?, ?, ?)'
+      ).run(migration.version, new Date().toISOString(), migration.description)
+    })
+    tx()
+    console.log(`[HANDSHAKE DB] Applied migration ${migration.version}: ${migration.description}`)
+  }
+}
+
+// ── CRUD Operations ──
+
+export function serializeHandshakeRecord(record: HandshakeRecord): any {
+  return {
+    handshake_id: record.handshake_id,
+    relationship_id: record.relationship_id,
+    state: record.state,
+    initiator_json: JSON.stringify(record.initiator),
+    acceptor_json: record.acceptor ? JSON.stringify(record.acceptor) : null,
+    local_role: record.local_role,
+    sharing_mode: record.sharing_mode,
+    reciprocal_allowed: record.reciprocal_allowed ? 1 : 0,
+    tier_snapshot_json: JSON.stringify(record.tier_snapshot),
+    current_tier_signals_json: JSON.stringify(record.current_tier_signals),
+    last_seq_sent: record.last_seq_sent,
+    last_seq_received: record.last_seq_received,
+    last_capsule_hash_sent: record.last_capsule_hash_sent,
+    last_capsule_hash_received: record.last_capsule_hash_received,
+    effective_policy_json: JSON.stringify(record.effective_policy),
+    external_processing: record.external_processing,
+    created_at: record.created_at,
+    activated_at: record.activated_at,
+    expires_at: record.expires_at,
+    revoked_at: record.revoked_at,
+    revocation_source: record.revocation_source,
+    initiator_wrdesk_policy_hash: record.initiator_wrdesk_policy_hash,
+    initiator_wrdesk_policy_version: record.initiator_wrdesk_policy_version,
+    acceptor_wrdesk_policy_hash: record.acceptor_wrdesk_policy_hash,
+    acceptor_wrdesk_policy_version: record.acceptor_wrdesk_policy_version,
+  }
+}
+
+export function deserializeHandshakeRecord(row: any): HandshakeRecord {
+  return {
+    handshake_id: row.handshake_id,
+    relationship_id: row.relationship_id,
+    state: row.state,
+    initiator: JSON.parse(row.initiator_json),
+    acceptor: row.acceptor_json ? JSON.parse(row.acceptor_json) : null,
+    local_role: row.local_role,
+    sharing_mode: row.sharing_mode ?? null,
+    reciprocal_allowed: !!row.reciprocal_allowed,
+    tier_snapshot: JSON.parse(row.tier_snapshot_json),
+    current_tier_signals: JSON.parse(row.current_tier_signals_json),
+    last_seq_sent: row.last_seq_sent,
+    last_seq_received: row.last_seq_received,
+    last_capsule_hash_sent: row.last_capsule_hash_sent,
+    last_capsule_hash_received: row.last_capsule_hash_received,
+    effective_policy: JSON.parse(row.effective_policy_json),
+    external_processing: row.external_processing,
+    created_at: row.created_at,
+    activated_at: row.activated_at ?? null,
+    expires_at: row.expires_at ?? null,
+    revoked_at: row.revoked_at ?? null,
+    revocation_source: row.revocation_source ?? null,
+    initiator_wrdesk_policy_hash: row.initiator_wrdesk_policy_hash,
+    initiator_wrdesk_policy_version: row.initiator_wrdesk_policy_version,
+    acceptor_wrdesk_policy_hash: row.acceptor_wrdesk_policy_hash ?? null,
+    acceptor_wrdesk_policy_version: row.acceptor_wrdesk_policy_version ?? null,
+  }
+}
+
+export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
+  const s = serializeHandshakeRecord(record)
+  db.prepare(`INSERT INTO handshakes (
+    handshake_id, relationship_id, state, initiator_json, acceptor_json,
+    local_role, sharing_mode, reciprocal_allowed,
+    tier_snapshot_json, current_tier_signals_json,
+    last_seq_sent, last_seq_received, last_capsule_hash_sent, last_capsule_hash_received,
+    effective_policy_json, external_processing,
+    created_at, activated_at, expires_at, revoked_at, revocation_source,
+    initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
+    acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version
+  ) VALUES (
+    @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
+    @local_role, @sharing_mode, @reciprocal_allowed,
+    @tier_snapshot_json, @current_tier_signals_json,
+    @last_seq_sent, @last_seq_received, @last_capsule_hash_sent, @last_capsule_hash_received,
+    @effective_policy_json, @external_processing,
+    @created_at, @activated_at, @expires_at, @revoked_at, @revocation_source,
+    @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
+    @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version
+  )`).run(s)
+}
+
+export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
+  const s = serializeHandshakeRecord(record)
+  db.prepare(`UPDATE handshakes SET
+    relationship_id = @relationship_id, state = @state,
+    initiator_json = @initiator_json, acceptor_json = @acceptor_json,
+    local_role = @local_role, sharing_mode = @sharing_mode, reciprocal_allowed = @reciprocal_allowed,
+    tier_snapshot_json = @tier_snapshot_json, current_tier_signals_json = @current_tier_signals_json,
+    last_seq_sent = @last_seq_sent, last_seq_received = @last_seq_received,
+    last_capsule_hash_sent = @last_capsule_hash_sent, last_capsule_hash_received = @last_capsule_hash_received,
+    effective_policy_json = @effective_policy_json, external_processing = @external_processing,
+    created_at = @created_at, activated_at = @activated_at, expires_at = @expires_at,
+    revoked_at = @revoked_at, revocation_source = @revocation_source,
+    initiator_wrdesk_policy_hash = @initiator_wrdesk_policy_hash,
+    initiator_wrdesk_policy_version = @initiator_wrdesk_policy_version,
+    acceptor_wrdesk_policy_hash = @acceptor_wrdesk_policy_hash,
+    acceptor_wrdesk_policy_version = @acceptor_wrdesk_policy_version
+  WHERE handshake_id = @handshake_id`).run(s)
+}
+
+export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
+  const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
+  return row ? deserializeHandshakeRecord(row) : null
+}
+
+export function listHandshakeRecords(
+  db: any,
+  filter?: { state?: HandshakeState; relationship_id?: string },
+): HandshakeRecord[] {
+  let sql = 'SELECT * FROM handshakes WHERE 1=1'
+  const params: any[] = []
+
+  if (filter?.state) {
+    sql += ' AND state = ?'
+    params.push(filter.state)
+  }
+  if (filter?.relationship_id) {
+    sql += ' AND relationship_id = ?'
+    params.push(filter.relationship_id)
+  }
+
+  sql += ' ORDER BY created_at DESC'
+  const rows = db.prepare(sql).all(...params) as any[]
+  return rows.map(deserializeHandshakeRecord)
+}
+
+export function getExistingHandshakesForLookup(db: any): HandshakeRecord[] {
+  const rows = db.prepare(
+    "SELECT * FROM handshakes WHERE state IN ('PENDING_ACCEPT','ACTIVE')"
+  ).all() as any[]
+  return rows.map(deserializeHandshakeRecord)
+}
+
+// ── Seen Capsule Hashes ──
+
+export function getSeenCapsuleHashes(db: any, handshakeId: string): Set<string> {
+  const rows = db.prepare(
+    'SELECT capsule_hash FROM seen_capsule_hashes WHERE handshake_id = ?'
+  ).all(handshakeId) as Array<{ capsule_hash: string }>
+  return new Set(rows.map(r => `${handshakeId}:${r.capsule_hash}`))
+}
+
+export function insertSeenCapsuleHash(db: any, handshakeId: string, capsuleHash: string): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO seen_capsule_hashes (handshake_id, capsule_hash, seen_at) VALUES (?, ?, ?)'
+  ).run(handshakeId, capsuleHash, new Date().toISOString())
+}
+
+// ── Context Block Versions ──
+
+export function getContextBlockVersions(
+  db: any,
+  handshakeId: string,
+): Map<string, number> {
+  const rows = db.prepare(
+    `SELECT cbv.sender_wrdesk_user_id, cbv.block_id, cbv.last_version
+     FROM context_block_versions cbv
+     INNER JOIN context_blocks cb ON cb.sender_wrdesk_user_id = cbv.sender_wrdesk_user_id
+       AND cb.block_id = cbv.block_id
+     WHERE cb.handshake_id = ?`
+  ).all(handshakeId) as Array<{ sender_wrdesk_user_id: string; block_id: string; last_version: number }>
+
+  const map = new Map<string, number>()
+  for (const r of rows) {
+    map.set(`${r.sender_wrdesk_user_id}:${r.block_id}`, r.last_version)
+  }
+  return map
+}
+
+export function upsertContextBlockVersion(
+  db: any,
+  senderUserId: string,
+  blockId: string,
+  version: number,
+): void {
+  db.prepare(
+    `INSERT INTO context_block_versions (sender_wrdesk_user_id, block_id, last_version)
+     VALUES (?, ?, ?)
+     ON CONFLICT(sender_wrdesk_user_id, block_id) DO UPDATE SET last_version = excluded.last_version`
+  ).run(senderUserId, blockId, version)
+}
+
+// ── Audit Log ──
+
+export function insertAuditLogEntry(db: any, entry: AuditLogEntry): void {
+  db.prepare(
+    `INSERT INTO audit_log (timestamp, action, handshake_id, capsule_type, reason_code, failed_step, pipeline_duration_ms, actor_wrdesk_user_id, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.timestamp,
+    entry.action,
+    entry.handshake_id ?? null,
+    entry.capsule_type ?? null,
+    entry.reason_code,
+    entry.failed_step ?? null,
+    entry.pipeline_duration_ms ?? null,
+    entry.actor_wrdesk_user_id ?? null,
+    entry.metadata ? JSON.stringify(entry.metadata) : null,
+  )
+}
+
+// ── Expiry Helpers ──
+
+export function expirePendingHandshakes(db: any, now: Date): number {
+  const result = db.prepare(
+    `UPDATE handshakes SET state = 'EXPIRED'
+     WHERE state = 'PENDING_ACCEPT' AND expires_at IS NOT NULL AND expires_at < ?`
+  ).run(now.toISOString())
+  return result.changes
+}
+
+export function expireActiveHandshakes(db: any, now: Date): number {
+  const result = db.prepare(
+    `UPDATE handshakes SET state = 'EXPIRED'
+     WHERE state = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at < ?`
+  ).run(now.toISOString())
+  return result.changes
+}
+
+export function softDeleteExpiredBlocks(db: any, now: Date): number {
+  const result = db.prepare(
+    `DELETE FROM context_blocks WHERE valid_until IS NOT NULL AND valid_until < ?`
+  ).run(now.toISOString())
+  return result.changes
+}
+
+export function deleteBlocksByHandshake(db: any, handshakeId: string): number {
+  const result = db.prepare(
+    'DELETE FROM context_blocks WHERE handshake_id = ?'
+  ).run(handshakeId)
+  return result.changes
+}
+
+export function deleteEmbeddingsByHandshake(db: any, handshakeId: string): number {
+  const result = db.prepare(
+    `DELETE FROM context_embeddings WHERE (sender_wrdesk_user_id, block_id, block_hash) IN (
+      SELECT sender_wrdesk_user_id, block_id, block_hash FROM context_blocks WHERE handshake_id = ?
+    )`
+  ).run(handshakeId)
+  return result.changes
+}
