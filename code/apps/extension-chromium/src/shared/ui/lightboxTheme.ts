@@ -200,12 +200,15 @@ const DARK_TOKENS: ThemeTokens = {
 
 // ─── Token Lookup ─────────────────────────────────────────────────────────────
 
-export function getThemeTokens(theme: LightboxTheme): ThemeTokens {
+export function getThemeTokens(theme: LightboxTheme | string): ThemeTokens {
   switch (theme) {
     case 'professional':
+    case 'standard':
       return STANDARD_TOKENS;
     case 'dark':
       return DARK_TOKENS;
+    case 'pro':
+    case 'default':
     default:
       return PRO_TOKENS;
   }
@@ -215,7 +218,7 @@ export function getThemeTokens(theme: LightboxTheme): ThemeTokens {
 
 /**
  * Returns inline styles for the full-screen backdrop overlay.
- * The lightbox occupies the full available screen real estate.
+ * Centers the lightbox panel like a floating modal dialog.
  */
 export function overlayStyle(t: ThemeTokens): React.CSSProperties {
   return {
@@ -223,22 +226,24 @@ export function overlayStyle(t: ThemeTokens): React.CSSProperties {
     inset: 0,
     zIndex: 2147483640,
     display: 'flex',
-    alignItems: 'stretch',
-    justifyContent: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
     background: t.overlay,
     backdropFilter: 'blur(6px)',
     WebkitBackdropFilter: 'blur(6px)',
+    padding: '20px',
   };
 }
 
 /**
  * Returns inline styles for the main lightbox panel.
- * Uses full available space with a small margin for breathing room.
+ * Floats as a centered modal — 85vw wide, max 960px, 85vh tall.
  */
 export function panelStyle(t: ThemeTokens): React.CSSProperties {
   return {
-    flex: 1,
-    margin: '8px',
+    width: '85vw',
+    maxWidth: '960px',
+    height: '85vh',
     background: t.panelBgStyle,
     borderRadius: '14px',
     border: `1px solid ${t.border}`,

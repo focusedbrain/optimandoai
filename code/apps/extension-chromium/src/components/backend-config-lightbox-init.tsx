@@ -32,9 +32,14 @@ export function openBackendConfigLightbox() {
     }
   };
 
-  // Get theme from storage or default
-  chrome.storage?.local?.get(['theme'], (result) => {
-    const theme = result?.theme || 'default';
+  // Read theme from the same chrome.storage.local key the app uses
+  const resolveTheme = (raw: string): 'default' | 'dark' | 'professional' => {
+    if (raw === 'standard' || raw === 'professional') return 'professional';
+    if (raw === 'dark') return 'dark';
+    return 'default';
+  };
+
+  const renderWith = (theme: 'default' | 'dark' | 'professional') => {
     currentRoot?.render(
       <BackendConfigLightbox 
         isOpen={true} 
@@ -42,7 +47,15 @@ export function openBackendConfigLightbox() {
         theme={theme} 
       />
     );
-  });
+  };
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.get(['optimando-ui-theme'], (result) => {
+      renderWith(resolveTheme(result['optimando-ui-theme'] || 'default'));
+    });
+  } else {
+    renderWith('default');
+  }
 }
 
 export function closeBackendConfigLightbox() {

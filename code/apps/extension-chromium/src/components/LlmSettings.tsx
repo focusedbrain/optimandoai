@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { electronRpc, type RpcMethod } from '../rpc/electronRpc'
+import { getThemeTokens } from '../shared/ui/lightboxTheme'
 
 // Types
 interface HardwareInfo {
@@ -358,9 +359,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     loadEstimates()
   }, [hardware, modelCatalog])
   
-  // Theme colors - always use light text since lightbox has dark background
-  const textColor = theme === 'professional' ? '#1f2937' : '#e5e5e5'
-  const bgPrimary = 'rgba(255,255,255,0.08)'
+  // Theme colors from unified token system
+  const tt = getThemeTokens(theme ?? 'default')
+  const textColor = tt.text
+  const bgPrimary = tt.cardBg
   
   return (
     <div style={{ padding: '10px', color: textColor }}>

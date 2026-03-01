@@ -1378,11 +1378,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         import('./policy/components/policy-lightbox-init').then(({ openPolicyLightboxInContent }) => {
           console.log('✅ Policy lightbox module loaded, opening...')
-          const cleanup = openPolicyLightboxInContent('default')
+          const cleanup = openPolicyLightboxInContent()
           
           // Store cleanup function for potential future use
           globalLightboxFunctions.openPolicyLightbox = () => {
-            openPolicyLightboxInContent('default')
+            openPolicyLightboxInContent()
           }
         }).catch(err => {
           console.error('❌ Failed to load policy lightbox module:', err)
@@ -8756,7 +8756,7 @@ function initializeExtension() {
 
           addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
 
-          addAgentBtnRight.style.color = 'white'
+          addAgentBtnRight.style.color = '#fff'
 
         }
 
@@ -9044,7 +9044,7 @@ function initializeExtension() {
 
         addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
 
-        addAgentBtnRight.style.color = 'white'
+        addAgentBtnRight.style.color = '#fff'
 
       }
 
@@ -9695,15 +9695,15 @@ function initializeExtension() {
 
     const isProfessional = bottomSidebar.classList.contains('theme-professional')
 
-    const activeBg = isProfessional ? 'rgba(2,6,23,0.08)' : 'rgba(255,255,255,0.2)'
+    const activeBg = csTheme().accentGrad
 
-    const inactiveBg = isProfessional ? 'rgba(2,6,23,0.03)' : 'rgba(255,255,255,0.1)'
+    const inactiveBg = csTheme().inputBg
 
     const activeBorder = isProfessional ? '1px solid #cbd5e1' : `1px solid ${csTheme().border}`
 
     const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : `1px solid ${csTheme().border}`
 
-    const textColor = isProfessional ? '#0f172a' : 'white'
+    const textColor = csTheme().text
 
     tabs.forEach(btn => {
 
@@ -9715,7 +9715,7 @@ function initializeExtension() {
 
         btn.style.border = activeBorder
 
-        btn.style.color = textColor
+        btn.style.color = (id === tabId) ? '#fff' : csTheme().text
 
       } else {
 
@@ -9723,7 +9723,7 @@ function initializeExtension() {
 
         btn.style.border = inactiveBorder
 
-        btn.style.color = textColor
+        btn.style.color = (id === tabId) ? '#fff' : csTheme().text
 
       }
 
@@ -11557,17 +11557,17 @@ function initializeExtension() {
 
           if (t === tab) {
 
-            t.style.background = 'rgba(255,255,255,0.3)'
+            t.style.background = csTheme().accentGrad
 
-            t.style.color = 'white'
+            t.style.color = '#fff'
 
             t.style.fontWeight = 'bold'
 
           } else {
 
-            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.background = csTheme().inputBg
 
-            t.style.color = 'rgba(255,255,255,0.7)'
+            t.style.color = csTheme().text
 
             t.style.fontWeight = 'normal'
 
@@ -13513,11 +13513,11 @@ function initializeExtension() {
 
         const del = document.createElement('button')
 
-        del.textContent = '&times;'
+        del.textContent = '×'
 
         del.title = 'Remove'
 
-        del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+        del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer'
 
         del.addEventListener('click', () => row.remove())
 
@@ -13552,7 +13552,7 @@ function initializeExtension() {
               <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
               <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">×</button>
           </div>
         `
         
@@ -15407,7 +15407,7 @@ function initializeExtension() {
 
               <div id="L-unified-triggers" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
 
-              <button id="L-add-trigger" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
+              <button id="L-add-trigger" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
             </div>
 
 `
@@ -15738,7 +15738,7 @@ function initializeExtension() {
                     </div>
                   </div>
                 </div>
-                <button id="R-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
+                <button id="R-add-section" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
               </div>
 
             </div>
@@ -15750,7 +15750,7 @@ function initializeExtension() {
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button id="R-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button id="R-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
             <label style="display:block;margin-top:12px">Goals (System instructions)
@@ -15893,7 +15893,7 @@ function initializeExtension() {
 
               <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button id="E-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button id="E-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -16192,7 +16192,7 @@ function initializeExtension() {
           if (init?.type) typeSel.value = init.type
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = '&times;'
+          delBtn.textContent = '×'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => {
@@ -18065,7 +18065,7 @@ function initializeExtension() {
           if (init?.tag) tagInput.value = init.tag
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = '&times;'
+          delBtn.textContent = '×'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => row.remove())
@@ -18884,7 +18884,7 @@ function initializeExtension() {
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button class="R-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="R-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
             <label style="display:block;margin-top:12px">Goals (System instructions)
@@ -19053,7 +19053,7 @@ function initializeExtension() {
 
               <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="E-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -26018,7 +26018,7 @@ function initializeExtension() {
 
         border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
 
-        color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+        color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
 
         display: flex; flex-direction: column;
 
@@ -26026,7 +26026,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
+          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">📄 Global Context Management</h2>
 
           <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -26042,33 +26042,33 @@ function initializeExtension() {
 
             <button id="user-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.2); border: none; 
+              padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; 
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: #fff; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600;
 
               transition: all 0.3s ease;
 
-            ">👤 User Context (Session)</button>
+            ">User Context</button>
 
             <button id="publisher-context-tab" style="
 
-              padding: 10px 20px; background: ${csTheme().cardBg}; border: none; 
+              padding: 10px 20px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-bottom: none;
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: ${csTheme().text}; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
               transition: all 0.3s ease;
 
-            ">🌐 Publisher Context (Session)</button>
+            ">Publisher Context (Session)</button>
 
             <button id="account-context-tab" style="
 
-              padding: 10px 20px; background: ${csTheme().cardBg}; border: none; 
+              padding: 10px 20px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-bottom: none;
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: ${csTheme().text}; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
               transition: all 0.3s ease;
 
-            ">🏢 Account Context</button>
+            ">Account Context</button>
 
           </div>
 
@@ -26080,21 +26080,19 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Auto-scrape Website Context</h3>
 
               <button id="scrape-user-context-btn" style="
 
-                background: linear-gradient(135deg, #4CAF50, #45a049);
+                background: ${csTheme().accentGrad};
 
-                border: none; color: white; padding: 12px 24px; border-radius: 8px;
+                border: none; color: #fff; padding: 10px 20px; border-radius: 8px;
 
-                cursor: pointer; font-size: 14px; font-weight: bold;
-
-                transition: all 0.3s ease; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+                cursor: pointer; font-size: 13px; font-weight: 600;
 
                 margin-bottom: 15px;
 
-              ">🔍 Scrape Current Page</button>
+              ">Scrape Current Page</button>
 
               
 
@@ -26102,7 +26100,7 @@ function initializeExtension() {
 
                 width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid ${csTheme().border}; color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26116,19 +26114,19 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">📎 Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
                 width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid ${csTheme().border}; color: white;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text};
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
               ">
 
-              <div id="user-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+              <div id="user-pdf-files-list" style="font-size: 12px; color: ${csTheme().muted};"></div>
 
             </div>
 
@@ -26142,27 +26140,27 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrdesk.com</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Publisher Context from wrdesk.com</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
                 <button id="scrape-publisher-context-btn" style="
 
-                  background: linear-gradient(135deg, #4CAF50, #45a049);
+                  background: ${csTheme().accentGrad};
 
-                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  border: none; color: #fff; padding: 8px 16px; border-radius: 6px;
 
-                  cursor: pointer; font-size: 12px; font-weight: bold;
+                  cursor: pointer; font-size: 12px; font-weight: 600;
 
-                ">🔍 Scrape Current Page</button>
+                ">Scrape Current Page</button>
 
                 <button id="load-wrcode-context" style="
 
-                  background: linear-gradient(135deg, ${csTheme().accent}, #1976D2);
+                  background: ${csTheme().inputBg};
 
-                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 8px 16px; border-radius: 6px;
 
-                  cursor: pointer; font-size: 12px; font-weight: bold;
+                  cursor: pointer; font-size: 12px; font-weight: 500;
 
                 ">Load from wrdesk.com</button>
 
@@ -26174,7 +26172,7 @@ function initializeExtension() {
 
                 width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid ${csTheme().border}; color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26188,19 +26186,19 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">📎 Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
                 width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid ${csTheme().border}; color: white;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text};
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
               ">
 
-              <div id="publisher-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+              <div id="publisher-pdf-files-list" style="font-size: 12px; color: ${csTheme().muted};"></div>
 
           </div>
 
@@ -26220,23 +26218,23 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Auto-scrape Website Context</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
-                <button id="account-scrape-context" style="background: #34D399; color: white; border: none; padding: 10px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; display:flex;align-items:center;gap:6px">🔎 Scrape Current Page</button>
+                <button id="account-scrape-context" style="background: ${csTheme().accentGrad}; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; display:flex;align-items:center;gap:6px">Scrape Current Page</button>
 
               </div>
 
-              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: ${csTheme().cardBg}; color: white; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 10px;"></textarea>
+              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: ${csTheme().inputBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 10px;"></textarea>
 
             </div>
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Upload PDF Files</h3>
 
-              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: ${csTheme().cardBg}; color: white; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px; width: 100%;" />
+              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: ${csTheme().inputBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px; width: 100%;" />
 
               <div id="account-pdf-list" style="margin-top: 10px; font-size: 12px; opacity: 0.8;">No PDF files uploaded</div>
 
@@ -26252,39 +26250,33 @@ function initializeExtension() {
 
             <button id="inject-context-btn" style="
 
-              background: linear-gradient(135deg, #4CAF50, #45a049);
+              background: ${csTheme().accentGrad};
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">💉 Inject Context to LLMs</button>
+            ">Inject Context to LLMs</button>
 
             <button id="save-context-btn" style="
 
-              background: linear-gradient(135deg, ${csTheme().accent}, #1976D2);
+              background: ${csTheme().accentGrad};
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">💾 Save Context</button>
+            ">Save Context</button>
 
             <button id="clear-context-btn" style="
 
-              background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f);
+              background: #dc2626;
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">🗝‘️ Clear All</button>
+            ">Clear All</button>
 
           </div>
 
@@ -26582,9 +26574,9 @@ function initializeExtension() {
 
     userTab?.addEventListener('click', () => {
 
-      userTab.style.background = 'rgba(255,255,255,0.2)'
+      userTab.style.background = csTheme().accentGrad; userTab.style.color = '#fff'
 
-      publisherTab!.style.background = 'rgba(255,255,255,0.1)'
+      publisherTab!.style.background = csTheme().inputBg; publisherTab!.style.color = csTheme().text
 
       accountTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -26600,7 +26592,7 @@ function initializeExtension() {
 
     publisherTab?.addEventListener('click', () => {
 
-      publisherTab.style.background = 'rgba(255,255,255,0.2)'
+      publisherTab.style.background = csTheme().accentGrad; publisherTab.style.color = '#fff'
 
       userTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -26618,7 +26610,7 @@ function initializeExtension() {
 
     accountTab?.addEventListener('click', () => {
 
-      accountTab.style.background = 'rgba(255,255,255,0.2)'
+      accountTab.style.background = csTheme().accentGrad; accountTab.style.color = '#fff'
 
       userTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -27350,11 +27342,11 @@ ${pageText}
 
           <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid ${csTheme().border}">
 
-            <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂 Session Memory</button>
+            <button id="mem-session-tab" style="padding:10px 16px; background: ${csTheme().accentGrad}; border:none; color:#fff; border-radius:8px 8px 0 0; cursor:pointer; font-weight:600">Session Memory</button>
 
-            <button id="mem-account-tab" style="padding:10px 16px; background: ${csTheme().cardBg}; border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
+            <button id="mem-account-tab" style="padding:10px 16px; background: ${csTheme().inputBg}; border:1px solid ${csTheme().border}; border-bottom:none; color:${csTheme().text}; border-radius:8px 8px 0 0; cursor:pointer">Account Memory</button>
 
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: ${csTheme().cardBg}; border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 KnowledgeVault</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: ${csTheme().inputBg}; border:1px solid ${csTheme().border}; border-bottom:none; color:${csTheme().text}; border-radius:8px 8px 0 0; cursor:pointer">KnowledgeVault</button>
 
           </div>
 
@@ -27364,7 +27356,7 @@ ${pageText}
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
@@ -27374,7 +27366,7 @@ ${pageText}
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
@@ -27402,7 +27394,7 @@ ${pageText}
 
               <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
@@ -27412,7 +27404,7 @@ ${pageText}
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
@@ -27482,7 +27474,7 @@ ${pageText}
 
         <div style="padding: 16px; border-top:1px solid ${csTheme().border}; display:flex; justify-content:flex-end; gap:12px; background: ${csTheme().cardBg}">
 
-          <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
+          <button id="memory-cancel" style="padding:10px 20px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
           <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
 
@@ -27516,11 +27508,11 @@ ${pageText}
 
       xBox.style.display = which==='x' ? 'block' : 'none'
 
-      sTab.style.background = which==='s' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      sTab.style.background = which==='s' ? csTheme().accentGrad : csTheme().inputBg; sTab.style.color = which==='s' ? '#fff' : csTheme().text
 
-      aTab.style.background = which==='a' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      aTab.style.background = which==='a' ? csTheme().accentGrad : csTheme().inputBg; aTab.style.color = which==='a' ? '#fff' : csTheme().text
 
-      xTab.style.background = which==='x' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      xTab.style.background = which==='x' ? csTheme().accentGrad : csTheme().inputBg; xTab.style.color = which==='x' ? '#fff' : csTheme().text
 
     }
 
@@ -28162,7 +28154,7 @@ ${pageText}
 
           background: ${csTheme().cardBg};
 
-          border: 1px solid ${app.scope === 'account' ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.2)'};
+          border: 1px solid ${app.scope === 'account' ? 'rgba(180,130,0,0.5)' : csTheme().border};
 
           border-radius: 12px;
 
@@ -28182,11 +28174,11 @@ ${pageText}
 
               <button class="edit-miniapp-btn" data-id="${app.id}" style="
 
-                background: rgba(255,255,255,0.15);
+                background: ${csTheme().cardBg};
 
                 border: 1px solid ${csTheme().border};
 
-                color: white;
+                color: ${csTheme().text};
 
                 padding: 4px 10px;
 
@@ -28228,7 +28220,7 @@ ${pageText}
 
                 justify-content: center;
 
-              " title="Delete mini-app">✏•</button>
+              " title="Delete mini-app">×</button>
 
             </div>
 
@@ -39180,7 +39172,7 @@ ${pageText}
         
         // Visual feedback on blur
         nameInput.addEventListener('blur', () => {
-          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
         })
 
@@ -39239,7 +39231,7 @@ ${pageText}
             saveTimeout = null
           }
           syncSessionName(nameInput.value, 'history', sessionId)
-          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
           if (saveIndicator) {
             saveIndicator.textContent = '✏“'
@@ -40222,15 +40214,15 @@ ${pageText}
 
             t.style.borderBottom = '3px solid white'
 
-            t.style.color = 'white'
+            t.style.color = '#fff'
 
           } else {
 
-            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.background = csTheme().inputBg
 
             t.style.borderBottom = '3px solid transparent'
 
-            t.style.color = 'rgba(255,255,255,0.7)'
+            t.style.color = csTheme().text
 
           }
 
@@ -41084,18 +41076,17 @@ ${pageText}
           <div style="font-size: 12px; font-weight: 700; margin-bottom: 10px; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">Quick Export</div>
           <button class="export-preset-btn" data-preset="complete" style="
             width: 100%;
-            background: rgba(255, 215, 0, 0.2);
-            border: 2px solid rgba(255, 215, 0, 0.5);
-            color: white;
+            background: ${csTheme().accentGrad};
+            border: none;
+            color: #fff;
             padding: 12px 15px;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
             margin-bottom: 8px;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255, 215, 0, 0.3)'; this.style.borderColor='rgba(255, 215, 0, 0.7)'" onmouseout="this.style.background='rgba(255, 215, 0, 0.2)'; this.style.borderColor='rgba(255, 215, 0, 0.5)'">
+          " >
             <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
             <div style="font-size: 11px; opacity: 0.85;">Configuration + Memory + Context - Everything!</div>
           </button>

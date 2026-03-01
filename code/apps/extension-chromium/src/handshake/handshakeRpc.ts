@@ -94,11 +94,13 @@ export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
   fromAccountId: string,
+  contextBlocks?: ContextBlockInput[],
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
+    ...(contextBlocks && contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
   })
 }
 

@@ -184,7 +184,6 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
   if (!isOpen) return null
 
   const t = getThemeTokens(theme)
-  const isDark = theme === 'default' || theme === 'dark'
   const textColor = t.text
   const mutedColor = t.textMuted
   const borderColor = t.border
@@ -194,7 +193,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
   return (
     <div
       onClick={onClose}
-      style={{ ...overlayStyle(t), alignItems: 'stretch', justifyContent: 'stretch' }}
+      style={overlayStyle(t)}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -247,7 +246,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
               onClick={() => setActiveTab(tab.id)}
               style={{
                 padding: '11px 18px',
-                background: activeTab === tab.id ? 'rgba(139,92,246,0.15)' : 'transparent',
+                background: activeTab === tab.id ? (t.isLight ? 'rgba(99,102,241,0.08)' : 'rgba(139,92,246,0.15)') : 'transparent',
                 border: 'none',
                 borderBottom: activeTab === tab.id ? `2px solid ${accentColor}` : '2px solid transparent',
                 color: activeTab === tab.id ? accentColor : mutedColor,
@@ -339,7 +338,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                     <div style={{
                       padding: '60px 40px',
                       textAlign: 'center',
-                      background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                      background: !t.isLight ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
                       borderRadius: '16px',
                       border: `2px dashed ${borderColor}`,
                     }}>
@@ -448,7 +447,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                       style={{
                         width: '100%',
                         padding: '12px 14px',
-                        background: isDark ? 'rgba(255,255,255,0.05)' : 'white',
+                        background: !t.isLight ? 'rgba(255,255,255,0.05)' : 'white',
                         border: `1px solid ${borderColor}`,
                         borderRadius: '8px',
                         color: textColor,
@@ -473,7 +472,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                       <div style={{ 
                         marginTop: '16px', 
                         padding: '16px',
-                        background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                        background: !t.isLight ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
                         borderRadius: '8px',
                         textAlign: 'center',
                       }}>
@@ -560,8 +559,8 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                   <div style={{ 
                                     marginBottom: '20px',
                                     padding: '16px',
-                                    background: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.05)',
-                                    border: `2px solid ${isDark ? 'rgba(139, 92, 246, 0.25)' : 'rgba(139, 92, 246, 0.15)'}`,
+                                    background: !t.isLight ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.05)',
+                                    border: `2px solid ${!t.isLight ? 'rgba(139, 92, 246, 0.25)' : 'rgba(139, 92, 246, 0.15)'}`,
                                     borderRadius: '10px',
                                   }}>
                                     <div style={{ 
@@ -602,7 +601,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                         style={{
                                           padding: '4px 10px',
                                           fontSize: '10px',
-                                          background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                          background: !t.isLight ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
                                           border: 'none',
                                           borderRadius: '4px',
                                           color: mutedColor,
@@ -618,7 +617,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                       color: textColor,
                                       wordBreak: 'break-all',
                                       lineHeight: 1.5,
-                                      background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                                      background: !t.isLight ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
                                       padding: '10px 12px',
                                       borderRadius: '6px',
                                     }}>
@@ -649,7 +648,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                         borderRadius: '6px',
                                         background: hs.status === 'VERIFIED_WR' 
                                           ? 'rgba(34, 197, 94, 0.15)'
-                                          : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'),
+                                          : (!t.isLight ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'),
                                         color: hs.status === 'VERIFIED_WR' ? '#22c55e' : mutedColor,
                                         border: hs.status === 'VERIFIED_WR' ? '1px solid rgba(34, 197, 94, 0.3)' : 'none',
                                       }}>

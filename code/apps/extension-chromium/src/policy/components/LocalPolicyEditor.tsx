@@ -21,6 +21,7 @@ import { useState } from 'react'
 import type { CanonicalPolicy, TemplateName } from '../schema'
 import { calculateRiskTier } from '../schema'
 import { RiskLabel } from './RiskLabel'
+import { getThemeTokens } from '../../shared/ui/lightboxTheme'
 
 interface LocalPolicyEditorProps {
   policy: CanonicalPolicy
@@ -38,13 +39,14 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
   const [newApi, setNewApi] = useState('')
   const [newWebhook, setNewWebhook] = useState('')
 
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'
-  const accentColor = '#8b5cf6'
-  const successColor = '#22c55e'
+  const t = getThemeTokens(theme)
+  const isDark = !t.isLight
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
+  const cardBg = t.cardBg
+  const accentColor = t.accentColor
+  const successColor = t.success
 
   const currentRiskTier = calculateRiskTier(policy)
 
@@ -401,13 +403,13 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
               top: '100%',
               right: 0,
               marginTop: '4px',
-              background: isDark ? '#1e293b' : 'white',
+              background: t.cardBg,
               border: `1px solid ${borderColor}`,
               borderRadius: '10px',
               padding: '6px',
               minWidth: '240px',
               zIndex: 10,
-              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+              boxShadow: t.panelShadow,
             }}>
               <div style={{ padding: '8px 12px', fontSize: '11px', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Automation Presets

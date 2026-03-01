@@ -1,0 +1,470 @@
+/**
+ * HandshakeRequestForm
+ *
+ * Inline panel for initiating a new BEAP™ Handshake Request.
+ * Renders directly inside the sidebar / popup (not a modal overlay).
+ *
+ * Features:
+ * - Delivery method selector (Email / Messenger / Download)
+ * - Connected email accounts list + "Send From" selector
+ * - Your Fingerprint display (formatted, copyable)
+ * - Recipient email field
+ * - Personal message textarea
+ * - Collapsible Context Graph section (block type + content textarea)
+ *   → Wired to handshake.initiate RPC via buildContextBlocks
+ * - Real RPC call via initiateHandshake (no more alert() stubs)
+ */
+
+import React, { useState } from 'react'
+import { initiateHandshake } from '../handshakeRpc'
+import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
+import type { ContextBlockInput } from '../rpcTypes'
+import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
+import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
+
+export interface EmailAccount {
+  id: string
+  email: string
+  displayName: string
+  provider: string
+  status: string
+  lastError?: string
+}
+
+export interface HandshakeRequestFormProps {
+  /** The sending email account ID */
+  fromAccountId: string
+  /** Our own fingerprint (full hex) */
+  ourFingerprint: string
+  /** Our fingerprint short display */
+  ourFingerprintShort: string
+  /** Connected email accounts list */
+  emailAccounts: EmailAccount[]
+  /** Loading state for email accounts */
+  isLoadingEmailAccounts: boolean
+  /** Currently selected account id for sending */
+  selectedEmailAccountId: string | null
+  onSelectEmailAccount: (id: string) => void
+  /** Opens the email setup wizard */
+  onConnectEmail: () => void
+  /** Disconnects an email account */
+  onDisconnectEmail: (id: string) => void
+  /** Theme */
+  theme: 'standard' | 'pro' | 'dark'
+  /** Called after cancel */
+  onCancel: () => void
+  /** Called after a successful initiation */
+  onSuccess: () => void
+}
+
+type DeliveryMethod = 'email' | 'messenger' | 'download'
+
+export function HandshakeRequestForm({
+  fromAccountId,
+  ourFingerprint,
+  ourFingerprintShort,
+  emailAccounts,
+  isLoadingEmailAccounts,
+  selectedEmailAccountId,
+  onSelectEmailAccount,
+  onConnectEmail,
+  onDisconnectEmail,
+  theme,
+  onCancel,
+  onSuccess,
+}: HandshakeRequestFormProps) {
+  const isStandard = theme === 'standard'
+  const textColor = isStandard ? '#1f2937' : 'white'
+  const mutedColor = isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)'
+  const borderColor = isStandard ? 'rgba(147,51,234,0.15)' : 'rgba(255,255,255,0.15)'
+  const inputBg = isStandard ? 'white' : 'rgba(255,255,255,0.08)'
+  const sectionBorder = isStandard ? '1px solid rgba(147,51,234,0.12)' : '1px solid rgba(255,255,255,0.1)'
+
+  const [delivery, setDelivery] = useState<DeliveryMethod>('email')
+  const [recipientEmail, setRecipientEmail] = useState('')
+  const [message, setMessage] = useState('')
+  const [fingerprintCopied, setFingerprintCopied] = useState(false)
+
+  // Context Graph
+  const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphText, setContextGraphText] = useState('')
+  const [contextGraphType, setContextGraphType] = useState<'text' | 'json' | 'url'>('text')
+
+  // Send state
+  const [isSending, setIsSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendSuccess, setSendSuccess] = useState(false)
+
+  const copyFingerprint = async () => {
+    try {
+      await navigator.clipboard.writeText(ourFingerprint)
+      setFingerprintCopied(true)
+      setTimeout(() => setFingerprintCopied(false), 2000)
+    } catch {}
+  }
+
+  const handleSend = async () => {
+    if (delivery === 'email' && !recipientEmail.trim()) {
+      setSendError('Please enter a recipient email address')
+      return
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (delivery === 'email' && !emailPattern.test(recipientEmail.trim())) {
+      setSendError('Please enter a valid email address')
+      return
+    }
+
+    setSendError(null)
+    setIsSending(true)
+
+    try {
+      // Build optional context blocks
+      let contextBlocks: ContextBlockInput[] | undefined
+      if (showContextGraph && contextGraphText.trim()) {
+        contextBlocks = await buildContextBlocks({
+          text: contextGraphText.trim(),
+          type: contextGraphType,
+        })
+      }
+
+      await initiateHandshake(
+        recipientEmail.trim().toLowerCase(), // receiverUserId — backend resolves from email
+        recipientEmail.trim(),
+        fromAccountId,
+        contextBlocks,
+      )
+
+      setSendSuccess(true)
+      setTimeout(() => {
+        setSendSuccess(false)
+        onSuccess()
+      }, 1500)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send handshake request')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: '11px',
+    fontWeight: 600,
+    marginBottom: '6px',
+    display: 'block',
+    color: mutedColor,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 12px',
+    background: inputBg,
+    border: `1px solid ${borderColor}`,
+    borderRadius: '8px',
+    color: textColor,
+    fontSize: '13px',
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ padding: '12px 14px', borderBottom: sectionBorder, display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <span style={{ fontSize: '18px' }}>🤝</span>
+        <span style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>BEAP™ Handshake Request</span>
+      </div>
+
+      {/* Delivery Method */}
+      <div style={{ padding: '14px 18px', borderBottom: sectionBorder }}>
+        <label style={labelStyle}>Delivery Method</label>
+        <select
+          value={delivery}
+          onChange={(e) => setDelivery(e.target.value as DeliveryMethod)}
+          style={{ ...inputStyle, cursor: 'pointer' }}
+        >
+          <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>📧 Email</option>
+          <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>💬 Messenger (Web)</option>
+          <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>💾 Download (USB/Wallet)</option>
+        </select>
+      </div>
+
+      {/* Connected Email Accounts — only for email delivery */}
+      {delivery === 'email' && (
+        <div style={{ padding: '14px 18px', borderBottom: sectionBorder, background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>🔗</span>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: isStandard ? '#0f172a' : textColor }}>Connected Email Accounts</span>
+            </div>
+            <button
+              onClick={onConnectEmail}
+              style={{ background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <span>+</span> Connect Email
+            </button>
+          </div>
+
+          {isLoadingEmailAccounts ? (
+            <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px', color: mutedColor }}>Loading accounts...</div>
+          ) : emailAccounts.length === 0 ? (
+            <div style={{ padding: '20px', background: isStandard ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+              <div style={{ fontSize: '13px', color: isStandard ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+              <div style={{ fontSize: '11px', color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {emailAccounts.map(account => (
+                <div
+                  key={account.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    border: account.status === 'active'
+                      ? (isStandard ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
+                      : (isStandard ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)'),
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>
+                      {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                    </span>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 500, color: isStandard ? '#0f172a' : textColor }}>
+                        {account.email || account.displayName}
+                      </div>
+                      <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
+                        <span style={{ color: isStandard ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
+                          {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onDisconnectEmail(account.id)}
+                    title="Disconnect"
+                    style={{ background: 'transparent', border: 'none', color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {emailAccounts.length > 0 && (
+            <div style={{ marginTop: '12px' }}>
+              <label style={labelStyle}>Send From:</label>
+              <select
+                value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                onChange={(e) => onSelectEmailAccount(e.target.value)}
+                style={{ ...inputStyle, cursor: 'pointer' }}
+              >
+                {emailAccounts.map(account => (
+                  <option key={account.id} value={account.id}>
+                    {account.email || account.displayName} ({account.provider})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Scrollable body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+        {/* Your Fingerprint — prominent */}
+        <div style={{
+          padding: '12px 14px',
+          background: isStandard ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.15)',
+          border: `2px solid ${isStandard ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.3)'}`,
+          borderRadius: '10px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              🔐 {TOOLTIPS.FINGERPRINT_TITLE}
+              <span style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }} title={TOOLTIPS.FINGERPRINT}>ⓘ</span>
+            </div>
+            <button
+              onClick={copyFingerprint}
+              style={{ padding: '4px 10px', fontSize: '10px', background: isStandard ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '4px', color: mutedColor, cursor: 'pointer' }}
+            >
+              {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
+            </button>
+          </div>
+          <div style={{ fontFamily: 'monospace', fontSize: '11px', color: textColor, wordBreak: 'break-all', lineHeight: 1.5 }}>
+            {formatFingerprintGrouped(ourFingerprint)}
+          </div>
+          <div style={{ marginTop: '8px', fontSize: '10px', color: isStandard ? '#9ca3af' : 'rgba(255,255,255,0.5)' }}>
+            Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort || formatFingerprintShort(ourFingerprint)}</span>
+          </div>
+        </div>
+
+        {/* Recipient — email only */}
+        {delivery === 'email' && (
+          <div>
+            <label style={labelStyle}>To:</label>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="recipient@example.com"
+              style={inputStyle}
+            />
+          </div>
+        )}
+
+        {/* Personal message */}
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+          <label style={labelStyle}>Message</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Add a personal note to your handshake request (optional)..."
+            style={{ ...inputStyle, minHeight: '100px', resize: 'vertical', lineHeight: 1.5 }}
+          />
+        </div>
+
+        {/* Context Graph — collapsible */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowContextGraph(v => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 12px',
+              background: showContextGraph
+                ? (isStandard ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
+                : (isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.06)'),
+              border: `1px solid ${showContextGraph
+                ? (isStandard ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.4)')
+                : borderColor}`,
+              borderRadius: '8px',
+              color: showContextGraph ? (isStandard ? '#7c3aed' : '#c4b5fd') : mutedColor,
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🗂 Attach Context Graph
+              <span style={{ fontSize: '10px', fontWeight: 400, opacity: 0.65 }}>(optional)</span>
+            </span>
+            <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲ Hide' : '▼ Add'}</span>
+          </button>
+
+          {showContextGraph && (
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ padding: '10px 12px', background: isStandard ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.12)', borderRadius: '8px', fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
+                ℹ️ A Context Graph embeds structured information into the handshake capsule. The recipient's BEAP engine will process it alongside the handshake.
+              </div>
+              <div>
+                <label style={labelStyle}>Block Type</label>
+                <select
+                  value={contextGraphType}
+                  onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json' | 'url')}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                >
+                  <option value="text">📝 Plain Text</option>
+                  <option value="json">📦 JSON / Structured Data</option>
+                  <option value="url">🔗 URL Reference</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>
+                  {contextGraphType === 'text' ? 'Context Content' : contextGraphType === 'json' ? 'JSON Payload' : 'URL'}
+                </label>
+                <textarea
+                  value={contextGraphText}
+                  onChange={(e) => setContextGraphText(e.target.value)}
+                  placeholder={
+                    contextGraphType === 'text'
+                      ? 'Enter context information to share with the recipient...'
+                      : contextGraphType === 'json'
+                      ? '{"key": "value", ...}'
+                      : 'https://...'
+                  }
+                  style={{
+                    ...inputStyle,
+                    minHeight: '80px',
+                    resize: 'vertical',
+                    lineHeight: 1.5,
+                    fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Policy note */}
+        <div style={{ padding: '10px 12px', background: isStandard ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.12)', borderRadius: '8px', fontSize: '11px', color: mutedColor }}>
+          🛡️ {POLICY_NOTES.LOCAL_OVERRIDE}
+        </div>
+
+        <div style={{ padding: '10px 12px', background: isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)', borderRadius: '8px', fontSize: '11px', color: mutedColor }}>
+          💡 Recipient will appear in your Handshakes once they accept. You can then send BEAP™ Messages directly via the Draft composer.
+        </div>
+
+        {/* Error / Success */}
+        {sendError && (
+          <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontSize: '12px', color: '#ef4444' }}>
+            ⚠️ {sendError}
+          </div>
+        )}
+        {sendSuccess && (
+          <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', fontSize: '12px', color: '#22c55e' }}>
+            ✓ Handshake request sent successfully!
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: '12px 14px', borderTop: sectionBorder, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+        <button
+          onClick={onCancel}
+          style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: '8px', color: mutedColor, fontSize: '12px', cursor: 'pointer' }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSend}
+          disabled={isSending}
+          style={{
+            padding: '8px 20px',
+            background: isSending ? 'rgba(139,92,246,0.5)' : 'linear-gradient(135deg,#8b5cf6,#7c3aed)',
+            border: 'none',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: isSending ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            opacity: isSending ? 0.7 : 1,
+          }}
+        >
+          {isSending
+            ? '⏳ Sending...'
+            : delivery === 'email'
+            ? '📧 Send Request'
+            : delivery === 'messenger'
+            ? '💬 Copy & Insert'
+            : '💾 Download'}
+        </button>
+      </div>
+    </div>
+  )
+}

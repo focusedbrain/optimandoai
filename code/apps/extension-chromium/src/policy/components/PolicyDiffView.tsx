@@ -6,6 +6,7 @@
 
 import type { CanonicalPolicy } from '../schema'
 import { RiskLabel } from './RiskLabel'
+import { getThemeTokens } from '../../shared/ui/lightboxTheme'
 
 interface PolicyDiffViewProps {
   policyA: CanonicalPolicy
@@ -23,11 +24,12 @@ interface DiffItem {
 }
 
 export function PolicyDiffView({ policyA, policyB, onClose, theme = 'default' }: PolicyDiffViewProps) {
-  const isDark = theme === 'default' || theme === 'dark'
-  const bgColor = isDark ? '#1e293b' : 'white'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+  const t = getThemeTokens(theme)
+  const isDark = !t.isLight
+  const bgColor = t.cardBg
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
 
   // Generate diff items
   const diffs = computeDiffs(policyA, policyB)
@@ -190,9 +192,9 @@ export function PolicyDiffView({ policyA, policyB, onClose, theme = 'default' }:
 }
 
 function ValueDisplay({ value, theme }: { value: unknown; theme?: string }) {
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
+  const t = getThemeTokens(theme ?? 'default')
+  const textColor = t.text
+  const mutedColor = t.textMuted
 
   if (value === undefined || value === null) {
     return <span style={{ color: mutedColor, fontStyle: 'italic' }}>—</span>

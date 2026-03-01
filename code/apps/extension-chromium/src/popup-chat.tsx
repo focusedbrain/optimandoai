@@ -26,6 +26,9 @@ import {
 import { WRGuardWorkspace } from './wrguard'
 import { formatFingerprintShort } from './handshake/fingerprint'
 import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
+import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
+import { useHandshakes } from './handshake/useHandshakes'
+import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import {
@@ -254,8 +257,10 @@ function PopupChatApp() {
   // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
-  
-  
+
+  // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
+  const { handshakes } = useHandshakes('active')
+
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
   const loadAvailableSessions = () => {
@@ -499,7 +504,28 @@ function PopupChatApp() {
     setIsSendingBeap(true)
     
     try {
-      // Build config for the package builder
+      // New path: if private mode with a handshake recipient, use handshake.refresh RPC
+      if (beapRecipientMode === 'private' && selectedRecipient && 'handshake_id' in selectedRecipient) {
+        const hsId = (selectedRecipient as any).handshake_id as string
+        const accountId = selectedEmailAccountId || 'default'
+        
+        const result = await sendViaHandshakeRefresh(hsId, { text: beapDraftMessage }, accountId)
+        
+        if (result.success) {
+          setToastMessage({ message: 'BEAP™ Message sent via handshake!', type: 'success' })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        } else {
+          setToastMessage({ message: result.error || 'Failed to send message', type: 'error' })
+        }
+        return
+      }
+
+      // Legacy path: use the package builder + delivery service
       // Extract CapsuleAttachment objects from draft attachments
       const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
       // Collect all raster page data as artefacts for the package
@@ -1210,11 +1236,22 @@ function PopupChatApp() {
         return <GroupChatPlaceholder theme={theme} />
       case 'handshake':
         return (
-          <HandshakeManagementPanel
-            fromAccountId={''}
-            theme="default"
-            onSendMessage={() => { setDockedSubmode('beap-draft') }}
-          />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), overflow: 'hidden' }}>
+            <HandshakeRequestForm
+              fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+              ourFingerprint={ourFingerprint}
+              ourFingerprintShort={ourFingerprintShort}
+              emailAccounts={emailAccounts}
+              isLoadingEmailAccounts={isLoadingEmailAccounts}
+              selectedEmailAccountId={selectedEmailAccountId}
+              onSelectEmailAccount={setSelectedEmailAccountId}
+              onConnectEmail={handleConnectEmail}
+              onDisconnectEmail={disconnectEmailAccount}
+              theme={theme}
+              onCancel={() => setDockedSubmode('command')}
+              onSuccess={() => setDockedSubmode('command')}
+            />
+          </div>
         )
       default:
         return <CommandChatView theme={theme} />

@@ -8,6 +8,8 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
+import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
+import type { ContextBlockInput } from '../rpcTypes'
 import {
   getThemeTokens,
   overlayStyle as themeOverlayStyle,
@@ -43,6 +45,11 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // Context Graph (optional — attached to handshake.initiate RPC)
+  const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphText, setContextGraphText] = useState('')
+  const [contextGraphType, setContextGraphType] = useState<'text' | 'json' | 'url'>('text')
+
   const t = getThemeTokens(theme)
 
   const handleSubmit = async () => {
@@ -61,8 +68,17 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
     setError(null)
 
     try {
+      // Build optional context blocks from the context graph section
+      let contextBlocks: ContextBlockInput[] | undefined
+      if (showContextGraph && contextGraphText.trim()) {
+        contextBlocks = await buildContextBlocks({
+          text: contextGraphText.trim(),
+          type: contextGraphType,
+        })
+      }
+
       const receiverUserId = recipientEmail.trim().toLowerCase()
-      const result = await initiateHandshake(receiverUserId, recipientEmail.trim(), fromAccountId)
+      const result = await initiateHandshake(receiverUserId, recipientEmail.trim(), fromAccountId, contextBlocks)
       setSuccess(true)
       onInitiated?.(result.handshake_id)
     } catch (err) {
@@ -147,6 +163,89 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               lineHeight: 1.5,
             }}>
               ℹ️ The recipient will receive an email with a handshake capsule. Once they accept, you can exchange secure BEAP messages.
+            </div>
+
+            {/* Context Graph — optional, collapsible */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowContextGraph(v => !v)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  background: showContextGraph ? 'rgba(129,140,248,0.12)' : 'rgba(129,140,248,0.05)',
+                  border: `1px solid ${showContextGraph ? 'rgba(129,140,248,0.35)' : 'rgba(129,140,248,0.18)'}`,
+                  borderRadius: '8px',
+                  color: showContextGraph ? t.text : t.textMuted,
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🗂 Attach Context Graph
+                  <span style={{ fontWeight: 400, opacity: 0.65, fontSize: '11px' }}>(optional)</span>
+                </span>
+                <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲' : '▼'}</span>
+              </button>
+
+              {showContextGraph && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: 'rgba(59,130,246,0.07)',
+                    border: '1px solid rgba(59,130,246,0.18)',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: t.textMuted,
+                    lineHeight: 1.5,
+                  }}>
+                    A Context Graph embeds structured information into the handshake capsule. The recipient's BEAP engine will process it alongside the handshake.
+                  </div>
+                  <div>
+                    <label style={themeLabelStyle(t)}>Block Type</label>
+                    <select
+                      value={contextGraphType}
+                      onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json' | 'url')}
+                      disabled={isSubmitting}
+                      style={themeInputStyle(t)}
+                    >
+                      <option value="text">📝 Plain Text</option>
+                      <option value="json">📦 JSON / Structured Data</option>
+                      <option value="url">🔗 URL Reference</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={themeLabelStyle(t)}>
+                      {contextGraphType === 'text' ? 'Context Content' : contextGraphType === 'json' ? 'JSON Payload' : 'URL'}
+                    </label>
+                    <textarea
+                      value={contextGraphText}
+                      onChange={(e) => setContextGraphText(e.target.value)}
+                      disabled={isSubmitting}
+                      placeholder={
+                        contextGraphType === 'text'
+                          ? 'Enter context information to share with the recipient...'
+                          : contextGraphType === 'json'
+                          ? '{"key": "value", ...}'
+                          : 'https://...'
+                      }
+                      rows={4}
+                      style={{
+                        ...themeInputStyle(t),
+                        resize: 'vertical',
+                        lineHeight: 1.5,
+                        fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
