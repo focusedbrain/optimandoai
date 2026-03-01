@@ -4171,7 +4171,7 @@ function initializeExtension() {
 
             <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
-              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#4CAF50' : '#f44336'}; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
+              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#4CAF50' : '${csTheme().isLight ? "#dc2626" : "#f87171"}'}; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
               
 
@@ -4264,7 +4264,7 @@ function initializeExtension() {
 
             // Update UI immediately
             toggle.textContent = newEnabled ? 'ON' : 'OFF'
-            toggle.style.background = newEnabled ? '#4CAF50' : '#f44336'
+            toggle.style.background = newEnabled ? '#4CAF50' : '${csTheme().isLight ? "#dc2626" : "#f87171"}'
 
             // Persist to storage
             ensureActiveSession((activeKey: string, session: any) => {
@@ -5659,7 +5659,7 @@ function initializeExtension() {
 
   function openAddAgentBoxDialog() {
 
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', '${csTheme().accent}', '${csTheme().accent}', '#9C27B0', '${csTheme().isLight ? "#dc2626" : "#f87171"}', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -5977,7 +5977,7 @@ function initializeExtension() {
 
           <button id="cancel-add-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
-          <button id="confirm-add-agent" style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Add Agent Box</button>
+          <button id="confirm-add-agent" style="padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Add Agent Box</button>
 
         </div>
 
@@ -6454,7 +6454,7 @@ function initializeExtension() {
 
   function openEditAgentBoxDialog(agentId: string) {
 
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', '${csTheme().accent}', '${csTheme().accent}', '#9C27B0', '${csTheme().isLight ? "#dc2626" : "#f87171"}', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -6637,12 +6637,12 @@ function initializeExtension() {
         
         <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: space-between;">
 
-          <button id="delete-agent-box" style="padding: 10px 20px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Delete</button>
+          <button id="delete-agent-box" style="padding: 10px 20px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Delete</button>
 
           <div style="display: flex; gap: 10px;">
             <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
-            <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
+            <button id="confirm-edit-agent" style="padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
           </div>
 
         </div>
@@ -6775,7 +6775,7 @@ function initializeExtension() {
 
           <input id="at-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#0f172a;color:#e2e8f0" />
 
-          <button id="at-add" disabled style="padding:8px 12px;background:#22c55e;border:none;color:#07210f;border-radius:8px;cursor:pointer;font-weight:700">Add</button>
+          <button id="at-add" disabled style="padding:8px 12px;background:${csTheme().accentGrad};border:none;color:#07210f;border-radius:8px;cursor:pointer;font-weight:700">Add</button>
 
         </div>
 
@@ -7906,7 +7906,7 @@ function initializeExtension() {
 
       <div style="display:flex; gap:6px; align-items:center;">
 
-        <button id="command-center-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
+        <button id="command-center-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
 
           💬
 
@@ -8064,7 +8064,7 @@ function initializeExtension() {
 
       <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
 
-      <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
+      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
 
     </div>
 
@@ -8096,7 +8096,7 @@ function initializeExtension() {
 
       
 
-      <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
+      <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
 
         🔗 WR Login
 
@@ -8150,13 +8150,13 @@ function initializeExtension() {
 
         <button id="add-helpergrid-btn" style="padding: 10px; background: #FF6B6B; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
 
-        <button id="sessions-history-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
+        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
 
-        <button id="save-session-btn" style="padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
+        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
 
-        <button id="sync-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
+        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
 
-        <button id="export-btn" style="padding: 10px; background: #FF9800; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
+        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
 
         <button id="import-btn" style="padding: 10px; background: #9C27B0; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
 
@@ -8196,7 +8196,7 @@ function initializeExtension() {
 
         <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥️ Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
 
-        <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
+        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
 
       </div>
 
@@ -8425,7 +8425,7 @@ function initializeExtension() {
 
         .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: ${csTheme().text}; }
 
-        .theme-pro .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-pro .chat-docked .chat-send { background:${csTheme().accentGrad}; border:1px solid #16a34a; color:#0b1e12; }
 
 
 
@@ -8441,7 +8441,7 @@ function initializeExtension() {
 
         .theme-dark .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
-        .theme-dark .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-dark .chat-docked .chat-send { background:${csTheme().accentGrad}; border:1px solid #16a34a; color:#0b1e12; }
 
 
 
@@ -9031,7 +9031,7 @@ function initializeExtension() {
 
       if (wrBtn) wrBtn.style.background = '#4CAF50'
 
-      if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
+      if (sessionsBtn) sessionsBtn.style.background = '${csTheme().accent}'
 
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
 
@@ -9470,7 +9470,7 @@ function initializeExtension() {
 
               <div style="display:flex; justify-content:flex-end; align-items:center;">
 
-                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
+                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
 
               </div>
 
@@ -9494,7 +9494,7 @@ function initializeExtension() {
 
               <div style="font-size:10px; opacity:0.9;">Draft and send a concise email.</div>
 
-              <button data-workflow="email" class="wf-action" style="padding:6px 8px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
+              <button data-workflow="email" class="wf-action" style="padding:6px 8px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
 
             </div>
 
@@ -11431,7 +11431,7 @@ function initializeExtension() {
 
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
 
-          <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agents-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -11473,7 +11473,7 @@ function initializeExtension() {
 
           <div id="add-agent-container" style="text-align: center; margin-top: 15px;">
 
-            <button id="add-new-agent" style="padding: 12px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            <button id="add-new-agent" style="padding: 12px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
               ➕ Add New Agent
 
@@ -11491,9 +11491,9 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📥 Input Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().muted};">📥 Input Coordinator (System Instructions)</label>
 
-                <button id="reload-input-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+                <button id="reload-input-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
               </div>
 
@@ -11507,9 +11507,9 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📤 Output Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().muted};">📤 Output Coordinator (System Instructions)</label>
 
-                <button id="reload-output-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+                <button id="reload-output-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
               </div>
 
@@ -11980,9 +11980,9 @@ function initializeExtension() {
 
       'summarize': '#4CAF50',
 
-      'research': '#2196F3',
+      'research': '${csTheme().accent}',
 
-      'analyze': '#FF9800',
+      'analyze': '${csTheme().accent}',
 
       'generate': '#9C27B0',
 
@@ -13173,7 +13173,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory:</label>
 
             <textarea id="agent-context" style="width: 100%; height: 180px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
 
@@ -13185,7 +13185,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory Allocation:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory Allocation:</label>
 
               <select id="agent-memory" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13207,7 +13207,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -13231,7 +13231,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⚡ Priority Level:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⚡ Priority Level:</label>
 
             <select id="agent-priority" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13251,7 +13251,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">🚀 Auto-Activation:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🚀 Auto-Activation:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 12px; cursor: pointer;">
 
@@ -13275,7 +13275,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⏱️ Response Delay:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⏱️ Response Delay:</label>
 
             <input type="number" id="agent-delay" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
 
@@ -13323,7 +13323,7 @@ function initializeExtension() {
 
           <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
 
-          <button id="close-agent-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agent-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -13347,7 +13347,7 @@ function initializeExtension() {
 
           <div style="display: flex; gap: 15px;">
             <button id="agent-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
-            <button id="agent-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
           </div>
 
         </div>
@@ -13513,7 +13513,7 @@ function initializeExtension() {
 
         del.title = 'Remove'
 
-        del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+        del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
 
         del.addEventListener('click', () => row.remove())
 
@@ -15099,7 +15099,7 @@ function initializeExtension() {
 
                 <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
               </div>
 
@@ -15311,7 +15311,7 @@ function initializeExtension() {
 
                       <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
                     </div>
 
@@ -15438,7 +15438,7 @@ function initializeExtension() {
 
                     <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
                   </div>
 
@@ -15634,7 +15634,7 @@ function initializeExtension() {
 
                             <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
                           </div>
 
@@ -16127,7 +16127,7 @@ function initializeExtension() {
           idRow.innerHTML = `
             <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
-            <button class="trigger-temp-save" style="margin-left:auto;background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
+            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
           `
           row.appendChild(idRow)
           
@@ -16142,7 +16142,7 @@ function initializeExtension() {
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               tempSaveBtn.textContent = '💾 Save'
-              tempSaveBtn.style.background = '#22c55e'
+              tempSaveBtn.style.background = '${csTheme().accent}'
             }, 1500)
             
             // Add persistent green checkmark indicator if not already present
@@ -16150,7 +16150,7 @@ function initializeExtension() {
               const checkmark = document.createElement('span')
               checkmark.className = 'trigger-saved-indicator'
               checkmark.textContent = '✓'
-              checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+              checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
               checkmark.title = 'Trigger saved'
               tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
             }
@@ -16270,7 +16270,7 @@ function initializeExtension() {
               const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
               
               securitySection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
@@ -16719,7 +16719,7 @@ function initializeExtension() {
               parserSection.className = 'trigger-section trigger-dom-parser-section'
               parserSection.style.cssText = 'padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;margin-bottom:10px'
               parserSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔍</span> DOM Parser
                   <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
                 </div>
@@ -17845,7 +17845,7 @@ function initializeExtension() {
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
           bottomSaveBtn.textContent = '💾 Save Trigger'
-          bottomSaveBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
+          bottomSaveBtn.style.cssText = 'background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
           bottomSaveRow.appendChild(bottomSaveBtn)
           row.appendChild(bottomSaveRow)
           
@@ -17859,7 +17859,7 @@ function initializeExtension() {
             bottomSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               bottomSaveBtn.textContent = '💾 Save Trigger'
-              bottomSaveBtn.style.background = '#22c55e'
+              bottomSaveBtn.style.background = '${csTheme().accent}'
             }, 1500)
             
             // Add persistent green checkmark to ID row if not already present
@@ -17869,7 +17869,7 @@ function initializeExtension() {
                 const checkmark = document.createElement('span')
                 checkmark.className = 'trigger-saved-indicator'
                 checkmark.textContent = '✓'
-                checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
                 checkmark.title = 'Trigger saved'
                 idRowEl.appendChild(checkmark)
               }
@@ -18533,7 +18533,7 @@ function initializeExtension() {
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
 
           del.addEventListener('click', () => row.remove())
 
@@ -18617,7 +18617,7 @@ function initializeExtension() {
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
 
           del.addEventListener('click', () => row.remove())
 
@@ -18642,7 +18642,7 @@ function initializeExtension() {
           if (checkbox && state) {
             const updateState = () => {
               state.textContent = checkbox.checked ? 'ON' : 'OFF'
-              state.style.background = checkbox.checked ? '#22c55e' : 'rgba(255,255,255,.15)'
+              state.style.background = checkbox.checked ? '${csTheme().accent}' : 'rgba(255,255,255,.15)'
             }
             checkbox.addEventListener('change', updateState)
             updateState() // Initialize
@@ -18870,7 +18870,7 @@ function initializeExtension() {
                   </div>
                 </div>
               </div>
-              <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+              <button class="R-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
             </div>
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
@@ -18961,7 +18961,7 @@ function initializeExtension() {
 
             const val = document.createElement('input'); val.placeholder='value'; val.style.cssText='background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
 
-            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
 
             row.appendChild(key); row.appendChild(val); row.appendChild(del)
 
@@ -19042,7 +19042,7 @@ function initializeExtension() {
                   </div>
                 </div>
               </div>
-              <button class="E-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+              <button class="E-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
             </div>
 
             <div style="margin-top:8px">
@@ -19152,7 +19152,7 @@ function initializeExtension() {
             const del = document.createElement('button')
             del.textContent = '×'
             del.title = 'Remove'
-            del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+            del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
             del.addEventListener('click', () => row.remove())
 
             row.appendChild(sel)
@@ -19433,7 +19433,7 @@ function initializeExtension() {
 
                     <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
                   </div>
 
@@ -20236,7 +20236,7 @@ function initializeExtension() {
                         const checkmark = document.createElement('span')
                         checkmark.className = 'trigger-saved-indicator'
                         checkmark.textContent = '✓'
-                        checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                        checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
                         checkmark.title = 'Trigger saved'
                         tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
                       }
@@ -20303,7 +20303,7 @@ function initializeExtension() {
 
                           <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
 
                         </div>
 
@@ -21845,7 +21845,7 @@ function initializeExtension() {
 
                         <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
+                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
 
                       </div>
 
@@ -22111,7 +22111,7 @@ function initializeExtension() {
 
                       <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
+                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
 
                     </div>
 
@@ -25214,7 +25214,7 @@ function initializeExtension() {
 
           transform: translate(-50%, -50%);
 
-          background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+          background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"} 0%, #d32f2f 100%);
 
           color: white;
 
@@ -25450,7 +25450,7 @@ function initializeExtension() {
 
           <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
 
-          <button id="close-add-agent" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-add-agent" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -25462,7 +25462,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🤖 Agent Name:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🤖 Agent Name:</label>
 
               <input type="text" id="new-agent-name" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
 
@@ -25472,7 +25472,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎨 Agent Icon:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎨 Agent Icon:</label>
 
               <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
 
@@ -25514,7 +25514,7 @@ function initializeExtension() {
 
           <button id="add-agent-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="add-agent-create" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
+          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
 
         </div>
 
@@ -25682,9 +25682,9 @@ function initializeExtension() {
 
           <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingWhitelist.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingWhitelist.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
 
         </div>
 
@@ -25702,7 +25702,7 @@ function initializeExtension() {
 
           <h2 style="margin: 0; font-size: 20px;">🛡️ URL Whitelist Configuration</h2>
 
-          <button id="close-whitelist-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-whitelist-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -25710,7 +25710,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Trusted URLs</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Desk features on. Use HTTPS URLs for security.</p>
 
@@ -25728,7 +25728,7 @@ function initializeExtension() {
 
               <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗑️ Clear All</button>
 
-              <button id="load-defaults" style="padding: 8px 16px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
+              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
 
             </div>
 
@@ -25738,7 +25738,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Security Information</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Security Information</h3>
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
@@ -25758,7 +25758,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="whitelist-save" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="whitelist-save" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             💾 Save Whitelist
 
@@ -26024,7 +26024,7 @@ function initializeExtension() {
 
           <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
 
-          <button id="close-context-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -26154,7 +26154,7 @@ function initializeExtension() {
 
                 <button id="load-wrcode-context" style="
 
-                  background: linear-gradient(135deg, #2196F3, #1976D2);
+                  background: linear-gradient(135deg, ${csTheme().accent}, #1976D2);
 
                   border: none; color: white; padding: 10px 20px; border-radius: 6px;
 
@@ -26260,7 +26260,7 @@ function initializeExtension() {
 
             <button id="save-context-btn" style="
 
-              background: linear-gradient(135deg, #2196F3, #1976D2);
+              background: linear-gradient(135deg, ${csTheme().accent}, #1976D2);
 
               border: none; color: white; padding: 15px 30px; border-radius: 10px;
 
@@ -26272,7 +26272,7 @@ function initializeExtension() {
 
             <button id="clear-context-btn" style="
 
-              background: linear-gradient(135deg, #f44336, #d32f2f);
+              background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f);
 
               border: none; color: white; padding: 15px 30px; border-radius: 10px;
 
@@ -26390,7 +26390,7 @@ function initializeExtension() {
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeUserPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
 
               </div>
 
@@ -26430,7 +26430,7 @@ function initializeExtension() {
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removePublisherPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
 
               </div>
 
@@ -26470,7 +26470,7 @@ function initializeExtension() {
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeAccountPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
 
               </div>
 
@@ -27338,7 +27338,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
 
-          <button id="close-memory-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-memory-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -27358,7 +27358,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
               <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -27366,7 +27366,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -27378,7 +27378,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-top: 12px;">
 
-              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
               <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -27396,7 +27396,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
               <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -27404,7 +27404,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -27480,7 +27480,7 @@ ${pageText}
 
           <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
-          <button id="memory-save" style="padding:10px 20px;background:#4CAF50;border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
 
         </div>
 
@@ -27662,7 +27662,7 @@ ${pageText}
 
             <div style="display:flex;gap:8px">
 
-              <button id="sess-accept-draft" style="padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Accept as Draft</button>
+              <button id="sess-accept-draft" style="padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Accept as Draft</button>
 
               <button id="sess-edit" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Edit</button>
 
@@ -27704,7 +27704,7 @@ ${pageText}
 
               </select>
 
-              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
 
             </div>
 
@@ -28172,7 +28172,7 @@ ${pageText}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
 
-            <h3 style="margin: 0; font-size: 16px; color: #FFD700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;">${app.title}</h3>
+            <h3 style="margin: 0; font-size: 16px; color: ${csTheme().muted}; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;">${app.title}</h3>
 
             <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
 
@@ -28280,7 +28280,7 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'account' ? 'background: rgba(255,215,0,0.4); color: #FFD700;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'account' ? 'background: rgba(255,215,0,0.4); color: ${csTheme().muted};' : 'background: transparent; color: rgba(255,255,255,0.5);'}
 
               ">🏢 Account</span>
 
@@ -28328,7 +28328,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
 
-          <button id="close-miniapps-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-miniapps-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -28484,7 +28484,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
 
@@ -28510,7 +28510,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -28524,7 +28524,7 @@ ${pageText}
 
                   <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
-                    <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
+                    <input type="radio" name="builder-scope" value="account" style="accent-color: ${csTheme().muted};">
 
                     <span style="font-size: 13px;">🏢 Account</span>
 
@@ -28536,7 +28536,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
 
@@ -28804,7 +28804,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="edit-title" type="text" style="
 
@@ -28830,7 +28830,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -28844,7 +28844,7 @@ ${pageText}
 
                   <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
-                    <input type="radio" name="edit-scope" value="account" style="accent-color: #FFD700;">
+                    <input type="radio" name="edit-scope" value="account" style="accent-color: ${csTheme().muted};">
 
                     <span style="font-size: 13px;">🏢 Account</span>
 
@@ -28856,7 +28856,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="edit-description" style="
 
@@ -29396,7 +29396,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+          '<div style="color: ${csTheme().muted}; margin-bottom: 8px;">' +
 
             '📱 Mini-App: <strong>' + title + '</strong>' +
 
@@ -29622,7 +29622,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+          '<div style="color: ${csTheme().muted}; margin-bottom: 8px;">' +
 
             '📱 Mini-App: <strong>' + title + '</strong>' +
 
@@ -29838,7 +29838,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
 
-          <button id="close-agent-memory" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agent-memory" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -31470,7 +31470,7 @@ ${pageText}
 
             <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
 
-          <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-settings-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
           </div>
 
@@ -31486,7 +31486,7 @@ ${pageText}
 
               <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💳 Account & Billing</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</h4>
 
                 <div id="account-balance" style="font-size: 12px; font-weight: 700;">Balance: $0.00</div>
 
@@ -31496,7 +31496,7 @@ ${pageText}
 
                 <button id="btn-payg" style="flex:1; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
 
-                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
+                <button id="btn-subscription" style="flex:1; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
 
               </div>
 
@@ -31512,19 +31512,19 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">🔑 API Keys</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">🔑 API Keys</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="add-custom-api-key" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
+                  <button id="add-custom-api-key" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
 
-                  <button id="save-api-keys" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                  <button id="save-api-keys" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
 
                 </div>
 
               </div>
 
-              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(76,175,80,0.20); border:1px solid rgba(76,175,80,0.35); border-radius:6px;">
+              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:6px;">
 
                 BYOK is supported on all plans. Enter your API keys above and click Save.
 
@@ -31538,7 +31538,7 @@ ${pageText}
 
                   <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31548,7 +31548,7 @@ ${pageText}
 
                   <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31558,7 +31558,7 @@ ${pageText}
 
                   <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31568,7 +31568,7 @@ ${pageText}
 
                   <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31584,13 +31584,13 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💻 Local LLMs</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💻 Local LLMs</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="add-local-llm-row" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
+                  <button id="add-local-llm-row" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
 
-                  <button id="save-local-llms" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                  <button id="save-local-llms" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
 
                 </div>
 
@@ -31602,15 +31602,15 @@ ${pageText}
 
 
 
-              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.25);">
+              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed ${csTheme().border};">
 
                 <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px;">
 
                   <div style="display:flex; align-items:center; gap:6px;">
 
-                    <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned local LLMs</span>
+                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">🎛️ Finetuned local LLMs</span>
 
-                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid ${csTheme().border}; color:white; padding:2px 6px; border-radius:999px;">PRO</span>
+                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color:${csTheme().accent}; padding:2px 6px; border-radius:999px;">PRO</span>
 
                   </div>
 
@@ -31620,7 +31620,7 @@ ${pageText}
 
                   🔒 Finetuned models are available for Pro subscribers.
 
-                  <button id="unlock-finetuned" style="margin-left: 8px; background: #22c55e; border: none; color: #0b1e12; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
+                  <button id="unlock-finetuned" style="margin-left: 8px; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
 
                 </div>
 
@@ -31642,7 +31642,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
 
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
 
@@ -31666,7 +31666,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
 
               <div style="font-size: 10px;">
 
@@ -31686,7 +31686,7 @@ ${pageText}
 
                 </div>
 
-                <button style="width: 100%; padding: 6px; background: #4CAF50; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
+                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
 
               </div>
 
@@ -31702,7 +31702,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚡ Performance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
 
               <div style="font-size: 10px;">
 
@@ -31750,7 +31750,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔒 Privacy & Security</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
 
               <div style="font-size: 10px;">
 
@@ -31808,15 +31808,15 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📦 Backup</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📦 Backup</h4>
 
               <div style="font-size: 10px;">
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #FF9800; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
 
-                <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
+                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
 
               </div>
 
@@ -32112,7 +32112,7 @@ ${pageText}
 
           <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
           <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>
 
@@ -32622,7 +32622,7 @@ ${pageText}
 
                   '<input id="custom-topup" type="number" min="10" step="1" placeholder="Custom amount (min $10)" style="flex:1;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px;border-radius:6px;font-size:11px" />' +
 
-                  '<button id="topup-now" style="background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>' +
+                  '<button id="topup-now" style="background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>' +
 
                 '</div>' +
 
@@ -32743,7 +32743,7 @@ ${pageText}
             .wr-plan-card ul li { margin-bottom: 2px; }
             .wr-plan-card .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
             .wr-plan-card .toggle-btn { flex: 1; border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
-            .wr-plan-card .toggle-btn.active { background: #22c55e; color: #0b1e12; border: 0; }
+            .wr-plan-card .toggle-btn.active { background:${csTheme().accentGrad}; color: #0b1e12; border: 0; }
             .wr-plan-card .toggle-btn:not(.active) { background: rgba(255,255,255,.15); border: 1px solid ${csTheme().border}; color: #fff; }
             .wr-plan-card .cta-btn { width: 100%; border: 0; color: white; border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer; margin-top: auto; font-weight: 600; }
             .wr-plan-note { font-size: 10px; opacity: .8; margin-top: 6px; line-height: 1.4; }
@@ -32754,7 +32754,7 @@ ${pageText}
         // Affiliate Founders Pack HTML - ONLY shown if isAffiliateAttributed === true
         // By default this is NOT rendered at all for normal users
         const affiliateFoundersPackHtml = isAffiliateAttributed ? `
-          <div style="font-weight:700;font-size:11px;color:#22c55e;margin-bottom:6px">Affiliate Founders Pack</div>
+          <div style="font-weight:700;font-size:11px;color:${csTheme().accent};margin-bottom:6px">Affiliate Founders Pack</div>
           <ul style="margin:0 0 0 16px;padding:0;font-size:10px;line-height:1.5">
             <li>Exclusive templates (Founders Pack)</li>
             <li>Founding User badge</li>
@@ -32832,7 +32832,7 @@ ${pageText}
               '</div>' +
               // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
-                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
+                '<div style="position:absolute;top:-10px;right:12px;background:${csTheme().accentGrad};color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
                 '<h3>Publisher</h3>' +
                 '<div id="publisher-price" class="price">' + PLAN_CONFIG.publisher.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
@@ -33139,7 +33139,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">🖥️ Display Ports Configuration</h2>
 
-          <button id="close-display-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-display-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -33153,7 +33153,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port #1</h4>
+              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🖥️ Display Port #1</h4>
 
               <div style="font-size: 12px;">
 
@@ -33225,7 +33225,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #2</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥️ Display Port #2</h4>
 
               <div style="font-size: 10px;">
 
@@ -33297,7 +33297,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #3</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥️ Display Port #3</h4>
 
               <div style="font-size: 10px;">
 
@@ -33369,7 +33369,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #4</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥️ Display Port #4</h4>
 
               <div style="font-size: 10px;">
 
@@ -33439,7 +33439,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #5</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥️ Display Port #5</h4>
 
               <div style="font-size: 10px;">
 
@@ -33511,7 +33511,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📺 Monitor Output</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📺 Monitor Output</h4>
 
               <div style="font-size: 10px;">
 
@@ -33565,7 +33565,7 @@ ${pageText}
 
           <button id="display-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="display-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
+          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
 
         </div>
 
@@ -33711,7 +33711,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
 
-          <button id="close-helpergrid-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-helpergrid-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -33725,7 +33725,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Web Sources</h3>
 
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
@@ -33745,7 +33745,7 @@ ${pageText}
 
             <div id="add-hybrid-grid-config" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Add Master View</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Add Master View</h3>
 
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
@@ -33765,7 +33765,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Browser</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Display Grid Browser</h3>
 
               <div id="display-grid-browser-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
@@ -33787,7 +33787,7 @@ ${pageText}
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="helpergrid-close" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="helpergrid-close" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             ✅ Close Configuration
 
@@ -33865,9 +33865,9 @@ ${pageText}
 
           <input type="url" class="helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
 
               </div>
 
@@ -33901,7 +33901,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
 
-          <button id="close-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
           </div>
 
@@ -33909,7 +33909,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">URLs Configuration</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">URLs Configuration</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add up to 10 URLs that will open in separate tabs when activated.</p>
 
@@ -33927,7 +33927,7 @@ ${pageText}
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="save-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="save-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             🚀 Save & Open Web Sources
 
@@ -34273,7 +34273,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 18px;">🖥️ Add Master Tabs</h2>
 
-          <button id="close-hybrid-select" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-hybrid-select" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -34301,7 +34301,7 @@ ${pageText}
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="hybrid-save-open" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
+          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
 
         </div>
 
@@ -34555,7 +34555,7 @@ ${pageText}
 
         note.textContent = `✅ Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
 
-        note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+        note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
         document.body.appendChild(note)
 
@@ -34633,7 +34633,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 22px;">🗂️ Display Grid Browser Layouts</h2>
 
-          <button id="close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -34649,19 +34649,19 @@ ${pageText}
 
             <div id="btn-2-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-2-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">2-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">2-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34671,7 +34671,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Secondary</p>
 
-              <select id="select-2-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-2-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34691,19 +34691,19 @@ ${pageText}
 
             <div id="btn-3-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-3-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">3-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">3-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34715,7 +34715,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Primary + Dual</p>
 
-              <select id="select-3-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-3-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34735,19 +34735,19 @@ ${pageText}
 
             <div id="btn-4-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-4-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">4-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">4-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34761,7 +34761,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
 
-              <select id="select-4-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-4-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34783,19 +34783,19 @@ ${pageText}
 
             <div id="btn-5-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-5-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">5-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">5-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34811,7 +34811,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
 
-              <select id="select-5-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-5-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34829,19 +34829,19 @@ ${pageText}
 
             <div id="btn-6-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-6-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">6-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">6-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34859,7 +34859,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
 
-              <select id="select-6-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-6-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34879,19 +34879,19 @@ ${pageText}
 
             <div id="btn-7-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-7-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">7-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">7-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34911,7 +34911,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Grid</p>
 
-              <select id="select-7-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-7-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34933,19 +34933,19 @@ ${pageText}
 
             <div id="btn-8-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-8-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">8-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">8-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
 
@@ -34967,7 +34967,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">4x2 Grid</p>
 
-              <select id="select-8-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-8-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34987,19 +34987,19 @@ ${pageText}
 
             <div id="btn-9-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-9-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">9-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">9-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
 
@@ -35023,7 +35023,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x3 Grid</p>
 
-              <select id="select-9-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-9-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -35043,19 +35043,19 @@ ${pageText}
 
             <div id="btn-10-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-10-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">10-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">10-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#7</div>
 
@@ -35081,7 +35081,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">5x2 Grid</p>
 
-              <select id="select-10-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-10-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -35563,7 +35563,7 @@ ${pageText}
 
             note.textContent = '✅ Display grids added to session'
 
-            note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+            note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
             document.body.appendChild(note)
 
@@ -35659,7 +35659,7 @@ ${pageText}
 
         position: fixed; top: 20px; right: 20px; z-index: 2147483650;
 
-        background: #4CAF50; color: white; padding: 12px 20px;
+        background:${csTheme().accentGrad}; color: white; padding: 12px 20px;
 
         border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 
@@ -35997,7 +35997,7 @@ ${pageText}
 
       position: fixed; top: 20px; right: 20px; z-index: 2147483650;
 
-      background: #4CAF50; color: white; padding: 12px 20px;
+      background:${csTheme().accentGrad}; color: white; padding: 12px 20px;
 
       border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 
@@ -37029,7 +37029,7 @@ ${pageText}
 
           note.textContent = '✅ Grid config saved to session history'
 
-          note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+          note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
           document.body.appendChild(note)
 
@@ -37259,7 +37259,7 @@ ${pageText}
 
               note.textContent = '✅ Grid config saved to session'
 
-              note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+              note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
               document.body.appendChild(note)
 
@@ -37651,7 +37651,7 @@ ${pageText}
 
             <span style="font-size:11px;opacity:.7">${t.cat}</span>
 
-            <button class="tl-add" data-id="${t.id}" style="padding:6px 10px;background:#22c55e;border:none;color:#07210f;border-radius:6px;cursor:pointer;font-weight:700">Add</button>
+            <button class="tl-add" data-id="${t.id}" style="padding:6px 10px;background:${csTheme().accentGrad};border:none;color:#07210f;border-radius:6px;cursor:pointer;font-weight:700">Add</button>
 
           </div>
 
@@ -38077,7 +38077,7 @@ ${pageText}
 
                            placeholder="Click to edit session name" />
 
-                    ${session.isActive ? '<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>' : ''}
+                    ${session.isActive ? '<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>' : ''}
 
                     <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: #FFB366; font-size: 14px; cursor: pointer; transition: all 0.2s ease; z-index: 2;" title="Click to save">💾</span>
 
@@ -38095,11 +38095,11 @@ ${pageText}
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
 
-                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
                 <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Agent Box Overview" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">📦</button>
 
-                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
+                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
 
         </div>
 
@@ -38287,7 +38287,7 @@ ${pageText}
 
             <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
 
-            <button id="close-sessions-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+            <button id="close-sessions-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
           </div>
 
@@ -38303,7 +38303,7 @@ ${pageText}
 
           <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-            <button id="clear-all-sessions" style="padding: 12px 30px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            <button id="clear-all-sessions" style="padding: 12px 30px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
               🗑️ Clear All Sessions
 
@@ -39527,7 +39527,7 @@ ${pageText}
 
             <div>Session not found</div>
 
-            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">Close</button>
+            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer;">Close</button>
 
           </div>
 
@@ -40033,7 +40033,7 @@ ${pageText}
 
                   <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
 
-                  <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
+                  <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
 
                     💾 Save as Agent
 
@@ -40137,7 +40137,7 @@ ${pageText}
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Draft and send a concise email.</div>
 
-                <button data-workflow="email" class="wf-action" style="padding:10px 14px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
+                <button data-workflow="email" class="wf-action" style="padding:10px 14px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
 
               </div>
 
@@ -40373,9 +40373,9 @@ ${pageText}
 
           <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-edit-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-edit-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-edit-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${currentUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-edit-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${currentUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
 
         </div>
 
@@ -40393,7 +40393,7 @@ ${pageText}
 
           <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
 
-          <button id="close-edit-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-edit-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
 
         </div>
 
@@ -40401,7 +40401,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources URLs</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Web Sources URLs</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Edit the URLs that will open when this session is restored.</p>
 
@@ -40421,7 +40421,7 @@ ${pageText}
 
           <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
 
-          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
+          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
 
         </div>
 
@@ -43078,7 +43078,7 @@ ${pageText}
 
           <button id="ing-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:white;cursor:pointer">Cancel</button>
 
-          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Embed</button>
+          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:${csTheme().accentGrad};color:#0b1e12;cursor:pointer">Embed</button>
 
         </div>`
 
@@ -45368,7 +45368,7 @@ function checkForElectronGridConfig() {
 
       note.textContent = '✅ Saved grid to session via Electron app'
 
-      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
       document.body.appendChild(note)
 
@@ -45474,7 +45474,7 @@ function handleElectronGridSave(config: any) {
 
   note.textContent = '✅ Saved grid to session via Electron app'
 
-  note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+  note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
   document.body.appendChild(note)
 
