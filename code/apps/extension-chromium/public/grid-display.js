@@ -40,23 +40,31 @@ const layouts = {
 
 const config = layouts[layout] || layouts['4-slot'];
 
-// Theme configuration
-let bodyBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
-let bodyText = '#ffffff';
-let headerColor = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
-let textColor = 'white';
-let slotBg = 'white';
+// Normalise theme aliases
+const resolvedTheme = (theme === 'default' || theme === 'pro') ? 'pro'
+    : (theme === 'professional') ? 'standard'
+    : theme; // 'standard' | 'dark'
 
-if (theme === 'dark') {
+// Theme configuration
+let bodyBg, bodyText, headerColor, textColor, slotBg;
+
+if (resolvedTheme === 'dark') {
     bodyBg = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
     bodyText = '#e5e7eb';
     headerColor = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
     textColor = '#e5e7eb';
     slotBg = 'rgba(255,255,255,0.06)';
-} else if (theme === 'professional') {
+} else if (resolvedTheme === 'pro') {
+    bodyBg = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
+    bodyText = '#ffffff';
+    headerColor = 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #9333ea 100%)';
+    textColor = 'white';
+    slotBg = 'rgba(255,255,255,0.12)';
+} else {
+    // standard (default)
     bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
     bodyText = '#0f172a';
-    headerColor = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
+    headerColor = 'linear-gradient(135deg, #e0e7ef 0%, #cbd5e1 100%)';
     textColor = '#0f172a';
     slotBg = 'white';
 }
@@ -206,9 +214,10 @@ function createSlots(slotCount, savedSlots) {
         }
         
         const slot = document.createElement('div');
+        const slotBorder = resolvedTheme === 'standard' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.14)';
         slot.style.cssText = `
             background: ${slotBg} !important;
-            border: 1px solid rgba(255,255,255,0.14);
+            border: ${slotBorder};
             border-radius: 8px;
             display: flex;
             flex-direction: column;
@@ -256,7 +265,7 @@ function createSlots(slotCount, savedSlots) {
                     <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 18px; transition: 0.3s;"></span>
                     <span style="position: absolute; content: ''; height: 12px; width: 12px; left: 17px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 2px rgba(0,0,0,0.3);"></span>
                 </label>
-                <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${theme === 'professional' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
+                <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${resolvedTheme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
             </div>
         `;
         
@@ -266,7 +275,7 @@ function createSlots(slotCount, savedSlots) {
         
         // Create content div
         const content = document.createElement('div');
-        const contentColor = theme === 'dark' ? '#e5e7eb' : (theme === 'professional' ? '#1e293b' : '#333');
+        const contentColor = resolvedTheme === 'dark' ? '#e5e7eb' : (resolvedTheme === 'standard' ? '#1e293b' : '#ffffff');
         content.style.cssText = `
             flex: 1; 
             display: flex; 

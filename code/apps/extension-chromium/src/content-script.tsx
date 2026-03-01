@@ -36306,7 +36306,7 @@ ${pageText}
 
     // Get current theme
 
-    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
 
     console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
 
