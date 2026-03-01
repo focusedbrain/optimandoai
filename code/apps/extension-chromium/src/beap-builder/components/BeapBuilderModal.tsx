@@ -18,6 +18,23 @@ import React, { useMemo } from 'react'
 import { useBeapBuilder, analyzeModeTriggers } from '../useBeapBuilder'
 import { usePolicyStore } from '../../policy/store/usePolicyStore'
 import type { BuilderAttachment, ExplicitModeReason } from '../types'
+import {
+  getThemeTokens,
+  overlayStyle,
+  panelStyle,
+  headerStyle,
+  headerTitleStyle,
+  headerMainTitleStyle,
+  headerSubtitleStyle,
+  closeButtonStyle,
+  bodyStyle,
+  cardStyle,
+  inputStyle,
+  labelStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  notificationStyle,
+} from '../../shared/ui/lightboxTheme'
 
 interface BeapBuilderModalProps {
   theme?: 'default' | 'dark' | 'professional'
@@ -72,13 +89,8 @@ export function BeapBuilderModal({ theme = 'default', onClose, onBuild }: BeapBu
   }, [draft, automationConfig, customPolicy, baselinePolicy])
   
   if (!isOpen) return null
-  
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const bgColor = isDark ? '#1e293b' : '#ffffff'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const cardBg = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)'
+
+  const t = getThemeTokens(theme)
   
   const handleBuild = async () => {
     const result = await buildExplicit({
@@ -122,398 +134,221 @@ export function BeapBuilderModal({ theme = 'default', onClose, onBuild }: BeapBu
     event.target.value = ''
   }
   
+  const buildDisabled = isBuilding || !draft.target || !draft.subject
+
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      zIndex: 10000,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'rgba(0, 0, 0, 0.6)',
-      backdropFilter: 'blur(4px)'
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '560px',
-        maxHeight: '80vh',
-        background: bgColor,
-        borderRadius: '16px',
-        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
+    <div style={overlayStyle(t)}>
+      <div style={panelStyle(t)}>
         {/* Header */}
-        <div style={{
-          padding: '16px 20px',
-          borderBottom: `1px solid ${borderColor}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '20px' }}>📦</span>
+        <div style={headerStyle(t)}>
+          <div style={headerTitleStyle()}>
+            <span style={{ fontSize: '22px', flexShrink: 0 }}>📦</span>
             <div>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: textColor }}>
-                BEAP™ Builder
-              </h3>
-              <p style={{ margin: 0, fontSize: '11px', color: mutedColor }}>
-                Configure package permissions and automation
-              </p>
+              <p style={headerMainTitleStyle()}>BEAP™ Builder</p>
+              <p style={headerSubtitleStyle()}>Configure package permissions and automation</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: mutedColor,
-              fontSize: '20px',
-              cursor: 'pointer',
-              padding: '4px',
-              lineHeight: 1
-            }}
+            style={closeButtonStyle(t)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = t.closeHoverBg; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = t.closeBg; }}
           >
             ×
           </button>
         </div>
-        
+
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-          {/* Context Badge */}
-          {context && (
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              background: cardBg,
-              borderRadius: '20px',
-              fontSize: '11px',
-              color: mutedColor,
-              marginBottom: '16px'
-            }}>
-              <span>From:</span>
-              <span style={{ fontWeight: 600, color: textColor }}>
-                {context.source === 'wr-chat' && '💬 WR Chat'}
-                {context.source === 'drafts' && '📝 Drafts'}
-                {context.source === 'inbox' && '📥 Inbox'}
-                {context.source === 'content-script' && '🌐 Page'}
-              </span>
-            </div>
-          )}
-          
-          {/* Handshake Info */}
-          {selectedHandshake && (
-            <div style={{
-              padding: '12px 14px',
-              background: isDark ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.05)',
-              border: `1px solid ${isDark ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)'}`,
-              borderRadius: '10px',
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <span style={{ fontSize: '16px' }}>🤝</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>
-                  {selectedHandshake.displayName}
-                </div>
-                <div style={{ fontSize: '11px', color: mutedColor, fontFamily: 'monospace' }}>
-                  {selectedHandshake.fingerprint_short}
-                </div>
-              </div>
-              <span style={{
-                fontSize: '10px',
-                fontWeight: 600,
-                color: selectedHandshake.automation_mode === 'ALLOW' ? '#22c55e' : '#f59e0b',
-                background: selectedHandshake.automation_mode === 'ALLOW' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                padding: '3px 8px',
-                borderRadius: '10px'
+        <div style={bodyStyle(t)}>
+          <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Context Badge */}
+            {context && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 12px',
+                background: t.cardBg,
+                border: `1px solid ${t.border}`,
+                borderRadius: '20px',
+                fontSize: '11px',
+                color: t.textMuted,
+                alignSelf: 'flex-start',
               }}>
-                {selectedHandshake.automation_mode}
-              </span>
-            </div>
-          )}
-          
-          {/* Mode Triggers (why explicit mode) */}
-          {modeAnalysis.explicitReasons.length > 0 && (
-            <div style={{
-              padding: '12px 14px',
-              background: isDark ? 'rgba(251, 146, 60, 0.1)' : 'rgba(251, 146, 60, 0.05)',
-              border: `1px solid ${isDark ? 'rgba(251, 146, 60, 0.3)' : 'rgba(251, 146, 60, 0.2)'}`,
-              borderRadius: '10px',
-              marginBottom: '16px'
-            }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#fb923c', marginBottom: '8px' }}>
-                ⚡ Explicit Mode Required
+                <span>From:</span>
+                <span style={{ fontWeight: 600, color: t.text }}>
+                  {context.source === 'wr-chat' && '💬 WR Chat'}
+                  {context.source === 'drafts' && '📝 Drafts'}
+                  {context.source === 'inbox' && '📥 Inbox'}
+                  {context.source === 'content-script' && '🌐 Page'}
+                </span>
               </div>
-              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: mutedColor }}>
-                {modeAnalysis.explicitReasons.map(reason => (
-                  <li key={reason} style={{ marginBottom: '2px' }}>
-                    {REASON_LABELS[reason]}
-                  </li>
-                ))}
-              </ul>
+            )}
+
+            {/* Handshake Info */}
+            {selectedHandshake && (
+              <div style={{
+                ...cardStyle(t),
+                background: 'rgba(34,197,94,0.09)',
+                border: '1px solid rgba(34,197,94,0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}>
+                <span style={{ fontSize: '16px' }}>🤝</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: t.text }}>{selectedHandshake.displayName}</div>
+                  <div style={{ fontSize: '11px', color: t.textMuted, fontFamily: 'monospace' }}>{selectedHandshake.fingerprint_short}</div>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  color: selectedHandshake.automation_mode === 'ALLOW' ? t.success : t.warning,
+                  background: selectedHandshake.automation_mode === 'ALLOW' ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)',
+                  padding: '3px 8px',
+                  borderRadius: '10px',
+                }}>
+                  {selectedHandshake.automation_mode}
+                </span>
+              </div>
+            )}
+
+            {/* Explicit Mode Reasons */}
+            {modeAnalysis.explicitReasons.length > 0 && (
+              <div style={{
+                padding: '12px 14px',
+                background: 'rgba(251,146,60,0.10)',
+                border: '1px solid rgba(251,146,60,0.3)',
+                borderRadius: '10px',
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: t.warning, marginBottom: '8px' }}>
+                  ⚡ Explicit Mode Required
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11px', color: t.textMuted }}>
+                  {modeAnalysis.explicitReasons.map(reason => (
+                    <li key={reason} style={{ marginBottom: '2px' }}>{REASON_LABELS[reason]}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Recipient */}
+            <div>
+              <label style={labelStyle(t)}>Recipient</label>
+              <input type="text" value={draft.target} onChange={(e) => updateDraft({ target: e.target.value })}
+                placeholder="Email or identifier..." style={inputStyle(t)} />
             </div>
-          )}
-          
-          {/* Target */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>
-              Recipient
-            </label>
-            <input
-              type="text"
-              value={draft.target}
-              onChange={(e) => updateDraft({ target: e.target.value })}
-              placeholder="Email or identifier..."
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: '13px',
-                background: cardBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                color: textColor,
-                outline: 'none'
-              }}
-            />
-          </div>
-          
-          {/* Subject */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>
-              Subject
-            </label>
-            <input
-              type="text"
-              value={draft.subject}
-              onChange={(e) => updateDraft({ subject: e.target.value })}
-              placeholder="Package subject..."
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: '13px',
-                background: cardBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                color: textColor,
-                outline: 'none'
-              }}
-            />
-          </div>
-          
-          {/* Body */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>
-              Content
-            </label>
-            <textarea
-              value={draft.body}
-              onChange={(e) => updateDraft({ body: e.target.value })}
-              placeholder="Package content..."
-              rows={4}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: '13px',
-                background: cardBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                color: textColor,
-                outline: 'none',
-                resize: 'vertical',
-                fontFamily: 'inherit'
-              }}
-            />
-          </div>
-          
-          {/* Attachments */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>
-              Attachments
-            </label>
-            
-            {draft.attachments.length > 0 && (
-              <div style={{ marginBottom: '10px' }}>
-                {draft.attachments.map(att => (
-                  <div
-                    key={att.id}
-                    style={{
+
+            {/* Subject */}
+            <div>
+              <label style={labelStyle(t)}>Subject</label>
+              <input type="text" value={draft.subject} onChange={(e) => updateDraft({ subject: e.target.value })}
+                placeholder="Package subject..." style={inputStyle(t)} />
+            </div>
+
+            {/* Body */}
+            <div>
+              <label style={labelStyle(t)}>Content</label>
+              <textarea
+                value={draft.body}
+                onChange={(e) => updateDraft({ body: e.target.value })}
+                placeholder="Package content..."
+                rows={5}
+                style={{ ...inputStyle(t), resize: 'vertical', fontFamily: 'inherit', minHeight: '100px' }}
+              />
+            </div>
+
+            {/* Attachments */}
+            <div>
+              <label style={labelStyle(t)}>Attachments</label>
+              {draft.attachments.length > 0 && (
+                <div style={{ marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {draft.attachments.map(att => (
+                    <div key={att.id} style={{
+                      ...cardStyle(t),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      background: cardBg,
-                      border: `1px solid ${borderColor}`,
-                      borderRadius: '6px',
-                      marginBottom: '6px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '14px' }}>
-                        {att.isMedia ? '🖼️' : '📎'}
-                      </span>
-                      <span style={{ fontSize: '12px', color: textColor }}>{att.name}</span>
-                      <span style={{ fontSize: '10px', color: mutedColor }}>
-                        ({(att.size / 1024).toFixed(1)} KB)
-                      </span>
+                      padding: '8px 12px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '14px' }}>{att.isMedia ? '🖼️' : '📎'}</span>
+                        <span style={{ fontSize: '12px', color: t.text }}>{att.name}</span>
+                        <span style={{ fontSize: '10px', color: t.textMuted }}>({(att.size / 1024).toFixed(1)} KB)</span>
+                      </div>
+                      <button onClick={() => removeAttachment(att.id)} style={{ background: 'none', border: 'none', color: t.error, fontSize: '16px', cursor: 'pointer' }}>×</button>
                     </div>
-                    <button
-                      onClick={() => removeAttachment(att.id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#ef4444',
-                        fontSize: '14px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
+                  ))}
+                </div>
+              )}
+              <label style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                background: t.cardBg,
+                border: `1px dashed ${t.border}`,
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: t.textMuted,
+                cursor: 'pointer',
+              }}>
+                <input type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+                <span>📎</span>
+                <span>Add files</span>
+              </label>
+            </div>
+
+            {/* Automation Toggle */}
+            <div style={cardStyle(t)}>
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: t.text }}>🤖 Enable Automation</div>
+                  <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '2px' }}>Allow package to execute automated actions</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={automationConfig.enabled}
+                  onChange={(e) => setAutomationConfig({ enabled: e.target.checked })}
+                  style={{ width: '17px', height: '17px', cursor: 'pointer', accentColor: t.accentColor }}
+                />
+              </label>
+              {automationConfig.enabled && !selectedHandshake && (
+                <div style={{ ...notificationStyle('error'), marginTop: '10px', fontSize: '11px' }}>
+                  ⚠️ No handshake selected. Automation requires explicit consent from recipient.
+                </div>
+              )}
+            </div>
+
+            {/* Validation Errors */}
+            {validationErrors.length > 0 && (
+              <div style={notificationStyle('error')}>
+                {validationErrors.map((error, i) => (
+                  <div key={i} style={{ fontSize: '12px' }}>⚠️ {error}</div>
                 ))}
               </div>
             )}
-            
-            <label style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 14px',
-              background: cardBg,
-              border: `1px dashed ${borderColor}`,
-              borderRadius: '8px',
-              fontSize: '12px',
-              color: mutedColor,
-              cursor: 'pointer'
-            }}>
-              <input
-                type="file"
-                multiple
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
-              />
-              <span>📎</span>
-              <span>Add files</span>
-            </label>
           </div>
-          
-          {/* Automation Toggle */}
-          <div style={{
-            padding: '12px 14px',
-            background: cardBg,
-            border: `1px solid ${borderColor}`,
-            borderRadius: '10px',
-            marginBottom: '16px'
-          }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer'
-            }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>
-                  🤖 Enable Automation
-                </div>
-                <div style={{ fontSize: '11px', color: mutedColor, marginTop: '2px' }}>
-                  Allow package to execute automated actions
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={automationConfig.enabled}
-                onChange={(e) => setAutomationConfig({ enabled: e.target.checked })}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-            </label>
-            
-            {automationConfig.enabled && !selectedHandshake && (
-              <div style={{
-                marginTop: '10px',
-                padding: '8px 10px',
-                background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '6px',
-                fontSize: '11px',
-                color: '#ef4444'
-              }}>
-                ⚠️ No handshake selected. Automation requires explicit consent from recipient.
-              </div>
-            )}
-          </div>
-          
-          {/* Validation Errors */}
-          {validationErrors.length > 0 && (
-            <div style={{
-              padding: '12px 14px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: '10px',
-              marginBottom: '16px'
-            }}>
-              {validationErrors.map((error, i) => (
-                <div key={i} style={{ fontSize: '12px', color: '#ef4444' }}>
-                  ⚠️ {error}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-        
+
         {/* Footer */}
         <div style={{
           padding: '16px 20px',
-          borderTop: `1px solid ${borderColor}`,
+          borderTop: `1px solid ${t.border}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
           gap: '10px',
-          background: cardBg
+          background: t.cardBg,
+          flexShrink: 0,
         }}>
-          <button
-            onClick={handleClose}
-            style={{
-              padding: '10px 16px',
-              fontSize: '13px',
-              fontWeight: 500,
-              background: 'transparent',
-              border: `1px solid ${borderColor}`,
-              borderRadius: '8px',
-              color: textColor,
-              cursor: 'pointer'
-            }}
-          >
-            Cancel
-          </button>
+          <button onClick={handleClose} style={secondaryButtonStyle(t)}>Cancel</button>
           <button
             onClick={handleBuild}
-            disabled={isBuilding || !draft.target || !draft.subject}
-            style={{
-              padding: '10px 20px',
-              fontSize: '13px',
-              fontWeight: 600,
-              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              cursor: isBuilding ? 'wait' : 'pointer',
-              opacity: isBuilding || !draft.target || !draft.subject ? 0.6 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
+            disabled={buildDisabled}
+            style={{ ...primaryButtonStyle(t, buildDisabled), display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            {isBuilding ? (
-              <>⏳ Building...</>
-            ) : (
-              <>📦 Build Package</>
-            )}
+            {isBuilding ? '⏳ Building...' : '📦 Build Package'}
           </button>
         </div>
       </div>

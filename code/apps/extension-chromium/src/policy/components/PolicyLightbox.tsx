@@ -8,6 +8,19 @@
  */
 
 import { useState, useEffect, Component, ReactNode, useMemo } from 'react'
+import {
+  getThemeTokens,
+  overlayStyle,
+  panelStyle,
+  headerStyle,
+  headerTitleStyle,
+  headerMainTitleStyle,
+  headerSubtitleStyle,
+  closeButtonStyle,
+  bodyStyle,
+  primaryButtonStyle,
+  notificationStyle,
+} from '../../shared/ui/lightboxTheme'
 import { 
   type CanonicalPolicy, 
   createDefaultPolicy, 
@@ -170,105 +183,44 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
 
   if (!isOpen) return null
 
-  // Theme-based colors
+  const t = getThemeTokens(theme)
   const isDark = theme === 'default' || theme === 'dark'
-  const bgColor = isDark ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const accentColor = '#8b5cf6'
-  const tabBg = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'
-  const activeTabBg = isDark ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.1)'
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
+  const accentColor = t.accentColor
+  const tabBg = t.tabBg
 
   return (
     <div
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999999,
-        padding: '20px',
-      }}
+      style={{ ...overlayStyle(t), alignItems: 'stretch', justifyContent: 'stretch' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: '1200px',
-          maxHeight: '90vh',
-          background: bgColor,
-          borderRadius: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          border: `1px solid ${borderColor}`,
-        }}
+        style={panelStyle(t)}
       >
         {/* Header */}
-        <div
-          style={{
-            padding: '20px 24px',
-            borderBottom: `1px solid ${borderColor}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '24px' }}>📋</span>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: textColor }}>
-              Policy Configuration
-            </h2>
-            <span style={{ 
-              fontSize: '12px', 
-              color: mutedColor,
-              background: tabBg,
-              padding: '4px 8px',
-              borderRadius: '4px',
-            }}>
-              v1.0.0
-            </span>
+        <div style={headerStyle(t)}>
+          <div style={headerTitleStyle()}>
+            <span style={{ fontSize: '22px', flexShrink: 0 }}>📋</span>
+            <div>
+              <p style={headerMainTitleStyle()}>Policy Configuration</p>
+              <p style={headerSubtitleStyle()}>Manage local, handshake and network policies</p>
+            </div>
           </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button
               onClick={savePolicies}
-              style={{
-                padding: '8px 16px',
-                background: accentColor,
-                border: 'none',
-                borderRadius: '8px',
-                color: 'white',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
+              style={primaryButtonStyle(t)}
             >
               💾 Save Changes
             </button>
             <button
               onClick={onClose}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: mutedColor,
-                fontSize: '24px',
-                cursor: 'pointer',
-                padding: '4px',
-                lineHeight: 1,
-              }}
+              style={closeButtonStyle(t)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = t.closeHoverBg; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = t.closeBg; }}
             >
               ×
             </button>
@@ -280,8 +232,9 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
           style={{
             display: 'flex',
             gap: '4px',
-            padding: '16px 24px 0',
+            padding: '14px 20px 0',
             borderBottom: `1px solid ${borderColor}`,
+            flexShrink: 0,
           }}
         >
           {[
@@ -293,20 +246,20 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: '12px 20px',
-                background: activeTab === tab.id ? activeTabBg : 'transparent',
+                padding: '11px 18px',
+                background: activeTab === tab.id ? 'rgba(139,92,246,0.15)' : 'transparent',
                 border: 'none',
                 borderBottom: activeTab === tab.id ? `2px solid ${accentColor}` : '2px solid transparent',
                 color: activeTab === tab.id ? accentColor : mutedColor,
-                fontSize: '14px',
+                fontSize: '13px',
                 fontWeight: activeTab === tab.id ? 600 : 500,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '7px',
                 borderRadius: '8px 8px 0 0',
                 marginBottom: '-1px',
-                transition: 'all 0.2s ease',
+                transition: 'all 0.18s ease',
               }}
             >
               <span>{tab.icon}</span>
@@ -316,41 +269,17 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
         </div>
 
         {/* Content Area */}
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: '24px',
-          }}
-        >
+        <div style={bodyStyle(t)}>
           {/* Notification */}
           {notification && (
             <div
               style={{
+                ...notificationStyle(notification.type === 'info' ? 'info' : notification.type),
                 marginBottom: '16px',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                background: notification.type === 'success' 
-                  ? 'rgba(34, 197, 94, 0.1)' 
-                  : notification.type === 'error'
-                  ? 'rgba(239, 68, 68, 0.1)'
-                  : 'rgba(139, 92, 246, 0.1)',
-                border: `1px solid ${
-                  notification.type === 'success' 
-                    ? 'rgba(34, 197, 94, 0.3)' 
-                    : notification.type === 'error'
-                    ? 'rgba(239, 68, 68, 0.3)'
-                    : 'rgba(139, 92, 246, 0.3)'
-                }`,
-                color: notification.type === 'success' 
-                  ? '#22c55e' 
-                  : notification.type === 'error'
-                  ? '#ef4444'
-                  : accentColor,
-                fontSize: '14px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
+                fontSize: '13px',
               }}
             >
               {notification.type === 'success' ? '✓' : notification.type === 'error' ? '✕' : 'ℹ'}

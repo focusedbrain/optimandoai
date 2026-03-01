@@ -8,6 +8,19 @@
 
 import React, { useState, useCallback, useRef } from 'react'
 import { importFromFile } from '../importPipeline'
+import {
+  getThemeTokens,
+  overlayStyle,
+  panelStyle,
+  headerStyle,
+  headerTitleStyle,
+  headerMainTitleStyle,
+  headerSubtitleStyle,
+  closeButtonStyle,
+  bodyStyle,
+  secondaryButtonStyle,
+  notificationStyle,
+} from '../../shared/ui/lightboxTheme'
 
 interface ImportFileModalProps {
   isOpen: boolean
@@ -23,14 +36,7 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
   onClose,
   theme
 }) => {
-  const isProfessional = theme === 'professional'
-  
-  // Theming
-  const bgColor = isProfessional ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.85)'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const dropZoneBg = isProfessional ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.05)'
+  const t = getThemeTokens(theme)
   
   // State
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -122,198 +128,103 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
   }, [onClose])
   
   if (!isOpen) return null
-  
+
+  const isDisabled = !selectedFile || importing || success
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10000
-      }}
-      onClick={handleClose}
-    >
-      <div
-        style={{
-          background: bgColor,
-          borderRadius: '16px',
-          width: '460px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
-        }}
-        onClick={e => e.stopPropagation()}
-      >
+    <div style={overlayStyle(t)} onClick={handleClose}>
+      <div style={panelStyle(t)} onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div style={{
-          padding: '20px',
-          borderBottom: `1px solid ${borderColor}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: textColor }}>
-              💾 Import from File
-            </div>
-            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '4px' }}>
-              Import a BEAP™ package from USB, wallet, or download
+        <div style={headerStyle(t)}>
+          <div style={headerTitleStyle()}>
+            <span style={{ fontSize: '22px', flexShrink: 0 }}>💾</span>
+            <div>
+              <p style={headerMainTitleStyle()}>Import from File</p>
+              <p style={headerSubtitleStyle()}>Import a BEAP™ package from USB, wallet, or download</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: mutedColor,
-              cursor: 'pointer',
-              fontSize: '24px',
-              padding: '0'
-            }}
+            style={closeButtonStyle(t)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = t.closeHoverBg; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = t.closeBg; }}
           >
             ×
           </button>
         </div>
-        
+
         {/* Content */}
-        <div style={{ padding: '20px' }}>
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPTED_TYPES}
-            onChange={handleFileInputChange}
-            style={{ display: 'none' }}
-          />
-          
-          {/* Drop Zone */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              border: `2px dashed ${isDragOver ? '#a855f7' : borderColor}`,
-              borderRadius: '12px',
-              padding: '40px 20px',
-              textAlign: 'center',
-              background: isDragOver ? 'rgba(168,85,247,0.05)' : dropZoneBg,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              marginBottom: '16px'
-            }}
-          >
-            {selectedFile ? (
-              <>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>📄</div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '4px' }}>
-                  {selectedFile.name}
-                </div>
-                <div style={{ fontSize: '12px', color: mutedColor }}>
-                  {(selectedFile.size / 1024).toFixed(1)} KB
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  color: '#a855f7',
-                  marginTop: '12px'
-                }}>
-                  Click to change file
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>
-                  {isDragOver ? '📥' : '📁'}
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-                  {isDragOver ? 'Drop file here' : 'Drag & drop a BEAP file'}
-                </div>
-                <div style={{ fontSize: '12px', color: mutedColor }}>
-                  or click to browse
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  color: mutedColor,
-                  marginTop: '12px',
-                  opacity: 0.7
-                }}>
-                  Supports: .beap, .json, .txt
-                </div>
-              </>
-            )}
-          </div>
-          
-          {/* Error */}
-          {error && (
-            <div style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              color: '#ef4444',
-              fontSize: '13px',
-              marginBottom: '16px'
-            }}>
-              {error}
-            </div>
-          )}
-          
-          {/* Success */}
-          {success && (
-            <div style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: 'rgba(34,197,94,0.1)',
-              border: '1px solid rgba(34,197,94,0.3)',
-              color: '#22c55e',
-              fontSize: '13px',
-              marginBottom: '16px',
-              textAlign: 'center'
-            }}>
-              ✓ File imported successfully! Redirecting...
-            </div>
-          )}
-          
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={handleClose}
+        <div style={bodyStyle(t)}>
+          <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_TYPES}
+              onChange={handleFileInputChange}
+              style={{ display: 'none' }}
+            />
+
+            {/* Drop Zone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
               style={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                border: `1px solid ${borderColor}`,
-                background: 'transparent',
-                color: mutedColor,
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer'
+                border: `2px dashed ${isDragOver ? t.accentColor : t.border}`,
+                borderRadius: '14px',
+                padding: '48px 24px',
+                textAlign: 'center',
+                background: isDragOver ? 'rgba(168,85,247,0.08)' : t.cardBg,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
               }}
             >
-              Cancel
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={!selectedFile || importing || success}
-              style={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                border: 'none',
-                background: !selectedFile || importing || success
-                  ? mutedColor
-                  : 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                color: 'white',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: !selectedFile || importing || success ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {importing ? 'Importing...' : success ? 'Done!' : 'Import'}
-            </button>
+              {selectedFile ? (
+                <>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>📄</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: t.text, marginBottom: '4px' }}>{selectedFile.name}</div>
+                  <div style={{ fontSize: '12px', color: t.textMuted }}>{(selectedFile.size / 1024).toFixed(1)} KB</div>
+                  <div style={{ fontSize: '11px', color: t.accentColor, marginTop: '12px' }}>Click to change file</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: '44px', marginBottom: '12px' }}>{isDragOver ? '📥' : '📁'}</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: t.text, marginBottom: '8px' }}>
+                    {isDragOver ? 'Drop file here' : 'Drag & drop a BEAP file'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: t.textMuted }}>or click to browse</div>
+                  <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '10px', opacity: 0.7 }}>
+                    Supports: .beap, .json, .txt
+                  </div>
+                </>
+              )}
+            </div>
+
+            {error && <div style={notificationStyle('error')}>✕ {error}</div>}
+            {success && <div style={{ ...notificationStyle('success'), textAlign: 'center' }}>✓ File imported successfully! Redirecting...</div>}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={handleClose} style={secondaryButtonStyle(t)}>Cancel</button>
+              <button
+                onClick={handleImport}
+                disabled={isDisabled}
+                style={{
+                  padding: '11px 22px',
+                  borderRadius: '9px',
+                  border: 'none',
+                  background: isDisabled ? t.cardBg : 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                  color: isDisabled ? t.textMuted : 'white',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  boxShadow: isDisabled ? 'none' : '0 4px 14px rgba(34,197,94,0.3)',
+                  transition: 'all 0.18s',
+                }}
+              >
+                {importing ? 'Importing...' : success ? 'Done!' : 'Import'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

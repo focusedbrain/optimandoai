@@ -8,6 +8,19 @@
 
 import React, { useState, useCallback } from 'react'
 import { importFromMessenger, validateImportPayload } from '../importPipeline'
+import {
+  getThemeTokens,
+  overlayStyle,
+  panelStyle,
+  headerStyle,
+  headerTitleStyle,
+  headerMainTitleStyle,
+  headerSubtitleStyle,
+  closeButtonStyle,
+  bodyStyle,
+  secondaryButtonStyle,
+  notificationStyle,
+} from '../../shared/ui/lightboxTheme'
 
 interface ImportMessengerModalProps {
   isOpen: boolean
@@ -20,14 +33,7 @@ export const ImportMessengerModal: React.FC<ImportMessengerModalProps> = ({
   onClose,
   theme
 }) => {
-  const isProfessional = theme === 'professional'
-  
-  // Theming
-  const bgColor = isProfessional ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.85)'
-  const textColor = isProfessional ? '#0f172a' : 'white'
-  const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)'
-  const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
-  const inputBg = isProfessional ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.05)'
+  const t = getThemeTokens(theme)
   
   // State
   const [pastedText, setPastedText] = useState('')
@@ -97,189 +103,102 @@ export const ImportMessengerModal: React.FC<ImportMessengerModalProps> = ({
   }, [onClose])
   
   if (!isOpen) return null
-  
+
+  const isDisabled = !pastedText.trim() || importing || success
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10000
-      }}
-      onClick={handleClose}
-    >
-      <div
-        style={{
-          background: bgColor,
-          borderRadius: '16px',
-          width: '500px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
-        }}
-        onClick={e => e.stopPropagation()}
-      >
+    <div style={overlayStyle(t)} onClick={handleClose}>
+      <div style={panelStyle(t)} onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div style={{
-          padding: '20px',
-          borderBottom: `1px solid ${borderColor}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: textColor }}>
-              💬 Import from Messenger
-            </div>
-            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '4px' }}>
-              Paste BEAP™ insert text from any messenger app
+        <div style={headerStyle(t)}>
+          <div style={headerTitleStyle()}>
+            <span style={{ fontSize: '22px', flexShrink: 0 }}>💬</span>
+            <div>
+              <p style={headerMainTitleStyle()}>Import from Messenger</p>
+              <p style={headerSubtitleStyle()}>Paste BEAP™ insert text from any messenger app</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: mutedColor,
-              cursor: 'pointer',
-              fontSize: '24px',
-              padding: '0'
-            }}
+            style={closeButtonStyle(t)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = t.closeHoverBg; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = t.closeBg; }}
           >
             ×
           </button>
         </div>
-        
+
         {/* Content */}
-        <div style={{ padding: '20px' }}>
-          {/* Instructions */}
-          <div style={{
-            fontSize: '12px',
-            color: mutedColor,
-            marginBottom: '16px',
-            padding: '12px',
-            background: inputBg,
-            borderRadius: '8px',
-            lineHeight: 1.5
-          }}>
-            <strong>Instructions:</strong><br />
-            1. Copy the BEAP™ insert text from your messenger (WhatsApp, Signal, Telegram, etc.)<br />
-            2. Paste it in the box below<br />
-            3. Click Import to add to your Inbox
-          </div>
-          
-          {/* Paste Box */}
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-              Paste BEAP Insert Text:
-            </div>
-            <textarea
-              value={pastedText}
-              onChange={e => handleTextChange(e.target.value)}
-              placeholder="📦 BEAP™ Package
----
-[Paste your BEAP insert text here]
-..."
-              style={{
-                width: '100%',
-                height: '200px',
-                padding: '14px',
-                borderRadius: '10px',
-                border: `1px solid ${borderColor}`,
-                background: inputBg,
-                color: textColor,
-                fontSize: '13px',
-                fontFamily: 'monospace',
-                resize: 'none',
-                outline: 'none',
-                boxSizing: 'border-box'
-              }}
-              disabled={importing || success}
-            />
-          </div>
-          
-          {/* Validation Hint */}
-          {validationHint && (
+        <div style={bodyStyle(t)}>
+          <div style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{
+              padding: '12px 14px',
+              background: t.cardBg,
+              border: `1px solid ${t.border}`,
+              borderRadius: '8px',
               fontSize: '12px',
-              color: '#22c55e',
-              marginBottom: '16px'
+              color: t.textMuted,
+              lineHeight: 1.6,
             }}>
-              {validationHint}
+              <strong style={{ color: t.text }}>Instructions:</strong><br />
+              1. Copy the BEAP™ insert text from your messenger (WhatsApp, Signal, Telegram, etc.)<br />
+              2. Paste it in the box below<br />
+              3. Click Import to add to your Inbox
             </div>
-          )}
-          
-          {/* Error */}
-          {error && (
-            <div style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              color: '#ef4444',
-              fontSize: '13px',
-              marginBottom: '16px'
-            }}>
-              {error}
+
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: t.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Paste BEAP Insert Text
+              </div>
+              <textarea
+                value={pastedText}
+                onChange={e => handleTextChange(e.target.value)}
+                placeholder="📦 BEAP™ Package&#10;---&#10;[Paste your BEAP insert text here]&#10;..."
+                style={{
+                  width: '100%',
+                  height: '220px',
+                  padding: '14px',
+                  borderRadius: '10px',
+                  border: `1px solid ${t.inputBorder}`,
+                  background: t.inputBg,
+                  color: t.text,
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  resize: 'vertical',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                disabled={importing || success}
+              />
             </div>
-          )}
-          
-          {/* Success */}
-          {success && (
-            <div style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: 'rgba(34,197,94,0.1)',
-              border: '1px solid rgba(34,197,94,0.3)',
-              color: '#22c55e',
-              fontSize: '13px',
-              marginBottom: '16px',
-              textAlign: 'center'
-            }}>
-              ✓ Message imported successfully! Redirecting...
+
+            {validationHint && (
+              <div style={{ fontSize: '12px', color: t.success }}>{validationHint}</div>
+            )}
+            {error && <div style={notificationStyle('error')}>✕ {error}</div>}
+            {success && <div style={{ ...notificationStyle('success'), textAlign: 'center' }}>✓ Message imported successfully! Redirecting...</div>}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={handleClose} style={secondaryButtonStyle(t)}>Cancel</button>
+              <button
+                onClick={handleImport}
+                disabled={isDisabled}
+                style={{
+                  padding: '11px 22px',
+                  borderRadius: '9px',
+                  border: 'none',
+                  background: isDisabled ? t.cardBg : 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                  color: isDisabled ? t.textMuted : 'white',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  boxShadow: isDisabled ? 'none' : '0 4px 14px rgba(34,197,94,0.3)',
+                  transition: 'all 0.18s',
+                }}
+              >
+                {importing ? 'Importing...' : success ? 'Done!' : 'Import'}
+              </button>
             </div>
-          )}
-          
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={handleClose}
-              style={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                border: `1px solid ${borderColor}`,
-                background: 'transparent',
-                color: mutedColor,
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={!pastedText.trim() || importing || success}
-              style={{
-                padding: '10px 20px',
-                borderRadius: '8px',
-                border: 'none',
-                background: !pastedText.trim() || importing || success
-                  ? mutedColor
-                  : 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                color: 'white',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: !pastedText.trim() || importing || success ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {importing ? 'Importing...' : success ? 'Done!' : 'Import'}
-            </button>
           </div>
         </div>
       </div>
