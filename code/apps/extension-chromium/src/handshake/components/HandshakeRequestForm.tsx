@@ -88,7 +88,7 @@ export function HandshakeRequestForm({
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
   const [contextGraphText, setContextGraphText] = useState('')
-  const [contextGraphType, setContextGraphType] = useState<'text' | 'json' | 'url'>('text')
+  const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
 
   // Send state
   const [isSending, setIsSending] = useState(false)
@@ -373,27 +373,24 @@ export function HandshakeRequestForm({
                 <label style={labelStyle}>Block Type</label>
                 <select
                   value={contextGraphType}
-                  onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json' | 'url')}
+                  onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
                   style={{ ...inputStyle, cursor: 'pointer' }}
                 >
                   <option value="text">📝 Plain Text</option>
                   <option value="json">📦 JSON / Structured Data</option>
-                  <option value="url">🔗 URL Reference</option>
                 </select>
               </div>
               <div>
                 <label style={labelStyle}>
-                  {contextGraphType === 'text' ? 'Context Content' : contextGraphType === 'json' ? 'JSON Payload' : 'URL'}
+                  {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
                 </label>
                 <textarea
                   value={contextGraphText}
                   onChange={(e) => setContextGraphText(e.target.value)}
                   placeholder={
-                    contextGraphType === 'text'
-                      ? 'Enter context information to share with the recipient...'
-                      : contextGraphType === 'json'
+                    contextGraphType === 'json'
                       ? '{"key": "value", ...}'
-                      : 'https://...'
+                      : 'Enter context information to share with the recipient...'
                   }
                   style={{
                     ...inputStyle,
