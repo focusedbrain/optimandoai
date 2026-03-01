@@ -9,7 +9,7 @@
 
 import React, { useState } from 'react'
 import { ProtectedSitesList, RuntimeConfigLightbox, FullAutoStatusBanner } from '../../wrguard'
-import { useFullAutoStatus } from '../../handshake'
+import { useFullAutoStatus } from '../../handshake/useFullAutoStatus'
 
 export type WRGuardEntry = 'provider-setup' | 'protected-sites' | 'runtime-config'
 

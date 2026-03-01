@@ -70,3 +70,93 @@ describe('Migration — old store mutations removed from new code', () => {
     expect(content).not.toContain('peerMlkem768')
   })
 })
+
+describe('Cleanup — legacy code removed from production sources', () => {
+  const PRODUCTION_FILES = [
+    'sidepanel.tsx',
+    'popup-chat.tsx',
+    'handshake/handshakeRpc.ts',
+    'handshake/useHandshakes.ts',
+    'handshake/rpcTypes.ts',
+    'handshake/useFullAutoStatus.ts',
+    'handshake/components/HandshakeAcceptModal.tsx',
+    'handshake/components/HandshakeDetailsPanel.tsx',
+    'handshake/components/HandshakeManagementPanel.tsx',
+    'handshake/components/InitiateHandshakeDialog.tsx',
+    'beap-builder/handshakeRefresh.ts',
+    'beap-messages/components/RecipientHandshakeSelect.tsx',
+  ]
+
+  it('C1: no production file imports useHandshakeStore', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not import useHandshakeStore`).not.toContain('useHandshakeStore')
+    }
+  })
+
+  it('C2: no production file contains BEAP_SEND_EMAIL', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not contain BEAP_SEND_EMAIL`).not.toContain('BEAP_SEND_EMAIL')
+    }
+  })
+
+  it('C3: no production file contains BEAP_HANDSHAKE_REQUEST message type', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not contain BEAP_HANDSHAKE_REQUEST`).not.toContain('BEAP_HANDSHAKE_REQUEST')
+    }
+  })
+
+  it('C4: no production file contains peerX25519PublicKey', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not contain peerX25519PublicKey`).not.toContain('peerX25519PublicKey')
+    }
+  })
+
+  it('C5: no production file contains createPendingOutgoingFromRequest', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not contain createPendingOutgoingFromRequest`).not.toContain('createPendingOutgoingFromRequest')
+    }
+  })
+
+  it('C6: no production file contains completeHandshakeFromAccept', () => {
+    for (const file of PRODUCTION_FILES) {
+      const content = readFile(file)
+      if (!content) continue
+      expect(content, `${file} should not contain completeHandshakeFromAccept`).not.toContain('completeHandshakeFromAccept')
+    }
+  })
+
+  it('C7: sidepanel.tsx does not import useHandshakeStore', () => {
+    const content = readFile('sidepanel.tsx')
+    expect(content).not.toContain('useHandshakeStore')
+    expect(content).not.toContain('createPendingOutgoingFromRequest')
+    expect(content).not.toContain('BEAP_HANDSHAKE_REQUEST')
+  })
+
+  it('C8: popup-chat.tsx does not import useHandshakeStore', () => {
+    const content = readFile('popup-chat.tsx')
+    expect(content).not.toContain('useHandshakeStore')
+    expect(content).not.toContain('createPendingOutgoingFromRequest')
+    expect(content).not.toContain('BEAP_HANDSHAKE_REQUEST')
+  })
+
+  it('C9: handshake/index.ts does not export from useHandshakeStore', () => {
+    const content = readFile('handshake/index.ts')
+    expect(content).not.toContain("from './useHandshakeStore'")
+  })
+
+  it('C10: useFullAutoStatus.ts does not depend on useHandshakeStore', () => {
+    const content = readFile('handshake/useFullAutoStatus.ts')
+    expect(content).not.toContain('useHandshakeStore')
+    expect(content).toContain('useFullAutoStatus')
+  })
+})

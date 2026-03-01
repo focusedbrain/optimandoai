@@ -12,7 +12,7 @@
  */
 
 import React from 'react'
-import type { FullAutoStatus } from '../types'
+import type { FullAutoStatus } from '../../handshake/useFullAutoStatus'
 
 interface FullAutoStatusBannerProps {
   status: FullAutoStatus

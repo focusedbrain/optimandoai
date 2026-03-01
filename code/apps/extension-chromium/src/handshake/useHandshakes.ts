@@ -1,7 +1,7 @@
 /**
  * useHandshakes Hook
  *
- * Replaces the old Zustand-based useHandshakeStore for reading handshakes.
+ * Replaces the old Zustand-based store for reading handshakes.
  * Reads from the backend via handshake.list RPC — the backend (SQLite) is
  * the single source of truth.
  */

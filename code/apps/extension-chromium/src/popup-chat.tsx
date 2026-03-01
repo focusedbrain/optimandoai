@@ -24,19 +24,14 @@ import {
   GroupChatPlaceholder
 } from './ui/components'
 import { WRGuardWorkspace } from './wrguard'
-import { formatFingerprintShort, formatFingerprintGrouped } from './handshake/fingerprint'
-import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES } from './handshake/microcopy'
+import { formatFingerprintShort } from './handshake/fingerprint'
+import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
-import { useHandshakes } from './handshake/useHandshakes'
-import { useHandshakeStore } from './handshake/useHandshakeStore'
-import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import {
   getOurIdentity,
-  createHandshakeRequestPayload,
   type OurIdentity
 } from './handshake/handshakeService'
-import { serializeHandshakeRequestPayload } from './handshake/handshakePayload'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 
@@ -223,52 +218,27 @@ function PopupChatApp() {
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   
   // ==========================================================================
-  // Real X25519 Identity (replaces mock fingerprint)
+  // Identity (for fingerprint display)
   // ==========================================================================
-  
+
   const [identity, setIdentity] = useState<OurIdentity | null>(null)
   const [identityLoading, setIdentityLoading] = useState(true)
-  const [handshakeSending, setHandshakeSending] = useState(false)
-  
-  // Load real identity on mount
+
+  // Load identity on mount
   useEffect(() => {
     let mounted = true
     setIdentityLoading(true)
-    
     getOurIdentity()
-      .then((id) => {
-        if (mounted) {
-          setIdentity(id)
-          // Update handshake message with real fingerprint
-          setHandshakeMessage(HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', id.fingerprint))
-        }
-      })
-      .catch((err) => {
-        console.error('[PopupChat] Failed to load identity:', err)
-      })
-      .finally(() => {
-        if (mounted) setIdentityLoading(false)
-      })
-    
+      .then((id) => { if (mounted) setIdentity(id) })
+      .catch((err) => { console.error('[PopupChat] Failed to load identity:', err) })
+      .finally(() => { if (mounted) setIdentityLoading(false) })
     return () => { mounted = false }
   }, [])
-  
-  // Derived fingerprint values (safe to use after loading)
+
+  // Derived fingerprint values
   const ourFingerprint = identity?.fingerprint || ''
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
-  
-  // Initial handshake message template with fingerprint
-  const initialHandshakeMessage = ourFingerprint 
-    ? HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', ourFingerprint)
-    : HANDSHAKE_REQUEST_TEMPLATE
-  
-  // BEAP Handshake Request state
-  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
-  const [handshakeTo, setHandshakeTo] = useState('')
-  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
-  const [handshakeMessage, setHandshakeMessage] = useState('')
-  const [fingerprintCopied, setFingerprintCopied] = useState(false)
-  
+
   // BEAP Draft separate state (like docked version)
   const [beapDraftMessage, setBeapDraftMessage] = useState('')
   const [beapDraftEncryptedMessage, setBeapDraftEncryptedMessage] = useState('')
@@ -281,15 +251,6 @@ function PopupChatApp() {
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
   
-  // Get handshakes from store
-  const handshakes = useHandshakeStore(state => state.handshakes)
-  const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
-  const createPendingOutgoing = useHandshakeStore(state => state.createPendingOutgoingFromRequest)
-  
-  // Initialize handshakes on mount
-  useEffect(() => {
-    initializeHandshakes()
-  }, [initializeHandshakes])
   
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
@@ -632,12 +593,6 @@ function PopupChatApp() {
   const isBeapSendDisabled = isSendingBeap || !beapDraftMessage.trim() || 
     (beapRecipientMode === 'private' && !selectedRecipient)
   
-  // Sync message with fingerprint if it changes (backup)
-  useEffect(() => {
-    if (!handshakeMessage || handshakeMessage.trim() === '') {
-      setHandshakeMessage(initialHandshakeMessage)
-    }
-  }, [initialHandshakeMessage, handshakeMessage])
   
   // For debugging: toggle admin role with keyboard shortcut
   useEffect(() => {
@@ -1250,500 +1205,18 @@ function PopupChatApp() {
       case 'group-stream':
         return <GroupChatPlaceholder theme={theme} />
       case 'handshake':
-        return renderHandshakeRequest()
+        return (
+          <HandshakeManagementPanel
+            fromAccountId={''}
+            theme="default"
+            onSendMessage={() => { setDockedSubmode('beap-draft') }}
+          />
+        )
       default:
         return <CommandChatView theme={theme} />
     }
   }
   
-  // Render BEAP Handshake Request Interface
-  const renderHandshakeRequest = () => {
-    const isStandard = theme === 'standard'
-    const isPro = theme === 'pro'
-    
-    return (
-      <div style={{ 
-        flex: 1, 
-        display: 'flex', 
-        flexDirection: 'column', 
-        background: isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.06)'),
-        overflow: 'hidden' 
-      }}>
-        {/* Header */}
-        <div style={{ 
-          padding: '12px 14px', 
-          borderBottom: `1px solid ${isStandard ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px' 
-        }}>
-          <span style={{ fontSize: '18px' }}>🤝</span>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: isStandard ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
-        </div>
-        
-        {/* DELIVERY METHOD - FIRST */}
-        <div style={{ padding: '14px 18px', borderBottom: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)' }}>
-          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Delivery Method
-          </label>
-          <select
-            value={handshakeDelivery}
-            onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              background: isStandard ? 'white' : '#1f2937',
-              border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-              borderRadius: '8px',
-              color: isStandard ? '#1f2937' : 'white',
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>📧 Email</option>
-            <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-            <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-          </select>
-        </div>
-        
-        {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
-        {handshakeDelivery === 'email' && (
-        <div style={{ 
-          padding: '16px 18px', 
-          borderBottom: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
-          background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '16px' }}>🔗</span>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: isStandard ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleConnectEmail}
-              style={{
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-                border: 'none',
-                color: 'white',
-                borderRadius: '6px',
-                padding: '6px 12px',
-                fontSize: '11px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <span>+</span> Connect Email
-            </button>
-          </div>
-          
-          {isLoadingEmailAccounts ? (
-            <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
-          ) : emailAccounts.length === 0 ? (
-            <div style={{ 
-              padding: '20px', 
-              background: isStandard ? 'white' : 'rgba(255,255,255,0.05)',
-              borderRadius: '8px',
-              border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
-              textAlign: 'center'
-            }}>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-              <div style={{ fontSize: '13px', color: isStandard ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-              <div style={{ fontSize: '11px', color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                Connect your email to send handshake requests
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {emailAccounts.map(account => (
-                <div 
-                  key={account.id} 
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
-                    borderRadius: '8px',
-                    border: account.status === 'active' 
-                      ? (isStandard ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                      : (isStandard ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>
-                      {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
-                    </span>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: '500', color: isStandard ? '#0f172a' : 'white' }}>
-                        {account.email || account.displayName}
-                      </div>
-                      <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                        <span style={{ color: isStandard ? '#64748b' : 'rgba(255,255,255,0.6)' }}>
-                          {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => disconnectEmailAccount(account.id)}
-                    title="Disconnect"
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: isStandard ? '#94a3b8' : 'rgba(255,255,255,0.5)',
-                      cursor: 'pointer',
-                      padding: '4px',
-                      fontSize: '14px'
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Send From selector */}
-          {emailAccounts.length > 0 && (
-            <div style={{ marginTop: '12px' }}>
-              <label style={{ 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                marginBottom: '6px', 
-                display: 'block', 
-                color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                textTransform: 'uppercase', 
-                letterSpacing: '0.5px' 
-              }}>
-                Send From:
-              </label>
-              <select
-                value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
-                onChange={(e) => setSelectedEmailAccountId(e.target.value)}
-                style={{
-                  width: '100%',
-                  background: isStandard ? 'white' : 'rgba(255,255,255,0.1)',
-                  border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
-                  color: isStandard ? '#0f172a' : 'white',
-                  borderRadius: '6px',
-                  padding: '8px 12px',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  outline: 'none'
-                }}
-              >
-                {emailAccounts.map(account => (
-                  <option key={account.id} value={account.id}>
-                    {account.email || account.displayName} ({account.provider})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-        )}
-        
-        <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* Your Fingerprint - PROMINENT */}
-          <div style={{
-            padding: '12px 14px',
-            background: isStandard ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
-            border: `2px solid ${isStandard ? '#e1e8ed' : 'rgba(139, 92, 246, 0.3)'}`,
-            borderRadius: '10px',
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between',
-              marginBottom: '8px',
-            }}>
-              <div style={{ 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                textTransform: 'uppercase', 
-                letterSpacing: '0.5px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}>
-                🔐 Your Fingerprint
-                <span 
-                  style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
-                  title="A fingerprint is a short identifier derived from the handshake identity. It helps prevent mix-ups and look-alike contacts. It is not a secret key."
-                >
-                  ⓘ
-                </span>
-              </div>
-              <button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(ourFingerprint)
-                    setFingerprintCopied(true)
-                    setTimeout(() => setFingerprintCopied(false), 2000)
-                  } catch (err) {
-                    console.error('Failed to copy:', err)
-                  }
-                }}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '10px',
-                  background: isStandard ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)',
-                  cursor: 'pointer',
-                }}
-              >
-                {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
-              </button>
-            </div>
-            <div style={{
-              fontFamily: 'monospace',
-              fontSize: '11px',
-              color: isStandard ? '#1f2937' : 'white',
-              wordBreak: 'break-all',
-              lineHeight: 1.5,
-            }}>
-              {formatFingerprintGrouped(ourFingerprint)}
-            </div>
-            <div style={{
-              marginTop: '8px',
-              fontSize: '10px',
-              color: isStandard ? '#9ca3af' : 'rgba(255,255,255,0.5)',
-            }}>
-              Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
-            </div>
-          </div>
-          
-          {/* To & Subject Fields - Only for Email */}
-          {handshakeDelivery === 'email' && (
-            <>
-              <div>
-                <label style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 600, 
-                  marginBottom: '6px', 
-                  display: 'block', 
-                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '0.5px' 
-                }}>
-                  To:
-                </label>
-                <input
-                  type="email"
-                  value={handshakeTo}
-                  onChange={(e) => setHandshakeTo(e.target.value)}
-                  placeholder="recipient@example.com"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
-                    border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                    borderRadius: '8px',
-                    color: isStandard ? '#1f2937' : 'white',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 600, 
-                  marginBottom: '6px', 
-                  display: 'block', 
-                  color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '0.5px' 
-                }}>
-                  Subject:
-                </label>
-                <input
-                  type="text"
-                  value={handshakeSubject}
-                  onChange={(e) => setHandshakeSubject(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
-                    border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                    borderRadius: '8px',
-                    color: isStandard ? '#1f2937' : 'white',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </>
-          )}
-          
-          {/* Message */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <label style={{ 
-              fontSize: '11px', 
-              fontWeight: 600, 
-              marginBottom: '6px', 
-              display: 'block', 
-              color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-              textTransform: 'uppercase', 
-              letterSpacing: '0.5px' 
-            }}>
-              Message
-            </label>
-            <textarea
-              value={handshakeMessage}
-              onChange={(e) => setHandshakeMessage(e.target.value)}
-              style={{
-                flex: 1,
-                minHeight: '180px',
-                padding: '10px 12px',
-                background: isStandard ? 'white' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`,
-                borderRadius: '8px',
-                color: isStandard ? '#1f2937' : 'white',
-                fontSize: '13px',
-                lineHeight: '1.5',
-                resize: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          
-          {/* Info */}
-          <div style={{
-            padding: '10px 12px',
-            background: isStandard ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
-            borderRadius: '8px',
-            fontSize: '11px',
-            color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.8)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-          }}>
-            <div>💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.</div>
-            <div style={{ opacity: 0.8, fontSize: '10px' }}>ℹ️ {POLICY_NOTES.LOCAL_OVERRIDE}</div>
-          </div>
-        </div>
-        
-        {/* Footer */}
-        <div style={{ 
-          padding: '12px 14px', 
-          borderTop: `1px solid ${isStandard ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, 
-          display: 'flex', 
-          gap: '10px', 
-          justifyContent: 'flex-end' 
-        }}>
-          <button 
-            onClick={() => setDockedSubmode('command')}
-            style={{ 
-              padding: '8px 16px', 
-              background: 'transparent', 
-              border: `1px solid ${isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, 
-              borderRadius: '8px', 
-              color: isStandard ? '#6b7280' : 'white', 
-              fontSize: '12px', 
-              cursor: 'pointer' 
-            }}
-          >
-            Cancel
-          </button>
-          <button 
-            disabled={identityLoading || handshakeSending}
-            onClick={async () => {
-              if (handshakeDelivery === 'email' && !handshakeTo) {
-                alert('Please enter a recipient email address')
-                return
-              }
-              
-              if (!identity) {
-                alert('Identity not loaded yet. Please wait.')
-                return
-              }
-              
-              setHandshakeSending(true)
-              
-              try {
-                // Create real handshake request payload
-                const payload = await createHandshakeRequestPayload({
-                  senderDisplayName: 'WR Chat User', // TODO: Get from user profile
-                  senderEmail: handshakeDelivery === 'email' ? undefined : undefined,
-                  message: handshakeMessage
-                })
-                
-                // Serialize to JSON
-                const payloadJson = serializeHandshakeRequestPayload(payload)
-                
-                // Store as pending outgoing
-                const recipient = handshakeDelivery === 'email' ? handshakeTo : 'Recipient'
-                createPendingOutgoing(payload, recipient, identity.localX25519KeyId)
-                
-                // Deliver based on method
-                if (handshakeDelivery === 'download') {
-                  // Trigger file download
-                  const blob = new Blob([payloadJson], { type: 'application/json' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `handshake-request-${payload.senderFingerprint.slice(0, 8)}.beap-handshake.json`
-                  document.body.appendChild(a)
-                  a.click()
-                  document.body.removeChild(a)
-                  URL.revokeObjectURL(url)
-                  alert('Handshake request downloaded! Share the file with your recipient.')
-                } else if (handshakeDelivery === 'messenger') {
-                  // Copy to clipboard for messenger
-                  await navigator.clipboard.writeText(payloadJson)
-                  alert('Handshake request copied to clipboard! Paste it in your messenger.')
-                } else {
-                  // Email: copy to clipboard (email sending requires OAuth integration)
-                  await navigator.clipboard.writeText(payloadJson)
-                  alert('Handshake request copied to clipboard! Paste it in your email body to ' + handshakeTo)
-                }
-                
-                console.log('[PopupChat] Handshake request created:', {
-                  fingerprint: payload.senderFingerprint.slice(0, 8) + '...',
-                  hasX25519Key: !!payload.senderX25519PublicKeyB64,
-                  delivery: handshakeDelivery
-                })
-                
-                setDockedSubmode('command')
-              } catch (err) {
-                console.error('[PopupChat] Failed to create handshake request:', err)
-                alert('Failed to create handshake request: ' + (err instanceof Error ? err.message : 'Unknown error'))
-              } finally {
-                setHandshakeSending(false)
-              }
-            }}
-            style={{ 
-              padding: '8px 20px', 
-              background: (identityLoading || handshakeSending) 
-                ? 'rgba(139,92,246,0.5)' 
-                : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
-              border: 'none', 
-              borderRadius: '8px', 
-              color: 'white', 
-              fontSize: '12px', 
-              fontWeight: 600, 
-              cursor: (identityLoading || handshakeSending) ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              opacity: (identityLoading || handshakeSending) ? 0.7 : 1,
-            }}
-          >
-            {handshakeSending ? '⏳ Creating...' : (handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download')}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   // Theme-based container styles - Matching Dashboard App.css
   const containerStyles: React.CSSProperties = {
     display: 'flex',
