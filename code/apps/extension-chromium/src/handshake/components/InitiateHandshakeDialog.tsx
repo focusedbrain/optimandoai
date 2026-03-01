@@ -10,6 +10,7 @@ import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
 import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
 import type { ContextBlockInput } from '../rpcTypes'
+import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import {
   getThemeTokens,
   overlayStyle as themeOverlayStyle,
@@ -32,6 +33,8 @@ interface InitiateHandshakeDialogProps {
   theme?: 'default' | 'dark' | 'professional'
   onInitiated?: (handshakeId: string) => void
   onClose?: () => void
+  /** Whether the current user has Publisher/Enterprise tier. */
+  canUseHsContextProfiles?: boolean
 }
 
 export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = ({
@@ -39,6 +42,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   theme = 'default',
   onInitiated,
   onClose,
+  canUseHsContextProfiles = false,
 }) => {
   const [recipientEmail, setRecipientEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -47,8 +51,12 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
 
   // Context Graph (optional — attached to handshake.initiate RPC)
   const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
+
+  // HS Context Profiles (publisher+ only)
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
 
   const t = getThemeTokens(theme)
 
@@ -68,9 +76,9 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
     setError(null)
 
     try {
-      // Build optional context blocks from the context graph section
+      // Build optional ad-hoc context blocks (only if no profiles selected)
       let contextBlocks: ContextBlockInput[] | undefined
-      if (showContextGraph && contextGraphText.trim()) {
+      if (showContextGraph && contextGraphText.trim() && selectedProfileIds.length === 0) {
         contextBlocks = await buildContextBlocks({
           text: contextGraphText.trim(),
           type: contextGraphType,
@@ -78,7 +86,16 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
       }
 
       const receiverUserId = recipientEmail.trim().toLowerCase()
-      const result = await initiateHandshake(receiverUserId, recipientEmail.trim(), fromAccountId, contextBlocks)
+      const result = await initiateHandshake(
+        receiverUserId,
+        recipientEmail.trim(),
+        fromAccountId,
+        contextBlocks,
+        selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
+        showContextGraph && contextGraphText.trim() && selectedProfileIds.length > 0
+          ? contextGraphText.trim()
+          : undefined,
+      )
       setSuccess(true)
       onInitiated?.(result.handshake_id)
     } catch (err) {
@@ -165,8 +182,14 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               ℹ️ The recipient will receive an email with a handshake capsule. Once they accept, you can exchange secure BEAP messages.
             </div>
 
-            {/* Context Graph — optional, collapsible */}
-            <div>
+            {/* Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc */}
+            <div style={{
+              border: `1px solid ${showContextGraph ? 'rgba(129,140,248,0.45)' : 'rgba(129,140,248,0.18)'}`,
+              borderRadius: '10px',
+              overflow: 'hidden',
+              transition: 'border-color 0.15s',
+            }}>
+              {/* Header toggle */}
               <button
                 type="button"
                 onClick={() => setShowContextGraph(v => !v)}
@@ -177,8 +200,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                   justifyContent: 'space-between',
                   padding: '10px 14px',
                   background: showContextGraph ? 'rgba(129,140,248,0.12)' : 'rgba(129,140,248,0.05)',
-                  border: `1px solid ${showContextGraph ? 'rgba(129,140,248,0.35)' : 'rgba(129,140,248,0.18)'}`,
-                  borderRadius: '8px',
+                  border: 'none',
                   color: showContextGraph ? t.text : t.textMuted,
                   fontSize: '12px',
                   fontWeight: 600,
@@ -187,60 +209,111 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                   transition: 'all 0.15s',
                 }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  🗂 Attach Context Graph
-                  <span style={{ fontWeight: 400, opacity: 0.65, fontSize: '11px' }}>(optional)</span>
-                </span>
-                <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲' : '▼'}</span>
+                <span>🧠 Context Graph</span>
+                <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲ Collapse' : '▼ Expand'}</span>
               </button>
 
               {showContextGraph && (
-                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{
-                    padding: '10px 14px',
-                    background: 'rgba(59,130,246,0.07)',
-                    border: '1px solid rgba(59,130,246,0.18)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    color: t.textMuted,
-                    lineHeight: 1.5,
-                  }}>
-                    A Context Graph embeds structured information into the handshake capsule. The recipient's BEAP engine will process it alongside the handshake.
+                <div style={{ borderTop: `1px solid ${t.border}` }}>
+                  {/* Tabs */}
+                  <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}` }}>
+                    {(['vault', 'adhoc'] as const).map((tab) => {
+                      const active = contextGraphTab === tab
+                      return (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setContextGraphTab(tab)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 10px',
+                            fontSize: '11px',
+                            fontWeight: active ? 700 : 500,
+                            background: active ? 'rgba(129,140,248,0.12)' : 'transparent',
+                            border: 'none',
+                            borderBottom: active ? '2px solid #818cf8' : '2px solid transparent',
+                            color: active ? t.text : t.textMuted,
+                            cursor: 'pointer',
+                            transition: 'all 0.12s',
+                          }}
+                        >
+                          {tab === 'vault' ? '🗂 Vault Profiles' : '✏️ Ad-hoc Context'}
+                        </button>
+                      )
+                    })}
                   </div>
-                  <div>
-                    <label style={themeLabelStyle(t)}>Block Type</label>
-                    <select
-                      value={contextGraphType}
-                      onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
-                      disabled={isSubmitting}
-                      style={themeInputStyle(t)}
-                    >
-                      <option value="text">📝 Plain Text</option>
-                      <option value="json">📦 JSON / Structured Data</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={themeLabelStyle(t)}>
-                      {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
-                    </label>
-                    <textarea
-                      value={contextGraphText}
-                      onChange={(e) => setContextGraphText(e.target.value)}
-                      disabled={isSubmitting}
-                      placeholder={
-                        contextGraphType === 'json'
-                          ? '{"key": "value", ...}'
-                          : 'Enter context information to share with the recipient...'
-                      }
-                      rows={4}
-                      style={{
-                        ...themeInputStyle(t),
-                        resize: 'vertical',
-                        lineHeight: 1.5,
-                        fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
-                      }}
-                    />
-                  </div>
+
+                  {/* Tab: Vault Profiles */}
+                  {contextGraphTab === 'vault' && (
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ padding: '9px 12px', background: 'rgba(129,140,248,0.08)', borderRadius: '8px', fontSize: '11px', color: t.textMuted, lineHeight: 1.5 }}>
+                        🗂 Select reusable context profiles stored in your Vault. Their content is normalized to plain text and attached to this handshake.
+                      </div>
+                      {canUseHsContextProfiles ? (
+                        <HandshakeContextProfilePicker
+                          selectedIds={selectedProfileIds}
+                          onChange={setSelectedProfileIds}
+                          theme={theme === 'professional' ? 'standard' : 'dark'}
+                          disabled={isSubmitting}
+                        />
+                      ) : (
+                        <div style={{
+                          padding: '16px', textAlign: 'center',
+                          border: `1px dashed ${t.border}`, borderRadius: '8px',
+                          display: 'flex', flexDirection: 'column', gap: '6px',
+                        }}>
+                          <div style={{ fontSize: '20px' }}>🔒</div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: t.text }}>Publisher / Enterprise feature</div>
+                          <div style={{ fontSize: '11px', color: t.textMuted, lineHeight: 1.5 }}>
+                            Upgrade to attach structured Vault Profiles to your handshakes — including business identity, custom fields, and confidential documents.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Tab: Ad-hoc Context */}
+                  {contextGraphTab === 'adhoc' && (
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ padding: '9px 12px', background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.18)', borderRadius: '8px', fontSize: '11px', color: t.textMuted, lineHeight: 1.5 }}>
+                        ℹ️ Ad-hoc context is normalized to plain text before sending. JSON is rendered as Key: Value lines.
+                      </div>
+                      <div>
+                        <label style={themeLabelStyle(t)}>Format</label>
+                        <select
+                          value={contextGraphType}
+                          onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
+                          disabled={isSubmitting}
+                          style={themeInputStyle(t)}
+                        >
+                          <option value="text">📝 Plain Text</option>
+                          <option value="json">📦 JSON / Structured Data</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={themeLabelStyle(t)}>
+                          {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
+                        </label>
+                        <textarea
+                          value={contextGraphText}
+                          onChange={(e) => setContextGraphText(e.target.value)}
+                          disabled={isSubmitting}
+                          placeholder={
+                            contextGraphType === 'json'
+                              ? '{"key": "value", ...}'
+                              : 'Enter context information to share with the recipient...'
+                          }
+                          rows={4}
+                          style={{
+                            ...themeInputStyle(t),
+                            resize: 'vertical',
+                            lineHeight: 1.5,
+                            fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -271,6 +271,66 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         return { success: result.success, haState: result.newState, error: result.error }
       }
 
+      // ==============================================
+      // HS Context Profiles — Publisher/Enterprise only
+      // ==============================================
+
+      case 'vault.hsProfiles.list': {
+        const includeArchived = params?.includeArchived === true
+        const profiles = vaultService.listHsProfiles(tier, includeArchived)
+        return { success: true, profiles }
+      }
+
+      case 'vault.hsProfiles.get': {
+        const { profileId } = params as { profileId: string }
+        const profile = vaultService.getHsProfile(tier, profileId)
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.create': {
+        const { name, description, scope, tags, fields, custom_fields } = params as any
+        const profile = vaultService.createHsProfile(tier, { name, description, scope, tags, fields, custom_fields })
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.update': {
+        const { profileId, name, description, scope, tags, fields, custom_fields } = params as any
+        const profile = vaultService.updateHsProfile(tier, profileId, { name, description, scope, tags, fields, custom_fields })
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.archive': {
+        const { profileId } = params as { profileId: string }
+        vaultService.archiveHsProfile(tier, profileId)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.delete': {
+        const { profileId } = params as { profileId: string }
+        vaultService.deleteHsProfile(tier, profileId)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.duplicate': {
+        const { profileId } = params as { profileId: string }
+        const profile = vaultService.duplicateHsProfile(tier, profileId)
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.uploadDocument': {
+        const { profileId, filename, mimeType, contentBase64 } = params as any
+        if (!contentBase64) return { success: false, error: 'contentBase64 is required' }
+        const content = Buffer.from(contentBase64, 'base64')
+        const doc = await vaultService.uploadHsProfileDocument(tier, profileId, filename, mimeType ?? 'application/pdf', content)
+        return { success: true, document: doc }
+      }
+
+      case 'vault.hsProfiles.deleteDocument': {
+        const { documentId } = params as { documentId: string }
+        vaultService.deleteHsProfileDocument(tier, documentId)
+        return { success: true }
+      }
+
       default:
         return { success: false, error: `Unknown method: ${method}` }
     }

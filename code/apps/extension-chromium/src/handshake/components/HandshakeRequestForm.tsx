@@ -5,14 +5,14 @@
  * Renders directly inside the sidebar / popup (not a modal overlay).
  *
  * Features:
- * - Delivery method selector (Email / Messenger / Download)
  * - Connected email accounts list + "Send From" selector
  * - Your Fingerprint display (formatted, copyable)
  * - Recipient email field
  * - Personal message textarea
- * - Collapsible Context Graph section (block type + content textarea)
+ * - HS Context Profiles picker (Publisher/Enterprise only)
+ * - Collapsible Ad-hoc Context section (plain text / JSON)
  *   → Wired to handshake.initiate RPC via buildContextBlocks
- * - Real RPC call via initiateHandshake (no more alert() stubs)
+ * - Real RPC call via initiateHandshake
  */
 
 import React, { useState } from 'react'
@@ -21,6 +21,7 @@ import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
 import type { ContextBlockInput } from '../rpcTypes'
 import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
 import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
+import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 
 export interface EmailAccount {
   id: string
@@ -55,9 +56,12 @@ export interface HandshakeRequestFormProps {
   onCancel: () => void
   /** Called after a successful initiation */
   onSuccess: () => void
+  /**
+   * Whether the current user has Publisher/Enterprise tier.
+   * Controls visibility of the HS Context Profile picker.
+   */
+  canUseHsContextProfiles?: boolean
 }
-
-type DeliveryMethod = 'email' | 'messenger' | 'download'
 
 export function HandshakeRequestForm({
   fromAccountId,
@@ -72,6 +76,7 @@ export function HandshakeRequestForm({
   theme,
   onCancel,
   onSuccess,
+  canUseHsContextProfiles = false,
 }: HandshakeRequestFormProps) {
   const isStandard = theme === 'standard'
   const textColor = isStandard ? '#1f2937' : 'white'
@@ -80,15 +85,18 @@ export function HandshakeRequestForm({
   const inputBg = isStandard ? 'white' : 'rgba(255,255,255,0.08)'
   const sectionBorder = isStandard ? '1px solid rgba(147,51,234,0.12)' : '1px solid rgba(255,255,255,0.1)'
 
-  const [delivery, setDelivery] = useState<DeliveryMethod>('email')
   const [recipientEmail, setRecipientEmail] = useState('')
   const [message, setMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
+
+  // HS Context Profiles (publisher+ only)
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
 
   // Send state
   const [isSending, setIsSending] = useState(false)
@@ -104,12 +112,12 @@ export function HandshakeRequestForm({
   }
 
   const handleSend = async () => {
-    if (delivery === 'email' && !recipientEmail.trim()) {
+    if (!recipientEmail.trim()) {
       setSendError('Please enter a recipient email address')
       return
     }
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (delivery === 'email' && !emailPattern.test(recipientEmail.trim())) {
+    if (!emailPattern.test(recipientEmail.trim())) {
       setSendError('Please enter a valid email address')
       return
     }
@@ -118,9 +126,10 @@ export function HandshakeRequestForm({
     setIsSending(true)
 
     try {
-      // Build optional context blocks
+      // Build optional ad-hoc context blocks (only if no profiles selected,
+      // or as supplementary ad-hoc text; profiles are resolved server-side)
       let contextBlocks: ContextBlockInput[] | undefined
-      if (showContextGraph && contextGraphText.trim()) {
+      if (showContextGraph && contextGraphText.trim() && selectedProfileIds.length === 0) {
         contextBlocks = await buildContextBlocks({
           text: contextGraphText.trim(),
           type: contextGraphType,
@@ -128,10 +137,14 @@ export function HandshakeRequestForm({
       }
 
       await initiateHandshake(
-        recipientEmail.trim().toLowerCase(), // receiverUserId — backend resolves from email
+        recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
         contextBlocks,
+        selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
+        showContextGraph && contextGraphText.trim() && selectedProfileIds.length > 0
+          ? contextGraphText.trim()
+          : undefined,
       )
 
       setSendSuccess(true)
@@ -169,30 +182,18 @@ export function HandshakeRequestForm({
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{ padding: '12px 14px', borderBottom: sectionBorder, display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span style={{ fontSize: '18px' }}>🤝</span>
         <span style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>BEAP™ Handshake Request</span>
       </div>
 
-      {/* Delivery Method */}
-      <div style={{ padding: '14px 18px', borderBottom: sectionBorder }}>
-        <label style={labelStyle}>Delivery Method</label>
-        <select
-          value={delivery}
-          onChange={(e) => setDelivery(e.target.value as DeliveryMethod)}
-          style={{ ...inputStyle, cursor: 'pointer' }}
-        >
-          <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>📧 Email</option>
-          <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>💬 Messenger (Web)</option>
-          <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: textColor }}>💾 Download (USB/Wallet)</option>
-        </select>
-      </div>
+      {/* Body — plain vertical stack, no overflow tricks */}
+      <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-      {/* Connected Email Accounts — only for email delivery */}
-      {delivery === 'email' && (
-        <div style={{ padding: '14px 18px', borderBottom: sectionBorder, background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
+        {/* Connected Email Accounts */}
+        <div style={{ padding: '14px', borderRadius: '10px', border: sectionBorder, background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '16px' }}>🔗</span>
@@ -274,10 +275,6 @@ export function HandshakeRequestForm({
             </div>
           )}
         </div>
-      )}
-
-      {/* Scrollable body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
         {/* Your Fingerprint — prominent */}
         <div style={{
@@ -306,22 +303,20 @@ export function HandshakeRequestForm({
           </div>
         </div>
 
-        {/* Recipient — email only */}
-        {delivery === 'email' && (
-          <div>
-            <label style={labelStyle}>To:</label>
-            <input
-              type="email"
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-              placeholder="recipient@example.com"
-              style={inputStyle}
-            />
-          </div>
-        )}
+        {/* Recipient */}
+        <div>
+          <label style={labelStyle}>To:</label>
+          <input
+            type="email"
+            value={recipientEmail}
+            onChange={(e) => setRecipientEmail(e.target.value)}
+            placeholder="recipient@example.com"
+            style={inputStyle}
+          />
+        </div>
 
         {/* Personal message */}
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           <label style={labelStyle}>Message</label>
           <textarea
             value={message}
@@ -331,8 +326,14 @@ export function HandshakeRequestForm({
           />
         </div>
 
-        {/* Context Graph — collapsible */}
-        <div>
+        {/* Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc */}
+        <div style={{
+          border: `1px solid ${showContextGraph ? (isStandard ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.45)') : borderColor}`,
+          borderRadius: '10px',
+          overflow: 'hidden',
+          transition: 'border-color 0.15s',
+        }}>
+          {/* Header toggle */}
           <button
             type="button"
             onClick={() => setShowContextGraph(v => !v)}
@@ -341,14 +342,11 @@ export function HandshakeRequestForm({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '10px 12px',
+              padding: '10px 14px',
               background: showContextGraph
-                ? (isStandard ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
-                : (isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.06)'),
-              border: `1px solid ${showContextGraph
-                ? (isStandard ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.4)')
-                : borderColor}`,
-              borderRadius: '8px',
+                ? (isStandard ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.18)')
+                : (isStandard ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.04)'),
+              border: 'none',
               color: showContextGraph ? (isStandard ? '#7c3aed' : '#c4b5fd') : mutedColor,
               fontSize: '12px',
               fontWeight: 600,
@@ -357,50 +355,111 @@ export function HandshakeRequestForm({
               transition: 'all 0.15s',
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              🗂 Attach Context Graph
-              <span style={{ fontSize: '10px', fontWeight: 400, opacity: 0.65 }}>(optional)</span>
-            </span>
-            <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲ Hide' : '▼ Add'}</span>
+            <span>🧠 Context Graph</span>
+            <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲ Collapse' : '▼ Expand'}</span>
           </button>
 
           {showContextGraph && (
-            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ padding: '10px 12px', background: isStandard ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.12)', borderRadius: '8px', fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
-                ℹ️ A Context Graph embeds structured information into the handshake capsule. The recipient's BEAP engine will process it alongside the handshake.
+            <div style={{ borderTop: `1px solid ${borderColor}` }}>
+              {/* Tabs */}
+              <div style={{ display: 'flex', borderBottom: `1px solid ${borderColor}` }}>
+                {(['vault', 'adhoc'] as const).map((tab) => {
+                  const active = contextGraphTab === tab
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setContextGraphTab(tab)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 10px',
+                        fontSize: '11px',
+                        fontWeight: active ? 700 : 500,
+                        background: active
+                          ? (isStandard ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.15)')
+                          : 'transparent',
+                        border: 'none',
+                        borderBottom: active ? '2px solid #8b5cf6' : '2px solid transparent',
+                        color: active ? (isStandard ? '#7c3aed' : '#c4b5fd') : mutedColor,
+                        cursor: 'pointer',
+                        transition: 'all 0.12s',
+                      }}
+                    >
+                      {tab === 'vault' ? '🗂 Vault Profiles' : '✏️ Ad-hoc Context'}
+                    </button>
+                  )
+                })}
               </div>
-              <div>
-                <label style={labelStyle}>Block Type</label>
-                <select
-                  value={contextGraphType}
-                  onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
-                  style={{ ...inputStyle, cursor: 'pointer' }}
-                >
-                  <option value="text">📝 Plain Text</option>
-                  <option value="json">📦 JSON / Structured Data</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>
-                  {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
-                </label>
-                <textarea
-                  value={contextGraphText}
-                  onChange={(e) => setContextGraphText(e.target.value)}
-                  placeholder={
-                    contextGraphType === 'json'
-                      ? '{"key": "value", ...}'
-                      : 'Enter context information to share with the recipient...'
-                  }
-                  style={{
-                    ...inputStyle,
-                    minHeight: '80px',
-                    resize: 'vertical',
-                    lineHeight: 1.5,
-                    fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
-                  }}
-                />
-              </div>
+
+              {/* Tab: Vault Profiles */}
+              {contextGraphTab === 'vault' && (
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ padding: '9px 12px', background: isStandard ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)', borderRadius: '8px', fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
+                    🗂 Select reusable context profiles stored in your Vault. Their content is normalized to plain text and attached to this handshake.
+                  </div>
+                  {canUseHsContextProfiles ? (
+                    <HandshakeContextProfilePicker
+                      selectedIds={selectedProfileIds}
+                      onChange={setSelectedProfileIds}
+                      theme={theme}
+                      disabled={isSending}
+                    />
+                  ) : (
+                    <div style={{
+                      padding: '16px', textAlign: 'center',
+                      border: `1px dashed ${borderColor}`, borderRadius: '8px',
+                      display: 'flex', flexDirection: 'column', gap: '6px',
+                    }}>
+                      <div style={{ fontSize: '20px' }}>🔒</div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: textColor }}>Publisher / Enterprise feature</div>
+                      <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
+                        Upgrade to attach structured Vault Profiles to your handshakes — including business identity, custom fields, and confidential documents.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab: Ad-hoc Context */}
+              {contextGraphTab === 'adhoc' && (
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ padding: '9px 12px', background: isStandard ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.12)', borderRadius: '8px', fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
+                    ℹ️ Ad-hoc context is normalized to plain text before sending. JSON is rendered as Key: Value lines.
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Format</label>
+                    <select
+                      value={contextGraphType}
+                      onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
+                    >
+                      <option value="text">📝 Plain Text</option>
+                      <option value="json">📦 JSON / Structured Data</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>
+                      {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
+                    </label>
+                    <textarea
+                      value={contextGraphText}
+                      onChange={(e) => setContextGraphText(e.target.value)}
+                      placeholder={
+                        contextGraphType === 'json'
+                          ? '{"key": "value", ...}'
+                          : 'Enter context information to share with the recipient...'
+                      }
+                      style={{
+                        ...inputStyle,
+                        minHeight: '80px',
+                        resize: 'vertical',
+                        lineHeight: 1.5,
+                        fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -453,13 +512,7 @@ export function HandshakeRequestForm({
             opacity: isSending ? 0.7 : 1,
           }}
         >
-          {isSending
-            ? '⏳ Sending...'
-            : delivery === 'email'
-            ? '📧 Send Request'
-            : delivery === 'messenger'
-            ? '💬 Copy & Insert'
-            : '💾 Download'}
+          {isSending ? '⏳ Sending...' : '📧 Send Request'}
         </button>
       </div>
     </div>

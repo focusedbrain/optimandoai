@@ -95,12 +95,16 @@ export async function initiateHandshake(
   receiverEmail: string,
   fromAccountId: string,
   contextBlocks?: ContextBlockInput[],
+  profileIds?: string[],
+  adHocContext?: string,
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
     ...(contextBlocks && contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
+    ...(profileIds && profileIds.length > 0 ? { profile_ids: profileIds } : {}),
+    ...(adHocContext?.trim() ? { ad_hoc_context: adHocContext.trim() } : {}),
   })
 }
 

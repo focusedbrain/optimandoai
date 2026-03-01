@@ -13,8 +13,9 @@ import { useBeapBuilder, DeliveryOptions, deliverPackage, type DeliveryConfig } 
 import { PackageBuilderPolicy } from '../../policy/components/PackageBuilderPolicy'
 import type { CanonicalPolicy } from '../../policy/schema'
 import { BeapMessageListView } from '../../beap-messages'
+import { ActiveHandshakesView } from '../../beap-messages/components/ActiveHandshakesView'
 
-export type BeapSection = 'inbox' | 'drafts' | 'outbox' | 'archive' | 'rejected'
+export type BeapSection = 'inbox' | 'drafts' | 'outbox' | 'archive' | 'rejected' | 'handshakes'
 
 interface BeapSectionViewProps {
   section: BeapSection
@@ -155,6 +156,11 @@ export function BeapSectionView({
     }
   }
   
+  // HANDSHAKES VIEW — active handshakes for both parties
+  if (section === 'handshakes') {
+    return <ActiveHandshakesView theme={theme} />
+  }
+
   // INBOX VIEW - using new BeapMessageListView
   if (section === 'inbox') {
     return (

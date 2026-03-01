@@ -128,12 +128,12 @@ function _recordWebMcpReject(now: number): void {
 // ---------------------------------------------------------------------------
 // Audit Export — UI context allowlist
 //
-// EXPORT_AUDIT_LOG is privileged: only popup.html and sidepanel.html may call
+// EXPORT_AUDIT_LOG is privileged: only popup-chat.html and sidepanel.html may call
 // it, and only when the vault is unlocked (VSBT present).
 // ---------------------------------------------------------------------------
 
 /** Allowed UI page filenames for EXPORT_AUDIT_LOG. */
-const AUDIT_EXPORT_ALLOWED_PAGES = ['/popup.html', '/sidepanel.html']
+const AUDIT_EXPORT_ALLOWED_PAGES = ['/src/popup-chat.html', '/sidepanel.html']
 
 /** Stable result version for EXPORT_AUDIT_LOG responses. */
 export const AUDIT_EXPORT_RESULT_VERSION = 'audit-export-v1'
@@ -153,7 +153,7 @@ export type AuditExportErrorCode = 'FORBIDDEN' | 'LOCKED' | 'HA_BLOCKED' | 'INTE
  *   3. The path component of sender.url must match an allowed page.
  *
  * Extension popup/sidepanel have sender.url like:
- *   chrome-extension://<id>/popup.html
+ *   chrome-extension://<id>/src/popup-chat.html
  *   chrome-extension://<id>/sidepanel.html
  */
 function _isExtensionUiContext(

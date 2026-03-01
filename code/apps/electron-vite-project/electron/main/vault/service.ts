@@ -1203,6 +1203,91 @@ export class VaultService {
   }
 
   // ==========================================================================
+  // HS Context Profiles
+  // ==========================================================================
+
+  listHsProfiles(tier: VaultTier, includeArchived = false) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { listProfiles } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return listProfiles(this.db!, tier, includeArchived)
+  }
+
+  getHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { getProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return getProfile(this.db!, tier, profileId)
+  }
+
+  createHsProfile(tier: VaultTier, input: import('./hsContextProfileService').CreateProfileInput) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { createProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return createProfile(this.db!, tier, input)
+  }
+
+  updateHsProfile(tier: VaultTier, profileId: string, updates: import('./hsContextProfileService').UpdateProfileInput) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { updateProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return updateProfile(this.db!, tier, profileId, updates)
+  }
+
+  archiveHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { archiveProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return archiveProfile(this.db!, tier, profileId)
+  }
+
+  deleteHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { deleteProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return deleteProfile(this.db!, tier, profileId)
+  }
+
+  duplicateHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { duplicateProfile } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return duplicateProfile(this.db!, tier, profileId)
+  }
+
+  async uploadHsProfileDocument(
+    tier: VaultTier,
+    profileId: string,
+    filename: string,
+    mimeType: string,
+    content: Buffer,
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { uploadProfileDocument } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return uploadProfileDocument(this.db!, tier, this.session!.kek, profileId, filename, mimeType, content)
+  }
+
+  deleteHsProfileDocument(tier: VaultTier, documentId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { deleteProfileDocument } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return deleteProfileDocument(this.db!, tier, documentId)
+  }
+
+  resolveHsProfilesForHandshake(tier: VaultTier, profileIds: string[]) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { resolveProfilesForHandshake } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return resolveProfilesForHandshake(this.db!, tier, profileIds)
+  }
+
+  getHsProfileDb() {
+    this.ensureUnlocked()
+    return this.db!
+  }
+
+  // ==========================================================================
   // Item Metadata (meta column) — used by Handshake Context
   // ==========================================================================
 

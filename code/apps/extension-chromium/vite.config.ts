@@ -57,6 +57,16 @@ export default defineConfig({
     rollupOptions: {
       input: {
         'popup-chat': path.resolve(__dirname, 'src/popup-chat.html')
+      },
+      output: {
+        manualChunks(id) {
+          // Keep handshake UI components in a shared chunk loaded by both
+          // sidepanel and popup-chat — prevents HandshakeRequestForm from
+          // being siloed into the sidepanel-only bundle.
+          if (id.includes('handshake/components') || id.includes('handshake\\components')) {
+            return 'handshake-ui'
+          }
+        }
       }
     }
   }

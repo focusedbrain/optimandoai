@@ -367,6 +367,9 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
       console.warn('[VAULT DB] ⚠️ Could not run ingestion migrations:', e?.message)
     }
 
+    // Run additive migration for HS Context Profile tables (safe on every open)
+    migrateHsContextProfileTables(db)
+
     console.log('[VAULT DB] Opened better-sqlite3 vault database')
     return db
   } catch (error) {
@@ -454,6 +457,74 @@ function migrateEnvelopeColumns(db: any): void {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_items_record_type ON vault_items(record_type)').run()
   } catch (e: any) {
     console.warn('[VAULT DB] ⚠️ Could not create envelope indexes:', e?.message)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Additive schema migration — HS Context Profile tables
+// ---------------------------------------------------------------------------
+// Creates hs_context_profiles and hs_context_profile_documents if they do
+// not exist. Safe to call on every open (CREATE TABLE IF NOT EXISTS).
+
+export function migrateHsContextProfileTables(db: any): void {
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profiles (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        description TEXT,
+        scope TEXT NOT NULL DEFAULT 'non_confidential'
+          CHECK (scope IN ('non_confidential','confidential')),
+        tags TEXT NOT NULL DEFAULT '[]',
+        fields TEXT NOT NULL DEFAULT '{}',
+        custom_fields TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ hs_context_profiles table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profiles table:', e?.message)
+  }
+
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_org ON hs_context_profiles(org_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_archived ON hs_context_profiles(archived)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_updated ON hs_context_profiles(updated_at)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profiles indexes:', e?.message)
+  }
+
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profile_documents (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL REFERENCES hs_context_profiles(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+        storage_key TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'confidential',
+        extraction_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (extraction_status IN ('pending','success','failed')),
+        extracted_text TEXT,
+        extracted_at INTEGER,
+        extractor_name TEXT,
+        error_message TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents table:', e?.message)
+  }
+
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_profile ON hs_context_profile_documents(profile_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_status ON hs_context_profile_documents(extraction_status)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents indexes:', e?.message)
   }
 }
 
@@ -548,6 +619,9 @@ function createSchema(db: any): void {
 
     // ── Document Vault table ──
     migrateDocumentTable(db)
+
+    // ── HS Context Profile tables ──
+    migrateHsContextProfileTables(db)
     
     // Verify schema was created correctly
     // NOTE: sqlite_master queries return {} instead of [] with current SQLCipher config

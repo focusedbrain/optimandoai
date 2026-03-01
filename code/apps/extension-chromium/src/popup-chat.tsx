@@ -112,6 +112,7 @@ function PopupChatApp() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [electronNotRunning, setElectronNotRunning] = useState(false)
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
+  const [userTier, setUserTier] = useState<string>('free')
   const [pictureError, setPictureError] = useState(false)
   
   // Check auth status on mount
@@ -132,9 +133,11 @@ function PopupChatApp() {
             initials: response.initials,
             picture: response.picture,
           });
+          setUserTier(response.tier || 'free');
         } else {
           setIsLoggedIn(false);
           setUserInfo({});
+          setUserTier('free');
         }
       });
     };
@@ -183,6 +186,7 @@ function PopupChatApp() {
               initials: statusResponse.initials,
               picture: statusResponse.picture,
             });
+            setUserTier(statusResponse.tier || 'free');
           }
         });
       } else {
@@ -1236,7 +1240,7 @@ function PopupChatApp() {
         return <GroupChatPlaceholder theme={theme} />
       case 'handshake':
         return (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), overflow: 'hidden' }}>
+          <div style={{ overflowY: 'auto', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
             <HandshakeRequestForm
               fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
               ourFingerprint={ourFingerprint}
@@ -1250,6 +1254,7 @@ function PopupChatApp() {
               theme={theme}
               onCancel={() => setDockedSubmode('command')}
               onSuccess={() => setDockedSubmode('command')}
+              canUseHsContextProfiles={userTier === 'publisher' || userTier === 'enterprise'}
             />
           </div>
         )
@@ -1668,7 +1673,7 @@ function PopupChatApp() {
       </header>
 
       {/* Main Content */}
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {renderContent()}
       </main>
 
