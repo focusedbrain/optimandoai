@@ -492,8 +492,10 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { handleHandshakeRPC, registerHandshakeRoutes } from './main/handshake/ipc'
+import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider } from './main/handshake/ipc'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
+import { setEmailSendFn } from './main/handshake/emailTransport'
+import { setEmailFunctions, startBeapEmailSync, type BeapSyncHandle } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
@@ -1842,6 +1844,27 @@ app.whenReady().then(async () => {
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
       console.error('[MAIN] Failed to register email handlers:', emailErr)
+    }
+
+    // Wire BEAP handshake → email transport bridge
+    try {
+      const { emailGateway } = await import('./main/email/gateway')
+      setEmailSendFn(emailGateway.sendEmail.bind(emailGateway))
+      setEmailFunctions(
+        emailGateway.listMessages.bind(emailGateway),
+        emailGateway.getMessage.bind(emailGateway),
+      )
+
+      setSSOSessionProvider(() => {
+        try {
+          const vs = (globalThis as any).__og_vault_service_ref
+          return vs?.ssoSession ?? undefined
+        } catch { return undefined }
+      })
+
+      console.log('[MAIN] BEAP email transport bridge wired')
+    } catch (bridgeErr) {
+      console.error('[MAIN] Failed to wire BEAP email bridge:', bridgeErr)
     }
     
     // Check if Ollama is installed and auto-start if configured

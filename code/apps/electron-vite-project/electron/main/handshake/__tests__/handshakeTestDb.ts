@@ -25,6 +25,7 @@ export function createHandshakeTestDb() {
   const ingestionAuditLog: any[] = []
   const quarantine: any[] = []
   const sandboxQueue: any[] = []
+  const contextBlocks: any[] = []
   const contextBlockVersions = new Map<string, number>() // `${sender}:${blockId}` → version
   const migrations = new Set<number>()
   const ingestionMigrations = new Set<number>()
@@ -88,6 +89,40 @@ export function createHandshakeTestDb() {
           return { changes: 1 }
         }
 
+        // INSERT OR IGNORE INTO context_blocks
+        if (/INSERT.*context_blocks/i.test(sql)) {
+          const key = `${pos[0]}:${pos[1]}:${pos[2]}`
+          const exists = contextBlocks.some(b =>
+            b.sender_wrdesk_user_id === pos[0] && b.block_id === pos[1] && b.block_hash === pos[2]
+          )
+          if (!exists) {
+            contextBlocks.push({
+              sender_wrdesk_user_id: pos[0],
+              block_id: pos[1],
+              block_hash: pos[2],
+              relationship_id: pos[3],
+              handshake_id: pos[4],
+              scope_id: pos[5],
+              type: pos[6],
+              data_classification: pos[7],
+              version: pos[8],
+              valid_until: pos[9],
+              source: pos[10],
+              payload: pos[11],
+              embedding_status: 'pending',
+              created_at: pos[12],
+            })
+            return { changes: 1 }
+          }
+          return { changes: 0 }
+        }
+
+        // INSERT / UPSERT INTO context_block_versions
+        if (/INSERT.*context_block_versions/i.test(sql)) {
+          contextBlockVersions.set(`${pos[0]}:${pos[1]}`, pos[2])
+          return { changes: 1 }
+        }
+
         // INSERT OR REPLACE INTO handshake_schema_migrations
         if (/INSERT.*handshake_schema_migrations/i.test(sql)) {
           const v = pos[0] ?? (args as any)?.version
@@ -123,6 +158,12 @@ export function createHandshakeTestDb() {
           const set = seenHashes.get(pos[0])
           if (!set) return undefined
           return set.has(pos[1]) ? { handshake_id: pos[0], capsule_hash: pos[1] } : undefined
+        }
+
+        // SELECT COUNT(*) FROM context_blocks
+        if (/COUNT.*FROM context_blocks/i.test(sql)) {
+          const filtered = contextBlocks.filter(b => b.handshake_id === pos[0])
+          return { cnt: filtered.length }
         }
 
         // SELECT handshake_schema_migrations
@@ -175,7 +216,14 @@ export function createHandshakeTestDb() {
 
         // SELECT context_blocks
         if (/FROM context_blocks/i.test(sql)) {
-          return []
+          let result = [...contextBlocks]
+          if (/WHERE handshake_id/i.test(sql) && pos[0]) {
+            result = result.filter(b => b.handshake_id === pos[0])
+          }
+          if (/COUNT\(\*\)/i.test(sql)) {
+            return [{ cnt: result.length }]
+          }
+          return result.map(b => ({ ...b, payload_ref: b.payload }))
         }
 
         return []
@@ -195,6 +243,8 @@ export function createHandshakeTestDb() {
     getIngestionAuditLog: () => ingestionAuditLog,
     getQuarantine: () => quarantine,
     getSandboxQueue: () => sandboxQueue,
+    getContextBlocks: (handshakeId?: string) =>
+      handshakeId ? contextBlocks.filter(b => b.handshake_id === handshakeId) : [...contextBlocks],
   }
 }
 
