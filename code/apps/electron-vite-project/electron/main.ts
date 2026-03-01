@@ -1477,21 +1477,48 @@ function updateTrayMenu() {
         type: 'checkbox' as const,
         checked: loginSettings.openAtLogin,
         enabled: !process.env.VITE_DEV_SERVER_URL, // Disable in dev mode
-        click: (menuItem) => {
+        click: async (menuItem) => {
           // Only allow changing autostart in production to prevent wrong executable registration
           if (process.env.VITE_DEV_SERVER_URL) {
             console.log('[MAIN] Cannot change autostart in dev mode')
             return
           }
           try {
-            app.setLoginItemSettings({ 
-              openAtLogin: menuItem.checked, 
+            app.setLoginItemSettings({
+              openAtLogin: menuItem.checked,
               args: ['--hidden'],
-              name: 'WR Desk' // Explicit name for Windows registry
+              name: 'WR Desk',
             })
-            const updatedSettings = app.getLoginItemSettings()
             console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
-            console.log('[MAIN] Autostart enabled:', updatedSettings.openAtLogin)
+
+            // Keep Task Scheduler in sync with the user's preference
+            if (process.platform === 'win32') {
+              const { execFile } = await import('child_process')
+              const { promisify } = await import('util')
+              const execFileAsync = promisify(execFile)
+              const taskName = 'WRDeskOrchestrator'
+              if (menuItem.checked) {
+                // Re-create the task if user re-enables autostart
+                try {
+                  await execFileAsync('schtasks', [
+                    '/Create', '/F', '/TN', taskName,
+                    '/TR', `"${process.execPath}" --hidden`,
+                    '/SC', 'ONLOGON', '/DELAY', '0000:30', '/RL', 'LIMITED', '/IT',
+                  ], { windowsHide: true })
+                  console.log('[MAIN] Task Scheduler task re-created:', taskName)
+                } catch (e) {
+                  console.warn('[MAIN] Task Scheduler re-create failed (non-fatal):', e)
+                }
+              } else {
+                // Delete the task when user disables autostart
+                try {
+                  await execFileAsync('schtasks', ['/Delete', '/F', '/TN', taskName], { windowsHide: true })
+                  console.log('[MAIN] Task Scheduler task deleted:', taskName)
+                } catch (e) {
+                  console.warn('[MAIN] Task Scheduler delete failed (non-fatal):', e)
+                }
+              }
+            }
           } catch (err) {
             console.error('[MAIN] Failed to update autostart setting:', err)
           }
@@ -1748,34 +1775,85 @@ app.whenReady().then(async () => {
         app.setAppUserModelId('com.wrcode.desktop')
       }
       if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
-        // Only register autostart for production builds (not dev mode)
-        // Check current autostart status first - don't force enable if user disabled it
         const currentSettings = app.getLoginItemSettings()
-        // Only set autostart if it's not already configured (first run)
-        // This respects user preferences if they disabled it via tray menu
-        if (currentSettings.openAtLogin === undefined || currentSettings.openAtLogin === false) {
-          // First run or explicitly disabled - set it up with --hidden flag
-          app.setLoginItemSettings({ 
-            openAtLogin: true, 
+        // wasOpenedAtLogin is true when the OS actually launched us at login.
+        // openAtLogin reflects the current registry/plist registration state.
+        const alreadyRegistered = currentSettings.openAtLogin === true
+
+        if (!alreadyRegistered) {
+          // First run: register autostart with --hidden so the app starts as a
+          // background service (tray only, no visible window) on every login.
+          app.setLoginItemSettings({
+            openAtLogin: true,
             args: ['--hidden'],
-            name: 'WR Desk' // Explicit name for Windows registry
+            name: 'WR Desk',
           })
-          const loginSettings = app.getLoginItemSettings()
-          console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
+          console.log('[MAIN] Production build - autostart registered for the first time')
+
+          // Windows-only: also register a Task Scheduler task as a belt-and-
+          // suspenders fallback.  Electron's registry entry lives under
+          // HKCU\…\Run but on some Windows 11 builds that key is silently
+          // suppressed by startup folder policies.  A Scheduled Task is far
+          // more reliable and survives those policies.
+          if (process.platform === 'win32') {
+            registerWindowsTaskScheduler().catch(err =>
+              console.warn('[MAIN] Task Scheduler registration failed (non-fatal):', err)
+            )
+          }
         } else {
-          // Already configured - just ensure args are correct
-          app.setLoginItemSettings({ 
-            openAtLogin: true, 
-            args: ['--hidden'],
-            name: 'WR Desk'
-          })
-          console.log('[MAIN] Production build - autostart already configured, ensuring args are correct')
+          // Already registered — do NOT touch the setting so that a user who
+          // deliberately unchecked "Start on Login" in the tray menu keeps
+          // their preference across app restarts.
+          console.log('[MAIN] Production build - autostart already registered, respecting existing setting')
         }
       } else if (!isProduction) {
         console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
     } catch (err) {
       console.error('[MAIN] Failed to register autostart:', err)
+    }
+
+    /**
+     * Register a Windows Task Scheduler task that launches the app at logon
+     * as a belt-and-suspenders complement to the Electron registry entry.
+     * Uses schtasks.exe (available on all Windows versions, no admin required
+     * for per-user ONLOGON tasks).
+     */
+    async function registerWindowsTaskScheduler(): Promise<void> {
+      const { execFile } = await import('child_process')
+      const { promisify } = await import('util')
+      const execFileAsync = promisify(execFile)
+
+      const taskName = 'WRDeskOrchestrator'
+      const exePath = process.execPath
+      const args = '--hidden'
+
+      // Check if task already exists
+      try {
+        await execFileAsync('schtasks', ['/Query', '/TN', taskName], { windowsHide: true })
+        console.log('[MAIN] Task Scheduler task already exists:', taskName)
+        // Update the executable path in case the app was reinstalled to a new path
+        await execFileAsync('schtasks', [
+          '/Change', '/TN', taskName,
+          '/TR', `"${exePath}" ${args}`,
+        ], { windowsHide: true })
+        return
+      } catch {
+        // Task doesn't exist — create it
+      }
+
+      await execFileAsync('schtasks', [
+        '/Create',
+        '/F',                        // overwrite if exists
+        '/TN', taskName,
+        '/TR', `"${exePath}" ${args}`,
+        '/SC', 'ONLOGON',            // trigger: at logon
+        '/DELAY', '0000:30',         // 30-second delay so the desktop is ready
+        '/RL', 'LIMITED',            // run with standard (non-admin) privileges
+        '/IT',                       // run only when user is logged in interactively
+      ], { windowsHide: true })
+
+      console.log('[MAIN] Task Scheduler task created:', taskName)
     }
     
   // ========== AUTH-GATED STARTUP ==========

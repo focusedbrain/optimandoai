@@ -147,6 +147,7 @@ function SidepanelOrchestrator() {
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [electronNotRunning, setElectronNotRunning] = useState(false)
   const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   
   // Check auth status on mount and periodically
@@ -201,6 +202,7 @@ function SidepanelOrchestrator() {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
     setLoginError(null);
+    setElectronNotRunning(false);
     chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
       setIsLoggingIn(false);
       if (response?.ok) {
@@ -221,11 +223,11 @@ function SidepanelOrchestrator() {
         const reason = response?.error || 'unknown';
         console.log('[AUTH] SSO failed. Reason:', reason);
         if (response?.electronNotRunning) {
-          // Electron is truly not running – redirect to wrdesk.com
-          setLoginError('Desktop app is not running. Please start WR Desk Orchestrator.');
+          setElectronNotRunning(true);
+          setLoginError('WR Desk Orchestrator is not running.');
           chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
         } else {
-          // Transient issue (launch secret not ready, timeout, etc.) – show error, let user retry
+          setElectronNotRunning(false);
           setLoginError(reason);
         }
       }
@@ -3732,16 +3734,56 @@ function SidepanelOrchestrator() {
         
         {/* Login error message */}
         {loginError && !isLoggingIn && (
-          <p style={{
-            fontSize: '12px',
-            color: theme === 'standard' ? '#dc2626' : '#f87171',
-            margin: 0,
-            textAlign: 'center',
-            lineHeight: '1.5',
-            maxWidth: '280px'
-          }}>
-            {loginError}
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', maxWidth: '280px' }}>
+            {electronNotRunning ? (
+              <>
+                <p style={{
+                  fontSize: '12px',
+                  color: theme === 'standard' ? '#dc2626' : '#f87171',
+                  margin: 0,
+                  textAlign: 'center',
+                  lineHeight: '1.5',
+                }}>
+                  WR Desk Orchestrator is not running.
+                </p>
+                <p style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#6b7280' : '#9ca3af',
+                  margin: 0,
+                  textAlign: 'center',
+                  lineHeight: '1.5',
+                }}>
+                  Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.
+                </p>
+                <button
+                  onClick={handleAuthSignIn}
+                  style={{
+                    marginTop: '4px',
+                    padding: '6px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: theme === 'standard' ? '#6366f1' : '#818cf8',
+                    color: '#fff',
+                  }}
+                >
+                  Retry Sign In
+                </button>
+              </>
+            ) : (
+              <p style={{
+                fontSize: '12px',
+                color: theme === 'standard' ? '#dc2626' : '#f87171',
+                margin: 0,
+                textAlign: 'center',
+                lineHeight: '1.5',
+              }}>
+                {loginError}
+              </p>
+            )}
+          </div>
         )}
       </div>
     )
