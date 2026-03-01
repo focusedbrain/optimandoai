@@ -50,6 +50,7 @@ function csTheme() {
     inputBg:      'rgba(15,23,42,0.8)',
     inputText:    '#e7e9ea',
     accent:       '#818cf8',
+    accentColor:  '#818cf8',
     accentGrad:   'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
     overlay:      'rgba(0,0,0,0.90)',
     shadow:       '0 20px 60px rgba(0,0,0,0.7)',
@@ -62,12 +63,13 @@ function csTheme() {
     headerGrad:   '#ffffff',
     headerBorder: '#e1e8ed',
     border:       '#e1e8ed',
-    cardBg:       '#ffffff',
+    cardBg:       '#f0f2f5',
     text:         '#0f1419',
     muted:        '#536471',
     inputBg:      '#ffffff',
     inputText:    '#0f1419',
     accent:       '#6366f1',
+    accentColor:  '#6366f1',
     accentGrad:   'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
     overlay:      'rgba(15,20,25,0.60)',
     shadow:       '0 20px 60px rgba(15,23,42,0.12)',
@@ -86,6 +88,7 @@ function csTheme() {
     inputBg:      'rgba(0,0,0,0.3)',
     inputText:    '#f3f0ff',
     accent:       '#a855f7',
+    accentColor:  '#a855f7',
     accentGrad:   'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
     overlay:      'rgba(30,10,60,0.92)',
     shadow:       '0 20px 60px rgba(30,10,60,0.6)',
@@ -4163,7 +4166,7 @@ function initializeExtension() {
 
           const card = document.createElement('div')
 
-          card.style.cssText = 'background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+          card.style.cssText = `background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; text-align: center; position: relative;`
 
           card.innerHTML = `
 
@@ -5659,7 +5662,7 @@ function initializeExtension() {
 
   function openAddAgentBoxDialog() {
 
-    const colors = ['#4CAF50', '${csTheme().accent}', '${csTheme().accent}', '#9C27B0', '${csTheme().isLight ? "#dc2626" : "#f87171"}', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', `${csTheme().accent}`, `${csTheme().accent}`, '#9C27B0', `${csTheme().isLight ? "#dc2626" : "#f87171"}`, '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -6454,7 +6457,7 @@ function initializeExtension() {
 
   function openEditAgentBoxDialog(agentId: string) {
 
-    const colors = ['#4CAF50', '${csTheme().accent}', '${csTheme().accent}', '#9C27B0', '${csTheme().isLight ? "#dc2626" : "#f87171"}', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', `${csTheme().accent}`, `${csTheme().accent}`, '#9C27B0', `${csTheme().isLight ? "#dc2626" : "#f87171"}`, '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -9031,7 +9034,7 @@ function initializeExtension() {
 
       if (wrBtn) wrBtn.style.background = '#4CAF50'
 
-      if (sessionsBtn) sessionsBtn.style.background = '${csTheme().accent}'
+      if (sessionsBtn) sessionsBtn.style.background = `${csTheme().accent}`
 
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
 
@@ -9696,9 +9699,9 @@ function initializeExtension() {
 
     const inactiveBg = isProfessional ? 'rgba(2,6,23,0.03)' : 'rgba(255,255,255,0.1)'
 
-    const activeBorder = isProfessional ? '1px solid #cbd5e1' : '1px solid ${csTheme().border}'
+    const activeBorder = isProfessional ? '1px solid #cbd5e1' : `1px solid ${csTheme().border}`
 
-    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : '1px solid ${csTheme().border}'
+    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : `1px solid ${csTheme().border}`
 
     const textColor = isProfessional ? '#0f172a' : 'white'
 
@@ -11981,9 +11984,9 @@ function initializeExtension() {
 
       'summarize': '#4CAF50',
 
-      'research': '${csTheme().accent}',
+      'research': `${csTheme().accent}`,
 
-      'analyze': '${csTheme().accent}',
+      'analyze': `${csTheme().accent}`,
 
       'generate': '#9C27B0',
 
@@ -13539,7 +13542,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'exec-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -13619,7 +13622,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'e-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -14653,7 +14656,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = `trigger-${type}-row`
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14706,7 +14709,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.t-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 't-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -14780,7 +14783,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'reasoning-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14838,7 +14841,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'r-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid ${csTheme().border}'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <select class="r-wcond-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:500">
@@ -15033,7 +15036,7 @@ function initializeExtension() {
 
         const agentCtxWrap = document.createElement('div')
 
-        agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border}'
+        agentCtxWrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border}`
 
         agentCtxWrap.innerHTML = `
 
@@ -15995,7 +15998,7 @@ function initializeExtension() {
         const createSensorWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
           const row = document.createElement('div')
           row.className = 'sensor-workflow-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
           
           const header = document.createElement('div')
           header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
@@ -16120,11 +16123,11 @@ function initializeExtension() {
           const row = document.createElement('div')
           row.className = 'unified-trigger-row'
           row.dataset.triggerId = triggerId
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
           
           // ID display row
           const idRow = document.createElement('div')
-          idRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${csTheme().border}'
+          idRow.style.cssText = `display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${csTheme().border}`
           idRow.innerHTML = `
             <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
@@ -16143,7 +16146,7 @@ function initializeExtension() {
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               tempSaveBtn.textContent = '💾 Save'
-              tempSaveBtn.style.background = '${csTheme().accent}'
+              tempSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
             // Add persistent green checkmark indicator if not already present
@@ -16151,7 +16154,7 @@ function initializeExtension() {
               const checkmark = document.createElement('span')
               checkmark.className = 'trigger-saved-indicator'
               checkmark.textContent = '✏“'
-              checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
+              checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
               checkmark.title = 'Trigger saved'
               tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
             }
@@ -16556,7 +16559,7 @@ function initializeExtension() {
               // Conditions section with condition type selector
               const condSection = document.createElement('div')
               condSection.className = 'workflow-conditions-section'
-              condSection.style.cssText = 'margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid ${csTheme().border}'
+              condSection.style.cssText = `margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid ${csTheme().border}`
               condSection.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                   <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Conditions (when to activate)</span>
@@ -16573,7 +16576,7 @@ function initializeExtension() {
               const createConditionRow = (initCond?: { conditionType?: string, field?: string, op?: string, value?: string, tag?: string, signal?: string }) => {
                 const condRow = document.createElement('div')
                 condRow.className = 'condition-row'
-                condRow.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:6px;padding:8px'
+                condRow.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:6px;padding:8px`
                 
                 const condType = initCond?.conditionType || 'boolean'
                 
@@ -17407,7 +17410,7 @@ function initializeExtension() {
               const createParserRule = (initRule?: any) => {
                 const rule = document.createElement('div')
                 rule.className = 'dom-parser-rule'
-                rule.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px;padding:8px'
+                rule.style.cssText = `background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px;padding:8px`
                 rule.innerHTML = `
                   <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
                     <select class="dom-rule-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
@@ -17842,11 +17845,11 @@ function initializeExtension() {
           
           // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
           const bottomSaveRow = document.createElement('div')
-          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}'
+          bottomSaveRow.style.cssText = `display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}`
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
           bottomSaveBtn.textContent = '💾 Save Trigger'
-          bottomSaveBtn.style.cssText = 'background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
+          bottomSaveBtn.style.cssText = `background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600`
           bottomSaveRow.appendChild(bottomSaveBtn)
           row.appendChild(bottomSaveRow)
           
@@ -17860,7 +17863,7 @@ function initializeExtension() {
             bottomSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               bottomSaveBtn.textContent = '💾 Save Trigger'
-              bottomSaveBtn.style.background = '${csTheme().accent}'
+              bottomSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
             // Add persistent green checkmark to ID row if not already present
@@ -17870,7 +17873,7 @@ function initializeExtension() {
                 const checkmark = document.createElement('span')
                 checkmark.className = 'trigger-saved-indicator'
                 checkmark.textContent = '✏“'
-                checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
+                checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                 checkmark.title = 'Trigger saved'
                 idRowEl.appendChild(checkmark)
               }
@@ -18045,7 +18048,7 @@ function initializeExtension() {
         const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
           const row = document.createElement('div')
           row.className = 'act-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
           
           // Header row with tag name and delete button
           const header = document.createElement('div')
@@ -18058,7 +18061,7 @@ function initializeExtension() {
           const tagInput = document.createElement('input')
           tagInput.placeholder = 'trigger-name (e.g. invoice, report, screenshot)'
           tagInput.className = 'act-tag'
-          tagInput.style.cssText = 'flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px 12px;border-radius:6px;font-size:13px'
+          tagInput.style.cssText = `flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px 12px;border-radius:6px;font-size:13px`
           if (init?.tag) tagInput.value = init.tag
           
           const delBtn = document.createElement('button')
@@ -18112,7 +18115,7 @@ function initializeExtension() {
           // Source-specific value input (shown for workflow, api, dom)
           const sourceValueInput = document.createElement('input')
           sourceValueInput.className = 'act-source-value'
-          sourceValueInput.style.cssText = 'flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          sourceValueInput.style.cssText = `flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:6px;font-size:12px;display:none`
           if (init?.sourceValue && init?.source !== 'agent') sourceValueInput.value = init.sourceValue
           
           // Agent select dropdown (1-50)
@@ -18386,7 +18389,7 @@ function initializeExtension() {
 
                 const label = document.createElement('label')
 
-                label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:6px'
+                label.style.cssText = `display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:6px`
 
                 const cb = document.createElement('input'); cb.type='checkbox'; cb.value=a.id; cb.className='E-agent'
 
@@ -18604,13 +18607,13 @@ function initializeExtension() {
 
           key.placeholder = 'Custom field (name)'
 
-          key.style.cssText = 'background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px'
+          key.style.cssText = `background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
           const val = document.createElement('input')
 
           val.placeholder = 'value'
 
-          val.style.cssText = 'background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px'
+          val.style.cssText = `background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
           const del = document.createElement('button')
 
@@ -18643,7 +18646,7 @@ function initializeExtension() {
           if (checkbox && state) {
             const updateState = () => {
               state.textContent = checkbox.checked ? 'ON' : 'OFF'
-              state.style.background = checkbox.checked ? '${csTheme().accent}' : 'rgba(255,255,255,.15)'
+              state.style.background = checkbox.checked ? `${csTheme().accent}` : 'rgba(255,255,255,.15)'
             }
             checkbox.addEventListener('change', updateState)
             updateState() // Initialize
@@ -18958,9 +18961,9 @@ function initializeExtension() {
 
             row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px'
 
-            const key = document.createElement('input'); key.placeholder='Custom field (name)'; key.style.cssText='background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px'
+            const key = document.createElement('input'); key.placeholder='Custom field (name)'; key.style.cssText=`background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
-            const val = document.createElement('input'); val.placeholder='value'; val.style.cssText='background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px'
+            const val = document.createElement('input'); val.placeholder='value'; val.style.cssText=`background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
             const del = document.createElement('button'); del.textContent='&times;'; del.title='Remove'; del.style.cssText='background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
 
@@ -20237,7 +20240,7 @@ function initializeExtension() {
                         const checkmark = document.createElement('span')
                         checkmark.className = 'trigger-saved-indicator'
                         checkmark.textContent = '✏“'
-                        checkmark.style.cssText = 'color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px'
+                        checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                         checkmark.title = 'Trigger saved'
                         tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
                       }
@@ -27759,7 +27762,7 @@ ${pageText}
 
           const cell = document.createElement('div')
 
-          cell.style.cssText = 'background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center'
+          cell.style.cssText = `background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center`
 
           const label = document.createElement('div')
 
@@ -28281,7 +28284,7 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'account' ? 'background: rgba(255,215,0,0.4); color: ${csTheme().muted};' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'account' ? `background: rgba(255,215,0,0.4); color: ${csTheme().muted};` : 'background: transparent; color: rgba(255,255,255,0.5);'}
 
               ">🏢 Account</span>
 
@@ -29397,7 +29400,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: ${csTheme().muted}; margin-bottom: 8px;">' +
+          `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
             '📱 Mini-App: <strong>' + title + '</strong>' +
 
@@ -29415,7 +29418,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">' +
+          `<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -29623,7 +29626,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: ${csTheme().muted}; margin-bottom: 8px;">' +
+          `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
             '📱 Mini-App: <strong>' + title + '</strong>' +
 
@@ -29641,7 +29644,7 @@ ${pageText}
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">' +
+          `<div style="color: rgba(255,255,255,0.4); font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
             '💡 Test functionality will be integrated in a future update.' +
 
@@ -30278,7 +30281,7 @@ ${pageText}
 
       const toolbar = document.createElement('div')
 
-      toolbar.style.cssText = 'position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid ${csTheme().border}; font-size:12px; pointer-events:auto; z-index:2147483648;'
+      toolbar.style.cssText = `position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid ${csTheme().border}; font-size:12px; pointer-events:auto; z-index:2147483648;`
 
       const btnShot = document.createElement('button'); btnShot.textContent = 'Screenshot'; btnShot.style.cssText='background:#10b981;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
@@ -30308,7 +30311,7 @@ ${pageText}
 
       // Close control (&times;)
 
-      const btnClose = document.createElement('button'); btnClose.textContent='&times;'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid ${csTheme().border};color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      const btnClose = document.createElement('button'); btnClose.textContent='&times;'; btnClose.title='Close selection'; btnClose.style.cssText=`background:rgba(255,255,255,0.08);border:1px solid ${csTheme().border};color:white;padding:4px 8px;border-radius:6px;cursor:pointer`
 
       toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, labCommand, btnClose)
 
@@ -30550,7 +30553,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Create Trigger'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText='flex:1; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;'
+            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText=`flex:1; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;`
             
             // Style placeholder text
             const placeholderStyle = document.createElement('style')
@@ -30586,7 +30589,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Optional Command'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:70px; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText=`width:100%; min-height:70px; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;`
 
             commandRow.append(label, commandIn)
 
@@ -32105,7 +32108,7 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid ${csTheme().border}'
+        row.style.border = `1px solid ${csTheme().border}`
 
         row.innerHTML = `
 
@@ -32251,11 +32254,11 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid ${csTheme().border}'
+        row.style.border = `1px solid ${csTheme().border}`
 
         row.innerHTML = (
 
-          '<select class="local-llm-select" style="width:100%; background: ${csTheme().cardBg}; border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+          `<select class="local-llm-select" style="width:100%; background: ${csTheme().cardBg}; border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
             getLocalLLMOptionsHTML()+
 
@@ -32461,13 +32464,13 @@ ${pageText}
 
           row.style.borderRadius = '6px'
 
-          row.style.border = '1px solid ${csTheme().border}'
+          row.style.border = `1px solid ${csTheme().border}`
 
           row.innerHTML = (
 
-            '<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            `<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
-            '<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            `<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
             '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
 
@@ -38085,7 +38088,7 @@ ${pageText}
 
                            placeholder="Click to edit session name" />
 
-                    ${session.isActive ? '<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>' : ''}
+                    ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
                     <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
 
@@ -39437,11 +39440,11 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+      <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
         <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
 
-        <div>Loading agent boxes...</div>
+        <div style="color: ${csTheme().muted};">Loading agent boxes...</div>
 
       </div>
 
@@ -39529,13 +39532,13 @@ ${pageText}
 
         overlay.innerHTML = `
 
-          <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+          <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
             <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
 
-            <div>Session not found</div>
+            <div style="color: ${csTheme().muted};">Session not found</div>
 
-            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer;">Close</button>
+            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">Close</button>
 
           </div>
 
@@ -39851,17 +39854,17 @@ ${pageText}
 
         return `
 
-          <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
+          <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; margin: 6px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
 
-            <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
+            <div style="font-family: monospace; font-weight: 700; color: ${csTheme().accentColor}; font-size: 14px;">${identifier}</div>
 
-            <div style="font-size: 14px;">${box.title}</div>
+            <div style="font-size: 13px; color: ${csTheme().text}; font-weight: 500;">${box.title}</div>
 
-            <div style="font-size: 13px; opacity: 0.9;">${llmInfo}</div>
+            <div style="font-size: 12px; color: ${csTheme().muted};">${llmInfo}</div>
 
-            <div style="font-size: 12px; opacity: 0.8;">${box.location}</div>
+            <div style="font-size: 12px; color: ${csTheme().muted};">${box.location}</div>
 
-            <div style="font-size: 11px; opacity: 0.8;">${toolsInfo}</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">${toolsInfo}</div>
 
           </div>
 
@@ -39871,15 +39874,15 @@ ${pageText}
 
       overlay.innerHTML = `
 
-        <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 12px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; border: 1px solid ${csTheme().border}; display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <div>
 
-              <h3 style="margin: 0; font-size: 18px; font-weight: 600;">📦 Agent Box Overview</h3>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: ${csTheme().text};">Agent Box Overview</h3>
 
-              <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px;">
+              <div style="font-size: 12px; color: ${csTheme().muted}; margin-top: 2px;">
 
                 Session: ${sessionKey.split('_')[1]} | Registered Boxes: ${registeredBoxes.length}
 
@@ -39887,27 +39890,27 @@ ${pageText}
 
             </div>
 
-            <button id="close-agentbox-overview" style="background: rgba(255,255,255,0.15); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
+            <button id="close-agentbox-overview" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; display:flex; align-items:center; justify-content:center;">&times;</button>
 
           </div>
 
           
 
-          <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          <div style="flex: 1; padding: 16px 20px; overflow-y: auto;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; padding: 12px 15px; border-radius: 8px; margin-bottom: 16px;">
 
-              <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6;">
+              <div style="font-size: 12px; color: ${csTheme().muted}; line-height: 1.6;">
 
-                <strong>Identifier System:</strong><br>
+                <strong style="color: ${csTheme().text};">Identifier System:</strong><br>
 
-                &rdquo;¢ AB[BoxNumber][AgentNumber] format (e.g., AB0105 = Box 01 with Agent 05)<br>
+                &bull; AB[BoxNumber][AgentNumber] format (e.g., AB0105 = Box 01 with Agent 05)<br>
 
-                &rdquo;¢ Box numbers auto-increment (AB01, AB02, AB03, etc.)<br>
+                &bull; Box numbers auto-increment (AB01, AB02, AB03, etc.)<br>
 
-                &rdquo;¢ Agent numbers are assigned when creating each box<br>
+                &bull; Agent numbers are assigned when creating each box<br>
 
-                &rdquo;¢ All configured boxes are listed below
+                &bull; All configured boxes are listed below
 
               </div>
 
@@ -39915,9 +39918,9 @@ ${pageText}
 
             
 
-            <div style="background: ${csTheme().cardBg}; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; padding: 10px 12px; border-radius: 8px; margin-bottom: 10px;">
 
-              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
+              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 700; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">
 
                 <div>Identifier</div>
 
@@ -39935,7 +39938,7 @@ ${pageText}
 
             
 
-            ${boxesHTML || '<div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.6);">No registered agent boxes</div>'}
+            ${boxesHTML || `<div style="text-align: center; padding: 20px; color: ${csTheme().muted};">No registered agent boxes</div>`}
 
           </div>
 
@@ -43016,7 +43019,7 @@ ${pageText}
 
       note.style.color = '#e5e7eb'
 
-      note.style.border = '1px solid ${csTheme().border}'
+      note.style.border = `1px solid ${csTheme().border}`
 
       document.body.appendChild(note)
 
@@ -44721,7 +44724,7 @@ ${pageText}
 
       note.textContent = `Starting LETmeGIRAFFETHATFORYOU: ${mode}`
 
-      note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid ${csTheme().border};border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
+      note.style.cssText = `position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid ${csTheme().border};border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)`
 
       document.body.appendChild(note)
 
