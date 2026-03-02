@@ -153,6 +153,15 @@ export interface CapsulePayloadEnc {
 // Constants
 // =============================================================================
 
+/**
+ * TypeScript 5.x narrows Uint8Array<ArrayBufferLike> which is incompatible
+ * with WebCrypto's BufferSource (expects ArrayBuffer, not SharedArrayBuffer).
+ * This helper performs a safe identity cast.
+ */
+function asBufferSource(buf: Uint8Array): BufferSource {
+  return buf as unknown as BufferSource
+}
+
 const NONCE_LENGTH = 12 // 96 bits for AES-GCM
 const SALT_LENGTH = 16 // 128 bits
 const KEY_LENGTH = 32 // 256 bits
@@ -306,7 +315,7 @@ export function bytesToString(bytes: Uint8Array): string {
  * Compute SHA-256 hash of bytes
  */
 export async function sha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', asBufferSource(data))
   const hashArray = new Uint8Array(hashBuffer)
   return Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('')
 }
@@ -469,7 +478,7 @@ export function buildEnvelopeAadFields(header: EnvelopeHeaderForAAD): Record<str
     }
     
     // PQ metadata (if active)
-    if (header.crypto.pq && header.crypto.pq !== false) {
+    if (header.crypto.pq) {
       (aadFields.crypto as Record<string, unknown>).pq = {
         required: header.crypto.pq.required,
         kem: header.crypto.pq.kem,
@@ -517,25 +526,23 @@ export async function hkdfSha256(
   info: string,
   length: number = KEY_LENGTH
 ): Promise<Uint8Array> {
-  // Import IKM as raw key material
   const ikmKey = await crypto.subtle.importKey(
     'raw',
-    ikm,
+    asBufferSource(ikm),
     { name: 'HKDF' },
     false,
     ['deriveBits']
   )
 
-  // Derive bits using HKDF
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: salt,
-      info: stringToBytes(info)
+      salt: asBufferSource(salt),
+      info: asBufferSource(stringToBytes(info))
     },
     ikmKey,
-    length * 8 // bits
+    length * 8
   )
 
   return new Uint8Array(derivedBits)
@@ -605,7 +612,7 @@ async function deriveHandshakeSecret_DEPRECATED(
   
   const combined = `BEAP-MVP:${handshakeId}:${senderFingerprint}`
   const combinedBytes = stringToBytes(combined)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', combinedBytes)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', asBufferSource(combinedBytes))
   return new Uint8Array(hashBuffer)
 }
 
@@ -662,24 +669,22 @@ export async function aeadEncrypt(
   // Generate random nonce
   const nonce = randomBytes(NONCE_LENGTH)
   
-  // Import key
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    asBufferSource(key),
     { name: 'AES-GCM' },
     false,
     ['encrypt']
   )
   
-  // Encrypt with AES-GCM
   const ciphertextBuffer = await crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv: nonce,
-      additionalData: aad
+      iv: asBufferSource(nonce),
+      additionalData: aad ? asBufferSource(aad) : undefined
     },
     cryptoKey,
-    plaintext
+    asBufferSource(plaintext)
   )
   
   return {
@@ -708,24 +713,22 @@ export async function aeadDecrypt(
   const nonceBytes = fromBase64(nonce)
   const ciphertextBytes = fromBase64(ciphertext)
   
-  // Import key
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    asBufferSource(key),
     { name: 'AES-GCM' },
     false,
     ['decrypt']
   )
   
-  // Decrypt with AES-GCM
   const plaintextBuffer = await crypto.subtle.decrypt(
     {
       name: 'AES-GCM',
-      iv: nonceBytes,
-      additionalData: aad
+      iv: asBufferSource(nonceBytes),
+      additionalData: aad ? asBufferSource(aad) : undefined
     },
     cryptoKey,
-    ciphertextBytes
+    asBufferSource(ciphertextBytes)
   )
   
   return new Uint8Array(plaintextBuffer)
@@ -1319,7 +1322,7 @@ import * as ed from '@noble/ed25519'
 // This is required for browser environments
 ed.etc.sha512Sync = undefined // Disable sync (we use async)
 ed.etc.sha512Async = async (message: Uint8Array): Promise<Uint8Array> => {
-  const hash = await crypto.subtle.digest('SHA-512', message)
+  const hash = await crypto.subtle.digest('SHA-512', asBufferSource(message))
   return new Uint8Array(hash)
 }
 

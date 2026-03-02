@@ -17,8 +17,6 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
-import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
-import type { ContextBlockInput } from '../rpcTypes'
 import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
 import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
@@ -126,25 +124,10 @@ export function HandshakeRequestForm({
     setIsSending(true)
 
     try {
-      // Build optional ad-hoc context blocks (only if no profiles selected,
-      // or as supplementary ad-hoc text; profiles are resolved server-side)
-      let contextBlocks: ContextBlockInput[] | undefined
-      if (showContextGraph && contextGraphText.trim() && selectedProfileIds.length === 0) {
-        contextBlocks = await buildContextBlocks({
-          text: contextGraphText.trim(),
-          type: contextGraphType,
-        })
-      }
-
       await initiateHandshake(
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
-        contextBlocks,
-        selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
-        showContextGraph && contextGraphText.trim() && selectedProfileIds.length > 0
-          ? contextGraphText.trim()
-          : undefined,
       )
 
       setSendSuccess(true)

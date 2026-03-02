@@ -27,7 +27,7 @@ export interface DeliveryMethodPanelProps {
   selectedRecipient: SelectedRecipient | null
   emailTo: string
   onEmailToChange: (value: string) => void
-  theme: 'standard' | 'hacker' | 'pro'
+  theme: 'standard' | 'hacker' | 'pro' | 'dark'
   ourFingerprintShort: string
 }
 
@@ -64,7 +64,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
   const getFilenamePreview = (): string => {
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     if (recipientMode === 'private' && selectedRecipient) {
-      const shortFp = selectedRecipient.receiver_fingerprint_short.replace(/[…\.]/g, '').slice(0, 8)
+      const shortFp = (selectedRecipient.receiver_fingerprint_short ?? '').replace(/[…\.]/g, '').slice(0, 8)
       return `beap_${timestamp}_${shortFp}.beap`
     }
     return `beap_${timestamp}_PUBLIC.beap`
@@ -171,7 +171,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
                 outline: 'none'
               }}
             >
-              {emails.map((email, idx) => (
+              {emails.map((email: string, idx: number) => (
                 <option key={idx} value={email} style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#0f172a' : 'white' }}>
                   {email}
                 </option>

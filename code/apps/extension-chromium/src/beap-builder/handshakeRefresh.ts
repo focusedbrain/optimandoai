@@ -1,15 +1,14 @@
 /**
  * Handshake Refresh Helper
  *
- * Sends a message via handshake.refresh RPC.
- * Replaces the old email-dispatch flow for handshake-based messages.
- *
- * The backend handles: capsule building, hash computation, chain state,
- * email transport, and local pipeline submission.
+ * Sends a refresh via handshake.refresh RPC with proof-only context references.
+ * Content is never included in handshake capsules — only SHA-256 hashes
+ * of context blocks are sent as proof. Actual content enters only through
+ * the full BEAP-Capsule pipeline.
  */
 
 import { refreshHandshake } from '../handshake/handshakeRpc'
-import type { ContextBlockInput } from '../handshake/rpcTypes'
+import type { ContextBlockProof } from '../handshake/rpcTypes'
 
 export interface UserMessage {
   text: string
@@ -36,19 +35,18 @@ async function computeBlockHash(content: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export async function buildContextBlocks(message: UserMessage): Promise<ContextBlockInput[]> {
+export async function buildContextBlockProofs(message: UserMessage): Promise<ContextBlockProof[]> {
   const blockHash = await computeBlockHash(message.text)
   return [
     {
       block_id: generateBlockId(),
-      block_type: message.type ?? 'text',
-      content: message.text,
-      version: 1,
       block_hash: blockHash,
-      scope_id: message.scope_id,
     },
   ]
 }
+
+/** @deprecated Use buildContextBlockProofs — kept for backward compat */
+export const buildContextBlocks = buildContextBlockProofs
 
 export async function sendViaHandshakeRefresh(
   handshakeId: string,
@@ -56,8 +54,8 @@ export async function sendViaHandshakeRefresh(
   fromAccountId: string,
 ): Promise<HandshakeRefreshResult> {
   try {
-    const contextBlocks = await buildContextBlocks(message)
-    const result = await refreshHandshake(handshakeId, contextBlocks, fromAccountId)
+    const proofs = await buildContextBlockProofs(message)
+    const result = await refreshHandshake(handshakeId, fromAccountId, proofs)
     return {
       success: true,
       handshake_id: result.handshake_id,

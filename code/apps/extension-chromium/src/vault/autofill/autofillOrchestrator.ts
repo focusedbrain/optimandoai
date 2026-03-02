@@ -43,6 +43,7 @@ import {
   onCredentialSubmit,
 } from './submitWatcher'
 import { showSaveBar, hideSaveBar } from './saveBar'
+import type { ExistingMatch } from './saveBar'
 import {
   findExistingCredentials,
   executeCredentialSave,
@@ -668,7 +669,7 @@ function guardedAutoSubmit(
     emitTelemetryEvent('guarded_submit_blocked', {
       source,
       code: result.code,
-      reason: result.reason,
+      reason: result.reason ?? 'unknown',
     })
   }
 }
@@ -844,7 +845,7 @@ function startSavePasswordWatcher(): void {
       auditLog('info', 'SAVE_CREDENTIAL_DETECTED', `Credential submit detected for ${creds.domain} (form: ${creds.formType})`)
 
       // Find existing matches in the vault (may fail if vault is locked — that's ok)
-      let existingMatches: Array<{ itemId: string; username: string }> = []
+      let existingMatches: ExistingMatch[] = []
       try {
         existingMatches = await findExistingCredentials(creds.domain, creds.username)
       } catch {

@@ -783,7 +783,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                           newTags.push('handshake_partner')
                                         }
                                         const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
-                                        setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                        setHandshakePolicies({ ...handshakePolicies, [hsp.id]: updated })
                                       }}
                                       style={{
                                         padding: '14px 10px',
@@ -842,7 +842,7 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                                         newTags.push(`mode:${mode.id}`)
                                       }
                                       const updated = { ...hsp, tags: newTags, updatedAt: Date.now() }
-                                      setHandshakePolicies(handshakePolicies.map(p => p.id === hsp.id ? updated : p))
+                                      setHandshakePolicies({ ...handshakePolicies, [hsp.id]: updated })
                                     }}
                                     style={{
                                       padding: '10px 6px',
@@ -1111,12 +1111,12 @@ export function PolicyLightbox({ isOpen, onClose, theme = 'default' }: PolicyLig
                       })()}
 
                   {/* Effective Policy Preview */}
-                  {localPolicy && handshakePolicies.length > 0 && (
+                  {localPolicy && Object.keys(handshakePolicies).length > 0 && (
                     <div style={{ marginTop: '32px' }}>
                       <EffectivePreview
                         localPolicy={localPolicy}
                         networkPolicy={networkPolicy || undefined}
-                        handshakePolicies={handshakePolicies}
+                        handshakePolicies={Object.values(handshakePolicies)}
                         selectedHandshakeId={selectedHandshake || undefined}
                         theme={theme}
                       />

@@ -15,6 +15,7 @@
 import type { RawInput, SourceType, TransportMetadata } from './types'
 import { processIncomingInput } from './ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
+import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import type { SSOSession } from '../handshake/types'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import { migrateHandshakeTables } from '../handshake/db'
@@ -104,9 +105,28 @@ export async function handleIngestionRPC(
             }
           }
 
+          // Gate 2: Canonical rebuild — strip unknown fields, reject denied fields,
+          // rebuild a new trusted object. The original parsed JSON never passes through.
+          const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
+          if (!rebuildResult.ok) {
+            return {
+              type: 'ingestion-result',
+              success: false,
+              error: `Gate 2 rejected: ${rebuildResult.reason}`,
+              failed_field: rebuildResult.field,
+              distribution_target: 'handshake_pipeline',
+            }
+          }
+
+          // Wrap the canonical capsule back into the ValidatedCapsule envelope
+          const canonicalValidated = {
+            ...distribution.validated_capsule,
+            capsule: rebuildResult.capsule as any,
+          }
+
           const handshakeResult = processHandshakeCapsule(
             db,
-            distribution.validated_capsule,
+            canonicalValidated,
             receiverPolicy,
             ssoSession,
           )
@@ -219,10 +239,26 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
         if (ssoSession) {
           ensureHandshakeMigration(db)
           try {
+            // Gate 2: Canonical rebuild
+            const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
+            if (!rebuildResult.ok) {
+              return res.status(400).json({
+                success: false,
+                error: `Gate 2 rejected: ${rebuildResult.reason}`,
+                failed_field: rebuildResult.field,
+                distribution_target: 'handshake_pipeline',
+              })
+            }
+
+            const canonicalValidated = {
+              ...distribution.validated_capsule,
+              capsule: rebuildResult.capsule as any,
+            }
+
             const receiverPolicy = buildDefaultReceiverPolicy()
             const handshakeResult = processHandshakeCapsule(
               db,
-              distribution.validated_capsule,
+              canonicalValidated,
               receiverPolicy,
               ssoSession,
             )

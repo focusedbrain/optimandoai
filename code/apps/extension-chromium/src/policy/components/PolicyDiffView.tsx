@@ -193,6 +193,7 @@ export function PolicyDiffView({ policyA, policyB, onClose, theme = 'default' }:
 
 function ValueDisplay({ value, theme }: { value: unknown; theme?: string }) {
   const t = getThemeTokens(theme ?? 'default')
+  const isDark = !t.isLight
   const textColor = t.text
   const mutedColor = t.textMuted
 

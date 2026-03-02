@@ -28,5 +28,3 @@ export * from './microcopy'
 // Components
 export * from './components'
 
-// Full-Auto status (uses new RPC-backed system)
-export { useFullAutoStatus } from './useFullAutoStatus'

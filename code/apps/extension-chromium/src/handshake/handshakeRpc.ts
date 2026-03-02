@@ -7,11 +7,11 @@
 
 import type {
   HandshakeRecord,
-  ContextBlockInput,
   HandshakeListResponse,
   HandshakeInitiateResponse,
   HandshakeAcceptResponse,
   HandshakeRefreshResponse,
+  HandshakeBuildForDownloadResponse,
 } from './rpcTypes'
 
 let _rpcIdCounter = 0
@@ -94,17 +94,21 @@ export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
   fromAccountId: string,
-  contextBlocks?: ContextBlockInput[],
-  profileIds?: string[],
-  adHocContext?: string,
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
-    ...(contextBlocks && contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
-    ...(profileIds && profileIds.length > 0 ? { profile_ids: profileIds } : {}),
-    ...(adHocContext?.trim() ? { ad_hoc_context: adHocContext.trim() } : {}),
+  })
+}
+
+export async function buildHandshakeForDownload(
+  receiverEmail: string,
+  fromAccountId: string,
+): Promise<HandshakeBuildForDownloadResponse> {
+  return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
+    receiverUserId: receiverEmail,
+    receiverEmail,
   })
 }
 
@@ -122,13 +126,15 @@ export async function acceptHandshake(
 
 export async function refreshHandshake(
   handshakeId: string,
-  contextBlocks: ContextBlockInput[],
   fromAccountId: string,
+  contextBlockProofs?: Array<{ block_id: string; block_hash: string }>,
 ): Promise<HandshakeRefreshResponse> {
   return sendHandshakeRpc<HandshakeRefreshResponse>('handshake.refresh', {
     handshake_id: handshakeId,
-    context_blocks: contextBlocks,
     fromAccountId,
+    ...(contextBlockProofs && contextBlockProofs.length > 0
+      ? { context_block_proofs: contextBlockProofs }
+      : {}),
   })
 }
 

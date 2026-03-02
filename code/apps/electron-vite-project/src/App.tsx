@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
+import HandshakeView from './components/HandshakeView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
 // Type declaration for the Analysis Dashboard preload API
@@ -94,10 +95,13 @@ function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (
   )
 }
 
+type DashboardView = 'analysis' | 'handshakes'
+
 function App() {
   // Extension theme state - synced from extension via main process (default: standard)
   const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
+  const [activeView, setActiveView] = useState<DashboardView>('analysis')
 
   // Apply theme to document
   useEffect(() => {
@@ -161,16 +165,34 @@ function App() {
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
+        <button
+          className={`beap-inbox-btn${activeView === 'analysis' ? ' beap-inbox-btn--active' : ''}`}
+          onClick={() => setActiveView('analysis')}
+          title="Analysis Dashboard"
+        >
+          <span className="beap-inbox-btn__label">Analysis</span>
+        </button>
+        <button
+          className={`beap-inbox-btn${activeView === 'handshakes' ? ' beap-inbox-btn--active' : ''}`}
+          onClick={() => setActiveView('handshakes')}
+          title="Handshake Relationships"
+        >
+          <span className="beap-inbox-btn__label">Handshakes</span>
+        </button>
         <BeapInboxButton />
         <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
       </header>
 
-      {/* Full-width Analysis Canvas */}
+      {/* Full-width content area */}
       <main className="app-main">
-        <AnalysisCanvas 
-          deepLinkPayload={deepLinkPayload ?? undefined}
-          onDeepLinkConsumed={() => setDeepLinkPayload(null)}
-        />
+        {activeView === 'handshakes' ? (
+          <HandshakeView />
+        ) : (
+          <AnalysisCanvas 
+            deepLinkPayload={deepLinkPayload ?? undefined}
+            onDeepLinkConsumed={() => setDeepLinkPayload(null)}
+          />
+        )}
       </main>
     </div>
   )

@@ -1,5 +1,3 @@
-/// <reference types="chrome-types"/>
-
 import './agent-manager-v2'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
@@ -114,7 +112,7 @@ const OPTI_MARKER_START = '<<OPTIMANDO_STATE:'
 
 const OPTI_MARKER_END = '>>'
 
-type DedicatedRole = { type: 'master' } | { type: 'hybrid', hybridMasterId?: string }
+type DedicatedRole = { type: 'master'; hybridMasterId?: string } | { type: 'hybrid'; hybridMasterId?: string }
 
 type OptimandoTabState = { role?: DedicatedRole, sessionKey?: string }
 
@@ -297,6 +295,8 @@ if (savedState === 'true' || dedicatedRole) {
 }
 
 
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Listen for toggle message from background script
 
@@ -2508,7 +2508,11 @@ function initializeExtension() {
 
   
 
-  let currentTabData = {
+  let currentTabData: Record<string, any> & {
+    tabId: string; tabName: string; isLocked: boolean
+    goals: { shortTerm: string; midTerm: string; longTerm: string }
+    agentBoxes: any[]; agentBoxHeights: Record<string, any>
+  } = {
 
     tabId: tabId,
 
@@ -4300,7 +4304,7 @@ function initializeExtension() {
 
               
 
-              toggleAgentScope(agentKey, currentScope, newScope, () => {
+              toggleAgentScope(agentKey ?? '', currentScope, newScope, () => {
 
                 renderAgentsGrid(overlay, filter)
 
@@ -6134,11 +6138,11 @@ function initializeExtension() {
 
     // Color selection
 
-    overlay.querySelectorAll('.color-select').forEach(btn => {
+    overlay.querySelectorAll<HTMLElement>('.color-select').forEach(btn => {
 
       btn.addEventListener('click', () => {
 
-        overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
+        overlay.querySelectorAll<HTMLElement>('.color-select').forEach(b => b.style.border = '3px solid transparent')
 
         btn.style.border = '3px solid #333'
 
@@ -8470,7 +8474,7 @@ function initializeExtension() {
 
   }
 
-  function applyTheme(theme) {
+  function applyTheme(theme: string) {
 
     injectThemeCSSOnce()
 
@@ -8504,13 +8508,13 @@ function initializeExtension() {
 
     }
 
-    const bg = gradients[theme]
+    const bg = gradients[theme as keyof typeof gradients]
 
     if (!bg) return
 
-    const fg = textColors[theme]
+    const fg = textColors[theme as keyof typeof textColors]
 
-    const titleFg = titleColors[theme]
+    const titleFg = titleColors[theme as keyof typeof titleColors]
 
     
 
@@ -8560,7 +8564,7 @@ function initializeExtension() {
 
       // Button color rules
 
-      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      const addAgentBtn = leftSidebar.querySelector<HTMLElement>('#add-agent-box-btn')
 
       if (addAgentBtn) {
 
@@ -8618,7 +8622,7 @@ function initializeExtension() {
 
       // Fix QR code instruction text
 
-      const qrText = rightSidebar.querySelector('div[style*="font-size: 11px"]')
+      const qrText = rightSidebar.querySelector<HTMLElement>('div[style*="font-size: 11px"]')
 
       if (qrText) {
 
@@ -8628,15 +8632,15 @@ function initializeExtension() {
 
       // Right sidebar buttons
 
-      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const wrBtn = rightSidebar.querySelector<HTMLElement>('#wr-connect-btn')
 
-      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const helperBtn = rightSidebar.querySelector<HTMLElement>('#add-helpergrid-btn')
 
-      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const sessionsBtn = rightSidebar.querySelector<HTMLElement>('#sessions-history-btn')
 
       const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
 
-      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      const cards = rightSidebar.querySelectorAll<HTMLElement>('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
 
       
 
@@ -8666,7 +8670,7 @@ function initializeExtension() {
 
       })
 
-      const setBtn = (btn) => {
+      const setBtn = (btn: HTMLElement | null) => {
 
         if (!btn) return
 
@@ -8766,7 +8770,7 @@ function initializeExtension() {
 
       // Fix dropdown area titles for better readability
 
-      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      const dropdownTitles = rightSidebar.querySelectorAll<HTMLElement>('.bottom-panel h4')
 
       dropdownTitles.forEach(title => {
 
@@ -8796,7 +8800,7 @@ function initializeExtension() {
 
       // Fix all h4 titles in the right sidebar (including Intent Detection, Goals, Reasoning)
 
-      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      const allH4Titles = rightSidebar.querySelectorAll<HTMLElement>('h4')
 
       allH4Titles.forEach(title => {
 
@@ -8826,7 +8830,7 @@ function initializeExtension() {
 
       // Fix dropdown titles specifically (Intent Detection, Goals)
 
-      const dropdownTitlesInRightSidebar = rightSidebar.querySelectorAll('.dropdown-title')
+      const dropdownTitlesInRightSidebar = rightSidebar.querySelectorAll<HTMLElement>('.dropdown-title')
 
       dropdownTitlesInRightSidebar.forEach(title => {
 
@@ -8894,7 +8898,7 @@ function initializeExtension() {
 
       if (theme === 'standard' || theme === 'dark') {
 
-        const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+        const headerTitles = bottomSidebar.querySelectorAll<HTMLElement>('h1, h2, h3, .header-title, .session-id')
 
         headerTitles.forEach(title => {
 
@@ -8904,7 +8908,7 @@ function initializeExtension() {
 
         })
 
-        const sessionId = bottomSidebar.querySelector('#session-id')
+        const sessionId = bottomSidebar.querySelector<HTMLElement>('#session-id')
 
         if (sessionId) {
 
@@ -8918,7 +8922,7 @@ function initializeExtension() {
 
         // Fix top menu links for all themes
 
-        const allElements = bottomSidebar.querySelectorAll('*')
+        const allElements = bottomSidebar.querySelectorAll<HTMLElement>('*')
 
         allElements.forEach(element => {
 
@@ -8978,7 +8982,7 @@ function initializeExtension() {
 
       leftSidebar.style.color = 'white'
 
-      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      const addAgentBtn = leftSidebar.querySelector<HTMLElement>('#add-agent-box-btn')
 
       if (addAgentBtn) {
 
@@ -9000,15 +9004,15 @@ function initializeExtension() {
 
       rightSidebar.style.color = 'white'
 
-      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const wrBtn = rightSidebar.querySelector<HTMLElement>('#wr-connect-btn')
 
-      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const helperBtn = rightSidebar.querySelector<HTMLElement>('#add-helpergrid-btn')
 
-      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const sessionsBtn = rightSidebar.querySelector<HTMLElement>('#sessions-history-btn')
 
       const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
 
-      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      const cards = rightSidebar.querySelectorAll<HTMLElement>('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
 
       
 
@@ -9062,7 +9066,7 @@ function initializeExtension() {
 
       // Reset header titles to original styling
 
-      const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+      const headerTitles = bottomSidebar.querySelectorAll<HTMLElement>('h1, h2, h3, .header-title, .session-id')
 
       headerTitles.forEach(title => {
 
@@ -9072,7 +9076,7 @@ function initializeExtension() {
 
       })
 
-      const sessionId = bottomSidebar.querySelector('#session-id')
+      const sessionId = bottomSidebar.querySelector<HTMLElement>('#session-id')
 
       if (sessionId) {
 
@@ -9086,7 +9090,7 @@ function initializeExtension() {
 
       // Fix dropdown area titles for default theme
 
-      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      const dropdownTitles = rightSidebar.querySelectorAll<HTMLElement>('.bottom-panel h4')
 
       dropdownTitles.forEach(title => {
 
@@ -9098,7 +9102,7 @@ function initializeExtension() {
 
       // Fix all h4 titles in the right sidebar for default theme
 
-      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      const allH4Titles = rightSidebar.querySelectorAll<HTMLElement>('h4')
 
       allH4Titles.forEach(title => {
 
@@ -9116,7 +9120,7 @@ function initializeExtension() {
 
       // Fix dropdown titles specifically for default theme
 
-      const dropdownTitlesForDefault = rightSidebar.querySelectorAll('.dropdown-title')
+      const dropdownTitlesForDefault = rightSidebar.querySelectorAll<HTMLElement>('.dropdown-title')
 
       dropdownTitlesForDefault.forEach(title => {
 
@@ -9134,7 +9138,7 @@ function initializeExtension() {
 
       // Fix top menu links for default theme
 
-      const menuLinks = bottomSidebar.querySelectorAll('a, button, span, div')
+      const menuLinks = bottomSidebar.querySelectorAll<HTMLElement>('a, button, span, div')
 
       menuLinks.forEach(link => {
 
@@ -9619,9 +9623,9 @@ function initializeExtension() {
 
       bottomSidebar.style.cursor = 'default'
 
-      expandBtn.style.transform = 'rotate(180deg)'
+      expandBtn!.style.transform = 'rotate(180deg)'
 
-      expandableContent.style.display = 'block'
+      expandableContent!.style.display = 'block'
 
       // Update page margin to accommodate expanded top bar - use setProperty for priority
 
@@ -9643,9 +9647,9 @@ function initializeExtension() {
 
       bottomSidebar.style.cursor = 'pointer'
 
-      expandBtn.style.transform = 'rotate(0deg)'
+      expandBtn!.style.transform = 'rotate(0deg)'
 
-      expandableContent.style.display = 'none'
+      expandableContent!.style.display = 'none'
 
       // Update page margin back to collapsed height - use setProperty for priority
 
@@ -11255,7 +11259,7 @@ function initializeExtension() {
 
   function getAllAgentsFromSession(callback: (agents: any[]) => void) {
 
-    ensureActiveSession((key, session) => {
+    ensureActiveSession((key: string, session: any) => {
 
       const agents = session.agents || []
 
@@ -11277,7 +11281,7 @@ function initializeExtension() {
 
       // Get agent boxes from session
 
-      ensureActiveSession((key, session) => {
+      ensureActiveSession((key: string, session: any) => {
 
         const agentBoxes = session.agentBoxes || []
 
@@ -11535,7 +11539,7 @@ function initializeExtension() {
 
     
 
-    document.getElementById('close-agents-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-agents-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -11925,13 +11929,13 @@ function initializeExtension() {
 
   }
 
-  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session', agentNumber?) {
+  function openAgentConfigDialog(agentName: string, type: string, parentOverlay: HTMLElement, agentScope = 'session', agentNumber?: string | number) {
 
     console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}", Number: ${agentNumber}`)
 
-    function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
+    function pad2(n: any) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
 
-    function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
+    function capitalizeName(n: any) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
 
     // Fallback function for agent number when not provided via parameter
     // Note: Agent number should be passed via data-number attribute when available
@@ -13313,7 +13317,7 @@ function initializeExtension() {
 
       }
 
-      return `${typeLabels[type]} - ${capitalizeName(agentName)}`
+      return `${typeLabels[type as keyof typeof typeLabels]} - ${capitalizeName(agentName)}`
 
     })()
 
@@ -13323,7 +13327,7 @@ function initializeExtension() {
 
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${agentColors[agentName] ? `linear-gradient(135deg, ${agentColors[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${(agentColors as Record<string, string>)[agentName] ? `linear-gradient(135deg, ${(agentColors as Record<string, string>)[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
 
           <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
 
@@ -16113,7 +16117,61 @@ function initializeExtension() {
           domEvent?: string,
           commandLabel?: string,
           websiteFilter?: string,
-          conditions?: any[]
+          conditions?: any[],
+          id?: string,
+          tag?: string,
+          channel?: string,
+          sourceAgent?: string,
+          miniAppId?: string,
+          miniAppUiElements?: any,
+          miniAppConditions?: any,
+          eventTagConditions?: any,
+          parserTrigger?: string,
+          parserInterval?: number,
+          domParseTarget?: string,
+          domParseSelector?: string,
+          domUrlFilter?: string,
+          domPayloadUrl?: boolean,
+          domPayloadSnippet?: boolean,
+          domPayloadSelection?: boolean,
+          sanitizeTrim?: boolean,
+          sanitizeStripMarkdown?: boolean,
+          sanitizeRemoveBoilerplate?: boolean,
+          metaSelectors?: any,
+          autoDetected?: any,
+          autoDetectSelectors?: any,
+          siteFilters?: any,
+          domParserRules?: any,
+          overlayModeButton?: boolean,
+          overlayModeEmpty?: boolean,
+          overlayModeElement?: boolean,
+          overlayModeSelection?: boolean,
+          overlayTriggerName?: string,
+          overlayButtonLabel?: string,
+          overlayPhrases?: any,
+          overlayUrlPattern?: string,
+          overlayWrcodeOnly?: boolean,
+          overlayPayloadSelection?: boolean,
+          overlayPayloadContext?: boolean,
+          overlayPayloadUrl?: boolean,
+          overlayPayloadCoords?: boolean,
+          buttonSelector?: string,
+          buttonSelectors?: string[],
+          triggerOnEnterKey?: boolean,
+          enterKeyIgnoreShift?: boolean,
+          captureInput?: boolean,
+          inputSelector?: string,
+          inputSelectors?: string[],
+          captureOutput?: boolean,
+          outputSelector?: string,
+          outputSelectors?: string[],
+          responseReadyMode?: string,
+          quietPeriodMs?: number,
+          responseSignalSelector?: string,
+          maxWaitTimeMs?: number,
+          captureUrl?: boolean,
+          capturePageTitle?: boolean,
+          [key: string]: any
         }) => {
           // Generate a readable trigger ID
           const existingTriggers = document.querySelectorAll('#L-unified-triggers .unified-trigger-row').length
@@ -17150,7 +17208,7 @@ function initializeExtension() {
                 for (const pattern of buttonPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       detectedButton = el.closest('button') || el
                       break
                     }
@@ -17178,7 +17236,7 @@ function initializeExtension() {
                 for (const pattern of inputPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       detectedInput = el
                       break
                     }
@@ -17206,7 +17264,7 @@ function initializeExtension() {
                   try {
                     const els = document.querySelectorAll(pattern)
                     const el = els[els.length - 1]
-                    if (el && el.offsetParent !== null && (el.textContent?.length || 0) > 20) {
+                    if (el && (el as HTMLElement).offsetParent !== null && (el.textContent?.length || 0) > 20) {
                       detectedOutput = el
                       break
                     }
@@ -17238,7 +17296,7 @@ function initializeExtension() {
                 for (const { pattern } of contextPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       const selector = generateSelector(el)
                       if (selector && !detectedContext.includes(selector)) {
                         detectedContext.push(selector)
@@ -18045,7 +18103,7 @@ function initializeExtension() {
 
         }
 
-        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
+        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string, kind?: string, extra?: any }) => {
           const row = document.createElement('div')
           row.className = 'act-row'
           row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
@@ -20510,7 +20568,7 @@ function initializeExtension() {
                   
                   // Add additional Apply For rows for remaining values - use sequential async
                   if (rApplyList && rApplyForListToRestore.length > 1) {
-                    const additionalValues = rApplyForListToRestore.slice(1).filter(v => v !== '__any__')
+                    const additionalValues = rApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
                       console.log(`  🔄 Creating ${additionalValues.length} additional Apply For rows`)
                       
@@ -20739,7 +20797,7 @@ function initializeExtension() {
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && rSectionApplyForList.length > 1) {
-                                  const additionalValues = rSectionApplyForList.slice(1).filter(v => v !== '__any__')
+                                  const additionalValues = rSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
                                     console.log(`    🔄 Creating ${additionalValues.length} additional R-section Apply For rows`)
                                     
@@ -20991,7 +21049,7 @@ function initializeExtension() {
                   
                   // Add additional Apply For rows for remaining values - use sequential async
                   if (eApplyList && eApplyForListToRestore.length > 1) {
-                    const additionalValues = eApplyForListToRestore.slice(1).filter(v => v !== '__any__')
+                    const additionalValues = eApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
                       console.log(`  🔄 Creating ${additionalValues.length} additional Execution Apply For rows`)
                       
@@ -21220,7 +21278,7 @@ function initializeExtension() {
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && eSectionApplyForList.length > 1) {
-                                  const additionalValues = eSectionApplyForList.slice(1).filter(v => v !== '__any__')
+                                  const additionalValues = eSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
                                     console.log(`    🔄 Creating ${additionalValues.length} additional E-section Apply For rows`)
                                     
@@ -22345,9 +22403,9 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
+    document.getElementById('close-agent-config')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('agent-config-cancel')!.onclick = () => configOverlay.remove()
 
     // Export handler - Shows dialog with connected agent boxes (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
@@ -25426,7 +25484,7 @@ function initializeExtension() {
 
   }
 
-  function openAddNewAgentDialog(parentOverlay) {
+  function openAddNewAgentDialog(parentOverlay: HTMLElement) {
 
     // Create add new agent dialog
 
@@ -25534,21 +25592,21 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-add-agent').onclick = () => configOverlay.remove()
+    document.getElementById('close-add-agent')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('add-agent-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('add-agent-cancel')!.onclick = () => configOverlay.remove()
 
     
 
     // Icon selection
 
-    configOverlay.querySelectorAll('.icon-btn').forEach(btn => {
+    configOverlay.querySelectorAll<HTMLElement>('.icon-btn').forEach(btn => {
 
       btn.addEventListener('click', () => {
 
         // Remove selection from all buttons
 
-        configOverlay.querySelectorAll('.icon-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.1)')
+        configOverlay.querySelectorAll<HTMLElement>('.icon-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.1)')
 
         // Highlight selected button
 
@@ -25556,7 +25614,7 @@ function initializeExtension() {
 
         // Store selected icon
 
-        document.getElementById('selected-icon').value = btn.dataset.icon
+        ;(document.getElementById('selected-icon') as HTMLInputElement | null)!.value = btn.dataset.icon!
 
       })
 
@@ -25566,11 +25624,11 @@ function initializeExtension() {
 
     // Create agent handler
 
-    document.getElementById('add-agent-create').onclick = () => {
+    document.getElementById('add-agent-create')!.onclick = () => {
 
-      const agentName = document.getElementById('new-agent-name').value.trim()
+      const agentName = (document.getElementById('new-agent-name') as HTMLInputElement).value.trim()
 
-      const agentIcon = document.getElementById('selected-icon').value
+      const agentIcon = (document.getElementById('selected-icon') as HTMLInputElement).value
 
       
 
@@ -25680,7 +25738,7 @@ function initializeExtension() {
 
     const generateUrlFieldsHTML = () => {
 
-      return existingWhitelist.map((url, index) => `
+      return existingWhitelist.map((url: string, index: number) => `
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
@@ -25782,7 +25840,7 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-whitelist-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-whitelist-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -25790,13 +25848,13 @@ function initializeExtension() {
 
     // Add URL field functionality
 
-    const container = document.getElementById('url-fields-container')
+    const container = document.getElementById('url-fields-container')!
 
     
 
     const updateUrlFields = () => {
 
-      const urls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
 
       container.innerHTML = generateUrlFieldsHTML()
 
@@ -25812,7 +25870,7 @@ function initializeExtension() {
 
         btn.addEventListener('click', (e) => {
 
-          const currentUrls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+          const currentUrls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
 
           if (currentUrls.length < 20) { // Limit to 20 URLs
 
@@ -25838,7 +25896,9 @@ function initializeExtension() {
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           existingWhitelist.splice(index, 1)
 
@@ -25860,7 +25920,7 @@ function initializeExtension() {
 
     // Clear all button
 
-    document.getElementById('clear-all-urls').onclick = () => {
+    document.getElementById('clear-all-urls')!.onclick = () => {
 
       existingWhitelist.length = 0
 
@@ -25874,7 +25934,7 @@ function initializeExtension() {
 
     // Load defaults button
 
-    document.getElementById('load-defaults').onclick = () => {
+    document.getElementById('load-defaults')!.onclick = () => {
 
       existingWhitelist.length = 0
 
@@ -25888,9 +25948,9 @@ function initializeExtension() {
 
     // Save handler
 
-    document.getElementById('whitelist-save').onclick = () => {
+    document.getElementById('whitelist-save')!.onclick = () => {
 
-      const urls = Array.from(container.querySelectorAll('.whitelist-url'))
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url'))
 
         .map(input => input.value.trim())
 
@@ -25952,7 +26012,7 @@ function initializeExtension() {
 
     // Immediately re-theme docked Command Chat if present
 
-    try { setDockedChatTheme(theme) } catch {}
+    try { const _t = localStorage.getItem('optimando-ui-theme'); setDockedChatTheme((_t === 'dark' ? 'dark' : _t === 'standard' ? 'standard' : 'pro') as 'pro'|'dark'|'standard') } catch {}
 
   }
 
@@ -30601,10 +30661,9 @@ ${pageText}
           let btnTheme: 'pro'|'dark'|'standard' = 'standard'
           try { 
             const t = localStorage.getItem('optimando-ui-theme')
-            if (t === 'standard' || t === 'dark' || t === 'pro') {
-              // Map old 'default' to 'pro' for backward compatibility
-              btnTheme = (t === 'default' ? 'pro' : t) as any
-            }
+            if (t === 'dark') btnTheme = 'dark'
+            else if (t === 'standard') btnTheme = 'standard'
+            else btnTheme = 'pro'
           } catch {}
           const saveBtnColor = btnTheme === 'standard' ? '#3b82f6' : '#10b981'
 
@@ -31066,7 +31125,7 @@ ${pageText}
 
   // Load session data from Electron app
 
-  function loadSessionFromElectron(sessionId) {
+  function loadSessionFromElectron(sessionId: string) {
 
     console.log('📂 Loading session from Electron app:', sessionId)
 
@@ -31140,7 +31199,7 @@ ${pageText}
 
   // Save full session data to Electron app
 
-  function saveSessionToElectron(sessionId, sessionData) {
+  function saveSessionToElectron(sessionId: string, sessionData: any) {
 
     console.log('💾 Saving full session to Electron app:', sessionId)
 
@@ -31290,7 +31349,7 @@ ${pageText}
 
                 }
 
-                const existingIndex = currentTabData.displayGrids.findIndex(g => 
+                const existingIndex = currentTabData.displayGrids.findIndex((g: any) => 
 
                   g.sessionId === response.sessionId && g.layout === response.data.grid_config.layout
 
@@ -31842,7 +31901,7 @@ ${pageText}
 
     safeAppendToBody(overlay)
 
-    document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-settings-lightbox')!.onclick = () => overlay.remove()
 
     const whitelistBtnInSettings = document.getElementById('settings-whitelist-btn')
 
@@ -31900,7 +31959,7 @@ ${pageText}
 
       function handleThemeChange() {
 
-        const theme = themeSelect.value
+        const theme = themeSelect!.value
 
         console.log('🎨 Theme changed to:', theme)
 
@@ -33100,7 +33159,7 @@ ${pageText}
 
     // Add event handler for display port configuration
 
-    document.getElementById('configure-display-ports').onclick = () => {
+    document.getElementById('configure-display-ports')!.onclick = () => {
 
       openDisplayPortsConfig(overlay)
 
@@ -33114,7 +33173,7 @@ ${pageText}
 
 
 
-  function openDisplayPortsConfig(parentOverlay) {
+  function openDisplayPortsConfig(parentOverlay: HTMLElement) {
 
     // Create display ports configuration dialog
 
@@ -33584,25 +33643,25 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-display-config').onclick = () => configOverlay.remove()
+    document.getElementById('close-display-config')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('display-config-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('display-config-cancel')!.onclick = () => configOverlay.remove()
 
     
 
     // Save handler
 
-    document.getElementById('display-config-save').onclick = () => {
+    document.getElementById('display-config-save')!.onclick = () => {
 
       // Save all display port configurations
 
       for (let i = 1; i <= 5; i++) {
 
-        const type = document.getElementById(`port${i}-type`).value
+        const type = (document.getElementById(`port${i}-type`) as HTMLInputElement).value
 
-        const resolution = document.getElementById(`port${i}-resolution`).value
+        const resolution = (document.getElementById(`port${i}-resolution`) as HTMLInputElement).value
 
-        const position = document.getElementById(`port${i}-position`).value
+        const position = (document.getElementById(`port${i}-position`) as HTMLInputElement).value
 
         
 
@@ -33620,11 +33679,11 @@ ${pageText}
 
       const monitorConfig = {
 
-        type: document.getElementById('monitor-type').value,
+        type: (document.getElementById('monitor-type') as HTMLInputElement).value,
 
-        port: document.getElementById('monitor-port').value,
+        port: (document.getElementById('monitor-port') as HTMLInputElement).value,
 
-        autostart: document.getElementById('monitor-autostart').checked
+        autostart: (document.getElementById('monitor-autostart') as HTMLInputElement).checked
 
       }
 
@@ -33810,9 +33869,9 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-helpergrid-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-helpergrid-lightbox')!.onclick = () => overlay.remove()
 
-    document.getElementById('helpergrid-close').onclick = () => overlay.remove()
+    document.getElementById('helpergrid-close')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -33820,7 +33879,7 @@ ${pageText}
 
     // Helper tabs configuration
 
-    document.getElementById('helper-tabs-config').onclick = () => {
+    document.getElementById('helper-tabs-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33830,7 +33889,7 @@ ${pageText}
 
     // Add Hybrid Grid configuration -> open select modal
 
-    document.getElementById('add-hybrid-grid-config').onclick = () => {
+    document.getElementById('add-hybrid-grid-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33840,7 +33899,7 @@ ${pageText}
 
     // Display Grid Browser configuration
 
-    document.getElementById('display-grid-browser-config').onclick = () => {
+    document.getElementById('display-grid-browser-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33862,7 +33921,7 @@ ${pageText}
 
     const generateUrlFieldsHTML = () => {
 
-      return existingUrls.map((url, index) => `
+      return existingUrls.map((url: string, index: number) => `
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
@@ -33950,7 +34009,7 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-helper-tabs').onclick = () => overlay.remove()
+    document.getElementById('close-helper-tabs')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -33958,7 +34017,7 @@ ${pageText}
 
     // URL field management
 
-    const container = document.getElementById('helper-url-fields-container')
+    const container = document.getElementById('helper-url-fields-container')!
 
     
 
@@ -33996,7 +34055,9 @@ ${pageText}
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           existingUrls.splice(index, 1)
 
@@ -34016,9 +34077,9 @@ ${pageText}
 
     // Save configuration
 
-    document.getElementById('save-helper-tabs').onclick = () => {
+    document.getElementById('save-helper-tabs')!.onclick = () => {
 
-      const urls = Array.from(container.querySelectorAll('.helper-url'))
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.helper-url'))
 
         .map(input => input.value.trim())
 
@@ -34320,7 +34381,7 @@ ${pageText}
 
     const close = () => overlay.remove()
 
-    document.getElementById('close-hybrid-select').onclick = close
+    document.getElementById('close-hybrid-select')!.onclick = close
 
     overlay.onclick = (e) => { if (e.target === overlay) close() }
 
@@ -34396,11 +34457,11 @@ ${pageText}
 
     updateUrlFields()
 
-    document.getElementById('hybrid-count').addEventListener('change', updateUrlFields)
+    document.getElementById('hybrid-count')!.addEventListener('change', updateUrlFields)
 
 
 
-    document.getElementById('hybrid-save-open').onclick = () => {
+    document.getElementById('hybrid-save-open')!.onclick = () => {
 
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
 
@@ -35134,7 +35195,7 @@ ${pageText}
 
     // Close button handler
 
-    document.getElementById('close-btn').onclick = () => overlay.remove()
+    document.getElementById('close-btn')!.onclick = () => overlay.remove()
 
     
 
@@ -35235,9 +35296,11 @@ ${pageText}
 
     checkboxes.forEach(id => {
 
-      const checkbox = document.getElementById(id)
+      const checkbox = document.getElementById(id) as HTMLInputElement | null
+      if (!checkbox) return
 
       const card = document.getElementById(id.replace('check-', 'btn-'))
+      if (!card) return
 
       
 
@@ -35271,7 +35334,7 @@ ${pageText}
 
           checkbox.checked = !checkbox.checked
 
-          checkbox.onchange()
+          checkbox.onchange?.(new Event('change'))
 
         }
 
@@ -35286,11 +35349,11 @@ ${pageText}
 
     selectboxes.forEach(id => {
 
-      const select = document.getElementById(id) as HTMLSelectElement
+      const select = document.getElementById(id) as HTMLSelectElement | null
+      if (!select) return
 
       const card = document.getElementById(id.replace('select-', 'btn-'))
-
-      
+      if (!card) return
 
       select.onchange = () => {
 
@@ -35336,7 +35399,7 @@ ${pageText}
 
     // Save & Open button handler
 
-    document.getElementById('save-open-grids').onclick = () => {
+    document.getElementById('save-open-grids')!.onclick = () => {
 
       // Collect all layouts with their instance counts from selectboxes
 
@@ -35392,7 +35455,7 @@ ${pageText}
 
       // Track which grids are actually new and need to be opened
 
-      const newGridsToOpen = []
+      const newGridsToOpen: { layout: string; sessionId: string }[] = []
 
       
 
@@ -35696,9 +35759,8 @@ ${pageText}
 
       })
 
-      const saveBtn = document.getElementById('save-open-grids')
-
-      
+      const saveBtn = document.getElementById('save-open-grids') as HTMLButtonElement | null
+      if (!saveBtn) return
 
       if (totalInstances > 0) {
 
@@ -35740,7 +35802,7 @@ ${pageText}
 
 
 
-  function saveGridToSession(layout) {
+  function saveGridToSession(layout: string) {
 
     console.log('🗂 Saving grid to session:', layout)
 
@@ -35832,7 +35894,7 @@ ${pageText}
 
   }
 
-  function createGridTab(layout) {
+  function createGridTab(layout: string) {
 
     console.log('🗂 Selecting grid layout:', layout)
 
@@ -36296,7 +36358,7 @@ ${pageText}
 
   
 
-  function openGridFromSession(layout, sessionId) {
+  function openGridFromSession(layout: string, sessionId: string) {
 
     console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
 
@@ -36938,7 +37000,7 @@ ${pageText}
 
       // STEP 4: Find or create the grid entry
 
-      let gridEntry = sessionData.displayGrids.find(g => g.layout === config.layout)
+      let gridEntry = sessionData.displayGrids.find((g: any) => g.layout === config.layout)
 
       if (!gridEntry) {
 
@@ -37084,7 +37146,7 @@ ${pageText}
 
           if (!currentTabData.displayGrids) currentTabData.displayGrids = []
 
-          let entry = currentTabData.displayGrids.find(g => g.layout === payload.layout)
+          let entry = currentTabData.displayGrids.find((g: any) => g.layout === payload.layout)
 
           if (!entry) {
 
@@ -37286,7 +37348,7 @@ ${pageText}
 
   
 
-  function createGridHTML(layout, sessionId, theme = 'default', nextBoxNumber = 1) {
+  function createGridHTML(layout: string, sessionId: string, theme = 'default', nextBoxNumber = 1) {
 
     // Configure grid layout
 
@@ -37314,7 +37376,7 @@ ${pageText}
 
     
 
-    const config = layouts[layout] || layouts['4-slot']
+    const config = layouts[layout as keyof typeof layouts] || layouts['4-slot']
 
     const activeSessionKeyForGrid = (typeof getCurrentSessionKey === 'function' ? (getCurrentSessionKey() || '') : '')
 
@@ -37336,7 +37398,7 @@ ${pageText}
 
     const entry = (currentTabData && currentTabData.displayGrids)
 
-      ? currentTabData.displayGrids.find(g => g.layout === layout)
+      ? currentTabData.displayGrids.find((g: any) => g.layout === layout)
 
       : null
 
@@ -38136,7 +38198,7 @@ ${pageText}
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
-                      ${session.agents.map(agent => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
+                      ${session.agents.map((agent: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
 
                     </div>
 
@@ -38156,9 +38218,9 @@ ${pageText}
 
                       ${session.hybridAgentBoxes
 
-                        .sort((a,b) => parseInt(a.id) - parseInt(b.id))
+                        .sort((a: any, b: any) => parseInt(a.id) - parseInt(b.id))
 
-                        .map(h => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 10px; font-size: 10px;\\\">HM-${h.id} (${h.count})</span>`)
+                        .map((h: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 10px; font-size: 10px;\\\">HM-${h.id} (${h.count})</span>`)
 
                         .join('')}
 
@@ -38184,7 +38246,7 @@ ${pageText}
 
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
 
-                      ${session.helperTabs.urls.map((url, index) => `
+                      ${session.helperTabs.urls.map((url: string, index: number) => `
 
                         <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
 
@@ -38212,7 +38274,7 @@ ${pageText}
 
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
 
-                      ${session.displayGrids.map((grid, index) => `
+                      ${session.displayGrids.map((grid: any, index: number) => `
 
                         <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px;" title="${grid.layout} - ${grid.sessionId}">${grid.layout}</span>
 
@@ -38252,7 +38314,7 @@ ${pageText}
 
                       ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map(f => f.name).join(', ')}">📎 PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📎 PDF Files (${session.context.userContext.pdfFiles.length})</span>
 
                       ` : ''}
 
@@ -38326,7 +38388,7 @@ ${pageText}
 
       // Close handlers
 
-      document.getElementById('close-sessions-lightbox').onclick = () => overlay.remove()
+      document.getElementById('close-sessions-lightbox')!.onclick = () => overlay.remove()
 
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -38366,23 +38428,25 @@ ${pageText}
 
         sessionEl.addEventListener('click', (e) => {
 
+          const target = e.target as HTMLElement
+
           // Don't trigger if clicking on action buttons
 
-          if (e.target.classList.contains('rename-session-btn') || 
+          if (target.classList.contains('rename-session-btn') || 
 
-              e.target.classList.contains('delete-session-btn') ||
+              target.classList.contains('delete-session-btn') ||
 
-              e.target.classList.contains('agentbox-overview-btn')) {
+              target.classList.contains('agentbox-overview-btn')) {
 
             
 
             // Handle Agent Box Overview button
 
-            if (e.target.classList.contains('agentbox-overview-btn')) {
+            if (target.classList.contains('agentbox-overview-btn')) {
 
               e.stopPropagation()
 
-              const sessionId = sessionEl.dataset.sessionId
+              const sessionId = (sessionEl as HTMLElement).dataset.sessionId
 
               console.log('📦 Agent Box Overview clicked for session:', sessionId)
 
@@ -38402,7 +38466,7 @@ ${pageText}
 
           
 
-          const sessionId = sessionEl.dataset.sessionId
+          const sessionId = (sessionEl as HTMLElement).dataset.sessionId
 
           const sessionData = sessions.find(s => s.id === sessionId)
 
@@ -38424,7 +38488,7 @@ ${pageText}
 
             // Persist active session key globally and in this tab
 
-            setCurrentSessionKey(sessionId)
+            setCurrentSessionKey(sessionId!)
 
             console.log('✅ Active session key set to:', sessionId)
 
@@ -38434,7 +38498,7 @@ ${pageText}
             sessionData.lastOpenedAt = lastOpenedAt
             
             // Save the updated lastOpenedAt to chrome.storage.local
-            storageSet({ [sessionId]: { ...sessionData, lastOpenedAt } }, () => {
+            storageSet({ [sessionId as string]: { ...sessionData, lastOpenedAt } }, () => {
               console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
             })
 
@@ -38506,7 +38570,7 @@ ${pageText}
 
               // Open helper tabs immediately (no setTimeout to avoid popup blockers)
 
-              sessionData.helperTabs.urls.forEach((url, index) => {
+              sessionData.helperTabs.urls.forEach((url: any, index: number) => {
 
                 const agentId = index + 1
 
@@ -38613,7 +38677,7 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
 
                     const hybridId = hybridBox.id || String(index + 1)
 
@@ -38633,7 +38697,7 @@ ${pageText}
 
                       url.searchParams.set('hybrid_master_id', hybridId)
 
-                      url.searchParams.set('optimando_session_key', sessionId)
+                      url.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38677,7 +38741,7 @@ ${pageText}
 
                       base.searchParams.set('hybrid_master_id', hybridId)
 
-                      base.searchParams.set('optimando_session_key', sessionId)
+                      base.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38707,7 +38771,7 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map(g => ({ 
+                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map((g: any) => ({ 
 
                   layout: g.layout, 
 
@@ -38723,7 +38787,7 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Using currentTabData.displayGrids:', currentTabData.displayGrids)
 
-                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map(g => ({
+                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map((g: any) => ({
 
                   layout: g.layout,
 
@@ -38735,7 +38799,7 @@ ${pageText}
 
                 
 
-                sessionData.displayGrids.forEach((grid, index) => {
+                sessionData.displayGrids.forEach((grid: any, index: number) => {
 
                   console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
 
@@ -38747,7 +38811,7 @@ ${pageText}
 
                   if (!currentTabData.displayGrids) currentTabData.displayGrids = []
 
-                  let existingEntry = currentTabData.displayGrids.find(g => g.layout === grid.layout)
+                  let existingEntry = currentTabData.displayGrids.find((g: any) => g.layout === grid.layout)
 
                   
 
@@ -38908,7 +38972,7 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
 
                     const hybridId = hybridBox.id || String(index + 1)
 
@@ -38928,7 +38992,7 @@ ${pageText}
 
                       url.searchParams.set('hybrid_master_id', hybridId)
 
-                      url.searchParams.set('optimando_session_key', sessionId)
+                      url.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38972,7 +39036,7 @@ ${pageText}
 
                       base.searchParams.set('hybrid_master_id', hybridId)
 
-                      base.searchParams.set('optimando_session_key', sessionId)
+                      base.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -39008,11 +39072,11 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Session data displayGrids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map(g => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
+                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map((g: any) => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
 
                 
 
-                sessionData.displayGrids.forEach((grid, index) => {
+                sessionData.displayGrids.forEach((grid: any, index: number) => {
 
                   console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
 
@@ -39133,7 +39197,7 @@ ${pageText}
       })
 
       // Handle edit session name button - focus field (it's already editable)
-      overlay.querySelectorAll('.edit-session-name-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.edit-session-name-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation()
           const sessionId = btn.dataset.sessionId
@@ -39264,7 +39328,7 @@ ${pageText}
 
       
 
-      overlay.querySelectorAll('.edit-helper-tabs-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.edit-helper-tabs-btn').forEach(btn => {
 
         btn.addEventListener('click', (e) => {
 
@@ -39288,7 +39352,7 @@ ${pageText}
 
       
 
-      overlay.querySelectorAll('.delete-session-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.delete-session-btn').forEach(btn => {
 
         btn.addEventListener('click', (e) => {
 
@@ -39301,7 +39365,7 @@ ${pageText}
           if (confirm('Are you sure you want to delete this session?')) {
 
             // Use storageRemove to delete from SQLite
-            storageRemove([sessionId], () => {
+            storageRemove([sessionId!], () => {
 
               console.log('🗝‘️ Session deleted from SQLite:', sessionId)
 
@@ -39560,6 +39624,8 @@ ${pageText}
 
         model?: string;
 
+        tools?: any[];
+
       }> = []
 
       
@@ -39622,13 +39688,13 @@ ${pageText}
 
               const match = String(box.agentId).match(/agent(\d+)/)
 
-              agentNumber = parseInt(match[1])
+              agentNumber = parseInt(match![1])
 
             } else if (box.model && String(box.model).match(/agent(\d+)/)) {
 
               const match = String(box.model).match(/agent(\d+)/)
 
-              agentNumber = parseInt(match[1])
+              agentNumber = parseInt(match![1])
 
             }
 
@@ -40182,7 +40248,7 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-reasoning-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-reasoning-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -40190,9 +40256,9 @@ ${pageText}
 
     // Tab switching
 
-    const tabs = overlay.querySelectorAll('.reasoning-tab')
+    const tabs = overlay.querySelectorAll<HTMLElement>('.reasoning-tab')
 
-    const contents = overlay.querySelectorAll('.reasoning-content')
+    const contents = overlay.querySelectorAll<HTMLElement>('.reasoning-content')
 
     
 
@@ -40248,7 +40314,7 @@ ${pageText}
 
     // Save as Agent button handler
 
-    document.getElementById('save-as-agent-btn').onclick = () => {
+    document.getElementById('save-as-agent-btn')!.onclick = () => {
 
       const goal = (document.getElementById('reasoning-goal-text') as HTMLTextAreaElement)?.value || ''
 
@@ -40270,7 +40336,7 @@ ${pageText}
 
         setTimeout(() => {
 
-          globalLightboxFunctions.openAddAgentBoxDialog()
+          globalLightboxFunctions.openAddAgentBoxDialog!()
 
           // Pre-fill the goal and role fields after the dialog opens
 
@@ -40344,7 +40410,7 @@ ${pageText}
 
 
 
-  function openEditHelperTabsDialog(sessionData, sessionId, parentOverlay) {
+  function openEditHelperTabsDialog(sessionData: any, sessionId: any, parentOverlay: any) {
 
     // Create helper tabs edit dialog
 
@@ -40440,9 +40506,9 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-edit-helper-tabs').onclick = () => editOverlay.remove()
+    document.getElementById('close-edit-helper-tabs')!.onclick = () => editOverlay.remove()
 
-    document.getElementById('cancel-edit-helper-tabs').onclick = () => editOverlay.remove()
+    document.getElementById('cancel-edit-helper-tabs')!.onclick = () => editOverlay.remove()
 
     editOverlay.onclick = (e) => { if (e.target === editOverlay) editOverlay.remove() }
 
@@ -40450,7 +40516,7 @@ ${pageText}
 
     // URL field management
 
-    const container = document.getElementById('edit-helper-url-fields-container')
+    const container = document.getElementById('edit-helper-url-fields-container')!
 
     
 
@@ -40486,7 +40552,9 @@ ${pageText}
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.edit-url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.edit-url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           currentUrls.splice(index, 1)
 
@@ -40508,9 +40576,9 @@ ${pageText}
 
     // Save handler
 
-    document.getElementById('save-edit-helper-tabs').onclick = () => {
+    document.getElementById('save-edit-helper-tabs')!.onclick = () => {
 
-      const updatedUrls = Array.from(container.querySelectorAll('.edit-helper-url'))
+      const updatedUrls = Array.from(container.querySelectorAll<HTMLInputElement>('.edit-helper-url'))
 
         .map(input => input.value.trim())
 
@@ -42764,7 +42832,8 @@ ${pageText}
 
   try {
 
-    const ro = new (window as any).ResizeObserver?.(() => applyLayoutOffsets())
+    const RO = (window as any).ResizeObserver
+    const ro = RO ? new RO(() => applyLayoutOffsets()) : null
 
     if (ro) ro.observe(bottomSidebar)
 
@@ -43530,8 +43599,8 @@ ${pageText}
           if (!ccdMgIsResizing) return
           const dy = e.clientY - ccdMgStartY
           const newH = Math.max(80, Math.min(400, ccdMgStartH + dy))
-          ccdMgBody.style.height = newH + 'px'
-          ccdMgBody.style.minHeight = newH + 'px'
+          ccdMgBody!.style.height = newH + 'px'
+          ccdMgBody!.style.minHeight = newH + 'px'
         }
         
         function ccdMgStopResize() {
@@ -44917,7 +44986,7 @@ ${pageText}
 
     // Session name input and lock button
 
-    const sessionNameInput = document.getElementById('session-name-input')
+    const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement | null
 
     const lockBtn = document.getElementById('lock-btn')
 
@@ -45070,7 +45139,7 @@ ${pageText}
 
           storageSet({ [sessionKey]: sessionData }, () => {
 
-            console.log('🔒 Session saved:', sessionKey, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
+            console.log('🔒 Session saved:', sessionKey, 'with', (sessionData as any).helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
 
           })
 
@@ -45376,7 +45445,7 @@ function checkForElectronGridConfig() {
 
   } catch (error) {
 
-    console.log('ℹ️ Could not check for Electron app config:', error.message);
+    console.log('ℹ️ Could not check for Electron app config:', (error as Error).message);
 
   }
 

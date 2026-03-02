@@ -2,6 +2,11 @@ import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpAdapter'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 
+declare global {
+  var vaultRpcCallbacks: Map<string, (data: any) => void> | undefined
+  var emailCallbacks: Map<string, (data: any) => void> | undefined
+}
+
 let ws: WebSocket | null = null;
 let isConnecting = false;
 let autoConnectInterval: ReturnType<typeof setInterval> | null = null;
@@ -893,7 +898,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             console.log('[BG] Vault RPC response received for ID:', data.id)
             const callback = globalThis.vaultRpcCallbacks.get(data.id)
             globalThis.vaultRpcCallbacks.delete(data.id)
-            callback(data)
+            callback?.(data)
             return
           }
           
@@ -902,7 +907,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             console.log('[BG] 📧 Email response received for ID:', data.id)
             const callback = globalThis.emailCallbacks.get(data.id)
             globalThis.emailCallbacks.delete(data.id)
-            callback(data)
+            callback?.(data)
             return
           }
           
@@ -3322,19 +3327,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           ws.send(JSON.stringify({ type: 'LAUNCH_DBEAVER' }));
           // Wait for response
+          const wsRef = ws;
           const responseHandler = (event: MessageEvent) => {
             try {
               const data = JSON.parse(event.data);
               if (data.type === 'LAUNCH_DBEAVER_RESULT') {
-                ws.removeEventListener('message', responseHandler);
+                wsRef.removeEventListener('message', responseHandler);
                 try { sendResponse({ success: data.ok, message: data.message }) } catch {}
               }
             } catch {}
           };
-          ws.addEventListener('message', responseHandler);
-          // Timeout after 5 seconds
+          wsRef.addEventListener('message', responseHandler);
           setTimeout(() => {
-            ws.removeEventListener('message', responseHandler);
+            wsRef.removeEventListener('message', responseHandler);
             try { sendResponse({ success: false, error: 'Timeout waiting for response' }) } catch {}
           }, 5000);
         } catch (err) {
@@ -3631,7 +3636,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           return Promise.all(fetchPromises)
         })
-        .then((sessions: any[]) => {
+        .then((sessions) => {
+          if (!sessions) return
           const sessionsMap: Record<string, any> = {}
           sessions.forEach(({ key, data }) => {
             if (data) {

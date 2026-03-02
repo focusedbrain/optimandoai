@@ -2,6 +2,13 @@ import { useState, useEffect, Component, ReactNode } from 'react';
 import { LlmSettings } from './LlmSettings';
 import { ImageEngineSettings } from './ImageEngineSettings';
 import { electronRpc } from '../rpc/electronRpc';
+import type { ElectronRpcResponse } from '../rpc/electronRpc';
+
+type RpcData = Record<string, unknown>;
+function rpcData(resp: ElectronRpcResponse): RpcData | undefined {
+  return resp.data != null && typeof resp.data === 'object' ? resp.data as RpcData : undefined;
+}
+
 import {
   getThemeTokens,
   overlayStyle,
@@ -238,11 +245,12 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
     setIsLoadingStats(true);
     try {
       const result = await electronRpc('db.testDataStats');
-      if (result.success && result.data?.ok) {
-        setTestDataStats(result.data.stats);
+      const data = rpcData(result);
+      if (result.success && data?.ok) {
+        setTestDataStats(data.stats as typeof testDataStats);
       } else {
         setNotification({
-          message: result.data?.message || result.error || 'Failed to load stats',
+          message: (data?.message as string) || result.error || 'Failed to load stats',
           type: 'error'
         });
         setTimeout(() => setNotification(null), 5000);
@@ -290,7 +298,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
       }
 
       // API call succeeded, check the result
-      const data = result.data;
+      const data = rpcData(result);
       
       if (data?.ok) {
         const newConfig = { ...config, postgres: { enabled: true, config: config.postgres.config } };
@@ -303,8 +311,9 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
         setConfig(newConfig);
         chrome.storage.local.set({ backendConfig: newConfig });
         console.error('[BackendConfigLightbox] Connection failed:', data);
+        const details = data?.details as Record<string, unknown> | undefined;
         setNotification({ 
-          message: data?.message || data?.details?.error || 'Connection failed', 
+          message: (data?.message as string) || (details?.error as string) || 'Connection failed', 
           type: 'error' 
         });
       }
@@ -553,11 +562,12 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                         }
                         try {
                           const result = await electronRpc('db.launchDbeaver', { postgresConfig: config.postgres.config });
-                          if (result.success && result.data?.ok) {
+                          const data = rpcData(result);
+                          if (result.success && data?.ok) {
                             setNotification({ message: 'DBeaver launched! Look for "Local PostgreSQL (WR Desk)" connection.', type: 'success' });
                             setTimeout(() => setNotification(null), 10000);
                           } else {
-                            setNotification({ message: result.data?.message || result.error || 'Could not launch DBeaver.', type: 'error' });
+                            setNotification({ message: (data?.message as string) || result.error || 'Could not launch DBeaver.', type: 'error' });
                             setTimeout(() => setNotification(null), 5000);
                           }
                         } catch (error: any) {
@@ -580,11 +590,12 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                         setIsInsertingTestData(true);
                         try {
                           const result = await electronRpc('db.insertTestData', { postgresConfig: config.postgres.config });
-                          if (result.success && result.data?.ok) {
-                            setNotification({ message: `Successfully inserted ${result.data.count} test data items`, type: 'success' });
+                          const data = rpcData(result);
+                          if (result.success && data?.ok) {
+                            setNotification({ message: `Successfully inserted ${data.count} test data items`, type: 'success' });
                             handleLoadStats();
                           } else {
-                            setNotification({ message: result.data?.message || result.error || 'Failed to insert test data', type: 'error' });
+                            setNotification({ message: (data?.message as string) || result.error || 'Failed to insert test data', type: 'error' });
                           }
                         } catch (error: any) {
                           setNotification({ message: `Error: ${error.message || 'Failed to insert test data'}`, type: 'error' });

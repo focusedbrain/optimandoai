@@ -364,8 +364,11 @@ export async function decryptQBeapPackage(
     const ecdhResult = await deriveSharedSecretX25519(senderX25519PublicKey)
     const { capsuleKey, artefactKey } = await deriveBeapKeys(ecdhResult.sharedSecret, fromBase64(salt))
     
-    // Decrypt capsule payload
-    const capsuleJson = await decryptCapsulePayload(capsuleKey, pkg.payloadEnc)
+    // Decrypt capsule payload (nonce/ciphertext verified present above)
+    const capsuleJson = await decryptCapsulePayload(capsuleKey, {
+      nonce: pkg.payloadEnc.nonce!,
+      ciphertext: pkg.payloadEnc.ciphertext!
+    })
     let capsule: DecryptedCapsulePayload
     try {
       capsule = JSON.parse(capsuleJson)

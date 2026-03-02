@@ -5,10 +5,10 @@
  * HTTP routes: /api/handshake/*
  */
 
-import type { HandshakeState, SSOSession, ContextBlockInput, HandshakeRecord } from './types'
+import type { HandshakeState, SSOSession, HandshakeRecord } from './types'
+import type { ContextBlockProof } from './canonicalRebuild'
 import { ReasonCode, HandshakeState as HS } from './types'
-import { buildCombinedContextText, normalizeAdHocContext } from '../vault/hsContextNormalize'
-import { resolveProfilesForHandshake } from '../vault/hsContextProfileService'
+// Context resolution imports removed — content enters only via the BEAP-Capsule pipeline
 import {
   getHandshakeRecord,
   listHandshakeRecords,
@@ -118,18 +118,10 @@ export async function handleHandshakeRPC(
         receiverUserId,
         receiverEmail,
         fromAccountId,
-        context_blocks: clientContextBlocks,
-        profile_ids: profileIds,
-        ad_hoc_context: adHocContext,
-        tier: clientTier,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         fromAccountId: string
-        context_blocks?: ContextBlockInput[]
-        profile_ids?: string[]
-        ad_hoc_context?: string
-        tier?: string
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -141,98 +133,16 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      // ── Server-side profile resolution ──
-      // If the client supplied profile IDs, resolve them server-side into
-      // normalized plain text. The client cannot be trusted for profile content.
-      let resolvedContextBlocks: ContextBlockInput[] = clientContextBlocks ?? []
-
-      if (profileIds && profileIds.length > 0) {
-        try {
-          const effectiveTier = (session.plan ?? clientTier ?? 'free') as any
-          const resolvedProfiles = resolveProfilesForHandshake(db, effectiveTier, profileIds)
-          const combinedText = buildCombinedContextText(
-            resolvedProfiles,
-            adHocContext,
-          )
-
-          if (combinedText.trim()) {
-            // Build a single context block from the combined normalized text
-            const encoder = new TextEncoder()
-            const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(combinedText))
-            const blockHash = Buffer.from(hashBuffer).toString('hex')
-
-            resolvedContextBlocks = [
-              {
-                block_id: `blk_${blockHash.slice(0, 12)}`,
-                block_hash: blockHash,
-                relationship_id: '',
-                handshake_id: '',
-                type: 'hs_context_profile',
-                data_classification: 'business-confidential',
-                version: 1,
-                payload: combinedText,
-              },
-            ]
-          }
-        } catch (profileErr: any) {
-          console.warn('[HS IPC] Profile resolution failed (non-fatal):', profileErr?.message)
-          // Fall through with no profile context
-        }
-      } else if (adHocContext?.trim() && resolvedContextBlocks.length === 0) {
-        // Normalize ad-hoc context if no profiles and no pre-built blocks
-        const normalized = normalizeAdHocContext(adHocContext)
-        if (normalized) {
-          const encoder = new TextEncoder()
-          const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(normalized))
-          const blockHash = Buffer.from(hashBuffer).toString('hex')
-          resolvedContextBlocks = [
-            {
-              block_id: `blk_${blockHash.slice(0, 12)}`,
-              block_hash: blockHash,
-              relationship_id: '',
-              handshake_id: '',
-              type: 'text',
-              data_classification: 'business-confidential',
-              version: 1,
-              payload: normalized,
-            },
-          ]
-        }
-      }
-
       const capsule = buildInitiateCapsule(session, { receiverUserId })
 
-      // Send via email (non-blocking — failure does not prevent local record creation)
+      const effectiveAccountId = fromAccountId || session.email || ''
+
       let emailResult: any = null
-      if (fromAccountId) {
-        emailResult = await sendCapsuleViaEmail(fromAccountId, receiverEmail, capsule)
+      if (effectiveAccountId) {
+        emailResult = await sendCapsuleViaEmail(effectiveAccountId, receiverEmail, capsule)
       }
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
-
-      // If we have resolved context blocks, attach them via a refresh capsule.
-      // The initiate capsule does not carry context; refresh is the correct vehicle.
-      let contextResult: any = null
-      if (localResult.success && resolvedContextBlocks.length > 0) {
-        try {
-          const record = getHandshakeRecord(db, capsule.handshake_id)
-          if (record) {
-            const refreshCapsule = buildRefreshCapsule(session, {
-              handshake_id: capsule.handshake_id,
-              counterpartyUserId: receiverUserId,
-              last_seq_received: record.last_seq_received,
-              last_capsule_hash_received: record.last_capsule_hash_received,
-              context_blocks: resolvedContextBlocks,
-            })
-            if (fromAccountId) {
-              await sendCapsuleViaEmail(fromAccountId, receiverEmail, refreshCapsule).catch(() => {})
-            }
-            contextResult = await submitCapsuleViaRpc(refreshCapsule, db, session)
-          }
-        } catch (refreshErr: any) {
-          console.warn('[HS IPC] Context refresh failed (non-fatal):', refreshErr?.message)
-        }
-      }
 
       return {
         type: 'handshake-initiate-result',
@@ -241,7 +151,44 @@ export async function handleHandshakeRPC(
         email_sent: emailResult?.success ?? false,
         email_error: emailResult?.error,
         local_result: localResult,
-        context_attached: contextResult?.success ?? false,
+      }
+    }
+
+    case 'handshake.buildForDownload': {
+      const {
+        receiverUserId: dlReceiverUserId,
+        receiverEmail: dlReceiverEmail,
+      } = params as {
+        receiverUserId: string
+        receiverEmail: string
+      }
+
+      if (!dlReceiverUserId || !dlReceiverEmail) {
+        return { success: false, error: 'receiverUserId and receiverEmail are required' }
+      }
+
+      let session: SSOSession
+      try { session = requireSession() } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+
+      const capsule = buildInitiateCapsule(session, { receiverUserId: dlReceiverUserId })
+
+      const localResult = await submitCapsuleViaRpc(capsule, db, session)
+
+      if (!localResult.success) {
+        return {
+          success: false,
+          error: 'Failed to create local handshake record',
+          local_result: localResult,
+        }
+      }
+
+      return {
+        type: 'handshake-build-result',
+        success: true,
+        handshake_id: capsule.handshake_id,
+        capsule_json: JSON.stringify(capsule),
       }
     }
 
@@ -296,9 +243,9 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.refresh': {
-      const { handshake_id, context_blocks, fromAccountId } = params as {
+      const { handshake_id, context_block_proofs, fromAccountId } = params as {
         handshake_id: string
-        context_blocks: ContextBlockInput[]
+        context_block_proofs?: ContextBlockProof[]
         fromAccountId: string
       }
 
@@ -329,7 +276,7 @@ export async function handleHandshakeRPC(
         counterpartyUserId,
         last_seq_received: record.last_seq_received,
         last_capsule_hash_received: record.last_capsule_hash_received,
-        context_blocks: context_blocks ?? [],
+        context_block_proofs: context_block_proofs ?? [],
       })
 
       let emailResult: any = null

@@ -21,15 +21,11 @@ export interface HandshakeRecord {
   readonly activated_at?: string
 }
 
-// ── Context block for refresh (message payload) ──
+// ── Context block proof (hash-only, no content in handshake capsules) ──
 
-export interface ContextBlockInput {
+export interface ContextBlockProof {
   readonly block_id: string
-  readonly block_type: string
-  readonly content: string
-  readonly version: number
   readonly block_hash: string
-  readonly scope_id?: string
 }
 
 // ── Selected recipient for the builder ──
@@ -39,6 +35,15 @@ export interface SelectedHandshakeRecipient {
   readonly counterparty_email: string
   readonly counterparty_user_id: string
   readonly sharing_mode: 'receive-only' | 'reciprocal'
+  readonly receiver_email_list?: string[]
+  readonly receiver_fingerprint_short?: string
+  readonly receiver_fingerprint_full?: string
+  readonly receiver_display_name?: string
+  readonly receiver_organization?: string
+  /** Peer's X25519 public key (base64) for ECDH key agreement */
+  readonly peerX25519PublicKey?: string
+  /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
+  readonly peerPQPublicKey?: string
 }
 
 // ── RPC response types ──
@@ -62,4 +67,11 @@ export interface HandshakeRefreshResponse {
   handshake_id: string
   capsule_hash: string
   status: string
+}
+
+export interface HandshakeBuildForDownloadResponse {
+  success: boolean
+  handshake_id: string
+  capsule_json: string
+  error?: string
 }

@@ -35,10 +35,10 @@ export const verifySharingMode: PipelineStep = {
         return { passed: false, reason: ReasonCode.SHARING_MODE_DENIED }
       }
 
-      // receive-only: context_blocks MUST be empty or absent
+      // receive-only: context_block_proofs MUST be empty or absent
       if (input.sharing_mode === 'receive-only') {
-        const blocks = input.context_blocks
-        if (blocks != null && blocks.length > 0) {
+        const proofs = input.context_block_proofs
+        if (proofs != null && proofs.length > 0) {
           return { passed: false, reason: ReasonCode.SHARING_MODE_VIOLATION }
         }
       }
@@ -60,8 +60,8 @@ export const verifySharingMode: PipelineStep = {
           input.sender_wrdesk_user_id === handshakeRecord.acceptor.wrdesk_user_id
 
         if (senderIsAcceptor) {
-          const blocks = input.context_blocks
-          if (blocks != null && blocks.length > 0) {
+          const proofs = input.context_block_proofs
+          if (proofs != null && proofs.length > 0) {
             return { passed: false, reason: ReasonCode.SHARING_MODE_VIOLATION }
           }
         }

@@ -173,7 +173,25 @@ export function createHandshakeOverride(
     createdAt: now,
     updatedAt: now,
     isActive: true,
-    automation: {},
+    automation: {
+      mode: null,
+      skipConsentForAutomation: false,
+      capabilities: {
+        aiAnalysis: null,
+        smartSearch: null,
+        documentProcessing: null,
+        runWorkflows: null,
+        apiIntegrations: null,
+      },
+      sessionRestrictions: null,
+      alwaysRequireConsentFor: ['financial_transactions', 'identity_changes', 'policy_changes'],
+      automationPartnerLimits: {
+        maxRequestsPerMinute: 60,
+        maxRequestsPerHour: 1000,
+        maxConcurrentWorkflows: 10,
+        maxDataEgressPerHourMB: 100,
+      },
+    },
     egress: {
       additionalAllowedDestinations: [],
       blockedDestinations: [],

@@ -176,6 +176,59 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   },
 })
 
+// ── Handshake View (Relationships + Capsule Import) ────────────────────────
+contextBridge.exposeInMainWorld('handshakeView', {
+  listHandshakes: (filter?: unknown) => {
+    const validFilter = filter && typeof filter === 'object' ? filter : undefined
+    return ipcRenderer.invoke('handshake:list', validFilter)
+  },
+  submitCapsule: (jsonString: unknown) => {
+    if (typeof jsonString !== 'string' || jsonString.length === 0 || jsonString.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    return ipcRenderer.invoke('handshake:submitCapsule', jsonString)
+  },
+  acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown) => {
+    return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '')
+  },
+  declineHandshake: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:decline', assertString(id, 'id'))
+  },
+  getContextBlockCount: (handshakeId: unknown) => {
+    return ipcRenderer.invoke('handshake:contextBlockCount', assertString(handshakeId, 'handshakeId'))
+  },
+  queryContextBlocks: (handshakeId: unknown) => {
+    return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'))
+  },
+  chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
+    if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {
+      throw new Error('systemMessage: expected string (max 4KB)')
+    }
+    if (typeof dataWrapper !== 'string' || dataWrapper.length > 512_000) {
+      throw new Error('dataWrapper: expected string (max 512KB)')
+    }
+    const user = assertString(userMessage, 'userMessage')
+    return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
+  },
+  initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown) => {
+    const email = assertString(receiverEmail, 'receiverEmail')
+    const acct = typeof fromAccountId === 'string' ? fromAccountId : ''
+    return ipcRenderer.invoke('handshake:initiate', email, acct)
+  },
+  buildForDownload: (receiverEmail: unknown) => {
+    const email = assertString(receiverEmail, 'receiverEmail')
+    return ipcRenderer.invoke('handshake:buildForDownload', email)
+  },
+  downloadCapsule: (capsuleJson: unknown, suggestedFilename: unknown) => {
+    if (typeof capsuleJson !== 'string' || capsuleJson.length === 0 || capsuleJson.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    const name = typeof suggestedFilename === 'string' && suggestedFilename.length <= 255
+      ? suggestedFilename : 'handshake.beap'
+    return ipcRenderer.invoke('handshake:downloadCapsule', capsuleJson, name)
+  },
+})
+
 // ── Build Integrity (offline verification) ────────────────────────────────
 contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),

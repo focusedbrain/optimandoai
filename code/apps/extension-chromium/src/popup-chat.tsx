@@ -45,6 +45,16 @@ import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-buil
 
 type Theme = 'pro' | 'dark' | 'standard'
 
+function toBeapTheme(t: Theme): 'pro' | 'standard' | 'hacker' {
+  return t === 'dark' ? 'hacker' : t
+}
+
+function toPlaceholderTheme(t: Theme): 'default' | 'dark' | 'professional' {
+  if (t === 'pro') return 'professional'
+  if (t === 'standard') return 'default'
+  return 'dark'
+}
+
 // Workspace types - MIRRORS docked sidepanel exactly
 type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
 type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
@@ -998,7 +1008,7 @@ function PopupChatApp() {
               <RecipientModeSwitch
                 mode={beapRecipientMode}
                 onModeChange={setBeapRecipientMode}
-                theme={theme}
+                theme={toBeapTheme(theme)}
               />
               
               {/* Handshake Recipient Select (only in PRIVATE mode) */}
@@ -1007,7 +1017,7 @@ function PopupChatApp() {
                   handshakes={handshakes}
                   selectedHandshakeId={selectedRecipient?.handshake_id || null}
                   onSelect={setSelectedRecipient}
-                  theme={theme}
+                  theme={toBeapTheme(theme)}
                 />
               )}
               
@@ -1018,7 +1028,7 @@ function PopupChatApp() {
                 selectedRecipient={selectedRecipient}
                 emailTo={beapDraftTo}
                 onEmailToChange={setBeapDraftTo}
-                theme={theme}
+                theme={toBeapTheme(theme)}
                 ourFingerprintShort={ourFingerprintShort}
               />
               
@@ -1234,17 +1244,21 @@ function PopupChatApp() {
       case 'command':
         return <CommandChatView theme={theme} />
       case 'p2p-chat':
-        return <P2PChatPlaceholder theme={theme} />
+        return <P2PChatPlaceholder theme={toPlaceholderTheme(theme)} />
       case 'p2p-stream':
-        return <P2PStreamPlaceholder theme={theme} />
+        return <P2PStreamPlaceholder theme={toPlaceholderTheme(theme)} />
       case 'group-stream':
-        return <GroupChatPlaceholder theme={theme} />
+        return <GroupChatPlaceholder theme={toPlaceholderTheme(theme)} />
       case 'handshake':
         return (
           <div style={{ overflowY: 'auto', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
             <SendHandshakeDelivery
               theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
               onBack={() => setDockedSubmode('command')}
+              fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+              emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+              onSelectEmailAccount={setSelectedEmailAccountId}
+              onSuccess={() => setDockedSubmode('command')}
             />
           </div>
         )

@@ -21,6 +21,11 @@ export interface StorageAdapter {
    * Set multiple key-value pairs atomically
    */
   setAll(payload: Record<string, any>): Promise<void>;
+
+  /**
+   * Remove one or more keys from storage
+   */
+  remove?(keys: string[]): Promise<void>;
 }
 
 /**

@@ -39,6 +39,7 @@ function serviceWorkerSafePreload(): Plugin {
 export default defineConfig({
   plugins: [
     react(),
+    // @ts-expect-error crxjs plugin types lag behind Vite's Plugin type
     crx({ manifest }),
     serviceWorkerSafePreload(),
   ],

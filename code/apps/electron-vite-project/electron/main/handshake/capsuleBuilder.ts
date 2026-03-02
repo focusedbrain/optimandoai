@@ -27,7 +27,8 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { SSOSession, SharingMode, TierSignals, ContextBlockInput } from './types'
+import type { SSOSession, SharingMode, TierSignals } from './types'
+import type { ContextBlockProof } from './canonicalRebuild'
 import { computeCapsuleHash, type CapsuleHashInput } from './capsuleHash'
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } from './policyHash'
 import { deriveRelationshipId } from './relationshipId'
@@ -59,7 +60,7 @@ export interface HandshakeCapsuleWire {
   // Type-specific (present only when needed)
   readonly sharing_mode?: SharingMode;
   readonly prev_hash?: string;
-  readonly context_blocks?: ReadonlyArray<ContextBlockInput>;
+  readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>;
 }
 
 // ── Options types ──
@@ -105,8 +106,8 @@ export interface RefreshOptions {
   last_seq_received: number;
   /** The hash of the last capsule received FROM the counterparty */
   last_capsule_hash_received: string;
-  /** Context blocks (message payload) to include in this refresh */
-  context_blocks?: ReadonlyArray<ContextBlockInput>;
+  /** Cryptographic proofs (hashes) of context blocks — never raw content */
+  context_block_proofs?: ReadonlyArray<ContextBlockProof>;
   /** Policy descriptor to anchor. Defaults to DEFAULT_POLICY_DESCRIPTOR. */
   policy?: PolicyDescriptor;
   /** Explicit timestamp override */
@@ -291,8 +292,8 @@ export function buildRefreshCapsule(
     tierSignals: sessionToTierSignals(session),
     wrdesk_policy_hash: computePolicyHash(policy),
     wrdesk_policy_version: policy.version,
-    ...(opts.context_blocks && opts.context_blocks.length > 0
-      ? { context_blocks: opts.context_blocks }
+    ...(opts.context_block_proofs && opts.context_block_proofs.length > 0
+      ? { context_block_proofs: opts.context_block_proofs }
       : {}),
   }
   return wire

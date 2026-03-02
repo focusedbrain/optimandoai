@@ -117,7 +117,7 @@ function saveGridConfiguration() {
   
   console.log('✅ SAVE GRID DEBUG: chrome.runtime available');
   
-  const config = {
+  const config: { layout: string; sessionId: string; timestamp: string; slots: Record<string, { title: string; agent: string }> } = {
     layout: layout,
     sessionId: sessionId,
     timestamp: new Date().toISOString(),
@@ -139,10 +139,12 @@ function saveGridConfiguration() {
     console.log(`  - Agent select found:`, agentSelect ? 'YES' : 'NO');
     console.log(`  - Agent value:`, agentSelect ? agentSelect.value : 'N/A');
     
-    config.slots[slotId] = {
-      title: titleInput ? titleInput.value : '',
-      agent: agentSelect ? agentSelect.value : ''
-    };
+    if (slotId) {
+      config.slots[slotId] = {
+        title: titleInput ? titleInput.value : '',
+        agent: agentSelect ? agentSelect.value : ''
+      };
+    }
   });
   
   console.log('🔍 SAVE GRID DEBUG: Final config object:', JSON.stringify(config, null, 2));
@@ -185,11 +187,12 @@ function saveGridConfiguration() {
     console.log('🔍 SAVE GRID DEBUG: Message sent, waiting for response...');
     
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
     console.error('❌ SAVE GRID DEBUG: Exception during sendMessage:');
-    console.error('  - Error message:', error.message);
-    console.error('  - Error stack:', error.stack);
+    console.error('  - Error message:', err.message);
+    console.error('  - Error stack:', err.stack);
     console.error('  - Full error:', error);
-    showErrorNotification('Exception: ' + error.message);
+    showErrorNotification('Exception: ' + err.message);
   }
 }
 

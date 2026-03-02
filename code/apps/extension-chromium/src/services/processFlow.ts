@@ -1,5 +1,3 @@
-/// <reference types="chrome-types"/>
-
 /**
  * Process Flow Service
  * Handles trigger matching, input routing, butler response generation,
@@ -192,6 +190,8 @@ export interface AgentConfig {
       triggers?: Array<{ tag?: { name: string; kind?: string } }>
     }
     reportTo?: string[]
+    unifiedTriggers?: Array<{ tag?: string; tagName?: string; keywords?: string[]; keywordMode?: string }>
+    triggers?: Array<{ tag?: string; tagName?: string; name?: string; keywords?: string[]; keywordMode?: string }>
   }
   reasoning?: {
     applyFor?: string // '__any__' or specific type

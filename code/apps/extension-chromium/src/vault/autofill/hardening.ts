@@ -514,7 +514,7 @@ export function evaluateSafeMode(
   if (formContext === 'unknown') {
     reasons.push('unknown_form_context')
   }
-  if (formContext === 'checkout' || formContext === 'payment') {
+  if (formContext === 'checkout') {
     reasons.push('checkout_form')
   }
 
@@ -1311,22 +1311,51 @@ export interface TelemetryEvent {
 
 export type TelemetryEventType =
   | 'scan_complete'         // Field scan finished
+  | 'scan_partial'          // Partial scan completed
   | 'overlay_shown'         // Overlay preview displayed
   | 'overlay_consent'       // User clicked Insert
   | 'overlay_cancel'        // User clicked Cancel / Esc
   | 'overlay_expired'       // Overlay timed out
+  | 'overlay_mutation_abort' // Overlay aborted due to DOM mutation
   | 'commit_success'        // All fields filled successfully
   | 'commit_partial'        // Some fields failed
   | 'commit_blocked'        // Safety checks blocked commit
   | 'quickselect_open'      // QuickSelect dropdown opened
   | 'quickselect_select'    // User selected an entry
   | 'quickselect_dismiss'   // User dismissed QuickSelect
+  | 'quickselect_interaction' // QuickSelect user interaction
+  | 'quickselect_show_all'  // QuickSelect show-all triggered
   | 'save_bar_shown'        // Save password bar appeared
   | 'save_bar_save'         // User saved credentials
   | 'save_bar_update'       // User updated existing credentials
   | 'save_bar_cancel'       // User cancelled save
   | 'save_bar_never'        // User chose "Never for this site"
   | 'safe_mode_fallback'    // Auto-insert suppressed, QuickInsert shown
+  | 'consent_rejected'      // User rejected consent prompt
+  | 'direct_fill'           // Direct fill triggered
+  | 'guarded_submit'        // Guarded form submission
+  | 'guarded_submit_blocked' // Guarded submit was blocked
+  | 'qso_click'             // QSO click event
+  | 'qso_fill'              // QSO fill performed
+  | 'qso_submit'            // QSO submit triggered
+  | 'qso_remap'             // QSO field remap
+  | 'qso_remap_fill'        // QSO remap + fill
+  | 'dv_icons_placed'       // Data vault icons placed
+  | 'dv_fill_single'        // Data vault single field fill
+  | 'dv_fill_all'           // Data vault fill all
+  | 'dv_remap'              // Data vault remap
+  | 'popover_mode_switch'   // Popover mode switched
+  | 'popover_fill'          // Popover fill triggered
+  | 'popover_fill_blocked'  // Popover fill was blocked
+  | 'popover_autofill'      // Popover autofill triggered
+  | 'popover_guarded_submit' // Popover guarded submit
+  | 'popover_guarded_submit_blocked' // Popover guarded submit blocked
+  | 'auto_submit'           // Automatic form submission
+  | 'preview_fill_inject'   // Preview fill injected
+  | 'mutation_guard_trip'   // Mutation guard tripped
+  | 'ha_deny'               // High-assurance denial
+  | 'webmcp_partial_scan'   // WebMCP partial scan
+  | 'webmcp_preview'        // WebMCP preview shown
   | 'error'                 // Pipeline error
 
 const MAX_TELEMETRY_EVENTS = 200

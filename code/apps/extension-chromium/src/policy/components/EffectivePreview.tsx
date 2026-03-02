@@ -6,9 +6,14 @@
 
 import { useMemo } from 'react'
 import type { CanonicalPolicy } from '../schema'
+import type { AutomationSessionRestrictions } from '../schema/domains/session-restrictions'
 import { computeEffectivePolicy } from '../engine'
 import { RiskLabel } from './RiskLabel'
 import { getThemeTokens } from '../../shared/ui/lightboxTheme'
+
+type PolicyWithSessionRestrictions = CanonicalPolicy & {
+  sessionRestrictions?: Partial<AutomationSessionRestrictions>
+}
 
 interface EffectivePreviewProps {
   localPolicy: CanonicalPolicy
@@ -183,7 +188,7 @@ export function EffectivePreview({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <CapabilityRow
                 label="Egress Mode"
-                value={result.effective.sessionRestrictions?.egressDuringAutomation === 'none' ? 'Blocked' : 'Allowlist'}
+                value={(result.effective as PolicyWithSessionRestrictions).sessionRestrictions?.egressDuringAutomation === 'none' ? 'Blocked' : 'Allowlist'}
                 theme={theme}
               />
               <CapabilityRow
@@ -194,7 +199,7 @@ export function EffectivePreview({
               />
               <CapabilityRow
                 label="Concurrent"
-                value={result.effective.sessionRestrictions?.maxConcurrentSessions || 1}
+                value={(result.effective as PolicyWithSessionRestrictions).sessionRestrictions?.maxConcurrentSessions || 1}
                 suffix="max"
                 theme={theme}
               />

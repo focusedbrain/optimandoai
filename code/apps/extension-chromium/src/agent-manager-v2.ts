@@ -1,5 +1,3 @@
-/// <reference types="chrome-types"/>
-
 // Agent Manager V2 - clean, isolated, minimal dependencies
 // - Coexists with legacy code without touching it
 // - Persists to active session in chrome.storage.local

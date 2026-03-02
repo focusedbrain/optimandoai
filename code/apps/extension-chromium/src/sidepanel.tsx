@@ -1,4 +1,3 @@
-/// <reference types="chrome-types"/>
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
@@ -122,7 +121,7 @@ function SidepanelOrchestrator() {
   
   // Command chat state - workspace + submode like popup
   const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'>('wr-chat')
-  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'>('command')
+  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake' | 'beap-draft'>('command')
   const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'>('draft')
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   
@@ -1319,7 +1318,7 @@ function SidepanelOrchestrator() {
     checkTabType()
 
     // Listen for tab updates (URL changes)
-    const handleTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+    const handleTabUpdate = (tabId: number, changeInfo: { url?: string; status?: string }, tab: chrome.tabs.Tab) => {
       if (changeInfo.url || changeInfo.status === 'complete') {
         console.log('🔄 Tab URL changed, rechecking tab type')
         checkTabType()
@@ -1327,7 +1326,7 @@ function SidepanelOrchestrator() {
     }
 
     // Listen for when user switches tabs
-    const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+    const handleTabActivated = (activeInfo: { tabId: number; windowId: number }) => {
       console.log('🔄 Tab activated, rechecking tab type')
       checkTabType()
     }
@@ -2735,7 +2734,8 @@ function SidepanelOrchestrator() {
         activeEnabled: a.listening?.activeEnabled,
         passiveTriggers: a.listening?.passive?.triggers?.map((t: any) => t.tag?.name),
         activeTriggers: a.listening?.active?.triggers?.map((t: any) => t.tag?.name),
-        unifiedTriggers: a.listening?.triggers?.map((t: any) => t.tag || t.tagName)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- debug log: access legacy 'triggers' field that may exist at runtime
+        unifiedTriggers: (a.listening as any)?.triggers?.map((t: any) => t.tag || t.tagName)
       })))
       
       if (nlpResult.input.triggers.length > 0) {
@@ -3830,8 +3830,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={openPopupChat}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle('rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0
@@ -3843,8 +3841,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={toggleCommandChatPin}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
@@ -4043,7 +4039,7 @@ function SidepanelOrchestrator() {
                 </div>
                 {/* Controls */}
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {(dockedPanelMode !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
+                  {((dockedPanelMode as string) !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
                     <button 
                       onClick={handleScreenSelect}
                       title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -5473,6 +5469,8 @@ function SidepanelOrchestrator() {
     )
   }
 
+  const currentViewMode: 'app' | 'admin' = viewMode
+
   // Mini App View (simplified)
   if (viewMode === 'app') {
     return (
@@ -5505,8 +5503,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={openPopupChat}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle('rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0
@@ -5518,8 +5514,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={toggleCommandChatPin}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
@@ -5720,7 +5714,7 @@ function SidepanelOrchestrator() {
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
+                {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -5995,6 +5989,10 @@ height: '28px',
                 <SendHandshakeDelivery
                   theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
                   onBack={() => setDockedSubmode('command')}
+                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                  emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                  onSelectEmailAccount={setSelectedEmailAccountId}
+                  onSuccess={() => setDockedSubmode('command')}
                 />
               </div>
             )}
@@ -6783,7 +6781,7 @@ height: '28px',
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
+                {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -7057,6 +7055,10 @@ height: '28px',
                 <SendHandshakeDelivery
                   theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
                   onBack={() => setDockedSubmode('command')}
+                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                  emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                  onSelectEmailAccount={setSelectedEmailAccountId}
+                  onSuccess={() => setDockedSubmode('command')}
                 />
               </div>
             )}
@@ -8046,13 +8048,13 @@ height: '28px',
               justifyContent: 'flex-end',
               paddingRight: '5px'
             }}
-            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
+            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${currentViewMode === 'app' ? 'Admin' : 'App'} view`}
           >
             <div style={{
               position: 'relative',
               width: '50px',
               height: '20px',
-              background: viewMode === 'app'
+              background: currentViewMode === 'app'
                 ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
                 : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
@@ -8062,13 +8064,13 @@ height: '28px',
             }}>
               <span style={{
                 position: 'absolute',
-                left: viewMode === 'app' ? '8px' : 'auto',
-                right: viewMode === 'app' ? 'auto' : '8px',
+                left: currentViewMode === 'app' ? '8px' : 'auto',
+                right: currentViewMode === 'app' ? 'auto' : '8px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 fontSize: '9px',
                 fontWeight: '700',
-                color: viewMode === 'app'
+                color: currentViewMode === 'app'
                   ? 'rgba(255,255,255,0.95)'
                   : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
@@ -8082,7 +8084,7 @@ height: '28px',
               <div style={{
                 position: 'absolute',
                 top: '3px',
-                left: viewMode === 'app' ? '32px' : '3px',
+                left: currentViewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
                 background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',

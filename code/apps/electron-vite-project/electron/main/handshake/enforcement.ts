@@ -33,11 +33,10 @@ import {
   getSeenCapsuleHashes,
   insertSeenCapsuleHash,
   getContextBlockVersions,
-  upsertContextBlockVersion,
   getExistingHandshakesForLookup,
   insertAuditLogEntry,
 } from './db'
-import { persistContextBlocks } from './contextBlocks'
+// persistContextBlocks import removed — content enters via BEAP-Capsule pipeline only
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 
 /**
@@ -81,7 +80,7 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
     timestamp: c.timestamp ?? new Date().toISOString(),
     relationship_id: c.relationship_id ?? '',
     scopes: c.scopes,
-    context_blocks: c.context_blocks,
+    context_block_proofs: c.context_block_proofs ?? [],
     capsulePolicy: c.capsulePolicy,
     expires_at: c.expires_at,
     sharing_mode: c.sharing_mode,
@@ -211,20 +210,10 @@ export function processHandshakeCapsule(
       throw new Error(`Unknown capsuleType: ${input.capsuleType}`)
     }
 
-    // Context block inserts
-    const blocks = input.context_blocks ?? []
-    if (blocks.length > 0) {
-      const source = input.sender_wrdesk_user_id === ssoSession.wrdesk_user_id ? 'sent' as const : 'received' as const
-      const result = persistContextBlocks(
-        db, input.handshake_id, blocks, source, input.sender_wrdesk_user_id,
-      )
-      blocksStored = result.inserted
-
-      // Update version tracking
-      for (const block of blocks) {
-        upsertContextBlockVersion(db, input.sender_wrdesk_user_id, block.block_id, block.version)
-      }
-    }
+    // Context block proofs are recorded for audit but contain no content.
+    // Actual content enters only through the full BEAP-Capsule pipeline.
+    const proofs = input.context_block_proofs ?? []
+    blocksStored = proofs.length
 
     // Dedup hash
     insertSeenCapsuleHash(db, input.handshake_id, input.capsule_hash)

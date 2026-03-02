@@ -158,9 +158,9 @@ export async function createCredentialFromPageInput(params: {
   const fields: Field[] = []
 
   if (params.username) {
-    fields.push({ key: 'username', value: params.username, type: 'text' })
+    fields.push({ key: 'username', value: params.username, type: 'text', encrypted: false })
   }
-  fields.push({ key: 'password', value: params.password, type: 'password' })
+  fields.push({ key: 'password', value: params.password, type: 'password', encrypted: false })
 
   try {
     const item = await vaultAPI.createItem({

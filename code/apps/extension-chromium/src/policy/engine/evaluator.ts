@@ -142,7 +142,7 @@ export function computeEffectivePolicy(input: PolicyEvaluationInput): EffectiveP
   
   // Determine if consent is required
   // Consent is required if CAP requests capabilities not in HSP
-  const requiresConsent = cap !== undefined && hsp !== undefined && (
+  const requiresConsent = cap !== undefined && hsp !== undefined && !!(
     // Check if CAP requests more than HSP allows
     (cap.ingress?.allowDynamicContent && !hsp.ingress?.allowDynamicContent) ||
     (cap.ingress?.allowReconstruction && !hsp.ingress?.allowReconstruction) ||

@@ -271,7 +271,7 @@ export interface VerifiedCapsuleInput {
   timestamp: string;
   relationship_id: string;
   scopes?: string[];
-  context_blocks?: ContextBlockInput[];
+  context_block_proofs?: ReadonlyArray<{ block_id: string; block_hash: string }>;
   capsulePolicy?: CapsulePolicy;
   expires_at?: string;
   sharing_mode?: SharingMode;

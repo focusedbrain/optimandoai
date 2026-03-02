@@ -1751,6 +1751,144 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: integrity:status')
 
+    // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
+    ipcMain.handle('handshake:list', async (_e, filter: any) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return []
+        const result = await handleHandshakeRPC('handshake.list', { filter }, db)
+        return result.records ?? []
+      } catch (err: any) {
+        console.error('[MAIN] handshake:list error:', err?.message)
+        return []
+      }
+    })
+
+    ipcMain.handle('handshake:submitCapsule', async (_e, jsonString: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return { success: false, error: 'Vault locked' }
+        const ssoSession = vs?.getSSOSession?.()
+        return await handleIngestionRPC('ingestion.ingest', {
+          rawInput: { body: jsonString, mime_type: 'application/vnd.beap+json', headers: { 'content-type': 'application/vnd.beap+json' } },
+          sourceType: 'file_upload',
+          transportMeta: { mime_type: 'application/vnd.beap+json' },
+        }, db, ssoSession)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:submitCapsule error:', err?.message)
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return { success: false, error: 'Vault locked' }
+        return await handleHandshakeRPC('handshake.accept', { handshake_id: id, sharing_mode: sharingMode, fromAccountId }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:decline', async (_e, id: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return { success: false, error: 'Vault locked' }
+        return await handleHandshakeRPC('handshake.initiateRevocation', { handshakeId: id }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:contextBlockCount', async (_e, handshakeId: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return 0
+        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
+        return result?.blocks?.length ?? 0
+      } catch {
+        return 0
+      }
+    })
+    ipcMain.handle('handshake:queryContextBlocks', async (_e, handshakeId: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return []
+        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
+        return result?.blocks ?? []
+      } catch {
+        return []
+      }
+    })
+
+    ipcMain.handle('handshake:chatWithContext', async (_e, systemMessage: string, dataWrapper: string, userMessage: string) => {
+      try {
+        // Route to the LLM module if available, using the unidirectional prompt structure
+        const vs = (globalThis as any).__og_vault_service_ref
+        const llmChat = vs?.getLLMChat?.()
+        if (llmChat) {
+          const messages = [
+            { role: 'system' as const, content: systemMessage },
+            ...(dataWrapper ? [{ role: 'system' as const, content: dataWrapper }] : []),
+            { role: 'user' as const, content: userMessage },
+          ]
+          const response = await llmChat.complete(messages)
+          return typeof response === 'string' ? response : response?.content ?? 'No response.'
+        }
+        return 'LLM chat backend is not connected. Please ensure the AI service is running.'
+      } catch (err: any) {
+        return `Error: ${err?.message || 'Chat request failed.'}`
+      }
+    })
+
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return { success: false, error: 'Vault locked' }
+        return await handleHandshakeRPC('handshake.initiate', { receiverUserId: receiverEmail, receiverEmail, fromAccountId }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Initiation failed.' }
+      }
+    })
+
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string) => {
+      try {
+        const vs = (globalThis as any).__og_vault_service_ref
+        const db = vs?.getDb?.()
+        if (!db) return { success: false, error: 'Vault locked' }
+        return await handleHandshakeRPC('handshake.buildForDownload', { receiverUserId: receiverEmail, receiverEmail }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Build failed.' }
+      }
+    })
+
+    ipcMain.handle('handshake:downloadCapsule', async (_e, capsuleJson: string, suggestedFilename: string) => {
+      try {
+        const { dialog } = await import('electron')
+        const fs = await import('fs')
+        const result = await dialog.showSaveDialog({
+          defaultPath: suggestedFilename,
+          filters: [{ name: 'BEAP Capsule', extensions: ['beap'] }],
+        })
+        if (result.canceled || !result.filePath) {
+          return { success: false, reason: 'cancelled' }
+        }
+        fs.writeFileSync(result.filePath, capsuleJson, 'utf-8')
+        return { success: true, filePath: result.filePath }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Save failed.' }
+      }
+    })
+
+    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule')
+
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
       console.log('[IPC] auth:status called')
@@ -1931,6 +2069,8 @@ app.whenReady().then(async () => {
       setEmailFunctions(
         emailGateway.listMessages.bind(emailGateway),
         emailGateway.getMessage.bind(emailGateway),
+        emailGateway.listAttachments.bind(emailGateway),
+        emailGateway.extractAttachmentText.bind(emailGateway),
       )
 
       setSSOSessionProvider(() => {

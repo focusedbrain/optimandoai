@@ -6,11 +6,10 @@
  * Delivery modes:
  *  - "Email via API"        → Send directly using a connected mailbox (API send).
  *  - "Email as attachment"  → Download .beap capsule; recipient copies the email template.
- *
- * No backend wiring — handlers are stubbed, state is local.
  */
 
 import React, { useState } from 'react'
+import { initiateHandshake, buildHandshakeForDownload } from '../handshakeRpc'
 
 // =============================================================================
 // Types
@@ -20,6 +19,12 @@ type DeliveryMode = 'api' | 'attachment'
 
 type Theme = 'standard' | 'pro' | 'dark'
 
+export interface EmailAccount {
+  id: string
+  email: string
+  provider?: string
+}
+
 export interface SendHandshakeDeliveryProps {
   /** Prefilled subject line */
   defaultSubject?: string
@@ -27,6 +32,14 @@ export interface SendHandshakeDeliveryProps {
   theme?: Theme
   /** Called when the user clicks Cancel / Back */
   onBack?: () => void
+  /** The email account ID used for sending */
+  fromAccountId?: string
+  /** Available email accounts */
+  emailAccounts?: EmailAccount[]
+  /** Callback when email account changes */
+  onSelectEmailAccount?: (id: string) => void
+  /** Called on successful handshake creation */
+  onSuccess?: () => void
 }
 
 // =============================================================================
@@ -182,6 +195,10 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   defaultSubject = DEFAULT_SUBJECT,
   theme = 'dark',
   onBack,
+  fromAccountId = '',
+  emailAccounts = [],
+  onSelectEmailAccount,
+  onSuccess,
 }) => {
   const t = useThemeTokens(theme)
 
@@ -200,6 +217,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [sending, setSending] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
   const [actionDone, setActionDone] = useState<'sent' | 'downloaded' | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Validation
   const emailError =
@@ -210,29 +228,71 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       : null
 
   const isValid = !!recipientEmail.trim() && EMAIL_PATTERN.test(recipientEmail.trim())
+  const noEmailAccount = mode === 'api' && emailAccounts.length === 0
 
   // -------------------------------------------------------------------------
-  // Stub handlers
+  // Handlers
   // -------------------------------------------------------------------------
 
   const handleSendViaApi = async () => {
     setTouched(true)
+    setError(null)
     if (!isValid) return
+    if (!fromAccountId) {
+      setError('No email account selected.')
+      return
+    }
     setSending(true)
-    // Stub: simulate API call
-    await new Promise((r) => setTimeout(r, 900))
-    setSending(false)
-    setActionDone('sent')
+    try {
+      const result = await initiateHandshake(
+        recipientEmail.trim(),
+        recipientEmail.trim(),
+        fromAccountId,
+      )
+      if (result.handshake_id) {
+        setActionDone('sent')
+        onSuccess?.()
+      } else {
+        setError((result as any).error || 'Failed to send handshake.')
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send handshake.')
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleDownloadCapsule = async () => {
     setTouched(true)
+    setError(null)
     if (!isValid) return
     setSending(true)
-    // Stub: simulate capsule build + download trigger
-    await new Promise((r) => setTimeout(r, 700))
-    setSending(false)
-    setActionDone('downloaded')
+    try {
+      const result = await buildHandshakeForDownload(
+        recipientEmail.trim(),
+        fromAccountId,
+      )
+      if (!result.success || !result.capsule_json) {
+        setError(result.error || 'Failed to build capsule.')
+        return
+      }
+      const blob = new Blob([result.capsule_json], { type: 'application/vnd.beap+json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      const shortId = result.handshake_id?.slice(3, 11) || 'capsule'
+      anchor.download = `handshake-${shortId}.beap`
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(url)
+      setActionDone('downloaded')
+      onSuccess?.()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to build capsule.')
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleCopyEmailTemplate = async () => {
@@ -505,8 +565,29 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         )}
 
+        {/* ---- No email account warning ---- */}
+        {noEmailAccount && (
+          <div
+            style={{
+              padding: '10px 13px',
+              background: t.dangerBg,
+              border: `1px solid ${t.dangerBorder}`,
+              borderRadius: '8px',
+              fontSize: '11px',
+              color: t.dangerText,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ flexShrink: 0, fontSize: '13px' }}>⚠️</span>
+            <span>No email account connected. Connect one in Settings to send via API.</span>
+          </div>
+        )}
+
         {/* ---- API sender note ---- */}
-        {mode === 'api' && (
+        {mode === 'api' && !noEmailAccount && (
           <div
             style={{
               padding: '9px 12px',
@@ -522,6 +603,27 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         )}
 
+        {/* ---- Error banner ---- */}
+        {error && (
+          <div
+            style={{
+              padding: '10px 13px',
+              background: t.errorBg,
+              border: `1px solid ${t.errorBorder}`,
+              borderRadius: '8px',
+              fontSize: '11px',
+              color: t.errorText,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ flexShrink: 0, fontSize: '13px' }}>❌</span>
+            <span>{error}</span>
+          </div>
+        )}
+
         {/* ---- Actions ---- */}
         <div
           style={{
@@ -534,7 +636,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           {mode === 'api' ? (
             <button
               onClick={handleSendViaApi}
-              disabled={sending}
+              disabled={sending || noEmailAccount}
               style={{
                 width: '100%',
                 padding: '10px 16px',

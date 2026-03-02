@@ -4,7 +4,7 @@
  */
 
 import * as vaultAPI from './api'
-import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult } from './types'
+import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult, LegacyItemCategory } from './types'
 import {
   IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS,
   PASSWORD_STANDARD_FIELDS, AUTOMATION_SECRET_STANDARD_FIELDS, HANDSHAKE_CONTEXT_STANDARD_FIELDS,
@@ -1001,7 +1001,7 @@ function buildSidebarCategoriesHTML(tier: VaultTier): string {
   let html = ''
 
   // --- Active item categories ---
-  const activeCats: Array<{ cat: string; accessible: boolean; minTier: string }> = []
+  const activeCats: Array<{ cat: LegacyItemCategory; accessible: boolean; minTier: string }> = []
   for (const cat of ALL_ITEM_CATEGORIES) {
     const uiInfo = CATEGORY_UI_MAP[cat]
     if (!uiInfo) continue

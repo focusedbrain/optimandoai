@@ -17,7 +17,7 @@ export type { SelectedRecipient } from './RecipientHandshakeSelect'
 export interface RecipientModeSwitchProps {
   mode: RecipientMode
   onModeChange: (mode: RecipientMode) => void
-  theme: 'standard' | 'hacker' | 'pro'
+  theme: 'standard' | 'hacker' | 'pro' | 'dark'
   disabled?: boolean
 }
 

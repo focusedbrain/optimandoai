@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+export {}
 
 type Layout = { leftW: number; rightW: number; topH: number; bottomH: number }
 const DEFAULT_LAYOUT: Layout = { leftW: 280, rightW: 360, topH: 56, bottomH: 40 }

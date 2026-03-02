@@ -1,6 +1,5 @@
 import { ChromeStorageAdapter } from '@shared-extension/storage/ChromeStorageAdapter';
-import type { StorageAdapter } from '@shared/core/storage/StorageAdapter';
-import type { BackendConfig } from '@shared/core/storage/StorageAdapter';
+import type { StorageAdapter, BackendConfig } from '@shared/storage/StorageAdapter';
 import { OrchestratorSQLiteAdapter } from './OrchestratorSQLiteAdapter';
 
 /**

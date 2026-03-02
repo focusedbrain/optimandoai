@@ -8,17 +8,15 @@
 
 import React, { useState } from 'react'
 import { useWRGuardStore } from '../useWRGuardStore'
-import type { ProtectedSite, ProtectedSiteCategory } from '../types'
+import type { ProtectedSite, ProtectedSiteSource } from '../types'
 
 interface ProtectedSitesListProps {
   theme?: 'default' | 'dark' | 'professional'
 }
 
-const CATEGORY_LABELS: Record<ProtectedSiteCategory, { label: string; icon: string }> = {
-  email: { label: 'Email', icon: '📧' },
-  messenger: { label: 'Messaging', icon: '💬' },
-  social: { label: 'Social', icon: '🌐' },
-  custom: { label: 'Custom', icon: '➕' }
+const SOURCE_LABELS: Record<ProtectedSiteSource, { label: string; icon: string }> = {
+  default: { label: 'Default', icon: '🛡️' },
+  user: { label: 'Custom', icon: '➕' },
 }
 
 export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProps) {
@@ -34,7 +32,6 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
   const [showAddForm, setShowAddForm] = useState(false)
   const [newDomain, setNewDomain] = useState('')
   const [newDisplayName, setNewDisplayName] = useState('')
-  const [newCategory, setNewCategory] = useState<ProtectedSiteCategory>('custom')
   
   const isDark = theme === 'default' || theme === 'dark'
   const textColor = isDark ? '#e5e5e5' : '#1f2937'
@@ -48,23 +45,20 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
     
     addSite({
       domain: newDomain.trim(),
-      displayName: newDisplayName.trim() || newDomain.trim(),
-      category: newCategory,
-      isDefault: false,
-      enabled: true
+      description: newDisplayName.trim() || undefined,
+      enabled: true,
     })
     
     setNewDomain('')
     setNewDisplayName('')
-    setNewCategory('custom')
     setShowAddForm(false)
   }
   
   const groupedSites = protectedSites.reduce((acc, site) => {
-    if (!acc[site.category]) acc[site.category] = []
-    acc[site.category].push(site)
+    if (!acc[site.source]) acc[site.source] = []
+    acc[site.source].push(site)
     return acc
-  }, {} as Record<ProtectedSiteCategory, ProtectedSite[]>)
+  }, {} as Record<ProtectedSiteSource, ProtectedSite[]>)
   
   return (
     <div style={{ padding: '16px' }}>
@@ -107,13 +101,13 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
         </button>
       </div>
       
-      {/* Sites by Category */}
-      {(Object.keys(CATEGORY_LABELS) as ProtectedSiteCategory[]).map(category => {
-        const sites = groupedSites[category] || []
-        if (sites.length === 0 && category !== 'custom') return null
+      {/* Sites by Source */}
+      {(Object.keys(SOURCE_LABELS) as ProtectedSiteSource[]).map(source => {
+        const sites = groupedSites[source] || []
+        if (sites.length === 0 && source !== 'user') return null
         
         return (
-          <div key={category} style={{ marginBottom: '16px' }}>
+          <div key={source} style={{ marginBottom: '16px' }}>
             <div style={{
               fontSize: '11px',
               fontWeight: 600,
@@ -125,8 +119,8 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
               alignItems: 'center',
               gap: '6px'
             }}>
-              <span>{CATEGORY_LABELS[category].icon}</span>
-              {CATEGORY_LABELS[category].label}
+              <span>{SOURCE_LABELS[source].icon}</span>
+              {SOURCE_LABELS[source].label}
             </div>
             
             {sites.map(site => (
@@ -145,7 +139,7 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
               >
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '13px', fontWeight: 500, color: textColor }}>
-                    {site.displayName}
+                    {site.description ?? site.domain}
                   </div>
                   <div style={{ fontSize: '11px', color: mutedColor, fontFamily: 'monospace' }}>
                     {site.domain}
@@ -153,7 +147,7 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {site.isDefault && (
+                  {site.source === 'default' && (
                     <span style={{
                       fontSize: '9px',
                       fontWeight: 600,
@@ -185,7 +179,7 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
                     {site.enabled ? 'ON' : 'OFF'}
                   </button>
                   
-                  {!site.isDefault && (
+                  {site.source !== 'default' && (
                     <button
                       onClick={() => removeSite(site.id)}
                       style={{
@@ -204,7 +198,7 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
               </div>
             ))}
             
-            {category === 'custom' && sites.length === 0 && (
+            {source === 'user' && sites.length === 0 && (
               <div style={{
                 padding: '20px',
                 textAlign: 'center',
@@ -270,27 +264,6 @@ export function ProtectedSitesList({ theme = 'default' }: ProtectedSitesListProp
               outline: 'none'
             }}
           />
-          
-          <select
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value as ProtectedSiteCategory)}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              fontSize: '12px',
-              background: bgColor,
-              border: `1px solid ${borderColor}`,
-              borderRadius: '6px',
-              color: textColor,
-              marginBottom: '12px',
-              outline: 'none'
-            }}
-          >
-            <option value="email">📧 Email</option>
-            <option value="messenger">💬 Messaging</option>
-            <option value="social">🌐 Social</option>
-            <option value="custom">➕ Custom</option>
-          </select>
           
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <button

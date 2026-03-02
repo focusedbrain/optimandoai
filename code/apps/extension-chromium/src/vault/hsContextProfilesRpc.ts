@@ -157,7 +157,7 @@ export async function getHsProfile(profileId: string): Promise<HsContextProfileD
 export async function createHsProfile(input: CreateProfileInput): Promise<HsContextProfileSummary> {
   const res = await sendVaultRpc<{ profile: HsContextProfileSummary }>(
     'vault.hsProfiles.create',
-    input as Record<string, unknown>,
+    input as unknown as Record<string, unknown>,
   )
   return res.profile
 }

@@ -13,7 +13,7 @@
 
 import type { SSOSession } from '../handshake/types'
 import { handleIngestionRPC } from '../ingestion/ipc'
-import type { SanitizedMessage, SanitizedMessageDetail } from './types'
+import type { SanitizedMessage, SanitizedMessageDetail, AttachmentMeta, ExtractedAttachmentText } from './types'
 
 export interface BeapSyncConfig {
   pollIntervalMs: number
@@ -28,6 +28,14 @@ export interface EmailGetFn {
   (accountId: string, messageId: string): Promise<SanitizedMessageDetail | null>
 }
 
+export interface EmailListAttachmentsFn {
+  (accountId: string, messageId: string): Promise<AttachmentMeta[]>
+}
+
+export interface EmailExtractAttachmentTextFn {
+  (accountId: string, messageId: string, attachmentId: string): Promise<ExtractedAttachmentText>
+}
+
 export interface BeapSyncHandle {
   stop: () => void
 }
@@ -36,19 +44,30 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000
 
 let _emailListFn: EmailListFn | null = null
 let _emailGetFn: EmailGetFn | null = null
+let _emailListAttachmentsFn: EmailListAttachmentsFn | null = null
+let _emailExtractAttachmentTextFn: EmailExtractAttachmentTextFn | null = null
 
 /**
  * Inject email gateway functions. Called once at app startup.
  */
-export function setEmailFunctions(listFn: EmailListFn, getFn: EmailGetFn): void {
+export function setEmailFunctions(
+  listFn: EmailListFn,
+  getFn: EmailGetFn,
+  listAttachmentsFn?: EmailListAttachmentsFn,
+  extractAttachmentTextFn?: EmailExtractAttachmentTextFn,
+): void {
   _emailListFn = listFn
   _emailGetFn = getFn
+  _emailListAttachmentsFn = listAttachmentsFn ?? null
+  _emailExtractAttachmentTextFn = extractAttachmentTextFn ?? null
 }
 
 /** @internal */
 export function _resetEmailFunctions(): void {
   _emailListFn = null
   _emailGetFn = null
+  _emailListAttachmentsFn = null
+  _emailExtractAttachmentTextFn = null
 }
 
 const processedMessageIds = new Set<string>()
@@ -88,6 +107,15 @@ export function detectBeapInSubject(subject: string): boolean {
 }
 
 /**
+ * Check if an attachment looks like a .beap capsule file.
+ */
+function isBeapAttachment(att: AttachmentMeta): boolean {
+  if (att.filename?.toLowerCase().endsWith('.beap')) return true
+  if (att.mimeType === 'application/vnd.beap+json') return true
+  return false
+}
+
+/**
  * Process a single email message: detect BEAP capsule, submit to pipeline.
  */
 export async function processEmailForBeap(
@@ -101,40 +129,96 @@ export async function processEmailForBeap(
     return { submitted: false }
   }
 
+  // Strategy 1: Detect BEAP capsule in email body
   const detection = detectBeapInBody(message.bodyText)
-  if (!detection.detected || !detection.capsuleJson) {
-    processedMessageIds.add(messageKey)
-    return { submitted: false }
+  if (detection.detected && detection.capsuleJson) {
+    try {
+      const result = await handleIngestionRPC(
+        'ingestion.ingest',
+        {
+          rawInput: {
+            body: detection.capsuleJson,
+            mime_type: 'application/vnd.beap+json',
+            headers: { 'content-type': 'application/vnd.beap+json' },
+          },
+          sourceType: 'email',
+          transportMeta: {
+            channel_id: `email:${accountId}`,
+            message_id: message.id,
+            sender_address: message.from.email,
+            recipient_address: message.to?.[0]?.email,
+            mime_type: 'application/vnd.beap+json',
+          },
+        },
+        db,
+        ssoSession,
+      )
+
+      processedMessageIds.add(messageKey)
+      return { submitted: true, result }
+    } catch (err: any) {
+      processedMessageIds.add(messageKey)
+      return { submitted: false, error: err?.message ?? 'Pipeline submission failed' }
+    }
   }
 
-  try {
-    const result = await handleIngestionRPC(
-      'ingestion.ingest',
-      {
-        rawInput: {
-          body: detection.capsuleJson,
-          mime_type: 'application/vnd.beap+json',
-          headers: { 'content-type': 'application/vnd.beap+json' },
-        },
-        sourceType: 'email',
-        transportMeta: {
-          channel_id: `email:${accountId}`,
-          message_id: message.id,
-          sender_address: message.from.email,
-          recipient_address: message.to?.[0]?.email,
-          mime_type: 'application/vnd.beap+json',
-        },
-      },
-      db,
-      ssoSession,
-    )
+  // Strategy 2: Detect .beap file attachments (process ALL matching attachments)
+  if (message.hasAttachments && _emailListAttachmentsFn && _emailExtractAttachmentTextFn) {
+    try {
+      const attachments = await _emailListAttachmentsFn(accountId, message.id)
+      let anySubmitted = false
+      let lastResult: any = null
 
-    processedMessageIds.add(messageKey)
-    return { submitted: true, result }
-  } catch (err: any) {
-    processedMessageIds.add(messageKey)
-    return { submitted: false, error: err?.message ?? 'Pipeline submission failed' }
+      for (const att of attachments) {
+        if (!isBeapAttachment(att)) continue
+
+        try {
+          const extracted = await _emailExtractAttachmentTextFn(accountId, message.id, att.id)
+
+          // Size guard before parsing — reject oversized attachments early
+          if (extracted.text.length > 65536) continue
+
+          const attDetection = detectBeapInBody(extracted.text)
+          if (!attDetection.detected || !attDetection.capsuleJson) continue
+
+          lastResult = await handleIngestionRPC(
+            'ingestion.ingest',
+            {
+              rawInput: {
+                body: attDetection.capsuleJson,
+                mime_type: 'application/vnd.beap+json',
+                headers: { 'content-type': 'application/vnd.beap+json' },
+                filename: att.filename,
+              },
+              sourceType: 'email',
+              transportMeta: {
+                channel_id: `email:${accountId}`,
+                message_id: `${message.id}:attachment:${att.id}`,
+                sender_address: message.from.email,
+                recipient_address: message.to?.[0]?.email,
+                mime_type: 'application/vnd.beap+json',
+              },
+            },
+            db,
+            ssoSession,
+          )
+          anySubmitted = true
+        } catch (attErr: any) {
+          console.warn(`[BEAP Sync] Attachment ${att.id} processing error:`, attErr?.message)
+        }
+      }
+
+      if (anySubmitted) {
+        processedMessageIds.add(messageKey)
+        return { submitted: true, result: lastResult }
+      }
+    } catch (err: any) {
+      console.warn('[BEAP Sync] Attachment enumeration error:', err?.message)
+    }
   }
+
+  processedMessageIds.add(messageKey)
+  return { submitted: false }
 }
 
 /**
@@ -160,7 +244,7 @@ export async function runBeapSyncCycle(
         const messageKey = `${accountId}:${msg.id}`
         if (processedMessageIds.has(messageKey)) continue
 
-        const isCandidate = detectBeapInSubject(msg.subject)
+        const isCandidate = detectBeapInSubject(msg.subject) || msg.hasAttachments
         if (!isCandidate) {
           processedMessageIds.add(messageKey)
           continue

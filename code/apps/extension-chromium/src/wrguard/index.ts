@@ -38,5 +38,4 @@ export {
   RuntimeControlsSection,
   ProtectedSitesList,
   RuntimeConfigLightbox,
-  FullAutoStatusBanner
 } from './components'

@@ -435,6 +435,7 @@ export const VaultUI: React.FC = () => {
           </div>
         )}
       </div>
+        )}
 
       {/* Item Detail Modal */}
       {editingItem && (
@@ -505,8 +506,7 @@ export const VaultUI: React.FC = () => {
           </div>
         </div>
       )}
-        </div>
-        )}
+      </div>
     </div>
   )
 }

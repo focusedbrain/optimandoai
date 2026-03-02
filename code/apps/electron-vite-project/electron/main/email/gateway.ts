@@ -356,8 +356,12 @@ class EmailGateway implements IEmailGateway {
       }
     }
     
-    // For plain text files
-    if (attachment.mimeType.startsWith('text/')) {
+    // For plain text and JSON-based files (incl. .beap capsules)
+    if (
+      attachment.mimeType.startsWith('text/') ||
+      attachment.mimeType === 'application/json' ||
+      attachment.mimeType === 'application/vnd.beap+json'
+    ) {
       return {
         attachmentId,
         text: buffer.toString('utf-8')

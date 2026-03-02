@@ -63,7 +63,7 @@ function fromBase64(base64: string): Uint8Array {
 }
 
 async function sha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data as unknown as BufferSource)
   const hashArray = new Uint8Array(hashBuffer)
   return Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('')
 }

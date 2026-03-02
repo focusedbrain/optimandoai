@@ -234,7 +234,7 @@ const ToolLicenseCard: React.FC<ToolLicenseCardProps> = ({
   getCategoryIcon,
   getCategoryLabel
 }) => {
-  const isProfessional = theme === 'professional'
+  const isProfessional = theme === 'pro'
   const textColor = isProfessional ? '#0f172a' : 'white'
   const mutedColor = isProfessional ? '#64748b' : 'rgba(255,255,255,0.6)'
   const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'

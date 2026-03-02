@@ -79,7 +79,7 @@ export function fillSingleField(
 
   const el = element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 
-  if (el.disabled || el.readOnly) {
+  if (el.disabled || ('readOnly' in el && el.readOnly)) {
     return { success: false, skipped: true, reason: 'readonly_or_disabled' }
   }
 
@@ -264,7 +264,7 @@ function revalidateElement(
   }
 
   // 5. Not disabled/readonly (may have changed since initial check)?
-  if (element.disabled || element.readOnly) {
+  if (element.disabled || ('readOnly' in element && element.readOnly)) {
     return { valid: false, reason: 'became_readonly_or_disabled' }
   }
 

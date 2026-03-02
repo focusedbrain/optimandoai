@@ -301,6 +301,29 @@ export const DEFAULT_POLICY_OVERVIEW: PolicyOverview = {
 }
 
 // =============================================================================
+// Runtime Configuration
+// =============================================================================
+
+/**
+ * WRGuard runtime configuration toggles
+ */
+export interface RuntimeConfig {
+  protectionEnabled: boolean
+  logBlockedEvents: boolean
+  showNotifications: boolean
+  autoQuarantine: boolean
+  strictMode: boolean
+}
+
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+  protectionEnabled: true,
+  logBlockedEvents: true,
+  showNotifications: true,
+  autoQuarantine: false,
+  strictMode: false,
+}
+
+// =============================================================================
 // WRGuard Configuration State
 // =============================================================================
 
@@ -313,6 +336,9 @@ export interface WRGuardConfig {
   
   /** Protected sites list */
   protectedSites: ProtectedSite[]
+  
+  /** Runtime configuration toggles */
+  runtimeConfig: RuntimeConfig
   
   /** Policy overview (read-only) */
   policyOverview: PolicyOverview

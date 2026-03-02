@@ -1,45 +1,29 @@
 /**
  * BEAP Builder Module
- * 
- * Unified BEAP Builder with Silent and Explicit modes.
- * Single implementation shared across WR Chat, Drafts, and content scripts.
- * 
- * ARCHITECTURE (v2):
- * - Envelope: Authoritative, read-only consent boundary
- * - Capsule: Editable task payload
- * - Builder opens automatically when envelope-relevant content present
- * 
- * SEND & DISPATCH (v2):
- * - Shared send pipeline for all contexts
- * - Delivery methods: email, messenger, download, chat
- * - Outbox tracking with state transitions
- * 
- * @version 2.1.0
+ *
+ * Canonical types, envelope/capsule assembly, and shared helpers
+ * for BEAP message construction. Legacy stores (useBeapBuilder,
+ * useCapsuleBuilder, deliveryService, sendPipeline) have been removed —
+ * handshake sends use handshakeRpc.ts / handshakeRefresh.ts.
+ *
+ * @version 3.0.0
  */
 
-// Legacy types and store (for backwards compatibility)
-export * from './types'
-export * from './useBeapBuilder'
-export * from './deliveryService'
-
-// New canonical types (v2)
-export * from './canonical-types'
-
-// Dispatch types (v2.1)
-export * from './dispatch-types'
-
-// Boundary types (v2.1)
-export * from './boundary-types'
-
-// New capsule builder store (v2)
+// Types — dispatch-types takes precedence for DeliveryMethod / DeliveryConfig
 export {
-  useCapsuleBuilder,
-  useIsBuilderOpen,
-  useEnvelopeSummary,
-  useCapsuleDraft,
-  useEnvelopeRequiresRegeneration,
-  useBuilderValidationErrors
-} from './useCapsuleBuilder'
+  type BuilderMode,
+  type BuilderContext,
+  type BuilderAttachment,
+  type ModeTriggerResult,
+  type ExplicitModeReason,
+  type SilentBuildRequest,
+  type ExplicitBuildRequest,
+  type BeapBuildResult,
+  type BuilderState,
+} from './types'
+export * from './canonical-types'
+export * from './dispatch-types'
+export * from './boundary-types'
 
 // Shared helper
 export {
@@ -49,27 +33,16 @@ export {
   type BuilderDecisionContext
 } from './requiresBuilder'
 
-// Send pipeline (v2.1)
-export {
-  sendBeapMessage,
-  confirmMessengerSent,
-  confirmDownloadDelivered,
-  retryEmailSend
-} from './sendPipeline'
-
-// Handshake refresh (v3 — replaces BEAP_SEND_EMAIL for handshake sends)
+// Handshake refresh (proof-only context references, no content)
 export {
   sendViaHandshakeRefresh,
+  buildContextBlockProofs,
   buildContextBlocks,
   type UserMessage,
   type HandshakeRefreshResult
 } from './handshakeRefresh'
 
-// Send hooks (v2.1)
-export { useSendBeapMessage } from './useSendBeapMessage'
-export { useWRChatSend, useQuickSend } from './useWRChatSend'
-
-// Outbox store (v2.1)
+// Outbox store
 export {
   useOutboxStore,
   useOutboxEntries,
@@ -78,7 +51,7 @@ export {
   useOutboxEntry
 } from './useOutboxStore'
 
-// Envelope generator store (v2.1)
+// Envelope generator store
 export {
   useEnvelopeGenerator,
   useExecutionBoundary,
@@ -89,7 +62,7 @@ export {
   useGenerationCount
 } from './useEnvelopeGenerator'
 
-// Parser service (v2.3)
+// Parser service
 export {
   extractPdfText,
   processAttachmentForParsing,
@@ -105,13 +78,9 @@ export {
   type RasterPageData
 } from './parserService'
 
-// Legacy components
-export { BeapBuilderModal } from './components/BeapBuilderModal'
+// Components (active)
 export { DeliveryOptions } from './components/DeliveryOptions'
-
-// New capsule builder components (v2)
 export {
-  BeapCapsuleBuilder,
   EnvelopeSection,
   CapsuleSection,
   ExecutionBoundarySection,

@@ -82,7 +82,7 @@ let banner: HTMLElement | null = null
 let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
 let urlCheckInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
-let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+let currentTheme: 'pro' | 'dark' | 'standard' = 'standard'
 let listenersInitialized = false
 
 // Track if overlay is hidden for lightbox
@@ -303,7 +303,7 @@ async function loadTheme(): Promise<void> {
 // Listen for theme changes
 chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === 'local' && changes['optimando-ui-theme']) {
-    currentTheme = changes['optimando-ui-theme'].newValue || 'default'
+    currentTheme = (changes['optimando-ui-theme'].newValue as 'pro' | 'dark' | 'standard') || 'standard'
     console.log('[MailGuard] Theme changed to:', currentTheme)
     // Refresh banner if visible (use re-enable banner since auto-enable is now default)
     if (banner) {

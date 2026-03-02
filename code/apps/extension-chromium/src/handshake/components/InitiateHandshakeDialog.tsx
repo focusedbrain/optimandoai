@@ -8,8 +8,6 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
-import { buildContextBlocks } from '../../beap-builder/handshakeRefresh'
-import type { ContextBlockInput } from '../rpcTypes'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import {
   getThemeTokens,
@@ -76,25 +74,11 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
     setError(null)
 
     try {
-      // Build optional ad-hoc context blocks (only if no profiles selected)
-      let contextBlocks: ContextBlockInput[] | undefined
-      if (showContextGraph && contextGraphText.trim() && selectedProfileIds.length === 0) {
-        contextBlocks = await buildContextBlocks({
-          text: contextGraphText.trim(),
-          type: contextGraphType,
-        })
-      }
-
       const receiverUserId = recipientEmail.trim().toLowerCase()
       const result = await initiateHandshake(
         receiverUserId,
         recipientEmail.trim(),
         fromAccountId,
-        contextBlocks,
-        selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
-        showContextGraph && contextGraphText.trim() && selectedProfileIds.length > 0
-          ? contextGraphText.trim()
-          : undefined,
       )
       setSuccess(true)
       onInitiated?.(result.handshake_id)

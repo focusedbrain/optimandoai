@@ -1,4 +1,4 @@
-import type { BackendConfig } from '@shared/core/storage/StorageAdapter';
+import type { BackendConfig } from '@shared/storage/StorageAdapter';
 import type { ImageProvidersConfig } from '../types/imageProviders';
 
 /**
@@ -345,19 +345,26 @@ export function storageRemove(
       // Invalidate cache for these keys
       invalidateReadCache(adapterKeys);
       
-      // Call adapter's remove method
-      adapter.remove(adapterKeys).then(() => {
-        console.log('[storageRemove] ✅ Removed keys from SQLite:', adapterKeys);
-        if (callback) callback();
-      }).catch((error) => {
-        console.error('[storageRemove] ❌ Failed to remove from adapter:', error);
-        // Fallback: try using set with undefined
+      if (adapter.remove) {
+        adapter.remove(adapterKeys).then(() => {
+          console.log('[storageRemove] ✅ Removed keys from SQLite:', adapterKeys);
+          if (callback) callback();
+        }).catch((error: unknown) => {
+          console.error('[storageRemove] ❌ Failed to remove from adapter:', error);
+          // Fallback: try using set with undefined
+          const items: { [key: string]: any } = {};
+          adapterKeys.forEach((key) => {
+            items[key] = undefined;
+          });
+          storageSet(items, callback);
+        });
+      } else {
         const items: { [key: string]: any } = {};
         adapterKeys.forEach((key) => {
           items[key] = undefined;
         });
         storageSet(items, callback);
-      });
+      }
     }).catch((error) => {
       console.error('[storageRemove] ❌ Failed to get adapter:', error);
       if (callback) callback();

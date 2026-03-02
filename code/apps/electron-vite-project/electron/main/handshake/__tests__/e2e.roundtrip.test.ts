@@ -84,7 +84,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     }))
   })
 
-  test('T18: full initiate → accept → refresh round-trip with context blocks', async () => {
+  test('T18: full initiate → accept → refresh round-trip with context block proofs', async () => {
     const alice = aliceSession()
     const bob = bobSession()
 
@@ -184,32 +184,14 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       counterpartyUserId: bob.wrdesk_user_id,
       last_seq_received: aliceRecord!.last_seq_received ?? 0,
       last_capsule_hash_received: aliceRecord!.last_capsule_hash_received ?? '',
-      context_blocks: [
-        {
-          block_id: 'msg-block-001',
-          block_hash: 'b'.repeat(64),
-          relationship_id: initiate.relationship_id,
-          handshake_id: initiate.handshake_id,
-          type: 'text-message',
-          data_classification: 'public',
-          version: 1,
-          payload: 'Hello Bob! This is our first secure message.',
-        },
-        {
-          block_id: 'msg-block-002',
-          block_hash: 'c'.repeat(64),
-          relationship_id: initiate.relationship_id,
-          handshake_id: initiate.handshake_id,
-          type: 'document-snippet',
-          data_classification: 'business-confidential',
-          version: 1,
-          payload: 'Q3 revenue projection: $2.4M',
-        },
+      context_block_proofs: [
+        { block_id: 'blk_msgblock001aabb', block_hash: 'b'.repeat(64) },
+        { block_id: 'blk_msgblock002ccdd', block_hash: 'c'.repeat(64) },
       ],
     })
 
     expect(refresh.capsule_type).toBe('refresh')
-    expect(refresh.context_blocks).toHaveLength(2)
+    expect(refresh.context_block_proofs).toHaveLength(2)
     expect(refresh.seq).toBeGreaterThan(0)
 
     // Bob receives and processes the refresh
@@ -217,75 +199,48 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     expect(bobRefreshResult.success).toBe(true)
     expect(bobRefreshResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
     expect(bobRefreshResult.handshake_result?.blocksStored).toBe(2)
-
-    // Verify blocks are persisted in Bob's DB
-    const storedBlocks = bobDb.getContextBlocks(initiate.handshake_id)
-    expect(storedBlocks.length).toBe(2)
-
-    const textBlock = storedBlocks.find((b: any) => b.block_id === 'msg-block-001')
-    expect(textBlock).toBeTruthy()
-    expect(textBlock.payload).toBe('Hello Bob! This is our first secure message.')
-    expect(textBlock.type).toBe('text-message')
-    expect(textBlock.source).toBe('received')
-
-    const docBlock = storedBlocks.find((b: any) => b.block_id === 'msg-block-002')
-    expect(docBlock).toBeTruthy()
-    expect(docBlock.data_classification).toBe('business-confidential')
   })
 
-  test('builder tests — refresh with context_blocks vs without', () => {
+  test('builder tests — refresh with context_block_proofs vs without', () => {
     const session = buildTestSession({ wrdesk_user_id: 'u-a' })
 
-    // T1: with context_blocks → blocks present in wire capsule
-    const withBlocks = buildRefreshCapsule(session, {
+    const withProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-test',
       counterpartyUserId: 'u-b',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
-      context_blocks: [
-        {
-          block_id: 'blk-1',
-          block_hash: 'x'.repeat(64),
-          relationship_id: 'rel:test',
-          handshake_id: 'hs-test',
-          type: 'text',
-          data_classification: 'public',
-          version: 1,
-          payload: 'test payload',
-        },
+      context_block_proofs: [
+        { block_id: 'blk_aabb11223344', block_hash: 'x'.repeat(64) },
       ],
     })
-    expect(withBlocks.context_blocks).toHaveLength(1)
-    expect(withBlocks.context_blocks![0].block_id).toBe('blk-1')
+    expect(withProofs.context_block_proofs).toHaveLength(1)
+    expect(withProofs.context_block_proofs![0].block_id).toBe('blk_aabb11223344')
 
-    // T3: without context_blocks → field absent (backward compatible)
-    const withoutBlocks = buildRefreshCapsule(session, {
+    const withoutProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-test',
       counterpartyUserId: 'u-b',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
     })
-    expect(withoutBlocks.context_blocks).toBeUndefined()
+    expect(withoutProofs.context_block_proofs).toBeUndefined()
   })
 
-  test('T2: computeCapsuleHash NOT affected by context_blocks (by design)', () => {
+  test('T2: computeCapsuleHash NOT affected by context_block_proofs (by design)', () => {
     const session = buildTestSession({ wrdesk_user_id: 'u-a' })
     const ts = '2026-03-01T00:00:00.000Z'
 
-    const withBlocks = buildRefreshCapsule(session, {
+    const withProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-hash-test',
       counterpartyUserId: 'u-b',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
       timestamp: ts,
-      context_blocks: [{
-        block_id: 'blk-1', block_hash: 'x'.repeat(64), relationship_id: 'rel:test',
-        handshake_id: 'hs-hash-test', type: 'text', data_classification: 'public',
-        version: 1, payload: 'data',
-      }],
+      context_block_proofs: [
+        { block_id: 'blk_abc123', block_hash: 'x'.repeat(64) },
+      ],
     })
 
-    const withoutBlocks = buildRefreshCapsule(session, {
+    const withoutProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-hash-test',
       counterpartyUserId: 'u-b',
       last_seq_received: 0,
@@ -293,8 +248,8 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       timestamp: ts,
     })
 
-    // Hashes should be identical because context_blocks are intentionally
+    // Hashes should be identical because context_block_proofs are intentionally
     // excluded from the capsule hash (block-level hashes track content)
-    expect(withBlocks.capsule_hash).toBe(withoutBlocks.capsule_hash)
+    expect(withProofs.capsule_hash).toBe(withoutProofs.capsule_hash)
   })
 })

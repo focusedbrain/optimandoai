@@ -399,10 +399,10 @@ export interface BeapArtefactEncrypted {
   /** Original filename (for original artefacts only) */
   filename?: string
   mime: string
-  /** Base64-encoded nonce for this artefact */
-  nonce: string
-  /** Base64-encoded ciphertext */
-  ciphertext: string
+  /** Base64-encoded nonce (legacy single-blob; absent for chunked artefacts) */
+  nonce?: string
+  /** Base64-encoded ciphertext (legacy single-blob; absent for chunked artefacts) */
+  ciphertext?: string
   /** SHA-256 of plaintext (for verification after decrypt) */
   sha256Plain: string
   /** SHA-256 of ciphertext (for integrity verification) */
@@ -984,14 +984,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Any modification of eligibility material, size declarations, chunk topology,
   // or commitments is detected prior to further processing.
   
-  const aadFields = buildEnvelopeAadFields(headerPreSignature as Parameters<typeof buildEnvelopeAadFields>[0])
+  const aadFields = buildEnvelopeAadFields(headerPreSignature as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
   const aadBytes = canonicalSerializeAAD(aadFields)
   
   // Debug assertion: AAD must be non-empty for qBEAP (fail-closed sanity check)
   if (aadBytes.length === 0) {
     throw new BeapCanonViolationError(
-      'A.3.054.10',
-      'AAD bytes are empty for qBEAP; canonical header fields must be present'
+      'A.3.054.10: AAD bytes are empty for qBEAP; canonical header fields must be present',
+      ['A.3.054.10'],
+      'AAD must be non-empty for qBEAP'
     )
   }
   
@@ -1059,7 +1060,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     receiver_fingerprint: recipient.receiver_fingerprint_full,
     receiver_binding: {
       handshake_id: recipient.handshake_id,
-      display_name: recipient.receiver_display_name,
+      display_name: recipient.receiver_display_name ?? '',
       organization: recipient.receiver_organization
     },
     template_hash: templateHash,
@@ -1108,7 +1109,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   
   if (debugValidationEnabled && aadHashPre) {
     // Recompute AAD from headerPreSignature (should be unchanged)
-    const aadFieldsPreSign = buildEnvelopeAadFields(headerPreSignature as Parameters<typeof buildEnvelopeAadFields>[0])
+    const aadFieldsPreSign = buildEnvelopeAadFields(headerPreSignature as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
     const aadBytesPreSign = canonicalSerializeAAD(aadFieldsPreSign)
     const aadHashPreSign = await sha256Hex(aadBytesPreSign)
     
@@ -1156,7 +1157,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Create signature
   const signature = await createBeapSignature(signingKeyPair, signingData)
 
-  const shortFp = recipient.receiver_fingerprint_short.replace(/[…\.]/g, '').slice(0, 8)
+  const shortFp = (recipient.receiver_fingerprint_short ?? '').replace(/[…\.]/g, '').slice(0, 8)
   const dateStr = new Date(now).toISOString().slice(0, 10).replace(/-/g, '')
   const filename = `beap_${dateStr}_${shortFp}.beap`
 
@@ -1168,7 +1169,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     metadata: {
       created_at: now,
       delivery_method: config.deliveryMethod,
-      delivery_hint: recipient.receiver_email_list[0] || config.emailTo,
+      delivery_hint: recipient.receiver_email_list?.[0] || config.emailTo,
       filename
     },
     // Encrypted artefacts (no plaintext artefacts for qBEAP)
@@ -1484,7 +1485,7 @@ export async function executeEmailAction(
   config: BeapPackageConfig
 ): Promise<DeliveryResult> {
   const toAddress = config.recipientMode === 'private'
-    ? config.selectedRecipient?.receiver_email_list[0] || config.emailTo
+    ? config.selectedRecipient?.receiver_email_list?.[0] || config.emailTo
     : config.emailTo
 
   if (!toAddress) {

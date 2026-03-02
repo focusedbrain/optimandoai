@@ -18,12 +18,14 @@ import type {
   ProviderConnectionStatus,
   ProtectedSite,
   ProtectedSiteSource,
+  RuntimeConfig,
   PolicyOverview,
   WRGuardSection
 } from './types'
 import {
   DEFAULT_PROTECTED_SITES,
-  DEFAULT_POLICY_OVERVIEW
+  DEFAULT_POLICY_OVERVIEW,
+  DEFAULT_RUNTIME_CONFIG,
 } from './types'
 
 // =============================================================================
@@ -100,6 +102,22 @@ interface WRGuardState extends WRGuardConfig {
   /** Reset to default sites */
   resetProtectedSites: () => void
   
+  /** Alias for addProtectedSite (used by ProtectedSitesList) */
+  addSite: (site: Omit<ProtectedSite, 'id' | 'addedAt' | 'source'>) => void
+  
+  /** Alias for removeProtectedSite */
+  removeSite: (id: string) => void
+  
+  /** Alias for toggleProtectedSite */
+  toggleSite: (id: string) => void
+  
+  // =========================================================================
+  // Runtime Config
+  // =========================================================================
+  
+  /** Update runtime configuration */
+  updateRuntimeConfig: (update: Partial<RuntimeConfig>) => void
+  
   // =========================================================================
   // Policy Overview
   // =========================================================================
@@ -129,6 +147,7 @@ const createInitialState = (): Omit<WRGuardConfig, 'protectedSites'> & { protect
     id: `default_${index}`,
     addedAt: Date.now()
   })),
+  runtimeConfig: { ...DEFAULT_RUNTIME_CONFIG },
   policyOverview: DEFAULT_POLICY_OVERVIEW,
   initialized: false,
   lastUpdated: Date.now()
@@ -309,6 +328,29 @@ export const useWRGuardStore = create<WRGuardState>()(
         })
       },
       
+      addSite: (site) => {
+        get().addProtectedSite(site.domain, site.description)
+      },
+      
+      removeSite: (id) => {
+        get().removeProtectedSite(id)
+      },
+      
+      toggleSite: (id) => {
+        get().toggleProtectedSite(id)
+      },
+      
+      // =========================================================================
+      // Runtime Config
+      // =========================================================================
+      
+      updateRuntimeConfig: (update) => {
+        set(state => ({
+          runtimeConfig: { ...state.runtimeConfig, ...update },
+          lastUpdated: Date.now()
+        }))
+      },
+      
       // =========================================================================
       // Policy Overview
       // =========================================================================
@@ -388,6 +430,7 @@ export const useWRGuardStore = create<WRGuardState>()(
       partialize: (state) => ({
         providers: state.providers,
         protectedSites: state.protectedSites,
+        runtimeConfig: state.runtimeConfig,
         policyOverview: state.policyOverview,
         initialized: state.initialized,
         lastUpdated: state.lastUpdated

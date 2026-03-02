@@ -132,11 +132,12 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
         originalName: file.name,
         originalSize: file.size,
         originalType: file.type,
-        semanticContent: null, // Will be extracted by parser
+        semanticContent: null,
         semanticExtracted: false,
         encryptedRef: `encrypted_${crypto.randomUUID()}`,
-        encryptedHash: '', // Will be computed
+        encryptedHash: '',
         previewRef: null,
+        rasterProof: null,
         isMedia,
         hasTranscript: false
       }

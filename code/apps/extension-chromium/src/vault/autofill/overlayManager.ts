@@ -542,7 +542,7 @@ function buildFooter(): HTMLElement {
     class: 'wrv-btn wrv-btn--primary wrv-btn--grow',
     'data-wrv-action': 'insert',
     type: 'button',
-  })
+  }) as HTMLButtonElement
   insertBtn.innerHTML = '<span aria-hidden="true">\u2713</span> Insert'
   insertBtn.addEventListener('click', onInsertClick)
   footer.appendChild(insertBtn)
@@ -918,8 +918,8 @@ function onInsertClick(e: MouseEvent): void {
       emitTelemetryEvent('consent_rejected', {
         reason: 'pointer_origin_mismatch',
         cx, cy,
-        rect: { l: Math.round(rect.left), t: Math.round(rect.top),
-                r: Math.round(rect.right), b: Math.round(rect.bottom) },
+        rect_l: Math.round(rect.left), rect_t: Math.round(rect.top),
+        rect_r: Math.round(rect.right), rect_b: Math.round(rect.bottom),
       })
       return
     }
