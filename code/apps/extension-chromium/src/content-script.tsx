@@ -31594,7 +31594,7 @@ ${pageText}
 
               <div id="local-llms-container" style="display: grid; gap: 6px;"></div>
 
-              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
+              <div style="margin-top: 8px; font-size: 10px; color: ${csTheme().text}; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
 
 
 
@@ -32256,9 +32256,9 @@ ${pageText}
 
           '</select>'+
 
-          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✏“' : 'Install')+'</button>'+
+          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
 
-          '<button class="remove-local-llm" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
+          '<button class="remove-local-llm" title="Remove" style="background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #dc2626; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;">&#x2715;</button>'
 
         )
 
@@ -32304,7 +32304,7 @@ ${pageText}
 
           // Placeholder installation handler
 
-          installBtn.textContent = 'Installing&rdquo;¦'
+          installBtn.textContent = 'Installing…'
 
           installBtn.disabled = true
 
@@ -32318,7 +32318,7 @@ ${pageText}
 
             saveLocalLLMs(current)
 
-            installBtn.textContent = 'Installed ✏“'
+            installBtn.textContent = 'Installed ✓'
 
           }, 500)
 
