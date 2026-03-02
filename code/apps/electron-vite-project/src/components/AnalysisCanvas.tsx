@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import './AnalysisCanvas.css'
 import { useCanvasState, type AnalysisOpenPayload, type DrawerTabId, HeroKPIStrip, type KPIData } from './analysis'
 import { StatusBadge } from './analysis/StatusBadge'
@@ -50,6 +50,26 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
   // Activity Detail Modal state (shows activity info for review)
   const [isActivityDetailModalOpen, setIsActivityDetailModalOpen] = useState(false)
   
+  // Context Search chat state
+  const [contextSearchInput, setContextSearchInput] = useState('')
+  const [contextSearchMessages, setContextSearchMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
+  const contextSearchEndRef = useRef<HTMLDivElement>(null)
+
+  const handleContextSearchSend = useCallback(() => {
+    const text = contextSearchInput.trim()
+    if (!text) return
+    setContextSearchMessages(prev => [
+      ...prev,
+      { role: 'user', text },
+      { role: 'assistant', text: 'Context Search is ready to connect to an LLM. Your query has been received.' },
+    ])
+    setContextSearchInput('')
+  }, [contextSearchInput])
+
+  useEffect(() => {
+    contextSearchEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [contextSearchMessages])
+
   // Mock Runtime State (would come from real orchestrator)
   const [runtimeState] = useState<RuntimeState>('idle')
   const [autoModeEnabled] = useState(false)
@@ -768,6 +788,42 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
         <section className="unified-dashboard__overview">
           <HeroKPIStrip kpis={kpis} title="System Overview" />
         </section>
+      </div>
+
+      {/* Context Search - LLM Chat at the bottom */}
+      <div className="context-search">
+        <div className="context-search__header">
+          <span className="context-search__title">Context Search</span>
+          <span className="context-search__hint">Search and chat with context · Connect LLM to activate</span>
+        </div>
+        {contextSearchMessages.length > 0 && (
+          <div className="context-search__messages">
+            {contextSearchMessages.map((msg, i) => (
+              <div key={i} className={`context-search__message context-search__message--${msg.role}`}>
+                <span className="context-search__message-role">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                <span className="context-search__message-text">{msg.text}</span>
+              </div>
+            ))}
+            <div ref={contextSearchEndRef} />
+          </div>
+        )}
+        <div className="context-search__input-row">
+          <input
+            className="context-search__input"
+            type="text"
+            placeholder="Search context or ask a question…"
+            value={contextSearchInput}
+            onChange={e => setContextSearchInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleContextSearchSend()}
+          />
+          <button
+            className="context-search__send-btn"
+            onClick={handleContextSearchSend}
+            disabled={!contextSearchInput.trim()}
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
+import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo } from '../src/auth/session'
 import { 
   resolveTier,
   DEFAULT_TIER,
@@ -493,6 +493,7 @@ import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider } from './main/handshake/ipc'
+import { sessionFromClaims } from './main/handshake/sessionFactory'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { setEmailFunctions } from './main/email/beapSync'
@@ -2075,8 +2076,16 @@ app.whenReady().then(async () => {
 
       setSSOSessionProvider(() => {
         try {
-          const vs = (globalThis as any).__og_vault_service_ref
-          return vs?.ssoSession ?? undefined
+          const userInfo = getCachedUserInfo()
+          if (!userInfo?.sub || !userInfo?.email || !userInfo?.iss) return undefined
+          return sessionFromClaims({
+            wrdesk_user_id: userInfo.wrdesk_user_id || userInfo.sub,
+            email: userInfo.email,
+            iss: userInfo.iss,
+            sub: userInfo.sub,
+            plan: (userInfo.wrdesk_plan as any) || 'free',
+            session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          })
         } catch { return undefined }
       })
 

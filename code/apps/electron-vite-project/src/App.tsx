@@ -165,13 +165,15 @@ function App() {
           <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
         <div className="app-header__spacer" />
-        <button
-          className={`beap-inbox-btn${activeView === 'analysis' ? ' beap-inbox-btn--active' : ''}`}
-          onClick={() => setActiveView('analysis')}
-          title="Analysis Dashboard"
-        >
-          <span className="beap-inbox-btn__label">Analysis</span>
-        </button>
+        {activeView !== 'analysis' && (
+          <button
+            className="beap-inbox-btn"
+            onClick={() => setActiveView('analysis')}
+            title="Analysis Dashboard"
+          >
+            <span className="beap-inbox-btn__label">Analysis</span>
+          </button>
+        )}
         <button
           className={`beap-inbox-btn${activeView === 'handshakes' ? ' beap-inbox-btn--active' : ''}`}
           onClick={() => setActiveView('handshakes')}

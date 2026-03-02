@@ -18,6 +18,8 @@ export interface SessionUserInfo {
   initials?: string;
   picture?: string;  // Avatar URL from Keycloak profile (if available)
   sub?: string;
+  iss?: string;      // Token issuer (iss claim)
+  wrdesk_user_id?: string;  // Canonical wrdesk user ID (custom Keycloak claim)
   roles?: string[];  // Keycloak roles (realm + client roles)
   wrdesk_plan?: string;  // wrdesk_plan claim from Keycloak (e.g. 'pro', 'publisher', 'enterprise')
 }
@@ -94,7 +96,9 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
   const givenName = payload.given_name as string | undefined;
   const familyName = payload.family_name as string | undefined;
   const sub = payload.sub as string | undefined;
+  const iss = payload.iss as string | undefined;
   const picture = payload.picture as string | undefined;
+  const wrdesk_user_id = (payload.wrdesk_user_id ?? payload.wrdesk_uid ?? sub) as string | undefined;
 
   // Determine display name (prefer full name, then username, then email)
   let displayName = name;
@@ -213,6 +217,8 @@ function extractUserInfo(payload: Record<string, unknown>): SessionUserInfo {
     initials,
     picture,
     sub,
+    iss,
+    wrdesk_user_id,
     roles,
     wrdesk_plan,
   };
