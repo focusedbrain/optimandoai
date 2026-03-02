@@ -190,12 +190,12 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 4px 20px;
+  gap: 10px;
+  padding: 6px 16px;
   background: var(--header-bg);
   border-bottom: 1px solid var(--header-border);
   flex-shrink: 0;
-  min-height: 40px;
+  min-height: 50px;
 }
 
 .app-header__brand {
@@ -239,6 +239,78 @@ body {
 
 .app-header__spacer {
   flex: 1;
+}
+
+/* --- Nav Tabs --- */
+.app-header__nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.nav-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.nav-tab:hover {
+  background: #f0f1f3;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.nav-tab--active {
+  background: #e2e3e6;
+  border-color: #c8cacd;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Pro theme nav tabs */
+[data-ui-theme="pro"] .nav-tab {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+[data-ui-theme="pro"] .nav-tab:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: white;
+}
+
+[data-ui-theme="pro"] .nav-tab--active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: white;
+}
+
+/* Dark theme nav tabs */
+[data-ui-theme="dark"] .nav-tab {
+  border-color: var(--border-dark);
+  color: var(--text-secondary-dark);
+}
+
+[data-ui-theme="dark"] .nav-tab:hover {
+  background: var(--bg-elevated-dark);
+  color: var(--text-primary-dark);
+}
+
+[data-ui-theme="dark"] .nav-tab--active {
+  background: var(--bg-elevated-dark);
+  border-color: var(--accent-dark);
+  color: var(--text-primary-dark);
 }
 
 /* --- BEAP Inbox Button (Enterprise/Subtle) --- */
@@ -302,12 +374,6 @@ body {
 .theme-switcher {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.theme-switcher__label {
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 .theme-switcher__select {
@@ -347,10 +413,6 @@ body {
 [data-ui-theme="pro"] .theme-switcher__select option {
   background: #7c3aed;
   color: white;
-}
-
-[data-ui-theme="pro"] .theme-switcher__label {
-  color: rgba(255, 255, 255, 0.7);
 }
 
 /* --- Main Content Area --- */

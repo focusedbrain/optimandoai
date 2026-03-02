@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
+import HybridSearch from './components/HybridSearch'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
 // Type declaration for the Analysis Dashboard preload API
@@ -50,52 +51,22 @@ function normalizeTheme(theme: string): ExtensionTheme {
   return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
 }
 
-// BEAP Inbox button component - opens the WRChat popup with BEAP Messages preselected
-function BeapInboxButton() {
-  const handleClick = useCallback(() => {
-    console.log('[BEAP_INBOX] Opening BEAP Inbox popup')
-    window.analysisDashboard?.openBeapInbox()
-  }, [])
+// Theme selector component - kept for future use / re-enable when needed
+// function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
+//   const safeValue = (['standard', 'pro', 'dark'].includes(value) ? value : 'standard') as ExtensionTheme
+//   return (
+//     <div className="theme-switcher">
+//       <select key={safeValue} value={safeValue} onChange={(e) => onChange(e.target.value as ExtensionTheme)}
+//         className="theme-switcher__select" aria-label="Theme selection">
+//         <option value="standard">Standard</option>
+//         <option value="pro">Pro</option>
+//         <option value="dark">Dark</option>
+//       </select>
+//     </div>
+//   )
+// }
 
-  return (
-    <button
-      className="beap-inbox-btn"
-      onClick={handleClick}
-      title="Open BEAP Inbox"
-    >
-      <span className="beap-inbox-btn__label">BEAP™ Inbox</span>
-    </button>
-  )
-}
-
-// Theme selector component - allows manual theme changes
-function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
-  // Ensure value is valid (value is already ExtensionTheme, but ensure it's one of the valid ones)
-  const safeValue = (['standard', 'pro', 'dark'].includes(value) ? value : 'standard') as ExtensionTheme
-  
-  return (
-    <div className="theme-switcher">
-      <span className="theme-switcher__label">Theme</span>
-      <select
-        key={safeValue} // Force re-render when value changes
-        value={safeValue}
-        onChange={(e) => {
-          const newTheme = e.target.value as ExtensionTheme
-          console.log('[THEME_SELECTOR] Theme changed to:', newTheme)
-          onChange(newTheme)
-        }}
-        className="theme-switcher__select"
-        aria-label="Theme selection"
-      >
-        <option value="standard">Standard</option>
-        <option value="pro">Pro</option>
-        <option value="dark">Dark</option>
-      </select>
-    </div>
-  )
-}
-
-type DashboardView = 'analysis' | 'handshakes'
+type DashboardView = 'analysis' | 'handshakes' | 'beap'
 
 function App() {
   // Extension theme state - synced from extension via main process (default: standard)
@@ -149,43 +120,50 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
-  // Handle theme change from selector - update immediately and sync to main process
-  const handleThemeChange = useCallback((newTheme: ExtensionTheme) => {
-    setExtensionTheme(newTheme)
-    // Sync to main process for persistence and extension sync
-    window.analysisDashboard?.setTheme(newTheme)
+  // Handle theme change from selector - kept for future re-enable
+  // const handleThemeChange = useCallback((newTheme: ExtensionTheme) => {
+  //   setExtensionTheme(newTheme)
+  //   window.analysisDashboard?.setTheme(newTheme)
+  // }, [])
+
+  const handleBeapTabClick = useCallback(() => {
+    setActiveView('beap')
+    window.analysisDashboard?.openBeapInbox()
   }, [])
 
   return (
     <div className="app-root">
-      {/* Minimal Header Bar */}
       <header className="app-header">
         <div className="app-header__brand">
           <WRCodeLogo size={110} />
-          <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
-        <div className="app-header__spacer" />
-        {activeView !== 'analysis' && (
+        <nav className="app-header__nav">
           <button
-            className="beap-inbox-btn"
+            className={`nav-tab${activeView === 'analysis' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('analysis')}
             title="Analysis Dashboard"
           >
-            <span className="beap-inbox-btn__label">Analysis</span>
+            Analysis
           </button>
-        )}
-        <button
-          className={`beap-inbox-btn${activeView === 'handshakes' ? ' beap-inbox-btn--active' : ''}`}
-          onClick={() => setActiveView('handshakes')}
-          title="Handshake Relationships"
-        >
-          <span className="beap-inbox-btn__label">Handshakes</span>
-        </button>
-        <BeapInboxButton />
-        <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
+          <button
+            className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('handshakes')}
+            title="Handshake Relationships"
+          >
+            Handshakes
+          </button>
+          <button
+            className={`nav-tab${activeView === 'beap' ? ' nav-tab--active' : ''}`}
+            onClick={handleBeapTabClick}
+            title="Open BEAP Inbox"
+          >
+            BEAP™ Inbox
+          </button>
+        </nav>
+        <HybridSearch activeView={activeView} />
+        {/* <ThemeSelector value={extensionTheme} onChange={handleThemeChange} /> */}
       </header>
 
-      {/* Full-width content area */}
       <main className="app-main">
         {activeView === 'handshakes' ? (
           <HandshakeView />

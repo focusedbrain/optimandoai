@@ -6,7 +6,7 @@
  * Right:  Incoming panel (PENDING_ACCEPT) with accept/decline + .beap upload zone
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import CapsuleUploadZone from './CapsuleUploadZone'
 import RelationshipDetail from './RelationshipDetail'
 import HandshakeChatSidebar from './HandshakeChatSidebar'
@@ -234,26 +234,6 @@ export default function HandshakeView() {
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
   const [showNewDialog, setShowNewDialog] = useState(false)
-
-  // Context Search state (BEAP Inbox right panel)
-  const [beapSearchInput, setBeapSearchInput] = useState('')
-  const [beapSearchMessages, setBeapSearchMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
-  const beapSearchEndRef = useRef<HTMLDivElement>(null)
-
-  const handleBeapSearchSend = useCallback(() => {
-    const text = beapSearchInput.trim()
-    if (!text) return
-    setBeapSearchMessages(prev => [
-      ...prev,
-      { role: 'user', text },
-      { role: 'assistant', text: 'Context Search is ready to connect to an LLM. Your query has been received.' },
-    ])
-    setBeapSearchInput('')
-  }, [beapSearchInput])
-
-  useEffect(() => {
-    beapSearchEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [beapSearchMessages])
 
   const loadHandshakes = useCallback(async () => {
     setLoading(true)
@@ -519,84 +499,6 @@ export default function HandshakeView() {
           </div>
         </div>
 
-        {/* ── Context Search (BEAP Inbox) ── */}
-        <div style={{
-          flexShrink: 0,
-          borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-          background: 'var(--color-surface, rgba(255,255,255,0.04))',
-          padding: '10px 12px 12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{
-              fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
-              letterSpacing: '0.6px', color: 'var(--color-accent, #a78bfa)',
-            }}>Context Search</span>
-            <span style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-              Search &amp; chat with context
-            </span>
-          </div>
-
-          {beapSearchMessages.length > 0 && (
-            <div style={{
-              maxHeight: '110px', overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', gap: '4px',
-              padding: '6px 8px',
-              background: 'var(--color-bg, #0f172a)',
-              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-              borderRadius: '6px',
-            }}>
-              {beapSearchMessages.map((msg, i) => (
-                <div key={i} style={{ display: 'flex', gap: '6px', fontSize: '11px', lineHeight: '1.5' }}>
-                  <span style={{
-                    fontWeight: 700, flexShrink: 0, minWidth: '56px',
-                    color: msg.role === 'user' ? 'var(--color-accent, #a78bfa)' : 'var(--color-text-muted, #94a3b8)',
-                  }}>
-                    {msg.role === 'user' ? 'You' : 'Assistant'}
-                  </span>
-                  <span style={{ color: 'var(--color-text, #e2e8f0)' }}>{msg.text}</span>
-                </div>
-              ))}
-              <div ref={beapSearchEndRef} />
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <input
-              type="text"
-              placeholder="Search context or ask a question…"
-              value={beapSearchInput}
-              onChange={e => setBeapSearchInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleBeapSearchSend()}
-              style={{
-                flex: 1, padding: '7px 10px', fontSize: '11px',
-                background: 'var(--color-bg, #0f172a)',
-                border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-                borderRadius: '6px',
-                color: 'var(--color-text, #e2e8f0)',
-                outline: 'none',
-              }}
-            />
-            <button
-              onClick={handleBeapSearchSend}
-              disabled={!beapSearchInput.trim()}
-              style={{
-                padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-                background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
-                border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
-                borderRadius: '6px',
-                color: 'var(--color-accent, #a78bfa)',
-                cursor: beapSearchInput.trim() ? 'pointer' : 'not-allowed',
-                opacity: beapSearchInput.trim() ? 1 : 0.45,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   )
