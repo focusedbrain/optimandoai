@@ -1,4 +1,4 @@
-﻿/// <reference types="chrome-types"/>
+/// <reference types="chrome-types"/>
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
@@ -37,6 +37,7 @@ import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, Deli
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
+import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDelivery'
 import { useHandshakes } from './handshake/useHandshakes'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
@@ -5988,22 +5989,12 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request */}
+            {/* BEAP Handshake Request — Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
-                <HandshakeRequestForm
-                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
-                  ourFingerprint={ourFingerprint}
-                  ourFingerprintShort={ourFingerprintShort}
-                  emailAccounts={emailAccounts}
-                  isLoadingEmailAccounts={isLoadingEmailAccounts}
-                  selectedEmailAccountId={selectedEmailAccountId}
-                  onSelectEmailAccount={setSelectedEmailAccountId}
-                  onConnectEmail={() => setShowEmailSetupWizard(true)}
-                  onDisconnectEmail={disconnectEmailAccount}
-                  theme={theme}
-                  onCancel={() => setDockedSubmode('command')}
-                  onSuccess={() => setDockedSubmode('command')}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                <SendHandshakeDelivery
+                  theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                  onBack={() => setDockedSubmode('command')}
                 />
               </div>
             )}
@@ -7060,22 +7051,12 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request */}
+            {/* BEAP Handshake Request — Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
-                <HandshakeRequestForm
-                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
-                  ourFingerprint={ourFingerprint}
-                  ourFingerprintShort={ourFingerprintShort}
-                  emailAccounts={emailAccounts}
-                  isLoadingEmailAccounts={isLoadingEmailAccounts}
-                  selectedEmailAccountId={selectedEmailAccountId}
-                  onSelectEmailAccount={setSelectedEmailAccountId}
-                  onConnectEmail={() => setShowEmailSetupWizard(true)}
-                  onDisconnectEmail={disconnectEmailAccount}
-                  theme={theme}
-                  onCancel={() => setDockedSubmode('command')}
-                  onSuccess={() => setDockedSubmode('command')}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                <SendHandshakeDelivery
+                  theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                  onBack={() => setDockedSubmode('command')}
                 />
               </div>
             )}

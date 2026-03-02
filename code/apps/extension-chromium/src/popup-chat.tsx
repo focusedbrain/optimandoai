@@ -27,6 +27,7 @@ import { WRGuardWorkspace } from './wrguard'
 import { formatFingerprintShort } from './handshake/fingerprint'
 import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
+import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDelivery'
 import { useHandshakes } from './handshake/useHandshakes'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
@@ -1241,20 +1242,9 @@ function PopupChatApp() {
       case 'handshake':
         return (
           <div style={{ overflowY: 'auto', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
-            <HandshakeRequestForm
-              fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
-              ourFingerprint={ourFingerprint}
-              ourFingerprintShort={ourFingerprintShort}
-              emailAccounts={emailAccounts}
-              isLoadingEmailAccounts={isLoadingEmailAccounts}
-              selectedEmailAccountId={selectedEmailAccountId}
-              onSelectEmailAccount={setSelectedEmailAccountId}
-              onConnectEmail={handleConnectEmail}
-              onDisconnectEmail={disconnectEmailAccount}
-              theme={theme}
-              onCancel={() => setDockedSubmode('command')}
-              onSuccess={() => setDockedSubmode('command')}
-              canUseHsContextProfiles={userTier === 'publisher' || userTier === 'enterprise'}
+            <SendHandshakeDelivery
+              theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+              onBack={() => setDockedSubmode('command')}
             />
           </div>
         )
