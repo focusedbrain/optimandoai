@@ -14,6 +14,7 @@ declare global {
       requestTheme: () => void
       setTheme: (theme: string) => void
       openBeapInbox: () => void
+      openHandshakeRequest: () => void
     }
   }
 }

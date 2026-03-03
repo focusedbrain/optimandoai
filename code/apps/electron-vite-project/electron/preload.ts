@@ -174,6 +174,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openBeapInbox: () => {
     ipcRenderer.send('OPEN_BEAP_INBOX')
   },
+  openHandshakeRequest: () => {
+    ipcRenderer.send('OPEN_HANDSHAKE_REQUEST')
+  },
 })
 
 // ── Handshake View (Relationships + Capsule Import) ────────────────────────

@@ -840,6 +840,32 @@ async function createWindow() {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
     })
+    // Handle + New Handshake from dashboard - open popup in Chrome extension at Handshake Request
+    ipcMain.on('OPEN_HANDSHAKE_REQUEST', () => {
+      console.log('[MAIN] 🤝 Handshake Request popup requested from dashboard')
+      let bounds = { x: 100, y: 100, width: 520, height: 720 }
+      let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
+      if (win) {
+        const dashBounds = win.getBounds()
+        bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
+        if (win.isFullScreen()) windowState = 'fullscreen'
+        else if (win.isMaximized()) windowState = 'maximized'
+        try { win.blur() } catch {}
+      }
+      const message = JSON.stringify({
+        type: 'OPEN_COMMAND_CENTER_POPUP',
+        theme: currentExtensionTheme,
+        launchMode: 'dashboard-handshake-request',
+        bounds,
+        windowState,
+      })
+      wsClients.forEach((socket: any) => {
+        try { socket.send(message) } catch (e) {
+          console.error('[MAIN] Error sending to extension:', e)
+        }
+      })
+    })
+
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
       try {
         console.log('[MAIN] Overlay command received:', msg?.action)

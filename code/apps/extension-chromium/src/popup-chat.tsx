@@ -233,6 +233,10 @@ function PopupChatApp() {
       // Preselect BEAP Messages with Inbox when opened from dashboard
       setDockedWorkspace('beap-messages')
       setBeapSubmode('inbox')
+    } else if (launchMode === 'dashboard-handshake-request') {
+      // Preselect WRChat → Handshake Request when opened from dashboard + New
+      setDockedWorkspace('wr-chat')
+      setDockedSubmode('handshake')
     }
   }, []) // Only run on mount
   

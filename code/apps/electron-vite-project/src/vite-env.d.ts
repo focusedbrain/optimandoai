@@ -26,6 +26,7 @@ interface AnalysisDashboardBridge {
   requestTheme: () => void
   setTheme: (theme: string) => void
   openBeapInbox: () => void
+  openHandshakeRequest: () => void
 }
 
 interface LifecycleBridge {

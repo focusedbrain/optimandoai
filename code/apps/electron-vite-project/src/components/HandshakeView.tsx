@@ -3,7 +3,7 @@
  *
  * Left:   Relationships list (ACTIVE / REVOKED / EXPIRED) with selection + "New Handshake"
  * Center: Detail + Chat sidebar scoped to the selected relationship
- * Right:  Incoming panel (PENDING_ACCEPT) with accept/decline + .beap upload zone
+ * Right:  Pending panel (PENDING_ACCEPT) with accept/decline + .beap upload zone
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -53,8 +53,6 @@ function counterpartyEmail(record: HandshakeRecord): string {
   return record.initiator?.email ?? ''
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 // ── Status badge ──
 
 function StateBadge({ state }: { state: string }) {
@@ -76,156 +74,6 @@ function StateBadge({ state }: { state: string }) {
   )
 }
 
-// ── New Handshake Dialog ──
-
-function NewHandshakeDialog({ onCreated, onClose }: {
-  onCreated: () => void
-  onClose: () => void
-}) {
-  const [email, setEmail] = useState('')
-  const [mode, setMode] = useState<'api' | 'download'>('download')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-
-  const isValid = email.trim() && EMAIL_PATTERN.test(email.trim())
-
-  const handleCreate = async () => {
-    if (!isValid) return
-    setSending(true)
-    setError(null)
-    try {
-      if (mode === 'api') {
-        const res = await window.handshakeView?.initiateHandshake?.(email.trim(), '')
-        if (res?.success || res?.handshake_id) {
-          setSuccess('Handshake created and email sent.')
-          onCreated()
-        } else {
-          setError(res?.error || 'Failed to create handshake.')
-        }
-      } else {
-        const res = await window.handshakeView?.buildForDownload?.(email.trim())
-        if (res?.success && res?.capsule_json) {
-          const hsId = res.handshake_id?.slice(3, 11) || 'capsule'
-          const filename = `handshake-${hsId}.beap`
-          const dlResult = await window.handshakeView?.downloadCapsule?.(res.capsule_json, filename)
-          if (dlResult?.success) {
-            setSuccess(`Capsule saved to ${dlResult.filePath}`)
-          } else if (dlResult?.reason === 'cancelled') {
-            return
-          } else {
-            setSuccess('Capsule built. Check your downloads.')
-          }
-          onCreated()
-        } else {
-          setError(res?.error || 'Failed to build capsule.')
-        }
-      }
-    } catch (err: any) {
-      setError(err?.message || 'An error occurred.')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  if (success) {
-    return (
-      <div style={{
-        padding: '16px',
-        background: 'var(--color-surface, rgba(255,255,255,0.04))',
-        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        borderRadius: '8px', marginBottom: '12px',
-      }}>
-        <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '8px' }}>{success}</div>
-        <button onClick={onClose} style={{
-          padding: '6px 14px', fontSize: '11px', fontWeight: 600,
-          background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
-          border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
-          borderRadius: '6px', color: 'var(--color-accent, #a78bfa)', cursor: 'pointer',
-        }}>Done</button>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{
-      padding: '14px',
-      background: 'var(--color-surface, rgba(255,255,255,0.04))',
-      border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-      borderRadius: '8px', marginBottom: '12px',
-    }}>
-      <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '10px', color: 'var(--color-text, #e2e8f0)' }}>
-        New Handshake
-      </div>
-
-      <label style={{ fontSize: '10px', fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-        Recipient Email
-      </label>
-      <input
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="partner@company.com"
-        style={{
-          width: '100%', padding: '7px 10px', fontSize: '12px', marginTop: '4px', marginBottom: '10px',
-          background: 'var(--color-input-bg, rgba(255,255,255,0.06))',
-          border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-          borderRadius: '6px', color: 'var(--color-text, #e2e8f0)', outline: 'none',
-          boxSizing: 'border-box',
-        }}
-      />
-
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-        {(['api', 'download'] as const).map(m => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            style={{
-              flex: 1, padding: '6px 8px', fontSize: '10px', fontWeight: 600,
-              background: mode === m ? 'var(--color-accent-bg, rgba(139,92,246,0.15))' : 'transparent',
-              border: `1px solid ${mode === m ? 'rgba(139,92,246,0.4)' : 'var(--color-border, rgba(255,255,255,0.1))'}`,
-              borderRadius: '6px',
-              color: mode === m ? 'var(--color-accent, #a78bfa)' : 'var(--color-text-muted, #94a3b8)',
-              cursor: 'pointer',
-            }}
-          >
-            {m === 'api' ? 'Send via API' : 'Download .beap'}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div style={{
-          marginBottom: '8px', padding: '6px 8px', fontSize: '10px',
-          background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-          borderRadius: '4px', color: '#ef4444',
-        }}>{error}</div>
-      )}
-
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <button
-          onClick={handleCreate}
-          disabled={!isValid || sending}
-          style={{
-            flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-            background: !isValid || sending ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
-            border: '1px solid rgba(139,92,246,0.3)', borderRadius: '6px',
-            color: '#a78bfa', cursor: !isValid || sending ? 'not-allowed' : 'pointer',
-            opacity: !isValid ? 0.5 : 1,
-          }}
-        >
-          {sending ? 'Creating…' : 'Create'}
-        </button>
-        <button onClick={onClose} style={{
-          padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-          background: 'transparent', color: 'var(--color-text-muted, #94a3b8)',
-          border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-          borderRadius: '6px', cursor: 'pointer',
-        }}>Cancel</button>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Component ──
 
 export default function HandshakeView() {
@@ -233,7 +81,6 @@ export default function HandshakeView() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
-  const [showNewDialog, setShowNewDialog] = useState(false)
 
   const loadHandshakes = useCallback(async () => {
     setLoading(true)
@@ -340,12 +187,10 @@ export default function HandshakeView() {
           <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={() => setShowNewDialog(v => !v)}
+              onClick={() => window.analysisDashboard?.openHandshakeRequest?.()}
               style={{
                 padding: '4px 8px', fontSize: '10px', fontWeight: 600,
-                background: showNewDialog
-                  ? 'rgba(139,92,246,0.25)'
-                  : 'var(--color-accent-bg, rgba(139,92,246,0.12))',
+                background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
                 border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
                 borderRadius: '5px', color: 'var(--color-accent, #a78bfa)',
                 cursor: 'pointer',
@@ -364,14 +209,7 @@ export default function HandshakeView() {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: showNewDialog ? '8px 8px 0' : undefined }}>
-          {showNewDialog && (
-            <NewHandshakeDialog
-              onCreated={() => { loadHandshakes(); setShowNewDialog(false) }}
-              onClose={() => setShowNewDialog(false)}
-            />
-          )}
-
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
             <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)' }}>
               Loading…
@@ -431,7 +269,7 @@ export default function HandshakeView() {
         )}
       </div>
 
-      {/* ── Right Panel: Incoming ── */}
+      {/* ── Right Panel: Pending ── */}
       <div style={{
         borderLeft: '1px solid var(--color-border, rgba(255,255,255,0.08))',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -440,7 +278,7 @@ export default function HandshakeView() {
           padding: '14px 12px', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           fontSize: '13px', fontWeight: 700,
         }}>
-          Incoming ({pending.length})
+          Pending ({pending.length})
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
