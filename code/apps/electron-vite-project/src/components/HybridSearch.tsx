@@ -220,11 +220,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
           ref={inputRef}
           className="hs-input"
           type="text"
-          placeholder={
-            mode === 'chat'
-              ? 'AI chat with handshake context and BEAP messages…'
-              : 'Search across context graph and BEAP messages…'
-          }
+          placeholder="AI Assistant across the BEAP Ecosystem"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
