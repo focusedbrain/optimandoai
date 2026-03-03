@@ -87,6 +87,9 @@ export function HandshakeRequestForm({
   const [message, setMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
+  // Contextual Handshakes — enabled by default
+  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
   const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
@@ -309,6 +312,43 @@ export function HandshakeRequestForm({
           />
         </div>
 
+        {/* Contextual Handshakes toggle */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 14px',
+          background: contextualHandshakes ? (isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)') : 'transparent',
+          border: `1px solid ${contextualHandshakes ? (isStandard ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.35)') : borderColor}`,
+          borderRadius: '10px',
+          transition: 'all 0.18s',
+        }}>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: textColor }}>Contextual Handshakes</div>
+            <div style={{ fontSize: '11px', color: mutedColor, marginTop: '2px' }}>
+              {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setContextualHandshakes(v => !v)}
+            aria-pressed={contextualHandshakes}
+            aria-label="Toggle Contextual Handshakes"
+            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#8b5cf6' : (isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+          >
+            <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+          </button>
+        </div>
+
+        {/* Vault Access Required banner — contextual ON + vault error from RPC */}
+        {contextualHandshakes && sendError && sendError.toLowerCase().includes('vault') && (
+          <div style={{ padding: '10px 14px', background: isStandard ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.12)', border: `1px solid ${isStandard ? 'rgba(245,158,11,0.30)' : 'rgba(245,158,11,0.35)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: isStandard ? '#92400e' : '#fbbf24', marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
+              <div style={{ fontSize: '11px', color: isStandard ? '#b45309' : '#fde68a', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+            </div>
+          </div>
+        )}
+
         {/* Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc */}
         <div style={{
           border: `1px solid ${showContextGraph ? (isStandard ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.45)') : borderColor}`,
@@ -457,7 +497,7 @@ export function HandshakeRequestForm({
         </div>
 
         {/* Error / Success */}
-        {sendError && (
+        {sendError && !(contextualHandshakes && sendError.toLowerCase().includes('vault')) && (
           <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontSize: '12px', color: '#ef4444' }}>
             ⚠️ {sendError}
           </div>

@@ -202,6 +202,9 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
 }) => {
   const t = useThemeTokens(theme)
 
+  // Contextual Handshakes — enabled by default
+  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+
   // Delivery mode
   const [mode, setMode] = useState<DeliveryMode>('attachment')
 
@@ -487,6 +490,49 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         </div>
 
+        {/* ---- Contextual Handshakes toggle ---- */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 14px',
+          background: contextualHandshakes ? t.accentPrimaryLight : 'transparent',
+          border: `1px solid ${contextualHandshakes ? t.accentPrimaryBorder : t.border}`,
+          borderRadius: '10px',
+          transition: 'all 0.18s',
+        }}>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Contextual Handshakes</div>
+            <div style={{ fontSize: '11px', color: t.muted, marginTop: '2px' }}>
+              {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setContextualHandshakes(v => !v)}
+            aria-pressed={contextualHandshakes}
+            aria-label="Toggle Contextual Handshakes"
+            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? t.accentPrimary : (t.isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+          >
+            <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+          </button>
+        </div>
+
+        {/* ---- Vault Access Required banner (contextual ON + vault error) ---- */}
+        {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
+          <div style={{
+            padding: '10px 13px',
+            background: t.dangerBg,
+            border: `1px solid ${t.dangerBorder}`,
+            borderRadius: '8px',
+            display: 'flex', gap: '10px', alignItems: 'flex-start',
+          }}>
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: t.dangerText, marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
+              <div style={{ fontSize: '11px', color: t.dangerText, lineHeight: 1.5, opacity: 0.85 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+            </div>
+          </div>
+        )}
+
         {/* ---- Attachment-mode warning ---- */}
         {mode === 'attachment' && (
           <div
@@ -604,7 +650,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         )}
 
         {/* ---- Error banner ---- */}
-        {error && (
+        {error && !(contextualHandshakes && error.toLowerCase().includes('vault')) && (
           <div
             style={{
               padding: '10px 13px',

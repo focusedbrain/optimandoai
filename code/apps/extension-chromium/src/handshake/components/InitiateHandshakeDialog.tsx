@@ -47,6 +47,9 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // Contextual Handshakes — enabled by default
+  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+
   // Context Graph (optional — attached to handshake.initiate RPC)
   const [showContextGraph, setShowContextGraph] = useState(false)
   const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
@@ -150,7 +153,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               />
             </div>
 
-            {error && (
+            {error && !(contextualHandshakes && error.toLowerCase().includes('vault')) && (
               <div style={notificationStyle('error')}>✕ {error}</div>
             )}
 
@@ -165,6 +168,43 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
             }}>
               ℹ️ The recipient will receive an email with a handshake capsule. Once they accept, you can exchange secure BEAP messages.
             </div>
+
+            {/* Contextual Handshakes toggle */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: contextualHandshakes ? 'rgba(129,140,248,0.08)' : 'transparent',
+              border: `1px solid ${contextualHandshakes ? 'rgba(129,140,248,0.30)' : t.border}`,
+              borderRadius: '10px',
+              transition: 'all 0.18s',
+            }}>
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>🧠 Contextual Handshakes</div>
+                <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '2px' }}>
+                  {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContextualHandshakes(v => !v)}
+                aria-pressed={contextualHandshakes}
+                aria-label="Toggle Contextual Handshakes"
+                style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#818cf8' : 'rgba(255,255,255,0.2)', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+              >
+                <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+              </button>
+            </div>
+
+            {/* Vault Access Required banner — only when contextual ON + vault locked (RPC will fail) */}
+            {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
+              <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#fbbf24', marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
+                  <div style={{ fontSize: '11px', color: '#fde68a', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+                </div>
+              </div>
+            )}
 
             {/* Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc */}
             <div style={{

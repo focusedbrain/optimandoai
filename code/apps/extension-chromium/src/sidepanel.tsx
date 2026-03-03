@@ -4311,15 +4311,16 @@ function SidepanelOrchestrator() {
                 </div>
               )}
 
-              {/* Handshake Management — backed by backend RPC */}
+              {/* BEAP Handshake Request — Send Handshake Delivery */}
               {dockedPanelMode === 'handshake' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'auto' }}>
-                  <HandshakeManagementPanel
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                  <SendHandshakeDelivery
+                    theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                    onBack={() => setDockedSubmode('command')}
                     fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
-                    theme={theme === 'standard' ? 'default' : 'default'}
-                    onSendMessage={(_handshake) => {
-                      setDockedSubmode('beap-draft')
-                    }}
+                    emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                    onSelectEmailAccount={setSelectedEmailAccountId}
+                    onSuccess={() => setDockedSubmode('command')}
                   />
                 </div>
               )}

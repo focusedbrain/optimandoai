@@ -36,6 +36,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
   const [selectedHandshake, setSelectedHandshake] = useState<HandshakeRecord | null>(null)
   const [acceptingHandshake, setAcceptingHandshake] = useState<HandshakeRecord | null>(null)
   const [showInitiate, setShowInitiate] = useState(false)
+  const [contextualHandshakes, setContextualHandshakes] = useState(true)
 
   const isProfessional = theme === 'professional'
 
@@ -56,24 +57,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
     )
   }
 
-  if (error) {
-    return (
-      <div style={{ padding: '24px', textAlign: 'center' }}>
-        <div style={{ color: '#ef4444', fontSize: '13px', marginBottom: '8px' }}>{error}</div>
-        <button
-          onClick={refresh}
-          style={{
-            padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
-            cursor: 'pointer', border: 'none',
-            background: isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
-            color: isProfessional ? '#1f2937' : 'white',
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    )
-  }
+  const isVaultError = error && error.toLowerCase().includes('vault')
 
   return (
     <div>
@@ -114,7 +98,64 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
         </div>
       </div>
 
-      {handshakes.length === 0 ? (
+      {/* Contextual Handshakes toggle */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 16px',
+        borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'}`,
+        background: contextualHandshakes
+          ? (isProfessional ? 'rgba(129,140,248,0.06)' : 'rgba(129,140,248,0.08)')
+          : 'transparent',
+        transition: 'background 0.18s',
+      }}>
+        <div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: isProfessional ? '#1f2937' : 'white' }}>Contextual Handshakes</div>
+          <div style={{ fontSize: '11px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+            {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setContextualHandshakes(v => !v)}
+          aria-pressed={contextualHandshakes}
+          aria-label="Toggle Contextual Handshakes"
+          style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#818cf8' : (isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+        >
+          <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+        </button>
+      </div>
+
+      {/* Vault Access Required banner */}
+      {contextualHandshakes && isVaultError && (
+        <div style={{ margin: '10px 16px', padding: '10px 14px', background: isProfessional ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.12)', border: `1px solid ${isProfessional ? 'rgba(245,158,11,0.30)' : 'rgba(245,158,11,0.35)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: isProfessional ? '#92400e' : '#fbbf24', marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
+            <div style={{ fontSize: '11px', color: isProfessional ? '#b45309' : '#fde68a', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Non-vault errors shown inline */}
+      {error && !isVaultError && (
+        <div style={{ margin: '10px 16px', padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ color: '#ef4444', fontSize: '12px', flex: 1 }}>{error}</div>
+          <button
+            onClick={refresh}
+            style={{
+              padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 500,
+              cursor: 'pointer', border: 'none',
+              background: isProfessional ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
+              color: isProfessional ? '#1f2937' : 'white',
+              flexShrink: 0,
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!error && handshakes.length === 0 ? (
         <div style={{ padding: '32px 16px', textAlign: 'center' }}>
           <div style={{ fontSize: '36px', marginBottom: '12px' }}>🤝</div>
           <div style={{ fontSize: '14px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white', marginBottom: '6px' }}>
