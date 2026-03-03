@@ -118,10 +118,12 @@ export async function handleHandshakeRPC(
         receiverUserId,
         receiverEmail,
         fromAccountId,
+        skipVaultContext,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         fromAccountId: string
+        skipVaultContext?: boolean
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -142,7 +144,12 @@ export async function handleHandshakeRPC(
         emailResult = await sendCapsuleViaEmail(effectiveAccountId, receiverEmail, capsule)
       }
 
-      const localResult = await submitCapsuleViaRpc(capsule, db, session)
+      let localResult: any = { success: true }
+      if (db) {
+        localResult = await submitCapsuleViaRpc(capsule, db, session)
+      } else if (!skipVaultContext) {
+        return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
+      }
 
       return {
         type: 'handshake-initiate-result',
@@ -161,6 +168,7 @@ export async function handleHandshakeRPC(
       } = params as {
         receiverUserId: string
         receiverEmail: string
+        skipVaultContext?: boolean
       }
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
@@ -173,16 +181,6 @@ export async function handleHandshakeRPC(
       }
 
       const capsule = buildInitiateCapsule(session, { receiverUserId: dlReceiverUserId })
-
-      const localResult = await submitCapsuleViaRpc(capsule, db, session)
-
-      if (!localResult.success) {
-        return {
-          success: false,
-          error: 'Failed to create local handshake record',
-          local_result: localResult,
-        }
-      }
 
       return {
         type: 'handshake-build-result',

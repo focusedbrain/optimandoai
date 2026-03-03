@@ -2329,11 +2329,21 @@ app.whenReady().then(async () => {
               try {
                 const { vaultService: vsForHandshake } = await import('./main/vault/rpc')
                 const db = (vsForHandshake as any).db
-                if (!db) {
+                const skipVaultContext = msg.params?.skipVaultContext === true
+                const vaultRequiredMethods = ['handshake.list', 'handshake.accept', 'handshake.refresh', 'handshake.queryStatus', 'handshake.requestContextBlocks', 'handshake.authorizeAction', 'handshake.initiateRevocation', 'handshake.isActive']
+                if (!db && !skipVaultContext) {
                   socket.send(JSON.stringify({
                     id: msg.id,
                     success: false,
                     error: 'Vault must be unlocked for handshake operations',
+                  }))
+                  return
+                }
+                if (!db && skipVaultContext && vaultRequiredMethods.includes(msg.method)) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'Vault must be unlocked for this operation',
                   }))
                   return
                 }

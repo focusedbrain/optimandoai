@@ -127,11 +127,11 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
 
       {/* Vault Access Required banner */}
       {contextualHandshakes && isVaultError && (
-        <div style={{ margin: '10px 16px', padding: '10px 14px', background: isProfessional ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.12)', border: `1px solid ${isProfessional ? 'rgba(245,158,11,0.30)' : 'rgba(245,158,11,0.35)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-          <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+        <div style={{ margin: '10px 16px', padding: '12px 14px', background: isProfessional ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.12)', border: `2px solid ${isProfessional ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.4)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: isProfessional ? '#92400e' : '#fbbf24', marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
-            <div style={{ fontSize: '11px', color: isProfessional ? '#b45309' : '#fde68a', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+            <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
           </div>
         </div>
       )}

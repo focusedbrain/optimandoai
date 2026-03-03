@@ -94,21 +94,25 @@ export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
   fromAccountId: string,
+  options?: { skipVaultContext?: boolean },
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
+    ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
   })
 }
 
 export async function buildHandshakeForDownload(
   receiverEmail: string,
   fromAccountId: string,
+  options?: { skipVaultContext?: boolean },
 ): Promise<HandshakeBuildForDownloadResponse> {
   return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
     receiverUserId: receiverEmail,
     receiverEmail,
+    ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
   })
 }
 

@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake, buildHandshakeForDownload } from '../handshakeRpc'
+import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 
 // =============================================================================
 // Types
@@ -40,6 +41,8 @@ export interface SendHandshakeDeliveryProps {
   onSelectEmailAccount?: (id: string) => void
   /** Called on successful handshake creation */
   onSuccess?: () => void
+  /** Whether the current user has Publisher/Enterprise tier. */
+  canUseHsContextProfiles?: boolean
 }
 
 // =============================================================================
@@ -199,11 +202,19 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   emailAccounts = [],
   onSelectEmailAccount,
   onSuccess,
+  canUseHsContextProfiles = false,
 }) => {
   const t = useThemeTokens(theme)
 
   // Contextual Handshakes — enabled by default
   const [contextualHandshakes, setContextualHandshakes] = useState(true)
+
+  // Context Graph
+  const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
+  const [contextGraphText, setContextGraphText] = useState('')
+  const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
 
   // Delivery mode
   const [mode, setMode] = useState<DeliveryMode>('attachment')
@@ -251,6 +262,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         recipientEmail.trim(),
         recipientEmail.trim(),
         fromAccountId,
+        { skipVaultContext: !contextualHandshakes },
       )
       if (result.handshake_id) {
         setActionDone('sent')
@@ -274,6 +286,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       const result = await buildHandshakeForDownload(
         recipientEmail.trim(),
         fromAccountId,
+        { skipVaultContext: !contextualHandshakes },
       )
       if (!result.success || !result.capsule_json) {
         setError(result.error || 'Failed to build capsule.')
@@ -519,16 +532,16 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         {/* ---- Vault Access Required banner (contextual ON + vault error) ---- */}
         {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
           <div style={{
-            padding: '10px 13px',
-            background: t.dangerBg,
-            border: `1px solid ${t.dangerBorder}`,
+            padding: '12px 14px',
+            background: t.errorBg,
+            border: `2px solid ${t.errorBorder}`,
             borderRadius: '8px',
             display: 'flex', gap: '10px', alignItems: 'flex-start',
           }}>
-            <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+            <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: t.dangerText, marginBottom: '3px' }}>Vault Access Required for Contextual Handshakes.</div>
-              <div style={{ fontSize: '11px', color: t.dangerText, lineHeight: 1.5, opacity: 0.85 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: t.errorText, marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+              <div style={{ fontSize: '11px', color: t.errorText, lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
             </div>
           </div>
         )}
@@ -608,6 +621,140 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                 minHeight: '76px',
               }}
             />
+          </div>
+        )}
+
+        {/* ---- Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc ---- */}
+        {contextualHandshakes && (
+          <div style={{
+            border: `1px solid ${showContextGraph ? t.accentPrimaryBorder : t.border}`,
+            borderRadius: '10px',
+            overflow: 'hidden',
+            transition: 'border-color 0.15s',
+          }}>
+            <button
+              type="button"
+              onClick={() => setShowContextGraph(v => !v)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                background: showContextGraph ? t.accentPrimaryLight : (t.isStandard ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.04)'),
+                border: 'none',
+                color: showContextGraph ? (t.isStandard ? '#7c3aed' : '#c4b5fd') : t.muted,
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'all 0.15s',
+              }}
+            >
+              <span>🧠 Context Graph</span>
+              <span style={{ fontSize: '10px', opacity: 0.7 }}>{showContextGraph ? '▲ Collapse' : '▼ Expand'}</span>
+            </button>
+
+            {showContextGraph && (
+              <div style={{ borderTop: `1px solid ${t.border}` }}>
+                <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}` }}>
+                  {(['vault', 'adhoc'] as const).map((tab) => {
+                    const active = contextGraphTab === tab
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setContextGraphTab(tab)}
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          fontSize: '11px',
+                          fontWeight: active ? 700 : 500,
+                          background: active ? t.accentPrimaryLight : 'transparent',
+                          border: 'none',
+                          borderBottom: active ? '2px solid #8b5cf6' : '2px solid transparent',
+                          color: active ? (t.isStandard ? '#7c3aed' : '#c4b5fd') : t.muted,
+                          cursor: 'pointer',
+                          transition: 'all 0.12s',
+                        }}
+                      >
+                        {tab === 'vault' ? '🗂 Vault Profiles' : '✏️ Ad-hoc Context'}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {contextGraphTab === 'vault' && (
+                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ padding: '9px 12px', background: t.accentPrimaryLight, borderRadius: '8px', fontSize: '11px', color: t.muted, lineHeight: 1.5 }}>
+                      🗂 Select reusable context profiles stored in your Vault. Their content is normalized to plain text and attached to this handshake.
+                    </div>
+                    {canUseHsContextProfiles ? (
+                      <HandshakeContextProfilePicker
+                        selectedIds={selectedProfileIds}
+                        onChange={setSelectedProfileIds}
+                        theme={theme}
+                        disabled={sending}
+                      />
+                    ) : (
+                      <div style={{
+                        padding: '16px', textAlign: 'center',
+                        border: `1px dashed ${t.border}`, borderRadius: '8px',
+                        display: 'flex', flexDirection: 'column', gap: '6px',
+                      }}>
+                        <div style={{ fontSize: '20px' }}>🔒</div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: t.text }}>Publisher / Enterprise feature</div>
+                        <div style={{ fontSize: '11px', color: t.muted, lineHeight: 1.5 }}>
+                          Upgrade to attach structured Vault Profiles to your handshakes — including business identity, custom fields, and confidential documents.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {contextGraphTab === 'adhoc' && (
+                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ padding: '9px 12px', background: t.noteBg, border: `1px solid ${t.noteBorder}`, borderRadius: '8px', fontSize: '11px', color: t.muted, lineHeight: 1.5 }}>
+                      ℹ️ Ad-hoc context is normalized to plain text before sending. JSON is rendered as Key: Value lines.
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Format</label>
+                      <select
+                        value={contextGraphType}
+                        onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
+                        disabled={sending}
+                        style={inputStyle()}
+                      >
+                        <option value="text">📝 Plain Text</option>
+                        <option value="json">📦 JSON / Structured Data</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>
+                        {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
+                      </label>
+                      <textarea
+                        value={contextGraphText}
+                        onChange={(e) => setContextGraphText(e.target.value)}
+                        disabled={sending}
+                        placeholder={
+                          contextGraphType === 'json'
+                            ? '{"key": "value", ...}'
+                            : 'Enter context information to share with the recipient...'
+                        }
+                        rows={4}
+                        style={{
+                          ...inputStyle(),
+                          resize: 'vertical',
+                          lineHeight: 1.5,
+                          fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
