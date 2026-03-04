@@ -10,13 +10,18 @@ import { canonicalRebuild } from '../canonicalRebuild'
 
 function buildValidCapsule(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
-    schema_version: 1,
+    schema_version: 2,
     capsule_type: 'initiate',
     handshake_id: 'hs-aaaabbbb-cccc-dddd-eeee-ffffffffffff',
     relationship_id: 'rel-aaaabbbb-cccc-dddd-eeee-ffffffffffff',
     sender_id: 'user-001',
     sender_wrdesk_user_id: 'user-001',
+    sender_email: 'alice@example.com',
+    receiver_id: 'user-002',
+    receiver_email: 'bob@example.com',
     capsule_hash: 'a'.repeat(64),
+    context_hash: 'b'.repeat(64),
+    nonce: 'c'.repeat(64),
     timestamp: '2026-01-15T10:30:00.000Z',
     seq: 0,
     external_processing: 'none',
@@ -54,16 +59,36 @@ describe('canonicalRebuild', () => {
     }
   })
 
-  // Test 2: context_blocks (denied field) → REJECT
-  it('should reject capsule with context_blocks (denied field)', () => {
+  // Test 2: malformed context_blocks → REJECT (structural validation)
+  it('should reject capsule with malformed context_blocks', () => {
     const raw = buildValidCapsule({
       context_blocks: [{ block_id: 'blk_abc', payload: 'secret data' }],
     })
     const result = canonicalRebuild(raw)
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.field).toBe('context_blocks')
-      expect(result.reason).toContain('Denied field')
+      expect(result.field).toContain('context_blocks')
+    }
+  })
+
+  // Test 2b: valid context_blocks → ACCEPT
+  it('should accept capsule with valid context_blocks', () => {
+    const raw = buildValidCapsule({
+      context_blocks: [{
+        block_id: 'ctx-001',
+        block_hash: 'a'.repeat(64),
+        type: 'plaintext',
+        content: 'Hello Beap',
+        scope_id: null,
+      }],
+      context_commitment: 'b'.repeat(64),
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.capsule.context_blocks).toHaveLength(1)
+      expect(result.capsule.context_blocks![0].block_id).toBe('ctx-001')
+      expect(result.capsule.context_blocks![0].content).toBe('Hello Beap')
     }
   })
 
@@ -114,7 +139,7 @@ describe('canonicalRebuild', () => {
     const result = canonicalRebuild(raw)
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.capsule.schema_version).toBe(1)
+      expect(result.capsule.schema_version).toBe(2)
       expect(result.capsule.capsule_type).toBe('initiate')
       expect(result.capsule.sender_id).toBe('user-001')
       expect(result.capsule.senderIdentity.email).toBe('alice@example.com')
@@ -127,7 +152,7 @@ describe('canonicalRebuild', () => {
   // Test 8: All denied fields individually rejected
   it('should reject each denied field', () => {
     const deniedFields = [
-      'context_blocks', 'data', 'payload', 'body', 'content',
+      'data', 'payload', 'body', 'content',
       'attachment', 'attachments', 'file', 'files', 'binary',
       'script', 'code', 'html', 'exec', 'command', 'eval',
     ]

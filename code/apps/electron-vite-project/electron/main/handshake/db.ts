@@ -129,6 +129,17 @@ const HANDSHAKE_MIGRATIONS: Array<{
       )`,
     ],
   },
+  {
+    version: 2,
+    description: 'Schema v2: receiver_email binding, context_commitment, publisher_id',
+    sql: [
+      `ALTER TABLE context_blocks ADD COLUMN publisher_id TEXT`,
+      `ALTER TABLE context_blocks ADD COLUMN ingested_at TEXT`,
+      `ALTER TABLE context_blocks ADD COLUMN active INTEGER NOT NULL DEFAULT 1`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_active ON context_blocks(active)`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_publisher ON context_blocks(publisher_id)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -403,6 +414,21 @@ export function softDeleteExpiredBlocks(db: any, now: Date): number {
     `DELETE FROM context_blocks WHERE valid_until IS NOT NULL AND valid_until < ?`
   ).run(now.toISOString())
   return result.changes
+}
+
+export function markContextBlocksInactiveByHandshake(db: any, handshakeId: string): number {
+  try {
+    const result = db.prepare(
+      `UPDATE context_blocks SET active = 0 WHERE handshake_id = ? AND active = 1`
+    ).run(handshakeId)
+    return result.changes
+  } catch {
+    const result = db.prepare(
+      `UPDATE context_blocks SET embedding_status = 'failed'
+       WHERE handshake_id = ? AND embedding_status != 'failed'`
+    ).run(handshakeId)
+    return result.changes
+  }
 }
 
 export function deleteBlocksByHandshake(db: any, handshakeId: string): number {

@@ -43,7 +43,7 @@ function createBlockOverlay(
   overlay.setAttribute('data-block-type', type)
   
   const icon = type === 'link' ? '🔗' 
-    : type === 'attachment' ? '📎'
+    : type === 'attachment' ? '📁'
     : type === 'media' ? '🖼️'
     : '⚡'
   

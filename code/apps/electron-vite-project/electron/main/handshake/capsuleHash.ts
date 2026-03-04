@@ -44,6 +44,7 @@ export interface CapsuleHashInput {
   relationship_id: string;
   schema_version: number;
   sender_wrdesk_user_id: string;
+  receiver_email?: string;
   seq: number;
   timestamp: string;
   // Type-specific
@@ -51,6 +52,9 @@ export interface CapsuleHashInput {
   prev_hash?: string;
   wrdesk_policy_hash?: string;
   wrdesk_policy_version?: string;
+  context_commitment?: string | null;
+  senderIdentity_sub?: string;
+  receiverIdentity_sub?: string;
 }
 
 /**
@@ -68,6 +72,10 @@ export function computeCapsuleHash(input: CapsuleHashInput): string {
     timestamp: input.timestamp,
   }
 
+  if (input.receiver_email !== undefined) {
+    canonical.receiver_email = input.receiver_email
+  }
+
   // Type-specific fields
   if (input.capsule_type === 'initiate' || input.capsule_type === 'accept' || input.capsule_type === 'refresh') {
     if (input.wrdesk_policy_hash !== undefined) canonical.wrdesk_policy_hash = input.wrdesk_policy_hash
@@ -78,6 +86,15 @@ export function computeCapsuleHash(input: CapsuleHashInput): string {
   }
   if (input.capsule_type === 'refresh' && input.prev_hash !== undefined) {
     canonical.prev_hash = input.prev_hash
+  }
+
+  if (input.context_commitment != null) {
+    canonical.context_commitment = input.context_commitment
+  }
+
+  if (input.capsule_type === 'accept') {
+    if (input.senderIdentity_sub !== undefined) canonical.senderIdentity_sub = input.senderIdentity_sub
+    if (input.receiverIdentity_sub !== undefined) canonical.receiverIdentity_sub = input.receiverIdentity_sub
   }
 
   // Sort keys for determinism

@@ -49,15 +49,30 @@ export interface ContextBlockProof {
   readonly block_hash: string
 }
 
+export interface CanonicalReceiverIdentity {
+  readonly email: string
+  readonly iss: string
+  readonly sub: string
+  readonly email_verified: true
+  readonly wrdesk_user_id: string
+}
+
 export interface HandshakeCapsuleCanonical {
-  readonly schema_version: 1
+  readonly schema_version: 1 | 2
   readonly capsule_type: 'initiate' | 'accept' | 'refresh' | 'revoke'
   readonly handshake_id: string
   readonly relationship_id: string
   readonly sender_id: string
   readonly sender_wrdesk_user_id: string
+  readonly sender_email: string
+  readonly receiver_id: string
+  readonly receiver_email: string
   readonly senderIdentity: CanonicalSenderIdentity
+  readonly receiverIdentity: CanonicalReceiverIdentity | null
   readonly capsule_hash: string
+  readonly context_hash: string
+  readonly context_commitment: string | null
+  readonly nonce: string
   readonly timestamp: string
   readonly seq: number
   readonly external_processing: 'none' | 'local_only'
@@ -68,12 +83,23 @@ export interface HandshakeCapsuleCanonical {
   readonly sharing_mode?: 'receive-only' | 'reciprocal'
   readonly prev_hash?: string
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>
+  readonly context_blocks?: ReadonlyArray<CanonicalContextBlock>
+}
+
+export interface CanonicalContextBlock {
+  readonly block_id: string
+  readonly block_hash: string
+  readonly scope_id: string | null
+  readonly type: string
+  readonly content: string | Record<string, unknown>
 }
 
 // ── Denied fields — presence triggers immediate rejection ──
+// NOTE: context_blocks is NOT denied — it is validated structurally
+// and extracted separately. Raw content fields (data, payload, etc.)
+// remain denied to prevent arbitrary data injection.
 
 const DENIED_FIELDS: ReadonlySet<string> = new Set([
-  'context_blocks',
   'data',
   'payload',
   'body',
@@ -104,13 +130,18 @@ type FieldRule =
   | { type: 'string'; maxLength: number }
 
 const FIELD_RULES: Record<string, FieldRule> = {
-  schema_version: { type: 'literal', value: 1 },
+  schema_version: { type: 'enum', values: [1, 2] },
   capsule_type: { type: 'enum', values: ['initiate', 'accept', 'refresh', 'revoke'] },
   handshake_id: { type: 'regex', pattern: /^hs-[a-f0-9-]{1,128}$/, maxLength: 136 },
-  relationship_id: { type: 'regex', pattern: /^rel-[a-f0-9-]{1,128}$/, maxLength: 136 },
+  relationship_id: { type: 'regex', pattern: /^rel[-:][a-f0-9-]{1,128}$/, maxLength: 136 },
   sender_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
   sender_wrdesk_user_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
+  sender_email: { type: 'email' },
+  receiver_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
+  receiver_email: { type: 'email' },
   capsule_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
+  context_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
+  nonce: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
   timestamp: { type: 'iso8601' },
   seq: { type: 'integer', min: 0, max: 2_147_483_647 },
   external_processing: { type: 'enum', values: ['none', 'local_only'] },
@@ -340,7 +371,8 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
   // Validate required top-level fields
   const REQUIRED_FIELDS = [
     'schema_version', 'capsule_type', 'handshake_id', 'relationship_id',
-    'sender_id', 'sender_wrdesk_user_id', 'capsule_hash', 'timestamp',
+    'sender_id', 'sender_wrdesk_user_id', 'sender_email', 'receiver_id',
+    'receiver_email', 'capsule_hash', 'context_hash', 'nonce', 'timestamp',
     'seq', 'external_processing', 'reciprocal_allowed', 'wrdesk_policy_hash',
     'wrdesk_policy_version',
   ]
@@ -394,6 +426,40 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
   }
   canonical.tierSignals = tierResult.signals
 
+  // Validate receiverIdentity (optional — null on initiate, populated on accept)
+  if ('receiverIdentity' in obj) {
+    if (obj.receiverIdentity === null) {
+      canonical.receiverIdentity = null
+    } else if (obj.receiverIdentity !== undefined) {
+      const receiverResult = rebuildSenderIdentity(obj.receiverIdentity)
+      if (!receiverResult.ok) {
+        return { ok: false, reason: receiverResult.reason.replace('senderIdentity', 'receiverIdentity'), field: receiverResult.field.replace('senderIdentity', 'receiverIdentity') }
+      }
+      canonical.receiverIdentity = receiverResult.identity
+    }
+  }
+  if (!('receiverIdentity' in canonical)) {
+    canonical.receiverIdentity = null
+  }
+
+  // Validate context_commitment (optional — sha-256 hex or null)
+  if ('context_commitment' in obj) {
+    if (obj.context_commitment === null) {
+      canonical.context_commitment = null
+    } else if (typeof obj.context_commitment === 'string') {
+      const clean = sanitizeString(obj.context_commitment)
+      if (!/^[a-f0-9]{64}$/.test(clean)) {
+        return { ok: false, reason: 'Invalid context_commitment format', field: 'context_commitment' }
+      }
+      canonical.context_commitment = clean
+    } else {
+      return { ok: false, reason: 'context_commitment must be a string or null', field: 'context_commitment' }
+    }
+  }
+  if (!('context_commitment' in canonical)) {
+    canonical.context_commitment = null
+  }
+
   // Validate context_block_proofs (optional)
   if ('context_block_proofs' in obj && obj.context_block_proofs !== undefined) {
     const proofsResult = rebuildContextBlockProofs(obj.context_block_proofs)
@@ -405,5 +471,88 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     }
   }
 
+  // Validate context_blocks (optional — carries actual content for ingestion)
+  if ('context_blocks' in obj && obj.context_blocks !== undefined) {
+    const blocksResult = rebuildContextBlocks(obj.context_blocks)
+    if (!blocksResult.ok) {
+      return blocksResult
+    }
+    if (blocksResult.blocks.length > 0) {
+      canonical.context_blocks = blocksResult.blocks
+    }
+  }
+
   return { ok: true, capsule: canonical as unknown as HandshakeCapsuleCanonical }
+}
+
+// ── Context Blocks Structural Validation ──
+
+const MAX_CONTEXT_BLOCKS = 64
+const MAX_BLOCK_CONTENT_BYTES = 32 * 1024
+const BLOCK_ID_PATTERN = /^[a-zA-Z0-9._:/-]{1,256}$/
+const BLOCK_HASH_PATTERN = /^[a-f0-9]{64}$/
+const BLOCK_TYPE_PATTERN = /^[a-z_]{1,64}$/
+
+function rebuildContextBlocks(raw: unknown): { ok: true; blocks: CanonicalContextBlock[] } | { ok: false; reason: string; field?: string } {
+  if (!Array.isArray(raw)) {
+    return { ok: false, reason: 'context_blocks must be an array', field: 'context_blocks' }
+  }
+  if (raw.length > MAX_CONTEXT_BLOCKS) {
+    return { ok: false, reason: `context_blocks exceeds max count (${MAX_CONTEXT_BLOCKS})`, field: 'context_blocks' }
+  }
+
+  const blocks: CanonicalContextBlock[] = []
+
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i]
+    const prefix = `context_blocks[${i}]`
+
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, reason: `${prefix} must be a plain object`, field: prefix }
+    }
+
+    const b = item as Record<string, unknown>
+
+    if (typeof b.block_id !== 'string' || !BLOCK_ID_PATTERN.test(b.block_id)) {
+      return { ok: false, reason: `${prefix}.block_id invalid`, field: `${prefix}.block_id` }
+    }
+
+    if (typeof b.block_hash !== 'string' || !BLOCK_HASH_PATTERN.test(b.block_hash)) {
+      return { ok: false, reason: `${prefix}.block_hash must be 64-char lowercase hex`, field: `${prefix}.block_hash` }
+    }
+
+    if (typeof b.type !== 'string' || !BLOCK_TYPE_PATTERN.test(b.type)) {
+      return { ok: false, reason: `${prefix}.type invalid`, field: `${prefix}.type` }
+    }
+
+    const scopeId = b.scope_id === null || b.scope_id === undefined
+      ? null
+      : typeof b.scope_id === 'string' ? sanitizeString(b.scope_id) : null
+
+    let content: string | Record<string, unknown>
+    if (typeof b.content === 'string') {
+      if (Buffer.byteLength(b.content, 'utf-8') > MAX_BLOCK_CONTENT_BYTES) {
+        return { ok: false, reason: `${prefix}.content exceeds ${MAX_BLOCK_CONTENT_BYTES} bytes`, field: `${prefix}.content` }
+      }
+      content = b.content
+    } else if (b.content && typeof b.content === 'object' && !Array.isArray(b.content)) {
+      const serialized = JSON.stringify(b.content)
+      if (Buffer.byteLength(serialized, 'utf-8') > MAX_BLOCK_CONTENT_BYTES) {
+        return { ok: false, reason: `${prefix}.content exceeds ${MAX_BLOCK_CONTENT_BYTES} bytes`, field: `${prefix}.content` }
+      }
+      content = b.content as Record<string, unknown>
+    } else {
+      return { ok: false, reason: `${prefix}.content must be a string or object`, field: `${prefix}.content` }
+    }
+
+    blocks.push({
+      block_id: sanitizeString(b.block_id),
+      block_hash: b.block_hash,
+      scope_id: scopeId,
+      type: b.type,
+      content,
+    })
+  }
+
+  return { ok: true, blocks }
 }

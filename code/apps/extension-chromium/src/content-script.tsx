@@ -24931,7 +24931,7 @@ function initializeExtension() {
 
           console.log(`  💤 Passive Triggers: ${parsedData.listening?.passive?.triggers?.length || 0}`)
 
-          console.log(`  📎 Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
+          console.log(`  Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
 
           console.log(`  📋 R-Rules: "${parsedData.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsedData.reasoning?.rules?.length > 50 ? '...' : ''}"`)
 
@@ -26174,7 +26174,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -26246,7 +26246,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -26438,7 +26438,7 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
@@ -26478,7 +26478,7 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
@@ -26518,7 +26518,7 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
@@ -38314,7 +38314,7 @@ ${pageText}
 
                       ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📎 PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📁 PDF Files (${session.context.userContext.pdfFiles.length})</span>
 
                       ` : ''}
 
@@ -43307,7 +43307,7 @@ ${pageText}
           <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-file" type="file" multiple style="display:none" />
-            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <button id="ccd-send" class="send-btn">Send</button>
           </div>
         </div>
@@ -43324,7 +43324,7 @@ ${pageText}
           <div id="ccd-overlay-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-overlay-file" type="file" multiple style="display:none" />
-            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <button id="ccd-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
@@ -43354,7 +43354,7 @@ ${pageText}
             <div id="ccd-mg-resize" style="height:12px; background:${theme==='standard'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='standard'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='standard'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
-                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccd-mg-file" type="file" accept=".pdf" multiple style="display:none" />
               <button id="ccd-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
@@ -44057,7 +44057,7 @@ ${pageText}
             <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
-                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccf-mg-file" type="file" accept=".pdf" multiple style="display:none" />
               <button id="ccf-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>

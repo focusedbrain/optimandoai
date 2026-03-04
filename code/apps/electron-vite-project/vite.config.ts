@@ -24,6 +24,17 @@ function copyPdfWorkerPlugin() {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@ext': path.resolve(__dirname, '../extension-chromium/src'),
+      '@ext/handshake/handshakeRpc': path.resolve(__dirname, 'src/shims/handshakeRpc'),
+      '@ext/vault/hsContextProfilesRpc': path.resolve(__dirname, 'src/shims/hsContextProfilesRpc'),
+      '@ext/reconstruction': path.resolve(__dirname, 'src/shims/reconstruction'),
+      '@ext/audit': path.resolve(__dirname, 'src/shims/audit'),
+      '@ext/envelope-evaluation': path.resolve(__dirname, 'src/shims/envelope-evaluation'),
+      '@ext/ingress': path.resolve(__dirname, 'src/shims/ingress'),
+    },
+  },
   plugins: [
     react(),
     electron({

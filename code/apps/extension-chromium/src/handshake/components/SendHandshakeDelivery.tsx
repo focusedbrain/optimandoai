@@ -248,6 +248,17 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   // Handlers
   // -------------------------------------------------------------------------
 
+  const buildContextOptions = () => {
+    const opts: Record<string, unknown> = { skipVaultContext: !contextualHandshakes }
+    const contextText = contextGraphText.trim()
+    const msgText = message.trim()
+    const combinedText = [msgText, contextText].filter(Boolean).join('\n\n')
+    if (combinedText) {
+      opts.message = combinedText
+    }
+    return opts
+  }
+
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
@@ -262,7 +273,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         recipientEmail.trim(),
         recipientEmail.trim(),
         fromAccountId,
-        { skipVaultContext: !contextualHandshakes },
+        buildContextOptions() as any,
       )
       if (result.handshake_id) {
         setActionDone('sent')
@@ -286,7 +297,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       const result = await buildHandshakeForDownload(
         recipientEmail.trim(),
         fromAccountId,
-        { skipVaultContext: !contextualHandshakes },
+        buildContextOptions() as any,
       )
       if (!result.success || !result.capsule_json) {
         setError(result.error || 'Failed to build capsule.')
@@ -296,8 +307,10 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      const shortId = result.handshake_id?.slice(3, 11) || 'capsule'
-      anchor.download = `handshake-${shortId}.beap`
+      const localpart = recipientEmail.trim().split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
+      const capsuleData = result.capsule_json ? JSON.parse(result.capsule_json) : null
+      const shortHash = capsuleData?.capsule_hash?.slice(0, 8) || result.handshake_id?.slice(3, 11) || 'capsule'
+      anchor.download = `handshake_${localpart}_${shortHash}.beap`
       document.body.appendChild(anchor)
       anchor.click()
       document.body.removeChild(anchor)

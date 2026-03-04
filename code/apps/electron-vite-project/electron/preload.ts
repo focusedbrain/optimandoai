@@ -213,14 +213,24 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const user = assertString(userMessage, 'userMessage')
     return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
   },
-  initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown) => {
+  initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
     const email = assertString(receiverEmail, 'receiverEmail')
     const acct = typeof fromAccountId === 'string' ? fromAccountId : ''
-    return ipcRenderer.invoke('handshake:initiate', email, acct)
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
   },
-  buildForDownload: (receiverEmail: unknown) => {
+  buildForDownload: (receiverEmail: unknown, contextOpts?: unknown) => {
     const email = assertString(receiverEmail, 'receiverEmail')
-    return ipcRenderer.invoke('handshake:buildForDownload', email)
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)
   },
   downloadCapsule: (capsuleJson: unknown, suggestedFilename: unknown) => {
     if (typeof capsuleJson !== 'string' || capsuleJson.length === 0 || capsuleJson.length > 65536) {

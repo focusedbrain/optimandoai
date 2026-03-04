@@ -3,7 +3,7 @@
   "productName": "WR Desk™",
   "icon": "public/giraffe",
   "directories": {
-    "output": "C:\\build-output\\build9",
+    "output": "C:\\build-output\\build31",
     "buildResources": "build"
   },
   "files": [

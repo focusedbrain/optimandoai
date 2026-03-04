@@ -90,7 +90,7 @@ describe('BEAP Email Sync — Detection', () => {
   test('T13: detectBeapInBody detects valid BEAP JSON', () => {
     const capsule = buildInitiateCapsule(
       buildTestSession({ wrdesk_user_id: 'sender-001' }),
-      { receiverUserId: 'receiver-001' },
+      { receiverUserId: 'receiver-001', receiverEmail: 'receiver@test.com' },
     )
     const json = JSON.stringify(capsule)
     const result = detectBeapInBody(json)
@@ -133,7 +133,7 @@ describe('BEAP Email Sync — Pipeline Submission', () => {
 
   test('T13: email with BEAP content → submitted to ingestion', async () => {
     const sender = buildTestSession({ wrdesk_user_id: 'sender-001', email: 'sender@test.com' })
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001' })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001', receiverEmail: 'receiver@test.com' })
     const json = JSON.stringify(capsule)
 
     const session = makeSSOSession()
@@ -155,7 +155,7 @@ describe('BEAP Email Sync — Pipeline Submission', () => {
 
   test('T17: duplicate email (same message_id) → not reprocessed', async () => {
     const sender = buildTestSession({ wrdesk_user_id: 'sender-001', email: 'sender@test.com' })
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001' })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001', receiverEmail: 'receiver@test.com' })
     const json = JSON.stringify(capsule)
     const session = makeSSOSession()
 
@@ -180,7 +180,7 @@ describe('BEAP Email Sync — Cycle', () => {
 
   test('runBeapSyncCycle processes BEAP emails and skips non-BEAP', async () => {
     const sender = buildTestSession({ wrdesk_user_id: 'sender-001', email: 'sender@test.com' })
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001' })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'receiver-001', receiverEmail: 'receiver@test.com' })
     const json = JSON.stringify(capsule)
     const session = makeSSOSession()
 

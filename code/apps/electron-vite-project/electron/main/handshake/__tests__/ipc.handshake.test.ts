@@ -110,7 +110,7 @@ describe('Handshake IPC — handshake.accept', () => {
   async function createPendingHandshake() {
     const sender = senderSession()
     const receiver = receiverSession()
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id, receiverEmail: receiver.email })
     await handleIngestionRPC(
       'ingestion.ingest',
       {
@@ -174,6 +174,7 @@ describe('Handshake IPC — handshake.refresh', () => {
 
     const initiate = buildInitiateCapsule(sender, {
       receiverUserId: receiver.wrdesk_user_id,
+      receiverEmail: receiver.email,
       reciprocal_allowed: true,
     })
     await handleIngestionRPC(
@@ -190,6 +191,7 @@ describe('Handshake IPC — handshake.refresh', () => {
     const accept = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
+      initiatorEmail: sender.email,
       sharing_mode: 'reciprocal',
     })
     await handleIngestionRPC(

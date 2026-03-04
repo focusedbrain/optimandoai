@@ -15,8 +15,8 @@ declare global {
       getContextBlockCount: (handshakeId: string) => Promise<number>
       queryContextBlocks?: (handshakeId: string) => Promise<VerifiedContextBlock[]>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
-      initiateHandshake?: (receiverEmail: string, fromAccountId: string) => Promise<any>
-      buildForDownload?: (receiverEmail: string) => Promise<any>
+      initiateHandshake?: (receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
+      buildForDownload?: (receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       downloadCapsule?: (capsuleJson: string, suggestedFilename: string) => Promise<any>
     }
     emailAccounts?: {

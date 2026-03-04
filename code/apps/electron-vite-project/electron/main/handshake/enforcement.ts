@@ -35,8 +35,9 @@ import {
   getContextBlockVersions,
   getExistingHandshakesForLookup,
   insertAuditLogEntry,
+  markContextBlocksInactiveByHandshake,
 } from './db'
-// persistContextBlocks import removed — content enters via BEAP-Capsule pipeline only
+import { ingestContextBlocks } from './contextIngestion'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 
 /**
@@ -63,6 +64,9 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
   return {
     schema_version: c.schema_version ?? 1,
     capsule_hash: c.capsule_hash ?? '',
+    context_hash: c.context_hash ?? '',
+    context_commitment: c.context_commitment ?? null,
+    nonce: c.nonce ?? '',
     senderIdentity: c.senderIdentity ?? {
       email: c.sender_email ?? '',
       iss: c.iss ?? '',
@@ -70,9 +74,13 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
       email_verified: true,
       wrdesk_user_id: c.sender_wrdesk_user_id ?? c.sender_id ?? '',
     },
+    receiverIdentity: c.receiverIdentity ?? null,
     signatureValid: true,
     containerIntegrityValid: true,
     sender_wrdesk_user_id: c.sender_wrdesk_user_id ?? c.sender_id ?? '',
+    sender_email: c.sender_email ?? c.senderIdentity?.email ?? '',
+    receiver_id: c.receiver_id ?? '',
+    receiver_email: c.receiver_email ?? '',
     capsuleType: mapCapsuleTypeToHandshake(c.capsule_type),
     handshake_id: c.handshake_id ?? '',
     seq: c.seq ?? 0,
@@ -193,6 +201,9 @@ export function processHandshakeCapsule(
   let blocksStored = 0
 
   // 6. Atomic transaction: all mutations in a single BEGIN IMMEDIATE
+  //    Context ingestion is a HARD GATE: if ingestion fails (commitment
+  //    mismatch, SQLite error, etc.), the entire transaction rolls back
+  //    and the handshake does NOT transition to active.
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
       record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy)
@@ -206,14 +217,30 @@ export function processHandshakeCapsule(
     } else if (input.capsuleType === 'handshake-revoke') {
       record = buildRevokeRecord(handshakeRecord!, input)
       updateHandshakeRecord(db, record)
+      markContextBlocksInactiveByHandshake(db, input.handshake_id)
     } else {
       throw new Error(`Unknown capsuleType: ${input.capsuleType}`)
     }
 
-    // Context block proofs are recorded for audit but contain no content.
-    // Actual content enters only through the full BEAP-Capsule pipeline.
-    const proofs = input.context_block_proofs ?? []
-    blocksStored = proofs.length
+    // Context block ingestion — mandatory hard gate.
+    // For accept/refresh/initiate: if context_blocks are present, they MUST
+    // be ingested successfully. Failure throws, which rolls back the entire
+    // transaction (including state transitions).
+    const capsuleObj = validated.capsule as Record<string, any>
+    const rawContextBlocks = capsuleObj?.context_blocks
+    if (Array.isArray(rawContextBlocks) && rawContextBlocks.length > 0) {
+      const ingestionResult = ingestContextBlocks(db, {
+        handshake_id: input.handshake_id,
+        relationship_id: input.relationship_id,
+        context_commitment: capsuleObj?.context_commitment ?? null,
+        context_blocks: rawContextBlocks,
+        publisher_id: input.sender_wrdesk_user_id,
+      })
+      blocksStored = ingestionResult.inserted
+    } else {
+      const proofs = input.context_block_proofs ?? []
+      blocksStored = proofs.length
+    }
 
     // Dedup hash
     insertSeenCapsuleHash(db, input.handshake_id, input.capsule_hash)
@@ -222,7 +249,28 @@ export function processHandshakeCapsule(
     insertAuditLogEntry(db, buildSuccessAuditEntry(input, record!, durationMs, blocksStored))
   })
 
-  tx()
+  try {
+    tx()
+  } catch (txErr: any) {
+    const isIngestionFailure = txErr?.message?.includes('Context commitment') ||
+      txErr?.message?.includes('context_commitment')
+
+    try {
+      insertAuditLogEntry(db, buildDenialAuditEntry(
+        input,
+        isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR,
+        isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
+        durationMs,
+      ))
+    } catch { /* audit must not mask */ }
+
+    return {
+      success: false,
+      reason: isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR,
+      failedStep: isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
+      pipelineDurationMs: durationMs,
+    }
+  }
 
   return {
     success: true,

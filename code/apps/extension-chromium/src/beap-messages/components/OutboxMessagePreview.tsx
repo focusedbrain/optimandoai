@@ -237,7 +237,7 @@ export const OutboxMessagePreview: React.FC<OutboxMessagePreviewProps> = ({
                   background: isProfessional ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.03)',
                   borderRadius: '4px'
                 }}>
-                  <span style={{ fontSize: '13px', color: textColor }}>📎 {att.name}</span>
+                  <span style={{ fontSize: '13px', color: textColor, display: 'flex', alignItems: 'center', gap: '4px' }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> {att.name}</span>
                   {att.size && (
                     <span style={{ fontSize: '11px', color: mutedColor }}>
                       {(att.size / 1024).toFixed(1)} KB

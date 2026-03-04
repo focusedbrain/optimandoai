@@ -95,8 +95,9 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
       capsule_type: 'initiate' as const,
       handshake_id: 'hs-det-001',
       relationship_id: 'rel:abc123',
-      schema_version: 1,
+      schema_version: 2,
       sender_wrdesk_user_id: 'sender-001',
+      receiver_email: 'receiver@test.com',
       seq: 0,
       timestamp: '2026-01-01T00:00:00.000Z',
       wrdesk_policy_hash: DEFAULT_POLICY_HASH,
@@ -132,6 +133,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const receiver = receiverSession()
     const capsule = buildInitiateCapsule(sender, {
       receiverUserId: receiver.wrdesk_user_id,
+      receiverEmail: receiver.email,
     })
 
     // Tamper: override seq to 1 (simulates incorrect builder behavior)
@@ -152,11 +154,12 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     const capsule = buildInitiateCapsule(sender, {
       receiverUserId: receiver.wrdesk_user_id,
+      receiverEmail: receiver.email,
       reciprocal_allowed: false,
     })
 
     // Validate structural correctness of the capsule
-    expect(capsule.schema_version).toBe(1)
+    expect(capsule.schema_version).toBe(2)
     expect(capsule.capsule_type).toBe('initiate')
     expect(capsule.seq).toBe(0)
     expect(capsule.sender_wrdesk_user_id).toBe('sender-001')
@@ -183,23 +186,21 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     // Step 1: initiate (received by receiver)
     const initiate = buildInitiateCapsule(sender, {
       receiverUserId: receiver.wrdesk_user_id,
+      receiverEmail: receiver.email,
     })
 
     const initResult = await submitCapsule(initiate, db, receiver)
     expect(initResult.success).toBe(true)
     expect(initResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
 
-    // Step 2: accept capsule built by the receiver
-    // In a real two-party system, this is sent from receiver to sender's ingestion.
-    // Here we process it on the same db with sender's session to simulate the
-    // initiator receiving the accept capsule.
     const accept = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
+      initiatorEmail: sender.email,
       sharing_mode: 'receive-only',
     })
 
-    expect(accept.schema_version).toBe(1)
+    expect(accept.schema_version).toBe(2)
     expect(accept.capsule_type).toBe('accept')
     expect(accept.seq).toBe(0)
     expect(accept.sharing_mode).toBe('receive-only')
@@ -220,6 +221,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     // reciprocal_allowed: true on initiate allows the acceptor to choose reciprocal sharing
     const initiate = buildInitiateCapsule(sender, {
       receiverUserId: receiver.wrdesk_user_id,
+      receiverEmail: receiver.email,
       reciprocal_allowed: true,
     })
     await submitCapsule(initiate, db, receiver)
@@ -227,6 +229,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const accept = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
+      initiatorEmail: sender.email,
       sharing_mode: 'reciprocal',
     })
     const result = await submitCapsule(accept, db, sender)
@@ -240,7 +243,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
   test('P4: duplicate initiate capsule (same hash) is deduped by pipeline', async () => {
     const sender = senderSession()
     const receiver = receiverSession()
-    const initiate = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id })
+    const initiate = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id, receiverEmail: receiver.email })
 
     const first = await submitCapsule(initiate, db, receiver)
     expect(first.success).toBe(true)
@@ -261,7 +264,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     migrateIngestionTables(freshDb)
 
     // No manual migrateHandshakeTables — ensureHandshakeMigration must run automatically
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id, receiverEmail: receiver.email })
     const result = await submitCapsule(capsule, freshDb, receiver)
 
     // If migration didn't run the DB call would throw; success means tables existed
@@ -273,7 +276,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
   test('P10: submitCapsuleViaRpc delivers capsule through the full pipeline', async () => {
     const sender = senderSession()
     const receiver = receiverSession()
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: receiver.wrdesk_user_id, receiverEmail: receiver.email })
 
     const result = await submitCapsuleViaRpc(capsule, db, receiver)
 
@@ -287,7 +290,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const sender = senderSession()
 
     // Build capsule to a different user, but submit with same identity as sender
-    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'some-other-user' })
+    const capsule = buildInitiateCapsule(sender, { receiverUserId: 'some-other-user', receiverEmail: 'other@example.com' })
 
     const result = await submitCapsule(capsule, db, sender) // same as sender — ownership violation
 
@@ -303,6 +306,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const refresh = buildRefreshCapsule(session, {
       handshake_id: 'hs-r-001',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'b@example.com',
       last_seq_received: 2,
       last_capsule_hash_received: 'c'.repeat(64),
     })
@@ -319,6 +323,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const revoke = buildRevokeCapsule(session, {
       handshake_id: 'hs-rv-001',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'b@example.com',
       last_seq_received: 1,
       last_capsule_hash_received: 'd'.repeat(64),
     })
@@ -353,6 +358,7 @@ describe('BEAP Pipeline — buildInitiateCapsule correctness', () => {
     const ts = '2026-03-01T12:00:00.000Z'
     const capsule = buildInitiateCapsule(session, {
       receiverUserId: 'u-b',
+      receiverEmail: 'b@example.com',
       timestamp: ts,
       handshake_id: 'hs-fixed-001',
     })
@@ -361,12 +367,14 @@ describe('BEAP Pipeline — buildInitiateCapsule correctness', () => {
       capsule_type: 'initiate',
       handshake_id: 'hs-fixed-001',
       relationship_id: deriveRelationshipId('u-a', 'u-b'),
-      schema_version: 1,
+      schema_version: 2,
       sender_wrdesk_user_id: 'u-a',
+      receiver_email: 'b@example.com',
       seq: 0,
       timestamp: ts,
       wrdesk_policy_hash: computePolicyHash(DEFAULT_POLICY_DESCRIPTOR),
       wrdesk_policy_version: '1.0',
+      context_commitment: null,
     })
 
     expect(capsule.capsule_hash).toEqual(expected)
@@ -377,6 +385,7 @@ describe('BEAP Pipeline — buildInitiateCapsule correctness', () => {
     const accept = buildAcceptCapsule(session, {
       handshake_id: 'hs-x-001',
       initiatorUserId: 'u-a',
+      initiatorEmail: 'a@example.com',
       sharing_mode: 'receive-only',
     })
     expect(accept.seq).toBe(0)

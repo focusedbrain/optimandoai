@@ -23,6 +23,57 @@ import {
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
 import { sendCapsuleViaEmail } from './emailTransport'
+import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
+
+// ── Context Block Helpers ──
+
+const MAX_MESSAGE_BYTES = 32 * 1024
+const MAX_BLOCKS_PER_CAPSULE = 64
+
+/**
+ * Convert raw RPC params (pre-built context_blocks and/or a plain message string)
+ * into a fully formed ContextBlockForCommitment array ready for the capsule builder.
+ *
+ * block_ids assigned here are provisional — the capsule builder will
+ * reassign canonical IDs scoped to the handshake_id.
+ */
+function buildContextBlocksFromParams(
+  rawBlocks: ContextBlockForCommitment[] | undefined,
+  rawMessage: string | undefined,
+): ContextBlockForCommitment[] {
+  const blocks: ContextBlockForCommitment[] = []
+
+  if (Array.isArray(rawBlocks)) {
+    for (const b of rawBlocks) {
+      if (blocks.length >= MAX_BLOCKS_PER_CAPSULE) break
+      if (
+        typeof b.block_id === 'string' && b.block_id.length > 0 && b.block_id.length <= 256 &&
+        typeof b.block_hash === 'string' && /^[a-f0-9]{64}$/.test(b.block_hash) &&
+        typeof b.type === 'string' && b.type.length > 0 &&
+        b.content !== undefined && b.content !== null
+      ) {
+        const recomputed = computeBlockHash(b.content)
+        if (recomputed !== b.block_hash) continue
+        blocks.push(b)
+      }
+    }
+  }
+
+  if (typeof rawMessage === 'string' && rawMessage.trim().length > 0) {
+    const content = rawMessage.trim()
+    if (Buffer.byteLength(content, 'utf-8') <= MAX_MESSAGE_BYTES && blocks.length < MAX_BLOCKS_PER_CAPSULE) {
+      const blockHash = computeBlockHash(content)
+      blocks.push({
+        block_id: `ctx-msg-pending`,
+        block_hash: blockHash,
+        type: 'plaintext',
+        content,
+      })
+    }
+  }
+
+  return blocks
+}
 
 // ── SSO Session Provider ──
 
@@ -119,11 +170,15 @@ export async function handleHandshakeRPC(
         receiverEmail,
         fromAccountId,
         skipVaultContext,
+        context_blocks: rawBlocks,
+        message: rawMessage,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         fromAccountId: string
         skipVaultContext?: boolean
+        context_blocks?: ContextBlockForCommitment[]
+        message?: string
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -135,7 +190,13 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      const capsule = buildInitiateCapsule(session, { receiverUserId })
+      const contextBlocks = buildContextBlocksFromParams(rawBlocks, rawMessage)
+
+      const capsule = buildInitiateCapsule(session, {
+        receiverUserId,
+        receiverEmail,
+        ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
+      })
 
       const effectiveAccountId = fromAccountId || session.email || ''
 
@@ -165,10 +226,14 @@ export async function handleHandshakeRPC(
       const {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
+        context_blocks: dlRawBlocks,
+        message: dlRawMessage,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         skipVaultContext?: boolean
+        context_blocks?: ContextBlockForCommitment[]
+        message?: string
       }
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
@@ -180,13 +245,22 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      const capsule = buildInitiateCapsule(session, { receiverUserId: dlReceiverUserId })
+      const dlContextBlocks = buildContextBlocksFromParams(dlRawBlocks, dlRawMessage)
+
+      const capsule = buildInitiateCapsule(session, {
+        receiverUserId: dlReceiverUserId,
+        receiverEmail: dlReceiverEmail,
+        ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
+      })
+      const localpart = dlReceiverEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
+      const shortHash = capsule.capsule_hash.slice(0, 8)
 
       return {
         type: 'handshake-build-result',
         success: true,
         handshake_id: capsule.handshake_id,
         capsule_json: JSON.stringify(capsule),
+        suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
       }
     }
 
@@ -217,10 +291,33 @@ export async function handleHandshakeRPC(
       const initiatorUserId = record.initiator.wrdesk_user_id
       const initiatorEmail = record.initiator.email
 
+      // Query stored context blocks from the initiate capsule to echo them back
+      let acceptContextBlocks: ContextBlockForCommitment[] | undefined
+      let acceptContextCommitment: string | null = null
+      try {
+        const stored = queryContextBlocks(db, { handshake_id })
+        if (stored.length > 0) {
+          acceptContextBlocks = stored.map(b => ({
+            block_id: b.block_id,
+            block_hash: b.block_hash,
+            scope_id: b.scope_id ?? undefined,
+            type: b.type,
+            content: b.payload_ref,
+          }))
+          const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
+          acceptContextCommitment = computeCommitment(acceptContextBlocks)
+        }
+      } catch {
+        // Context echo is best-effort; accept proceeds without it
+      }
+
       const capsule = buildAcceptCapsule(session, {
         handshake_id,
         initiatorUserId,
+        initiatorEmail,
         sharing_mode,
+        context_blocks: acceptContextBlocks,
+        context_commitment: acceptContextCommitment,
       })
 
       let emailResult: any = null
@@ -272,6 +369,7 @@ export async function handleHandshakeRPC(
       const capsule = buildRefreshCapsule(session, {
         handshake_id,
         counterpartyUserId,
+        counterpartyEmail,
         last_seq_received: record.last_seq_received,
         last_capsule_hash_received: record.last_capsule_hash_received,
         context_block_proofs: context_block_proofs ?? [],

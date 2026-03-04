@@ -106,10 +106,11 @@ describe('Handshake E2E — Hardened', () => {
     expect(result.handshake_id).toBeDefined()
 
     const parsed = JSON.parse(result.capsule_json)
-    expect(parsed.schema_version).toBe(1)
+    expect(parsed.schema_version).toBe(2)
     expect(parsed.capsule_type).toBe('initiate')
     expect(parsed.handshake_id).toMatch(/^hs-/)
-    expect(parsed.context_blocks).toBeUndefined()
+    expect(parsed.receiverIdentity).toBeNull()
+    expect(parsed.context_commitment).toBeNull()
     expect(parsed.data).toBeUndefined()
     expect(parsed.payload).toBeUndefined()
 
@@ -152,7 +153,7 @@ describe('Handshake E2E — Hardened', () => {
     const alice = aliceSession()
     const bob = bobSession()
 
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const capsuleJson = JSON.stringify(capsule)
 
     const result = await submitCapsule(capsuleJson, bobDb, bob)
@@ -169,7 +170,7 @@ describe('Handshake E2E — Hardened', () => {
     const alice = aliceSession()
     const bob = bobSession()
 
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj.context_blocks = [{ block_id: 'blk_abc', payload: 'malicious data' }]
 
@@ -188,7 +189,7 @@ describe('Handshake E2E — Hardened', () => {
     const bob = bobSession()
 
     // Bob receives initiate
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
 
     // Bob accepts
@@ -263,7 +264,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('Canonical rebuild: unknown fields stripped from capsule', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj.evil_field = 'should_be_removed'
     rawObj.another_unknown = { nested: true }
@@ -284,7 +285,7 @@ describe('Handshake E2E — Hardened', () => {
 
     // Build a valid capsule then pad it past 64KB
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj._padding = 'x'.repeat(70_000)
 
@@ -296,13 +297,13 @@ describe('Handshake E2E — Hardened', () => {
 
   test('Denied fields: each denied field name causes rejection', () => {
     const deniedFields = [
-      'context_blocks', 'data', 'payload', 'body', 'content',
+      'data', 'payload', 'body', 'content',
       'attachment', 'attachments', 'file', 'files', 'binary',
       'script', 'code', 'html', 'exec', 'command', 'eval',
     ]
 
     const alice = aliceSession()
-    const baseCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const baseCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
 
     for (const field of deniedFields) {
       const rawObj = JSON.parse(JSON.stringify(baseCapsule))
@@ -316,6 +317,18 @@ describe('Handshake E2E — Hardened', () => {
     }
   })
 
+  test('Malformed context_blocks: non-array value causes rejection', () => {
+    const alice = aliceSession()
+    const baseCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const rawObj = JSON.parse(JSON.stringify(baseCapsule))
+    rawObj.context_blocks = 'not-an-array'
+    const result = canonicalRebuild(rawObj)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toContain('context_blocks')
+    }
+  })
+
   test('context_block_proofs: valid proofs accepted in refresh', async () => {
     const alice = aliceSession()
     const bob = bobSession()
@@ -323,6 +336,7 @@ describe('Handshake E2E — Hardened', () => {
     // Set up ACTIVE handshake on Bob's side
     const initCapsule = buildInitiateCapsule(alice, {
       receiverUserId: 'bob-001',
+      receiverEmail: 'bob@partner.com',
       reciprocal_allowed: true,
     })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
@@ -338,6 +352,7 @@ describe('Handshake E2E — Hardened', () => {
     const acceptCapsule = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
+      initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
     })
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -347,6 +362,7 @@ describe('Handshake E2E — Hardened', () => {
     const refresh = buildRefreshCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
+      counterpartyEmail: 'bob@partner.com',
       last_seq_received: aliceRecord.last_seq_received ?? 0,
       last_capsule_hash_received: aliceRecord.last_capsule_hash_received ?? '',
       context_block_proofs: [
@@ -369,7 +385,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('context_block_proofs: invalid proof hash rejected', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj.context_block_proofs = [
       { block_id: 'blk_abc123', block_hash: 'not-a-valid-sha256' },
@@ -384,7 +400,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('context_block_proofs: missing block_id rejected', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj.context_block_proofs = [
       { block_hash: 'a'.repeat(64) },
@@ -399,7 +415,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('Canonical rebuild: NFC normalization and control char stripping', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     // Inject a control character into sender_id
     rawObj.sender_id = 'alice\x00-001'
@@ -415,7 +431,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('Missing required field rejected', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     delete rawObj.capsule_hash
 
@@ -428,7 +444,7 @@ describe('Handshake E2E — Hardened', () => {
 
   test('Invalid capsule_type rejected', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
     rawObj.capsule_type = 'malicious'
 
@@ -436,11 +452,11 @@ describe('Handshake E2E — Hardened', () => {
     expect(result.ok).toBe(false)
   })
 
-  test('schema_version !== 1 rejected', () => {
+  test('unsupported schema_version rejected', () => {
     const alice = aliceSession()
-    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001' })
+    const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
-    rawObj.schema_version = 2
+    rawObj.schema_version = 99
 
     const result = canonicalRebuild(rawObj)
     expect(result.ok).toBe(false)

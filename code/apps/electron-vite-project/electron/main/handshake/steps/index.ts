@@ -22,11 +22,13 @@ import { verifyScopePurpose } from './scopePurpose'
 import { verifyTimestamp } from './timestamp'
 import { checkExpiry } from './expiry'
 import { collectTierSignals, classifyTier, runTierSpecificChecks, enforceMinimumTier } from './tierSteps'
+import { verifyReceiverBinding } from './receiverBinding'
 
 export const HANDSHAKE_PIPELINE: readonly PipelineStep[] = Object.freeze([
   checkSchemaVersion,
   checkDuplicateCapsule,
   verifyHandshakeOwnership,
+  verifyReceiverBinding,
   verifySenderDomain,
   verifyWrdeskPolicyAnchor,
   verifyInputLimits,
@@ -50,6 +52,7 @@ export {
   checkSchemaVersion,
   checkDuplicateCapsule,
   verifyHandshakeOwnership,
+  verifyReceiverBinding,
   verifySenderDomain,
   verifyWrdeskPolicyAnchor,
   verifyInputLimits,

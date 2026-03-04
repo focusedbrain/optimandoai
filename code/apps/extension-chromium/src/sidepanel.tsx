@@ -2599,7 +2599,7 @@ function SidepanelOrchestrator() {
       if (isLlmLoading) return
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Attach files with 📎 for context\n\nTry: "What can you help me with?" or "#help"`
+        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Use the upload button to attach files for context\n\nTry: "What can you help me with?" or "#help"`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -3453,9 +3453,6 @@ function SidepanelOrchestrator() {
           textAlign: 'center'
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
-          <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700 }}>
-            WR Desk Analysis Dashboard
-          </h2>
           
           {!showManualLaunchInstructions ? (
             <>
@@ -4248,7 +4245,7 @@ function SidepanelOrchestrator() {
                     <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                     <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                     <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                     <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -4462,7 +4459,7 @@ function SidepanelOrchestrator() {
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                 >
-                  📎
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 </button>
                 <button 
                   title="Voice" 
@@ -5920,7 +5917,7 @@ height: '28px',
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                   <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                   <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -6135,7 +6132,7 @@ height: '28px',
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                   >
-                    📎
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
                   {renderSendButton()}
                 </div>
@@ -6987,7 +6984,7 @@ height: '28px',
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                   <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                   <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -7201,7 +7198,7 @@ height: '28px',
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                   >
-                    📎
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
                   {renderSendButton()}
                 </div>

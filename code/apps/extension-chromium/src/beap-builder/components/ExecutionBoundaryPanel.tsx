@@ -268,7 +268,7 @@ export const ExecutionBoundaryPanel: React.FC<ExecutionBoundaryPanelProps> = ({
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '12px' }}>{typeConfig?.icon || '📎'}</span>
+                          <span style={{ fontSize: '12px' }}>{typeConfig?.icon || '📁'}</span>
                           <span style={{ fontSize: '12px', fontFamily: 'monospace', color: textColor }}>
                             {dest.destination}
                           </span>
@@ -507,7 +507,7 @@ export const ExecutionBoundaryPanel: React.FC<ExecutionBoundaryPanelProps> = ({
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '12px' }}>{typeConfig?.icon || '📎'}</span>
+                          <span style={{ fontSize: '12px' }}>{typeConfig?.icon || '📁'}</span>
                           <span style={{ fontSize: '12px', fontFamily: 'monospace', color: textColor }}>
                             {src.source}
                           </span>

@@ -1501,6 +1501,21 @@ chrome.windows.onRemoved.addListener((windowId) => {
   }
 });
 
+// Notify Electron when the popup window gains / loses focus so it can
+// manage its always-on-top state (dashboard below popup, above tabs).
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (dashboardPopupWindowId === null) return
+  if (windowId === dashboardPopupWindowId) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'POPUP_FOCUSED' })) } catch {}
+    }
+  } else if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'POPUP_BLURRED' })) } catch {}
+    }
+  }
+});
+
 /**
  * Check if Electron app is running and launch it if needed
  * Uses a Windows-compatible notification approach (buttons don't work on Windows)

@@ -94,25 +94,37 @@ export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
   fromAccountId: string,
-  options?: { skipVaultContext?: boolean },
+  options?: {
+    skipVaultContext?: boolean
+    message?: string
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+  },
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
+    ...(options?.message ? { message: options.message } : {}),
+    ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
   })
 }
 
 export async function buildHandshakeForDownload(
   receiverEmail: string,
   fromAccountId: string,
-  options?: { skipVaultContext?: boolean },
+  options?: {
+    skipVaultContext?: boolean
+    message?: string
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+  },
 ): Promise<HandshakeBuildForDownloadResponse> {
   return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
     receiverUserId: receiverEmail,
     receiverEmail,
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
+    ...(options?.message ? { message: options.message } : {}),
+    ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
   })
 }
 

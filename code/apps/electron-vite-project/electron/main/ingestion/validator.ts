@@ -194,7 +194,7 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
   if (!('schema_version' in obj)) {
     return fail('MISSING_REQUIRED_FIELD', 'Missing required field: schema_version')
   }
-  if (obj.schema_version !== INGESTION_CONSTANTS.SUPPORTED_SCHEMA_VERSION) {
+  if (!INGESTION_CONSTANTS.SUPPORTED_SCHEMA_VERSIONS.includes(obj.schema_version as number)) {
     return fail('SCHEMA_VERSION_UNSUPPORTED', `Unsupported schema_version: ${obj.schema_version}`)
   }
 
@@ -295,7 +295,7 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
   const safeObj = sanitizeObject(obj)
   const validatedPayload: ValidatedCapsulePayload = {
     capsule_type: capsuleType,
-    schema_version: INGESTION_CONSTANTS.SUPPORTED_SCHEMA_VERSION,
+    schema_version: (obj.schema_version as number) ?? 2,
     handshake_id: typeof safeObj.handshake_id === 'string' ? safeObj.handshake_id : undefined,
     ...safeObj,
   }
@@ -317,7 +317,7 @@ function createValidatedCapsule(
     capsule: parsedPayload,
     validated_at: new Date().toISOString(),
     validator_version: INGESTION_CONSTANTS.VALIDATOR_VERSION,
-    schema_version: INGESTION_CONSTANTS.SUPPORTED_SCHEMA_VERSION,
+    schema_version: (parsedPayload.schema_version as number) ?? 2,
   }
 }
 

@@ -93,6 +93,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     // ═══════════════════════════════════════════════════════════════════
     const initiate = buildInitiateCapsule(alice, {
       receiverUserId: bob.wrdesk_user_id,
+      receiverEmail: bob.email,
       reciprocal_allowed: true,
     })
 
@@ -113,6 +114,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const accept = buildAcceptCapsule(bob, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: alice.wrdesk_user_id,
+      initiatorEmail: alice.email,
       sharing_mode: 'reciprocal',
     })
 
@@ -182,6 +184,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const refresh = buildRefreshCapsule(alice, {
       handshake_id: initiate.handshake_id,
       counterpartyUserId: bob.wrdesk_user_id,
+      counterpartyEmail: bob.email,
       last_seq_received: aliceRecord!.last_seq_received ?? 0,
       last_capsule_hash_received: aliceRecord!.last_capsule_hash_received ?? '',
       context_block_proofs: [
@@ -207,6 +210,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const withProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-test',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'counterparty@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
       context_block_proofs: [
@@ -219,6 +223,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const withoutProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-test',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'counterparty@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
     })
@@ -232,6 +237,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const withProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-hash-test',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'counterparty@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
       timestamp: ts,
@@ -243,6 +249,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const withoutProofs = buildRefreshCapsule(session, {
       handshake_id: 'hs-hash-test',
       counterpartyUserId: 'u-b',
+      counterpartyEmail: 'counterparty@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
       timestamp: ts,

@@ -187,7 +187,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={() => onNewHandshake ? onNewHandshake() : window.analysisDashboard?.openHandshakeRequest?.()}
+              onClick={() => onNewHandshake?.()}
               style={{
                 padding: '4px 8px', fontSize: '10px', fontWeight: 600,
                 background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',

@@ -72,8 +72,10 @@ export function buildVerifiedCapsuleInput(
   overrides?: Partial<VerifiedCapsuleInput>,
 ): VerifiedCapsuleInput {
   return {
-    schema_version: 1,
+    schema_version: 2,
     capsule_hash: `capsule-hash-${nextId()}`,
+    context_hash: 'a'.repeat(64),
+    nonce: 'b'.repeat(64),
     senderIdentity: {
       email: 'sender@example.com',
       iss: 'https://auth.wrdesk.com',
@@ -84,6 +86,9 @@ export function buildVerifiedCapsuleInput(
     signatureValid: true,
     containerIntegrityValid: true,
     sender_wrdesk_user_id: 'sender-user-001',
+    sender_email: 'sender@example.com',
+    receiver_id: 'local-user-001',
+    receiver_email: 'local@wrdesk.com',
     capsuleType: 'handshake-initiate',
     handshake_id: 'hs-001',
     seq: 0,

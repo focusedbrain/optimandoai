@@ -127,11 +127,15 @@ export function HandshakeRequestForm({
     setIsSending(true)
 
     try {
+      const combinedContext = [message.trim(), contextGraphText.trim()].filter(Boolean).join('\n\n')
       await initiateHandshake(
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
-        { skipVaultContext: !contextualHandshakes },
+        {
+          skipVaultContext: !contextualHandshakes,
+          ...(combinedContext ? { message: combinedContext } : {}),
+        },
       )
 
       setSendSuccess(true)

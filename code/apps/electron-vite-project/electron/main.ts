@@ -546,6 +546,10 @@ let currentExtensionTheme: 'pro' | 'dark' | 'standard' = 'standard';
 // Flag to track when app is actually quitting (from tray menu "Quit")
 let isAppQuitting = false
 
+// When a Chrome extension popup is open (BEAP Inbox, Handshake), the
+// dashboard lowers its z-level so the popup can appear on top.
+let popupIsOpen = false
+
 // Set flag when app is actually quitting
 app.on('before-quit', async () => {
   isAppQuitting = true
@@ -657,7 +661,7 @@ async function createWindow() {
   // Security: renderer isolation; tokens must never be exposed to renderer
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
-    title: 'WR Desk™ Analysis Dashboard',
+    title: 'WR Desk™',
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -675,15 +679,18 @@ async function createWindow() {
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
 
-  // ── Always-on-top: use 'screen-saver' level which maps to HWND_TOPMOST
-  // on Windows. 'floating' is unreliable on Windows (Electron issue #28052) —
-  // it loses its z-position when another topmost window (like a Chrome popup)
-  // takes focus. 'screen-saver' is the highest stable level that reliably
-  // stays above all browser windows.
-  // Re-assert on every blur so the OS can never quietly reorder it.
+  // ── Always-on-top z-order management ──
+  // Default level is 'screen-saver' (HWND_TOPMOST on Windows) so the
+  // dashboard stays above all regular browser windows.
+  // When a Chrome extension popup is opened from the dashboard (BEAP Inbox,
+  // +New Handshake), we temporarily DISABLE alwaysOnTop so the focused
+  // Chrome popup sits on top.  The dashboard remains visible behind the
+  // popup.  When the popup closes (FOCUS_DASHBOARD), we restore
+  // 'screen-saver' level and moveTop() so the dashboard is back above
+  // all browser windows.
   const assertAlwaysOnTop = () => {
     try {
-      if (win && !win.isDestroyed() && win.isVisible()) {
+      if (win && !win.isDestroyed() && win.isVisible() && !popupIsOpen) {
         win.setAlwaysOnTop(true, 'screen-saver')
         win.moveTop()
       }
@@ -832,6 +839,13 @@ async function createWindow() {
         console.log('[MAIN] 📐 Dashboard bounds:', bounds, 'state:', windowState)
       }
       
+      // Disable alwaysOnTop so the Chrome popup appears above the dashboard.
+      // The blur handler is also suppressed while popupIsOpen is true.
+      popupIsOpen = true
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(false)
+      }
+      
       // Send message to Chrome extension via WebSocket to open the popup
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
@@ -854,9 +868,9 @@ async function createWindow() {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
     })
-    // Handle + New Handshake from dashboard - open popup in Chrome extension at Handshake Request
+
     ipcMain.on('OPEN_HANDSHAKE_REQUEST', () => {
-      console.log('[MAIN] 🤝 Handshake Request popup requested from dashboard')
+      console.log('[MAIN] 📨 Handshake Request popup requested from dashboard')
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
       let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
       if (win) {
@@ -865,18 +879,30 @@ async function createWindow() {
         if (win.isFullScreen()) windowState = 'fullscreen'
         else if (win.isMaximized()) windowState = 'maximized'
       }
+      popupIsOpen = true
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(false)
+      }
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
         theme: currentExtensionTheme,
         launchMode: 'dashboard-handshake-request',
-        bounds,
-        windowState,
+        bounds: bounds,
+        windowState: windowState
       })
+      let sent = false
       wsClients.forEach((socket: any) => {
-        try { socket.send(message) } catch (e) {
+        try {
+          socket.send(message)
+          sent = true
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP (handshake-request) to extension')
+        } catch (e) {
           console.error('[MAIN] Error sending to extension:', e)
         }
       })
+      if (!sent) {
+        console.log('[MAIN] ⚠️ No WebSocket clients connected - handshake popup may not open')
+      }
     })
 
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
@@ -1897,23 +1923,34 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => {
       try {
         const vs = (globalThis as any).__og_vault_service_ref
         const db = vs?.getDb?.()
         if (!db) return { success: false, error: 'Vault locked' }
-        return await handleHandshakeRPC('handshake.initiate', { receiverUserId: receiverEmail, receiverEmail, fromAccountId }, db)
+        return await handleHandshakeRPC('handshake.initiate', {
+          receiverUserId: receiverEmail,
+          receiverEmail,
+          fromAccountId,
+          ...(contextOpts?.message ? { message: contextOpts.message } : {}),
+          ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+        }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Initiation failed.' }
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => {
       try {
         const vs = (globalThis as any).__og_vault_service_ref
         const db = vs?.getDb?.()
         if (!db) return { success: false, error: 'Vault locked' }
-        return await handleHandshakeRPC('handshake.buildForDownload', { receiverUserId: receiverEmail, receiverEmail }, db)
+        return await handleHandshakeRPC('handshake.buildForDownload', {
+          receiverUserId: receiverEmail,
+          receiverEmail,
+          ...(contextOpts?.message ? { message: contextOpts.message } : {}),
+          ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+        }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Build failed.' }
       }
@@ -2470,11 +2507,23 @@ app.whenReady().then(async () => {
             }
             // ===== FOCUS DASHBOARD HANDLER =====
             if (msg.type === 'FOCUS_DASHBOARD') {
-              console.log('[MAIN] 🔙 FOCUS_DASHBOARD received — focusing dashboard')
+              console.log('[MAIN] 🔙 FOCUS_DASHBOARD received — restoring dashboard to top')
+              popupIsOpen = false
               if (win && !win.isDestroyed()) {
+                win.setAlwaysOnTop(true, 'screen-saver')
                 if (win.isMinimized()) win.restore()
                 win.show()
                 win.focus()
+                win.moveTop()
+              }
+              return
+            }
+            // ===== POPUP Z-ORDER HANDLERS =====
+            // While a popup is open the dashboard stays non-topmost.
+            // No z-order flashing — the popup must always remain above.
+            if (msg.type === 'POPUP_FOCUSED' || msg.type === 'POPUP_BLURRED') {
+              if (popupIsOpen && win && !win.isDestroyed()) {
+                win.setAlwaysOnTop(false)
               }
               return
             }

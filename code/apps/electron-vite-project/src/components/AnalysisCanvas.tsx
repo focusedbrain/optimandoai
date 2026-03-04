@@ -176,8 +176,6 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
     <div className="analysis-canvas">
       {/* Header */}
       <div className="analysis-header">
-        <h1 className="analysis-title">Analysis Dashboard</h1>
-        <span className="analysis-badge">Enterprise Preview</span>
         <StatusBadge flags={helpers.currentFlags} size="medium" />
       </div>
 

@@ -91,9 +91,15 @@ describe('Validator', () => {
     if (!result.success) expect(result.reason).toBe('SCHEMA_VERSION_UNSUPPORTED')
   })
 
-  // Test 3: schema_version = 2
-  test('schema_version = 2 → SCHEMA_VERSION_UNSUPPORTED', () => {
+  // Test 3: schema_version = 2 → accepted
+  test('schema_version = 2 → accepted', () => {
     const result = validateCapsule(makeCandidate({ ...validInitiate(), schema_version: 2 }))
+    expect(result.success).toBe(true)
+  })
+
+  // Test 3b: schema_version = 99 → SCHEMA_VERSION_UNSUPPORTED
+  test('schema_version = 99 → SCHEMA_VERSION_UNSUPPORTED', () => {
+    const result = validateCapsule(makeCandidate({ ...validInitiate(), schema_version: 99 }))
     expect(result.success).toBe(false)
     if (!result.success) expect(result.reason).toBe('SCHEMA_VERSION_UNSUPPORTED')
   })

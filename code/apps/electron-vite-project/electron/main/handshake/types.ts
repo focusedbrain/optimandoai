@@ -228,6 +228,16 @@ export interface ExecutionCapsule {
   context_blocks?: ContextBlockInput[];
 }
 
+// ── Receiver Identity (populated on confirm, null on initiate) ──
+
+export interface ReceiverIdentity {
+  email: string;
+  iss: string;
+  sub: string;
+  email_verified: true;
+  wrdesk_user_id: string;
+}
+
 // ── Context Block Input ──
 
 export interface ContextBlockInput {
@@ -254,6 +264,9 @@ export type CapsuleType =
 export interface VerifiedCapsuleInput {
   schema_version: number;
   capsule_hash: string;
+  context_hash: string;
+  context_commitment?: string | null;
+  nonce: string;
   senderIdentity: {
     email: string;
     iss: string;
@@ -261,9 +274,13 @@ export interface VerifiedCapsuleInput {
     email_verified: true;
     wrdesk_user_id: string;
   };
+  receiverIdentity?: ReceiverIdentity | null;
   signatureValid: true;
   containerIntegrityValid: true;
   sender_wrdesk_user_id: string;
+  sender_email: string;
+  receiver_id: string;
+  receiver_email: string;
   capsuleType: CapsuleType;
   handshake_id: string;
   seq: number;
@@ -379,6 +396,8 @@ export enum ReasonCode {
   TIER_BELOW_RECEIVER_MINIMUM = 'TIER_BELOW_RECEIVER_MINIMUM',
   CLOCK_SKEW = 'CLOCK_SKEW',
   DUPLICATE_CAPSULE = 'DUPLICATE_CAPSULE',
+  CONTEXT_HASH_MISMATCH = 'CONTEXT_HASH_MISMATCH',
+  CONTEXT_INGESTION_FAILED = 'CONTEXT_INGESTION_FAILED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
 }
 
@@ -500,7 +519,7 @@ export const INPUT_LIMITS = {
   MAX_TYPE_LENGTH: 128,
   MAX_PAYLOAD_BYTES_DEFAULT: 65536,
   MAX_BLOCKS_PER_CAPSULE_DEFAULT: 100,
-  SCHEMA_VERSION_CURRENT: 1,
+  SCHEMA_VERSION_CURRENT: 2,
   CLOCK_SKEW_TOLERANCE_MS: 5 * 60 * 1000,
   PENDING_TIMEOUT_MS: 7 * 24 * 60 * 60 * 1000,
   RETENTION_JOB_INTERVAL_MS: 60 * 60 * 1000,

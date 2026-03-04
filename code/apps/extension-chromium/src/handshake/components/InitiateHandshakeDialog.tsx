@@ -78,11 +78,15 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
 
     try {
       const receiverUserId = recipientEmail.trim().toLowerCase()
+      const combinedContext = contextGraphText.trim()
       const result = await initiateHandshake(
         receiverUserId,
         recipientEmail.trim(),
         fromAccountId,
-        { skipVaultContext: !contextualHandshakes },
+        {
+          skipVaultContext: !contextualHandshakes,
+          ...(combinedContext ? { message: combinedContext } : {}),
+        },
       )
       setSuccess(true)
       onInitiated?.(result.handshake_id)

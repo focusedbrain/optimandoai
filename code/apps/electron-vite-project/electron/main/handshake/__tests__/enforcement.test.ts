@@ -16,14 +16,18 @@ describe('Schema Version', () => {
     const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ schema_version: 1 }) })
     expect(checkSchemaVersion.execute(ctx).passed).toBe(true)
   })
+  test('schema_version 2 → passes', () => {
+    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ schema_version: 2 }) })
+    expect(checkSchemaVersion.execute(ctx).passed).toBe(true)
+  })
   test('schema_version 0 → UNSUPPORTED_SCHEMA', () => {
     const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ schema_version: 0 }) })
     const r = checkSchemaVersion.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.UNSUPPORTED_SCHEMA)
   })
-  test('schema_version 2 (unknown) → UNSUPPORTED_SCHEMA', () => {
-    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ schema_version: 2 }) })
+  test('schema_version 99 (unknown) → UNSUPPORTED_SCHEMA', () => {
+    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ schema_version: 99 }) })
     const r = checkSchemaVersion.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.UNSUPPORTED_SCHEMA)
