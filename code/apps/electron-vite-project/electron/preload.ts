@@ -218,6 +218,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const acct = typeof fromAccountId === 'string' ? fromAccountId : ''
     const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
     const safeOpts = opts ? {
+      ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
       ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
     } : undefined
@@ -227,6 +228,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const email = assertString(receiverEmail, 'receiverEmail')
     const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
     const safeOpts = opts ? {
+      ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
       ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
     } : undefined

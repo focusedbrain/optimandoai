@@ -1921,15 +1921,15 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
       try {
         const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
-        if (!db) return { success: false, error: 'Vault locked' }
+        const db = vs?.getDb?.() ?? null
         return await handleHandshakeRPC('handshake.initiate', {
           receiverUserId: receiverEmail,
           receiverEmail,
           fromAccountId,
+          skipVaultContext: contextOpts?.skipVaultContext ?? false,
           ...(contextOpts?.message ? { message: contextOpts.message } : {}),
           ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
         }, db)
@@ -1938,14 +1938,14 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
       try {
         const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
-        if (!db) return { success: false, error: 'Vault locked' }
+        const db = vs?.getDb?.() ?? null
         return await handleHandshakeRPC('handshake.buildForDownload', {
           receiverUserId: receiverEmail,
           receiverEmail,
+          skipVaultContext: contextOpts?.skipVaultContext ?? true,
           ...(contextOpts?.message ? { message: contextOpts.message } : {}),
           ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
         }, db)

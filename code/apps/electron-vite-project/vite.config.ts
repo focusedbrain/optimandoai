@@ -4,6 +4,46 @@ import fs from 'node:fs'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 
+// Plugin to intercept specific extension files and replace with Electron shims.
+// Aliases don't work for relative imports inside extension-chromium — resolveId catches them by absolute path.
+function shimExtensionPlugin() {
+  const extSrc = path.resolve(__dirname, '../extension-chromium/src')
+  const shimDir = path.resolve(__dirname, 'src/shims')
+
+  // Normalize to forward slashes for cross-platform comparison
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\.(ts|tsx|js|jsx)$/, '')
+
+  const shimMap: Record<string, string> = {
+    [norm(path.join(extSrc, 'handshake', 'handshakeRpc'))]: path.join(shimDir, 'handshakeRpc.ts'),
+    [norm(path.join(extSrc, 'vault', 'hsContextProfilesRpc'))]: path.join(shimDir, 'hsContextProfilesRpc.ts'),
+  }
+
+  return {
+    name: 'shim-extension',
+    enforce: 'pre' as const,
+    resolveId(id: string, importer: string | undefined) {
+      if (!importer) return null
+      let resolved: string
+      if (id.startsWith('.')) {
+        resolved = norm(path.resolve(path.dirname(importer), id))
+      } else {
+        resolved = norm(id)
+      }
+      const shim = shimMap[resolved]
+      if (shim) return shim
+      return null
+    },
+    load(id: string) {
+      const normalized = norm(id)
+      const shim = shimMap[normalized]
+      if (shim) {
+        return fs.readFileSync(shim, 'utf-8')
+      }
+      return null
+    },
+  }
+}
+
 // Plugin to copy pdf.worker.mjs to dist-electron at build time
 function copyPdfWorkerPlugin() {
   return {
@@ -25,17 +65,24 @@ function copyPdfWorkerPlugin() {
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
-    alias: {
-      '@ext': path.resolve(__dirname, '../extension-chromium/src'),
-      '@ext/handshake/handshakeRpc': path.resolve(__dirname, 'src/shims/handshakeRpc'),
-      '@ext/vault/hsContextProfilesRpc': path.resolve(__dirname, 'src/shims/hsContextProfilesRpc'),
-      '@ext/reconstruction': path.resolve(__dirname, 'src/shims/reconstruction'),
-      '@ext/audit': path.resolve(__dirname, 'src/shims/audit'),
-      '@ext/envelope-evaluation': path.resolve(__dirname, 'src/shims/envelope-evaluation'),
-      '@ext/ingress': path.resolve(__dirname, 'src/shims/ingress'),
-    },
+    alias: [
+      // Shim the extension's handshakeRpc (matched by both alias and absolute path for relative imports)
+      { find: '@ext/handshake/handshakeRpc', replacement: path.resolve(__dirname, 'src/shims/handshakeRpc') },
+      { find: path.resolve(__dirname, '../extension-chromium/src/handshake/handshakeRpc'), replacement: path.resolve(__dirname, 'src/shims/handshakeRpc') },
+      // Shim hsContextProfilesRpc
+      { find: '@ext/vault/hsContextProfilesRpc', replacement: path.resolve(__dirname, 'src/shims/hsContextProfilesRpc') },
+      { find: path.resolve(__dirname, '../extension-chromium/src/vault/hsContextProfilesRpc'), replacement: path.resolve(__dirname, 'src/shims/hsContextProfilesRpc') },
+      // Other shims
+      { find: '@ext/reconstruction', replacement: path.resolve(__dirname, 'src/shims/reconstruction') },
+      { find: '@ext/audit', replacement: path.resolve(__dirname, 'src/shims/audit') },
+      { find: '@ext/envelope-evaluation', replacement: path.resolve(__dirname, 'src/shims/envelope-evaluation') },
+      { find: '@ext/ingress', replacement: path.resolve(__dirname, 'src/shims/ingress') },
+      // Catch-all for @ext
+      { find: '@ext', replacement: path.resolve(__dirname, '../extension-chromium/src') },
+    ],
   },
   plugins: [
+    shimExtensionPlugin(),
     react(),
     electron({
       main: {
