@@ -5,7 +5,7 @@ import './HybridSearch.css'
 
 type SearchMode = 'chat' | 'search'
 type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'all'
-type DashboardView = 'analysis' | 'handshakes' | 'beap'
+type DashboardView = 'analysis' | 'handshakes' | 'beap' | 'handshake-request'
 
 interface SearchResult {
   id: string

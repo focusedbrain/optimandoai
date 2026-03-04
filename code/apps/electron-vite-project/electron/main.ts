@@ -666,14 +666,33 @@ async function createWindow() {
       sandbox: true,
       webSecurity: true,
     },
-    show: false,  // Always start hidden - visibility controlled by openDashboardWindow()
+    show: false,
     width: 1200,
     height: 800,
+    alwaysOnTop: true,
   })
-  
+
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
-  
+
+  // ── Always-on-top: use 'screen-saver' level which maps to HWND_TOPMOST
+  // on Windows. 'floating' is unreliable on Windows (Electron issue #28052) —
+  // it loses its z-position when another topmost window (like a Chrome popup)
+  // takes focus. 'screen-saver' is the highest stable level that reliably
+  // stays above all browser windows.
+  // Re-assert on every blur so the OS can never quietly reorder it.
+  const assertAlwaysOnTop = () => {
+    try {
+      if (win && !win.isDestroyed() && win.isVisible()) {
+        win.setAlwaysOnTop(true, 'screen-saver')
+        win.moveTop()
+      }
+    } catch {}
+  }
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.on('blur', assertAlwaysOnTop)
+  win.on('show', assertAlwaysOnTop)
+
   console.log('[MAIN] Window created (hidden by default)')
   
   // When user clicks X, hide to tray instead of quitting
@@ -811,11 +830,6 @@ async function createWindow() {
           windowState = 'maximized'
         }
         console.log('[MAIN] 📐 Dashboard bounds:', bounds, 'state:', windowState)
-        
-        // Blur the dashboard window so Chrome popup can appear on top
-        try {
-          win.blur()
-        } catch {}
       }
       
       // Send message to Chrome extension via WebSocket to open the popup
@@ -850,7 +864,6 @@ async function createWindow() {
         bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
         if (win.isFullScreen()) windowState = 'fullscreen'
         else if (win.isMaximized()) windowState = 'maximized'
-        try { win.blur() } catch {}
       }
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
@@ -1874,6 +1887,16 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('email:listAccounts', async () => {
+      try {
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        return { ok: true, data: accounts }
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'Failed to list accounts' }
+      }
+    })
+
     ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string) => {
       try {
         const vs = (globalThis as any).__og_vault_service_ref
@@ -2444,6 +2467,16 @@ app.whenReady().then(async () => {
                 console.error('[MAIN] Error sending pong:', e)
               }
               return // Don't process further handlers for ping
+            }
+            // ===== FOCUS DASHBOARD HANDLER =====
+            if (msg.type === 'FOCUS_DASHBOARD') {
+              console.log('[MAIN] 🔙 FOCUS_DASHBOARD received — focusing dashboard')
+              if (win && !win.isDestroyed()) {
+                if (win.isMinimized()) win.restore()
+                win.show()
+                win.focus()
+              }
+              return
             }
             // ===== THEME SYNC HANDLER =====
             if (msg.type === 'THEME_SYNC') {
