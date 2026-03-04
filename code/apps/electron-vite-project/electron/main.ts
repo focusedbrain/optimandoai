@@ -819,7 +819,6 @@ async function createWindow() {
     ipcMain.on('OPEN_BEAP_INBOX', () => {
       console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
       
-      // Get dashboard window bounds and state to sync with popup
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
       let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
       if (win) {
@@ -830,13 +829,11 @@ async function createWindow() {
           width: dashBounds.width,
           height: dashBounds.height
         }
-        // Detect if dashboard is maximized or fullscreen
         if (win.isFullScreen()) {
           windowState = 'fullscreen'
         } else if (win.isMaximized()) {
           windowState = 'maximized'
         }
-        console.log('[MAIN] 📐 Dashboard bounds:', bounds, 'state:', windowState)
       }
       
       // Disable alwaysOnTop so the Chrome popup appears above the dashboard.
@@ -844,6 +841,7 @@ async function createWindow() {
       popupIsOpen = true
       if (win && !win.isDestroyed()) {
         win.setAlwaysOnTop(false)
+        win.minimize()
       }
       
       // Send message to Chrome extension via WebSocket to open the popup
