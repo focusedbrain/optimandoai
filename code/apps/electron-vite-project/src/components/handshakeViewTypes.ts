@@ -19,5 +19,8 @@ declare global {
       buildForDownload?: (receiverEmail: string) => Promise<any>
       downloadCapsule?: (capsuleJson: string, suggestedFilename: string) => Promise<any>
     }
+    emailAccounts?: {
+      listAccounts: () => Promise<{ ok: boolean; data?: Array<{ id: string; displayName: string; email: string; provider: string; status: string; lastError?: string }>; error?: string }>
+    }
   }
 }

@@ -76,7 +76,7 @@ function StateBadge({ state }: { state: string }) {
 
 // ── Main Component ──
 
-export default function HandshakeView() {
+export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () => void }) {
   const [handshakes, setHandshakes] = useState<HandshakeRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -187,7 +187,7 @@ export default function HandshakeView() {
           <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={() => window.analysisDashboard?.openHandshakeRequest?.()}
+              onClick={() => onNewHandshake ? onNewHandshake() : window.analysisDashboard?.openHandshakeRequest?.()}
               style={{
                 padding: '4px 8px', fontSize: '10px', fontWeight: 600,
                 background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',

@@ -232,6 +232,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
 })
 
+// ── Email Accounts ─────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('emailAccounts', {
+  listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+})
+
 // ── Build Integrity (offline verification) ────────────────────────────────
 contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),

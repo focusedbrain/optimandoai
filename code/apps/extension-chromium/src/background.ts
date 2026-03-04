@@ -20,6 +20,8 @@ const tabSidebarStatus = new Map<number, boolean>();
 // Track if we've already tried to launch Electron this session
 let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
+// Track the dashboard-launched popup window id so we can restore focus when it closes
+let dashboardPopupWindowId: number | null = null;
 // Track if MailGuard should be active (persists across reconnections)
 let mailGuardShouldBeActive = false;
 let lastMailGuardWindowInfo: any = null;
@@ -1025,12 +1027,19 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 top: dashboardBounds?.y ?? 100,
                 focused: true
               }
+
+              const trackPopupId = (winId: number) => {
+                dashboardPopupWindowId = winId
+                console.log('[BG] 📌 Tracking popup window id for focus-restore:', winId)
+              }
               
-              // Prevent duplicates: if a popup already exists, update its bounds and focus
+              // Prevent duplicates: if our tracked popup already exists, update its bounds and focus
               try {
-                chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
-                  const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
+                chrome.windows.getAll({ populate: false, windowTypes: ['popup'] }, (wins) => {
+                  const existing = dashboardPopupWindowId !== null
+                    && wins.find(w => w.id === dashboardPopupWindowId)
                   if (existing && existing.id) {
+                    trackPopupId(existing.id)
                     // Update existing popup: set state to match dashboard, set bounds, and focus
                     if (shouldMaximize) {
                       chrome.windows.update(existing.id, { focused: true, state: 'maximized' })
@@ -1045,27 +1054,25 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                       })
                     }
                   } else {
-                    // Create new popup with normal state first
+                    // Create new popup, then force focus after it has rendered
                     chrome.windows.create(opts, (newWindow) => {
                       if (newWindow?.id) {
                         const winId = newWindow.id
-                        // If dashboard was maximized/fullscreen, maximize the popup after creation
+                        trackPopupId(winId)
                         if (shouldMaximize) {
                           setTimeout(() => {
                             try {
-                              chrome.windows.update(winId, { focused: true, state: 'maximized', drawAttention: true })
+                              chrome.windows.update(winId, { focused: true, state: 'maximized' })
                             } catch {}
-                          }, 50)
+                          }, 100)
                         } else {
-                          // Ensure it's focused and visible on top
-                          const forceVisible = () => {
-                            try {
-                              chrome.windows.update(winId, { focused: true, state: 'normal', drawAttention: true })
-                            } catch {}
-                          }
-                          forceVisible()
-                          setTimeout(forceVisible, 50)
-                          setTimeout(forceVisible, 150)
+                          // Give the window time to render before forcing focus
+                          setTimeout(() => {
+                            try { chrome.windows.update(winId, { focused: true, state: 'normal' }) } catch {}
+                          }, 100)
+                          setTimeout(() => {
+                            try { chrome.windows.update(winId, { focused: true }) } catch {}
+                          }, 300)
                         }
                       }
                     })
@@ -1481,6 +1488,17 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     _webMcpRateMap.delete(tabId)
   }
   tabSidebarStatus.delete(tabId)
+});
+
+// When the dashboard-launched popup is closed, restore focus to the Electron dashboard
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === dashboardPopupWindowId) {
+    dashboardPopupWindowId = null
+    console.log('[BG] 🔙 Dashboard popup closed — restoring focus to Electron dashboard')
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'FOCUS_DASHBOARD' })) } catch {}
+    }
+  }
 });
 
 /**

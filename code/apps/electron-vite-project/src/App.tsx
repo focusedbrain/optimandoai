@@ -3,6 +3,8 @@ import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
+import BeapInboxView from './components/BeapInboxView'
+import HandshakeRequestView from './components/HandshakeRequestView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
 // Type declaration for the Analysis Dashboard preload API
@@ -67,7 +69,7 @@ function normalizeTheme(theme: string): ExtensionTheme {
 //   )
 // }
 
-type DashboardView = 'analysis' | 'handshakes' | 'beap'
+type DashboardView = 'analysis' | 'handshakes' | 'beap' | 'handshake-request'
 
 function App() {
   // Extension theme state - synced from extension via main process (default: standard)
@@ -129,7 +131,6 @@ function App() {
 
   const handleBeapTabClick = useCallback(() => {
     setActiveView('beap')
-    window.analysisDashboard?.openBeapInbox()
   }, [])
 
   return (
@@ -166,8 +167,12 @@ function App() {
       </header>
 
       <main className="app-main">
-        {activeView === 'handshakes' ? (
-          <HandshakeView />
+        {activeView === 'handshake-request' ? (
+          <HandshakeRequestView onBack={() => setActiveView('handshakes')} />
+        ) : activeView === 'beap' ? (
+          <BeapInboxView />
+        ) : activeView === 'handshakes' ? (
+          <HandshakeView onNewHandshake={() => setActiveView('handshake-request')} />
         ) : (
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}
