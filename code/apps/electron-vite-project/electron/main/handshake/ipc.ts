@@ -256,27 +256,6 @@ export async function handleHandshakeRPC(
         ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
       })
 
-      // Phase 1: store content locally as pending_delivery (sender side)
-      if (db && localBlocks.length > 0) {
-        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, receiverUserId)
-        for (const block of localBlocks) {
-          insertContextStoreEntry(db, {
-            block_id: block.block_id,
-            block_hash: block.block_hash,
-            handshake_id: capsule.handshake_id,
-            relationship_id: relationshipId,
-            scope_id: block.scope_id ?? null,
-            publisher_id: session.wrdesk_user_id,
-            type: block.type,
-            content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-            status: 'pending_delivery',
-            valid_until: null,
-            ingested_at: null,
-            superseded: 0,
-          })
-        }
-      }
-
       const effectiveAccountId = fromAccountId || session.email || ''
 
       let emailResult: any = null
@@ -289,6 +268,31 @@ export async function handleHandshakeRPC(
         localResult = await submitCapsuleViaRpc(capsule, db, session)
       } else if (!skipVaultContext) {
         return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
+      }
+
+      // Phase 1: store content locally as pending_delivery (sender side).
+      // Must run AFTER submitCapsuleViaRpc so the handshakes row exists before
+      // context_store's REFERENCES handshakes(handshake_id) FK is satisfied.
+      if (db && localBlocks.length > 0 && localResult.success) {
+        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, receiverUserId)
+        for (const block of localBlocks) {
+          try {
+            insertContextStoreEntry(db, {
+              block_id: block.block_id,
+              block_hash: block.block_hash,
+              handshake_id: capsule.handshake_id,
+              relationship_id: relationshipId,
+              scope_id: block.scope_id ?? null,
+              publisher_id: session.wrdesk_user_id,
+              type: block.type,
+              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+              status: 'pending_delivery',
+              valid_until: null,
+              ingested_at: null,
+              superseded: 0,
+            })
+          } catch { /* non-fatal — context delivery can be retried */ }
+        }
       }
 
       return {
@@ -332,29 +336,39 @@ export async function handleHandshakeRPC(
         ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
       })
 
-      // Phase 1: store content locally as pending_delivery (sender side)
-      if (db && localBlocks.length > 0) {
-        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, dlReceiverUserId)
-        for (const block of localBlocks) {
-          insertContextStoreEntry(db, {
-            block_id: block.block_id,
-            block_hash: block.block_hash,
-            handshake_id: capsule.handshake_id,
-            relationship_id: relationshipId,
-            scope_id: block.scope_id ?? null,
-            publisher_id: session.wrdesk_user_id,
-            type: block.type,
-            content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-            status: 'pending_delivery',
-            valid_until: null,
-            ingested_at: null,
-            superseded: 0,
-          })
-        }
-      }
-
       const localpart = dlReceiverEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
       const shortHash = capsule.capsule_hash.slice(0, 8)
+
+      // Persist the initiator capsule locally so the handshakes row exists before
+      // context_store's FK constraint is checked.
+      let buildLocalResult: any = { success: true }
+      if (db) {
+        buildLocalResult = await submitCapsuleViaRpc(capsule, db, session)
+      }
+
+      // Phase 1: store content locally as pending_delivery (sender side).
+      // Must run AFTER submitCapsuleViaRpc so the handshakes FK parent row exists.
+      if (db && localBlocks.length > 0 && buildLocalResult.success) {
+        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, dlReceiverUserId)
+        for (const block of localBlocks) {
+          try {
+            insertContextStoreEntry(db, {
+              block_id: block.block_id,
+              block_hash: block.block_hash,
+              handshake_id: capsule.handshake_id,
+              relationship_id: relationshipId,
+              scope_id: block.scope_id ?? null,
+              publisher_id: session.wrdesk_user_id,
+              type: block.type,
+              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+              status: 'pending_delivery',
+              valid_until: null,
+              ingested_at: null,
+              superseded: 0,
+            })
+          } catch { /* non-fatal — content delivery can be retried */ }
+        }
+      }
 
       return {
         type: 'handshake-build-result',
