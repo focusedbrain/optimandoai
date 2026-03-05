@@ -461,6 +461,7 @@ export interface HandshakeProcessDenial {
   success: false;
   reason: ReasonCode;
   failedStep: string;
+  detail?: string;
   pipelineDurationMs: number;
 }
 

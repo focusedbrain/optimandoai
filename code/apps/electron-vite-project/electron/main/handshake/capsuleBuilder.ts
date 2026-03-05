@@ -31,7 +31,7 @@ import type { SSOSession, SharingMode, TierSignals, ReceiverIdentity } from './t
 import type { ContextBlockProof } from './canonicalRebuild'
 import { computeCapsuleHash, type CapsuleHashInput } from './capsuleHash'
 import { computeContextHash, generateNonce, type ContextHashInput } from './contextHash'
-import { computeContextCommitment, type ContextBlockForCommitment } from './contextCommitment'
+import { computeContextCommitment, stripContentFromBlocks, type ContextBlockForCommitment, type ContextBlockWireProof } from './contextCommitment'
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } from './policyHash'
 import { deriveRelationshipId } from './relationshipId'
 
@@ -69,7 +69,7 @@ export interface HandshakeCapsuleWire {
   readonly sharing_mode?: SharingMode;
   readonly prev_hash?: string;
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>;
-  readonly context_blocks: ReadonlyArray<ContextBlockForCommitment>;
+  readonly context_blocks: ReadonlyArray<ContextBlockWireProof>;
 }
 
 // ── Options types ──
@@ -238,11 +238,11 @@ export function buildInitiateCapsule(
     timestamp,
     seq: 0,
     external_processing: opts.external_processing ?? 'none',
-    reciprocal_allowed: opts.reciprocal_allowed ?? false,
+    reciprocal_allowed: opts.reciprocal_allowed ?? true,
     tierSignals: sessionToTierSignals(session),
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
-    context_blocks: canonicalBlocks ?? [],
+    context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
   }
 }
 
@@ -342,7 +342,7 @@ export function buildAcceptCapsule(
     tierSignals: sessionToTierSignals(session),
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
-    context_blocks: opts.context_blocks ?? [],
+    context_blocks: opts.context_blocks ? stripContentFromBlocks(opts.context_blocks) : [],
   }
 }
 
@@ -432,7 +432,7 @@ export function buildRefreshCapsule(
     ...(opts.context_block_proofs && opts.context_block_proofs.length > 0
       ? { context_block_proofs: opts.context_block_proofs }
       : {}),
-    context_blocks: refreshCanonicalBlocks ?? [],
+    context_blocks: refreshCanonicalBlocks ? stripContentFromBlocks(refreshCanonicalBlocks) : [],
   }
   return wire
 }
@@ -528,6 +528,19 @@ function canonicalizeBlockIds(
     ...b,
     block_id: `ctx-${shortId}-${String(i + 1).padStart(3, '0')}`,
   }))
+}
+
+/**
+ * Build an initiate capsule and return both the wire capsule (no content)
+ * and the full context blocks (with content) for local storage.
+ */
+export function buildInitiateCapsuleWithContent(
+  session: SSOSession,
+  opts: InitiateOptions,
+): { capsule: HandshakeCapsuleWire; localBlocks: ContextBlockForCommitment[] } {
+  const capsule = buildInitiateCapsule(session, opts)
+  const localBlocks = canonicalizeBlockIds(opts.context_blocks, capsule.handshake_id) ?? []
+  return { capsule, localBlocks }
 }
 
 function sessionToTierSignals(session: SSOSession): TierSignals {

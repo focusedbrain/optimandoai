@@ -66,9 +66,13 @@ export async function acceptHandshake(
   handshakeId: string,
   sharingMode: 'receive-only' | 'reciprocal',
   fromAccountId: string,
+  contextOpts?: {
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    profile_ids?: string[]
+  },
 ): Promise<HandshakeAcceptResponse> {
   if (window.handshakeView?.acceptHandshake) {
-    return window.handshakeView.acceptHandshake(handshakeId, sharingMode, fromAccountId)
+    return window.handshakeView.acceptHandshake(handshakeId, sharingMode, fromAccountId, contextOpts)
   }
   throw new Error('Handshake IPC not available')
 }

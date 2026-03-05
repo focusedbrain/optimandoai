@@ -17,9 +17,35 @@ import { createHash } from 'crypto'
 export interface ContextBlockForCommitment {
   readonly block_id: string
   readonly block_hash: string
-  readonly scope_id?: string
+  readonly scope_id?: string | null
   readonly type: string
-  readonly content: Record<string, unknown> | string
+  readonly content: Record<string, unknown> | string | null
+}
+
+/**
+ * Wire-safe context block — carries proof only, NEVER content.
+ * This is what appears in handshake capsules sent over untrusted transport.
+ */
+export interface ContextBlockWireProof {
+  readonly block_id: string
+  readonly block_hash: string
+  readonly type: string
+  readonly scope_id: string | null
+}
+
+/**
+ * Strip content from context blocks, producing wire-safe proof-only blocks.
+ * SECURITY: content must never travel in the handshake capsule.
+ */
+export function stripContentFromBlocks(
+  blocks: ReadonlyArray<ContextBlockForCommitment>,
+): ContextBlockWireProof[] {
+  return blocks.map(b => ({
+    block_id: b.block_id,
+    block_hash: b.block_hash,
+    type: b.type,
+    scope_id: b.scope_id ?? null,
+  }))
 }
 
 /**

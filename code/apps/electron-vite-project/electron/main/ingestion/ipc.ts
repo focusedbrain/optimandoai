@@ -89,7 +89,7 @@ export async function handleIngestionRPC(
           return {
             type: 'ingestion-result',
             success: false,
-            error: 'Vault must be unlocked for handshake operations',
+            error: 'No active session. Please log in first.',
           }
         }
 
@@ -134,6 +134,9 @@ export async function handleIngestionRPC(
           return {
             type: 'ingestion-result',
             success: handshakeResult.success,
+            error: !handshakeResult.success
+              ? `${handshakeResult.reason}${handshakeResult.failedStep ? ` (step: ${handshakeResult.failedStep})` : ''}${handshakeResult.detail ? `: ${handshakeResult.detail}` : ''}`
+              : undefined,
             handshake_result: handshakeResult,
             distribution_target: 'handshake_pipeline',
           }
@@ -264,6 +267,9 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
             )
             return res.json({
               success: handshakeResult.success,
+              error: !handshakeResult.success
+                ? `${handshakeResult.reason}${handshakeResult.failedStep ? ` (step: ${handshakeResult.failedStep})` : ''}${handshakeResult.detail ? `: ${handshakeResult.detail}` : ''}`
+                : undefined,
               handshake_result: handshakeResult,
               distribution_target: 'handshake_pipeline',
             })

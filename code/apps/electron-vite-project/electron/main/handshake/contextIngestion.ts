@@ -24,7 +24,7 @@ export interface ContextIngestionInput {
     block_hash: string
     scope_id?: string
     type: string
-    content: Record<string, unknown> | string
+    content: Record<string, unknown> | string | null
     data_classification?: string
     version?: number
     valid_until?: string
@@ -58,7 +58,11 @@ export function ingestContextBlocks(
   }
 
   // Step 2: Verify each block_hash matches SHA-256(canonical content)
+  // Skip blocks with null content — these are hash-only proof blocks from
+  // initiate capsules where the sender intentionally omits the content.
+  // The block_hash is the proof itself; content arrives later in a BEAP-Capsule.
   for (const block of input.context_blocks) {
+    if (block.content === null || block.content === undefined) continue
     const recomputed = computeBlockHash(block.content)
     if (recomputed !== block.block_hash) {
       throw new Error(
@@ -90,6 +94,11 @@ export function ingestContextBlocks(
   const now = new Date().toISOString()
 
   for (const block of input.context_blocks) {
+    // Skip hash-only proof blocks — no content to store yet
+    if (block.content === null || block.content === undefined) {
+      continue
+    }
+
     const existing = checkExistingStmt.get(
       input.publisher_id,
       block.block_id,

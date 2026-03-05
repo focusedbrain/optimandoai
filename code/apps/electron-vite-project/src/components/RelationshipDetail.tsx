@@ -26,6 +26,7 @@ interface HandshakeRecord {
 interface Props {
   record: HandshakeRecord
   contextBlockCount: number
+  onRevoke?: () => void
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -82,7 +83,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function RelationshipDetail({ record, contextBlockCount }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, onRevoke }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
@@ -106,7 +107,22 @@ export default function RelationshipDetail({ record, contextBlockCount }: Props)
             {record.sharing_mode && ` · ${record.sharing_mode}`}
           </div>
         </div>
-        <StateBadge state={record.state} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {record.state === 'ACTIVE' && onRevoke && (
+            <button
+              onClick={onRevoke}
+              style={{
+                padding: '5px 12px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Revoke
+            </button>
+          )}
+          <StateBadge state={record.state} />
+        </div>
       </div>
 
       {/* Chain Metadata */}
@@ -146,30 +162,72 @@ export default function RelationshipDetail({ record, contextBlockCount }: Props)
         <MetaRow label="Expires" value={formatDate(record.expires_at)} />
       </div>
 
-      {/* Content Availability */}
-      <div style={{
-        padding: '14px 16px',
-        background: contextBlockCount > 0
-          ? 'rgba(34,197,94,0.08)'
-          : 'rgba(245,158,11,0.08)',
-        border: `1px solid ${contextBlockCount > 0 ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
-        borderRadius: '8px',
-      }}>
+      {/* Content Availability / State Notice */}
+      {record.state === 'REVOKED' ? (
         <div style={{
-          fontSize: '12px', fontWeight: 600,
-          color: contextBlockCount > 0 ? '#22c55e' : '#f59e0b',
-          marginBottom: '4px',
+          padding: '14px 16px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: '8px',
         }}>
-          {contextBlockCount > 0
-            ? `${contextBlockCount} Context Block${contextBlockCount > 1 ? 's' : ''} — content available`
-            : 'Handshake active. Waiting for first BEAP-Capsule for content.'}
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', marginBottom: '4px' }}>
+            Handshake revoked.
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            This relationship has been terminated. No further capsules can be exchanged.
+          </div>
         </div>
-        <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-          {contextBlockCount > 0
-            ? 'Context data has been received via the BEAP-Capsule pipeline.'
-            : 'Context blocks enter only through fully validated BEAP Capsules, not handshake capsules.'}
+      ) : record.state === 'EXPIRED' ? (
+        <div style={{
+          padding: '14px 16px',
+          background: 'rgba(107,114,128,0.08)',
+          border: '1px solid rgba(107,114,128,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>
+            Handshake expired.
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            This relationship has expired. Start a new handshake to re-establish trust.
+          </div>
         </div>
-      </div>
+      ) : record.state === 'PENDING_ACCEPT' ? (
+        <div style={{
+          padding: '14px 16px',
+          background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b', marginBottom: '4px' }}>
+            Awaiting acceptance.
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            The counterparty has not yet accepted this handshake request.
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: '14px 16px',
+          background: contextBlockCount > 0 ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+          border: `1px solid ${contextBlockCount > 0 ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
+          borderRadius: '8px',
+        }}>
+          <div style={{
+            fontSize: '12px', fontWeight: 600,
+            color: contextBlockCount > 0 ? '#22c55e' : '#f59e0b',
+            marginBottom: '4px',
+          }}>
+            {contextBlockCount > 0
+              ? `${contextBlockCount} Context Block${contextBlockCount > 1 ? 's' : ''} — content available`
+              : 'Handshake active. Waiting for first BEAP-Capsule for content.'}
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            {contextBlockCount > 0
+              ? 'Context data has been received via the BEAP-Capsule pipeline.'
+              : 'Context blocks enter only through fully validated BEAP Capsules, not handshake capsules.'}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

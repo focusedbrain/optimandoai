@@ -166,6 +166,11 @@ export function processHandshakeCapsule(
   const durationMs = Math.round(performance.now() - startTime)
 
   if (!pipelineResult.success) {
+    // Log the actual error so it appears in the main process console
+    if ((pipelineResult as any).error) {
+      console.error('[HANDSHAKE] Pipeline INTERNAL_ERROR at step:', pipelineResult.failedStep, (pipelineResult as any).error)
+    }
+
     // Log denial
     try {
       insertAuditLogEntry(db, buildDenialAuditEntry(
@@ -252,8 +257,11 @@ export function processHandshakeCapsule(
   try {
     tx()
   } catch (txErr: any) {
-    const isIngestionFailure = txErr?.message?.includes('Context commitment') ||
-      txErr?.message?.includes('context_commitment')
+    const errMsg: string = txErr?.message ?? String(txErr)
+    console.error('[HANDSHAKE] atomic_transaction error:', errMsg, txErr)
+
+    const isIngestionFailure = errMsg.includes('Context commitment') ||
+      errMsg.includes('context_commitment')
 
     try {
       insertAuditLogEntry(db, buildDenialAuditEntry(
@@ -268,6 +276,7 @@ export function processHandshakeCapsule(
       success: false,
       reason: isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR,
       failedStep: isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
+      detail: errMsg,
       pipelineDurationMs: durationMs,
     }
   }

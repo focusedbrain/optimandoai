@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback } from 'react'
 import CapsuleUploadZone from './CapsuleUploadZone'
 import RelationshipDetail from './RelationshipDetail'
 import HandshakeChatSidebar from './HandshakeChatSidebar'
+import AcceptHandshakeModal from './AcceptHandshakeModal'
 
 // ── Types ──
 
@@ -110,11 +111,19 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
   const expired = handshakes.filter(h => h.state === 'EXPIRED')
   const pending = handshakes.filter(h => h.state === 'PENDING_ACCEPT')
 
-  const handleAccept = async (id: string) => {
+  const [acceptError, setAcceptError] = useState<string | null>(null)
+  const [acceptModalRecord, setAcceptModalRecord] = useState<HandshakeRecord | null>(null)
+
+  const openAcceptModal = (record: HandshakeRecord) => {
+    setAcceptError(null)
+    setAcceptModalRecord(record)
+  }
+
+  const handleRevoke = async (id: string) => {
     try {
-      const res = await window.handshakeView?.acceptHandshake(id, 'reciprocal', '')
-      if (res?.success !== false) await loadHandshakes()
-    } catch { /* UI shows stale state until refresh */ }
+      await window.handshakeView?.declineHandshake(id)
+      await loadHandshakes()
+    } catch { /* stale state until refresh */ }
   }
 
   const handleDecline = async (id: string) => {
@@ -248,6 +257,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               <RelationshipDetail
                 record={selectedRecord}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
+                onRevoke={selectedRecord.state === 'ACTIVE' ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
               />
             </div>
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -308,9 +318,14 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
                   {shortId(r.handshake_id)} · {formatDate(r.created_at)}
                 </div>
+                {acceptError && !acceptModalRecord && (
+                  <div style={{ fontSize: '10px', color: '#ef4444', marginBottom: '8px', wordBreak: 'break-word' }}>
+                    {acceptError}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button
-                    onClick={() => handleAccept(r.handshake_id)}
+                    onClick={() => openAcceptModal(r)}
                     style={{
                       flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
                       background: 'rgba(34,197,94,0.15)', color: '#22c55e',
@@ -338,6 +353,15 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
         </div>
 
       </div>
+
+      {acceptModalRecord && (
+        <AcceptHandshakeModal
+          record={acceptModalRecord}
+          onClose={() => setAcceptModalRecord(null)}
+          onSuccess={() => { setAcceptModalRecord(null); loadHandshakes() }}
+          canUseHsContextProfiles={false}
+        />
+      )}
     </div>
   )
 }

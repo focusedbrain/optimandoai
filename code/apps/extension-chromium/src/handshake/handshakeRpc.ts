@@ -132,11 +132,17 @@ export async function acceptHandshake(
   handshakeId: string,
   sharingMode: 'receive-only' | 'reciprocal',
   fromAccountId: string,
+  contextOpts?: {
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    profile_ids?: string[]
+  },
 ): Promise<HandshakeAcceptResponse> {
   return sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
     handshake_id: handshakeId,
     sharing_mode: sharingMode,
     fromAccountId,
+    ...(contextOpts?.context_blocks?.length ? { context_blocks: contextOpts.context_blocks } : {}),
+    ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
   })
 }
 

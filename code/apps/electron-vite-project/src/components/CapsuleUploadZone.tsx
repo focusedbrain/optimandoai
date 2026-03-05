@@ -47,6 +47,7 @@ function mapPipelineError(raw: string | undefined): string {
   if (r.includes('ownership') || r.includes('self-send')) return 'Cannot process a capsule you sent yourself.'
   if (r.includes('sso') || r.includes('session')) return 'Authentication required. Please log in first.'
   if (r.includes('vault') && r.includes('locked')) return 'Vault is locked. Please unlock first.'
+  if (r.includes('no active session') || r.includes('please log in')) return 'Authentication required. Please log in first.'
   return raw
 }
 

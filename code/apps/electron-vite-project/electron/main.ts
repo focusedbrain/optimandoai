@@ -24,6 +24,10 @@ function logoutFast(): void {
   lockVaultIfLoaded()
   console.log(`[AUTH][t+${Date.now() - t0}ms] Vault lock requested`)
 
+  // 1b. Close handshake ledger — discards the session-derived key from memory
+  closeLedger()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] Handshake ledger closed`)
+
   // 2. Set auth state to locked (blocks all privileged actions)
   hasValidSession = false
   currentTier = DEFAULT_TIER
@@ -274,6 +278,20 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     
     console.log('[AUTH] Login successful - tier:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
     
+    // Open the handshake ledger for this new session
+    try {
+      if (userInfo?.sub && userInfo?.iss) {
+        const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+        openLedger(ledgerToken).then(() => {
+          console.log('[AUTH] Handshake ledger opened after login')
+        }).catch(err => {
+          console.warn('[AUTH] Handshake ledger open after login failed:', err?.message)
+        })
+      }
+    } catch (ledgerErr) {
+      console.warn('[AUTH] Handshake ledger open skipped:', ledgerErr)
+    }
+
     // Update tray menu to reflect logged-in state
     updateTrayMenu()
     
@@ -492,9 +510,15 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider } from './main/handshake/ipc'
+import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, getCurrentSession } from './main/handshake/ipc'
 import { sessionFromClaims } from './main/handshake/sessionFactory'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
+import {
+  openLedger,
+  closeLedger,
+  getLedgerDb,
+  buildLedgerSessionToken,
+} from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
@@ -1816,10 +1840,34 @@ app.whenReady().then(async () => {
     console.log('[MAIN] IPC handler registered: integrity:status')
 
     // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
+    /**
+     * Returns the best available DB for handshake operations:
+     * 1. Ledger DB (already open) — preferred, vault-independent
+     * 2. Ledger DB opened on-demand using current SSO session
+     * 3. Vault DB fallback
+     * Returns null only if no session and no vault.
+     */
+    async function getHandshakeDb(): Promise<any> {
+      let db = getLedgerDb()
+      if (!db) {
+        try {
+          const userInfo = getCachedUserInfo()
+          if (userInfo?.sub && userInfo?.iss) {
+            const tok = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+            db = await openLedger(tok)
+          }
+        } catch { /* non-fatal — fall through to vault */ }
+      }
+      if (!db) {
+        const vs = (globalThis as any).__og_vault_service_ref
+        db = vs?.getDb?.() ?? vs?.db ?? null
+      }
+      return db
+    }
+
     ipcMain.handle('handshake:list', async (_e, filter: any) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
+        const db = await getHandshakeDb()
         if (!db) return []
         const result = await handleHandshakeRPC('handshake.list', { filter }, db)
         return result.records ?? []
@@ -1831,10 +1879,32 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:submitCapsule', async (_e, jsonString: string) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
-        if (!db) return { success: false, error: 'Vault locked' }
-        const ssoSession = vs?.getSSOSession?.()
+        // Get the SSO session from the registered provider (vault-independent)
+        const ssoSession = getCurrentSession()
+        if (!ssoSession) return { success: false, error: 'No active session. Please log in first.' }
+
+        // Open the ledger lazily if it isn't open yet (e.g. startup race condition)
+        let db = getLedgerDb()
+        if (!db) {
+          try {
+            const userInfo = getCachedUserInfo()
+            if (userInfo?.sub && userInfo?.iss) {
+              const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+              db = await openLedger(ledgerToken)
+            }
+          } catch (ledgerErr: any) {
+            console.warn('[MAIN] handshake:submitCapsule — lazy ledger open failed:', ledgerErr?.message)
+          }
+        }
+
+        // Fallback to vault DB if ledger still unavailable
+        if (!db) {
+          const vs = (globalThis as any).__og_vault_service_ref
+          db = vs?.getDb?.() ?? vs?.db ?? null
+        }
+
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+
         return await handleIngestionRPC('ingestion.ingest', {
           rawInput: { body: jsonString, mime_type: 'application/vnd.beap+json', headers: { 'content-type': 'application/vnd.beap+json' } },
           sourceType: 'file_upload',
@@ -1846,22 +1916,28 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
-        if (!db) return { success: false, error: 'Vault locked' }
-        return await handleHandshakeRPC('handshake.accept', { handshake_id: id, sharing_mode: sharingMode, fromAccountId }, db)
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        const params: Record<string, unknown> = { handshake_id: id, sharing_mode: sharingMode, fromAccountId }
+        if (contextOpts?.context_blocks?.length) params.context_blocks = contextOpts.context_blocks
+        if (contextOpts?.profile_ids?.length) params.profile_ids = contextOpts.profile_ids
+        const result = await handleHandshakeRPC('handshake.accept', params, db)
+        if (!result?.success) {
+          console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))
+        }
+        return result
       } catch (err: any) {
+        console.error('[HANDSHAKE:ACCEPT] exception:', err?.message, err)
         return { success: false, error: err?.message }
       }
     })
 
     ipcMain.handle('handshake:decline', async (_e, id: string) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
-        if (!db) return { success: false, error: 'Vault locked' }
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
         return await handleHandshakeRPC('handshake.initiateRevocation', { handshakeId: id }, db)
       } catch (err: any) {
         return { success: false, error: err?.message }
@@ -1870,8 +1946,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:contextBlockCount', async (_e, handshakeId: string) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
+        const db = await getHandshakeDb()
         if (!db) return 0
         const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
         return result?.blocks?.length ?? 0
@@ -1881,8 +1956,7 @@ app.whenReady().then(async () => {
     })
     ipcMain.handle('handshake:queryContextBlocks', async (_e, handshakeId: string) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.()
+        const db = await getHandshakeDb()
         if (!db) return []
         const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
         return result?.blocks ?? []
@@ -2084,6 +2158,24 @@ app.whenReady().then(async () => {
   // RULE: No window at startup unless valid session exists (regardless of launch mode)
   console.log('[AUTH] ===== AUTH-GATED STARTUP =====')
   const sessionValid = await checkStartupSession()
+
+  // Open the handshake ledger immediately if a session is already active.
+  // This ensures handshake operations work before any vault interaction.
+  if (sessionValid) {
+    try {
+      const userInfo = getCachedUserInfo()
+      if (userInfo?.sub && userInfo?.iss) {
+        const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+        openLedger(ledgerToken).then(() => {
+          console.log('[MAIN] Handshake ledger opened at startup')
+        }).catch(err => {
+          console.warn('[MAIN] Handshake ledger open at startup failed:', err?.message)
+        })
+      }
+    } catch (err) {
+      console.warn('[MAIN] Handshake ledger startup open skipped:', err)
+    }
+  }
   
   // Create tray first (always needed for headless/background mode)
   createTray()
@@ -2172,6 +2264,23 @@ app.whenReady().then(async () => {
           })
         } catch { return undefined }
       })
+
+      // Open the handshake ledger using the current SSO session.
+      // The ledger is vault-independent — it stays accessible even when the
+      // vault is locked, allowing handshake capsules to be processed at any time.
+      try {
+        const userInfo = getCachedUserInfo()
+        if (userInfo?.sub && userInfo?.iss) {
+          const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+          openLedger(ledgerToken).then(() => {
+            console.log('[MAIN] Handshake ledger opened for SSO session')
+          }).catch(err => {
+            console.warn('[MAIN] Failed to open handshake ledger:', err?.message)
+          })
+        }
+      } catch (ledgerErr) {
+        console.warn('[MAIN] Handshake ledger open skipped:', ledgerErr)
+      }
 
       console.log('[MAIN] BEAP email transport bridge wired')
     } catch (bridgeErr) {
@@ -2411,15 +2520,17 @@ app.whenReady().then(async () => {
             if (msg.method && msg.method.startsWith('handshake.')) {
               console.log('[MAIN] Processing handshake RPC:', msg.method)
               try {
-                const { vaultService: vsForHandshake } = await import('./main/vault/rpc')
-                const db = (vsForHandshake as any).db
+                const vsForHandshake = (globalThis as any).__og_vault_service_ref
+                const vaultDb = vsForHandshake?.getDb?.() ?? vsForHandshake?.db ?? null
+                const ledgerDb = getLedgerDb()
+                const db = ledgerDb ?? vaultDb
                 const skipVaultContext = msg.params?.skipVaultContext === true
                 const vaultRequiredMethods = ['handshake.list', 'handshake.accept', 'handshake.refresh', 'handshake.queryStatus', 'handshake.requestContextBlocks', 'handshake.authorizeAction', 'handshake.initiateRevocation', 'handshake.isActive']
                 if (!db && !skipVaultContext) {
                   socket.send(JSON.stringify({
                     id: msg.id,
                     success: false,
-                    error: 'Vault must be unlocked for handshake operations',
+                    error: 'No active session. Please log in first.',
                   }))
                   return
                 }
@@ -2427,7 +2538,7 @@ app.whenReady().then(async () => {
                   socket.send(JSON.stringify({
                     id: msg.id,
                     success: false,
-                    error: 'Vault must be unlocked for this operation',
+                    error: 'No active session. Please log in first.',
                   }))
                   return
                 }
@@ -2449,9 +2560,12 @@ app.whenReady().then(async () => {
             if (msg.method && msg.method.startsWith('ingestion.')) {
               console.log('[MAIN] Processing ingestion RPC:', msg.method)
               try {
-                const { vaultService: vsForIngestion } = await import('./main/vault/rpc')
-                const db = (vsForIngestion as any).db
-                const response = await handleIngestionRPC(msg.method, msg.params, db)
+                const ssoSession = getCurrentSession()
+                const ledgerDb = getLedgerDb()
+                const vsForIngestion = (globalThis as any).__og_vault_service_ref
+                const vaultDb = vsForIngestion?.getDb?.() ?? vsForIngestion?.db ?? null
+                const db = ledgerDb ?? vaultDb
+                const response = await handleIngestionRPC(msg.method, msg.params, db, ssoSession)
                 socket.send(JSON.stringify({ id: msg.id, ...response }))
                 console.log('[MAIN] Ingestion RPC response sent:', msg.method)
               } catch (error: any) {
@@ -3546,6 +3660,16 @@ app.whenReady().then(async () => {
         const tier = resolve(session?.wrdesk_plan, session?.roles ?? [])
         
         updateTrayMenu()
+
+        // Open the handshake ledger for this new session
+        try {
+          if (session?.sub && session?.iss) {
+            const ledgerToken = buildLedgerSessionToken(session.wrdesk_user_id || session.sub, session.iss)
+            openLedger(ledgerToken).catch(err => {
+              console.warn('[HTTP] Handshake ledger open after SSO callback failed:', err?.message)
+            })
+          }
+        } catch { /* non-fatal */ }
         
         console.log('[HTTP] SSO login successful via extension - tier:', tier)
         // Respond to the extension FIRST so it can update its UI, then open
@@ -4988,6 +5112,8 @@ app.whenReady().then(async () => {
     // ===== INGESTION HTTP API ENDPOINTS =====
     registerIngestionRoutes(httpApp, () => {
       try {
+        const ledgerDb = getLedgerDb()
+        if (ledgerDb) return ledgerDb
         const vs = (globalThis as any).__og_vault_service_ref
         return vs?.db ?? null
       } catch { return null }
@@ -4996,6 +5122,8 @@ app.whenReady().then(async () => {
     // ===== HANDSHAKE HTTP API ENDPOINTS =====
     registerHandshakeRoutes(httpApp, () => {
       try {
+        const ledgerDb = getLedgerDb()
+        if (ledgerDb) return ledgerDb
         const vs = (globalThis as any).__og_vault_service_ref
         return vs?.db ?? null
       } catch { return null }

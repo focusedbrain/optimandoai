@@ -191,8 +191,13 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     return ipcRenderer.invoke('handshake:submitCapsule', jsonString)
   },
-  acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown) => {
-    return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '')
+  acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
   declineHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:decline', assertString(id, 'id'))

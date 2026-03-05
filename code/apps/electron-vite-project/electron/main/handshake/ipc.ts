@@ -18,12 +18,20 @@ import { authorizeAction, isHandshakeActive } from './enforcement'
 import { revokeHandshake } from './revocation'
 import {
   buildInitiateCapsule,
+  buildInitiateCapsuleWithContent,
   buildAcceptCapsule,
   buildRefreshCapsule,
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
+import {
+  insertContextStoreEntry,
+  getContextStoreByHandshake,
+  updateContextStoreStatus,
+  updateContextStoreStatusBulk,
+} from './db'
+import { deriveRelationshipId } from './relationshipId'
 
 // ── Context Block Helpers ──
 
@@ -75,6 +83,48 @@ function buildContextBlocksFromParams(
   return blocks
 }
 
+/**
+ * Resolve HS Context Profile IDs to ContextBlockForCommitment[].
+ * Requires vault service and Publisher+ tier. Used when acceptor attaches
+ * Vault Profiles during handshake accept.
+ */
+function resolveProfileIdsToContextBlocks(
+  profileIds: string[],
+  session: SSOSession,
+  handshakeId: string,
+): ContextBlockForCommitment[] {
+  if (!profileIds?.length) return []
+  const vs = (globalThis as any).__og_vault_service_ref as { resolveHsProfilesForHandshake?: (tier: string, ids: string[]) => any[] } | undefined
+  if (!vs?.resolveHsProfilesForHandshake) return []
+  const tier = (session.plan === 'enterprise' || session.plan === 'publisher' || session.plan === 'publisher_lifetime')
+    ? (session.plan as 'enterprise' | 'publisher' | 'publisher_lifetime')
+    : 'free'
+  if (tier === 'free') return []
+  try {
+    const resolved = vs.resolveHsProfilesForHandshake(tier, profileIds)
+    const blocks: ContextBlockForCommitment[] = []
+    const shortId = handshakeId.replace(/^hs-/, '').slice(0, 8)
+    for (let i = 0; i < resolved.length && blocks.length < MAX_BLOCKS_PER_CAPSULE; i++) {
+      const { profile, documents } = resolved[i]
+      const content = JSON.stringify({
+        profile: { id: profile.id, name: profile.name, fields: profile.fields, custom_fields: profile.custom_fields },
+        documents: documents.map((d: any) => ({ filename: d.filename, extracted_text: d.extracted_text })),
+      })
+      const blockHash = computeBlockHash(content)
+      blocks.push({
+        block_id: `ctx-${shortId}-acceptor-${String(i + 1).padStart(3, '0')}`,
+        block_hash: blockHash,
+        type: 'vault_profile',
+        content,
+        scope_id: 'acceptor',
+      })
+    }
+    return blocks
+  } catch {
+    return []
+  }
+}
+
 // ── SSO Session Provider ──
 
 export type SSOSessionProvider = () => SSOSession | undefined
@@ -93,6 +143,14 @@ export function setSSOSessionProvider(provider: SSOSessionProvider): void {
 /** @internal */
 export function _resetSSOSessionProvider(): void {
   _getSession = () => undefined
+}
+
+/**
+ * Return the current SSO session, or undefined if none is active.
+ * Exported so main.ts can use it without going through the vault service.
+ */
+export function getCurrentSession() {
+  return _getSession()
 }
 
 function requireSession(): SSOSession {
@@ -192,11 +250,32 @@ export async function handleHandshakeRPC(
 
       const contextBlocks = buildContextBlocksFromParams(rawBlocks, rawMessage)
 
-      const capsule = buildInitiateCapsule(session, {
+      const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
         receiverEmail,
         ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
       })
+
+      // Phase 1: store content locally as pending_delivery (sender side)
+      if (db && localBlocks.length > 0) {
+        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, receiverUserId)
+        for (const block of localBlocks) {
+          insertContextStoreEntry(db, {
+            block_id: block.block_id,
+            block_hash: block.block_hash,
+            handshake_id: capsule.handshake_id,
+            relationship_id: relationshipId,
+            scope_id: block.scope_id ?? null,
+            publisher_id: session.wrdesk_user_id,
+            type: block.type,
+            content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+            status: 'pending_delivery',
+            valid_until: null,
+            ingested_at: null,
+            superseded: 0,
+          })
+        }
+      }
 
       const effectiveAccountId = fromAccountId || session.email || ''
 
@@ -247,11 +326,33 @@ export async function handleHandshakeRPC(
 
       const dlContextBlocks = buildContextBlocksFromParams(dlRawBlocks, dlRawMessage)
 
-      const capsule = buildInitiateCapsule(session, {
+      const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
         ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
       })
+
+      // Phase 1: store content locally as pending_delivery (sender side)
+      if (db && localBlocks.length > 0) {
+        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, dlReceiverUserId)
+        for (const block of localBlocks) {
+          insertContextStoreEntry(db, {
+            block_id: block.block_id,
+            block_hash: block.block_hash,
+            handshake_id: capsule.handshake_id,
+            relationship_id: relationshipId,
+            scope_id: block.scope_id ?? null,
+            publisher_id: session.wrdesk_user_id,
+            type: block.type,
+            content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+            status: 'pending_delivery',
+            valid_until: null,
+            ingested_at: null,
+            superseded: 0,
+          })
+        }
+      }
+
       const localpart = dlReceiverEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
       const shortHash = capsule.capsule_hash.slice(0, 8)
 
@@ -265,13 +366,15 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode, fromAccountId } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
+        context_blocks?: ContextBlockForCommitment[]
+        profile_ids?: string[]
       }
 
-      if (!handshake_id || !sharing_mode) {
+      if (!handshake_id || !requested_sharing_mode) {
         return { success: false, error: 'handshake_id and sharing_mode are required' }
       }
 
@@ -288,28 +391,44 @@ export async function handleHandshakeRPC(
         return { success: false, error: `Handshake is in state ${record.state}, expected PENDING_ACCEPT` }
       }
 
+      // Clamp sharing_mode: if the initiator did not allow reciprocal, force receive-only
+      const sharing_mode: 'receive-only' | 'reciprocal' =
+        requested_sharing_mode === 'reciprocal' && !record.reciprocal_allowed
+          ? 'receive-only'
+          : requested_sharing_mode
+
       const initiatorUserId = record.initiator.wrdesk_user_id
       const initiatorEmail = record.initiator.email
 
-      // Query stored context blocks from the initiate capsule to echo them back
-      let acceptContextBlocks: ContextBlockForCommitment[] | undefined
-      let acceptContextCommitment: string | null = null
+      // 1. Query initiator's echoed blocks (from initiate capsule)
+      let initiatorBlocks: ContextBlockForCommitment[] = []
       try {
         const stored = queryContextBlocks(db, { handshake_id })
         if (stored.length > 0) {
-          acceptContextBlocks = stored.map(b => ({
+          initiatorBlocks = stored.map(b => ({
             block_id: b.block_id,
             block_hash: b.block_hash,
             scope_id: b.scope_id ?? undefined,
             type: b.type,
             content: b.payload_ref,
           }))
-          const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
-          acceptContextCommitment = computeCommitment(acceptContextBlocks)
         }
       } catch {
-        // Context echo is best-effort; accept proceeds without it
+        /* best-effort */
       }
+
+      // 2. Build receiver's blocks: ad-hoc from client + Vault Profiles (resolved server-side)
+      const receiverAdhocBlocks = buildContextBlocksFromParams(receiverRawBlocks, undefined)
+      const receiverProfileBlocks = resolveProfileIdsToContextBlocks(receiverProfileIds ?? [], session, handshake_id)
+      const receiverBlocks = [...receiverAdhocBlocks, ...receiverProfileBlocks]
+      for (const b of receiverBlocks) {
+        if (!b.scope_id) (b as any).scope_id = 'acceptor'
+      }
+
+      // 3. Merge: initiator echoed + receiver's new blocks. Commitment covers all.
+      const acceptContextBlocks = [...initiatorBlocks, ...receiverBlocks]
+      const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
+      const acceptContextCommitment = acceptContextBlocks.length > 0 ? computeCommitment(acceptContextBlocks) : null
 
       const capsule = buildAcceptCapsule(session, {
         handshake_id,
@@ -319,6 +438,42 @@ export async function handleHandshakeRPC(
         context_blocks: acceptContextBlocks,
         context_commitment: acceptContextCommitment,
       })
+
+      // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
+      const relationshipId = deriveRelationshipId(initiatorUserId, session.wrdesk_user_id)
+      for (const block of initiatorBlocks) {
+        insertContextStoreEntry(db, {
+          block_id: block.block_id,
+          block_hash: block.block_hash,
+          handshake_id: handshake_id,
+          relationship_id: relationshipId,
+          scope_id: block.scope_id ?? null,
+          publisher_id: initiatorUserId,
+          type: block.type,
+          content: null,
+          status: 'pending',
+          valid_until: null,
+          ingested_at: null,
+          superseded: 0,
+        })
+      }
+      for (const block of receiverBlocks) {
+        const contentStr = typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+        insertContextStoreEntry(db, {
+          block_id: block.block_id,
+          block_hash: block.block_hash,
+          handshake_id: handshake_id,
+          relationship_id: relationshipId,
+          scope_id: block.scope_id ?? null,
+          publisher_id: session.wrdesk_user_id,
+          type: block.type,
+          content: contentStr,
+          status: 'pending_delivery',
+          valid_until: null,
+          ingested_at: null,
+          superseded: 0,
+        })
+      }
 
       let emailResult: any = null
       if (fromAccountId && initiatorEmail) {
@@ -390,6 +545,125 @@ export async function handleHandshakeRPC(
         email_sent: emailResult?.success ?? false,
         email_error: emailResult?.error,
         local_result: localResult,
+      }
+    }
+
+    // Phase 3: sender auto-delivers content after handshake confirmed
+    case 'handshake.sendContextDelivery': {
+      const { handshakeId } = params as { handshakeId: string }
+      if (!handshakeId) return { success: false, error: 'handshakeId required' }
+      if (!db) return { success: false, error: 'Vault locked' }
+
+      let session: SSOSession
+      try { session = requireSession() } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+
+      const record = getHandshakeRecord(db, handshakeId)
+      if (!record || record.state !== HS.ACTIVE) {
+        return { success: false, error: 'Handshake not active' }
+      }
+
+      const pending = getContextStoreByHandshake(db, handshakeId, 'pending_delivery')
+      if (pending.length === 0) {
+        return { success: true, delivered: 0 }
+      }
+
+      const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
+      const deliveryBlocks = pending.map(b => ({
+        block_id: b.block_id,
+        block_hash: b.block_hash,
+        type: b.type,
+        content: b.content ?? '',
+        scope_id: b.scope_id ?? undefined,
+      }))
+      const contextCommitment = computeCommitment(deliveryBlocks)
+
+      const deliveryCapsule = {
+        schema_version: 2 as const,
+        capsule_type: 'context_delivery' as const,
+        handshake_id: handshakeId,
+        relationship_id: record.relationship_id,
+        sender_id: session.wrdesk_user_id,
+        context_blocks: deliveryBlocks,
+        context_commitment: contextCommitment,
+        timestamp: new Date().toISOString(),
+      }
+
+      updateContextStoreStatusBulk(db, handshakeId, 'pending_delivery', 'delivered')
+
+      return {
+        success: true,
+        delivered: pending.length,
+        delivery_capsule: deliveryCapsule,
+      }
+    }
+
+    // Phase 3: receiver ingests content from context_delivery capsule
+    case 'handshake.receiveContextDelivery': {
+      const { handshakeId, context_blocks: deliveredBlocks } = params as {
+        handshakeId: string
+        context_blocks: Array<{
+          block_id: string
+          block_hash: string
+          type: string
+          content: string
+          scope_id?: string
+        }>
+      }
+
+      if (!handshakeId || !Array.isArray(deliveredBlocks)) {
+        return { success: false, error: 'handshakeId and context_blocks required' }
+      }
+      if (!db) return { success: false, error: 'Vault locked' }
+
+      const record = getHandshakeRecord(db, handshakeId)
+      if (!record || record.state !== HS.ACTIVE) {
+        return { success: false, error: 'Handshake not active — content delivery rejected' }
+      }
+
+      const proofs = getContextStoreByHandshake(db, handshakeId, 'pending')
+      const proofMap = new Map(proofs.map(p => [p.block_id, p.block_hash]))
+
+      const { createHash } = await import('crypto')
+      const ingested: string[] = []
+      const rejected: Array<{ block_id: string; reason: string }> = []
+
+      for (const block of deliveredBlocks) {
+        // Verify block_id exists in handshake commitments
+        const expectedHash = proofMap.get(block.block_id)
+        if (!expectedHash) {
+          rejected.push({ block_id: block.block_id, reason: 'block_id not in handshake commitments' })
+          continue
+        }
+
+        // Verify SHA-256(content) matches block_hash from handshake
+        const contentHash = createHash('sha256')
+          .update(typeof block.content === 'string' ? block.content : JSON.stringify(block.content), 'utf8')
+          .digest('hex')
+
+        if (contentHash !== expectedHash) {
+          rejected.push({ block_id: block.block_id, reason: 'content hash mismatch — tampered' })
+          continue
+        }
+
+        if (contentHash !== block.block_hash) {
+          rejected.push({ block_id: block.block_id, reason: 'declared block_hash mismatch' })
+          continue
+        }
+
+        // Hash verified — ingest content
+        updateContextStoreStatus(
+          db, block.block_id, handshakeId, 'received',
+          typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+        )
+        ingested.push(block.block_id)
+      }
+
+      return {
+        success: rejected.length === 0,
+        ingested: ingested.length,
+        rejected,
       }
     }
 

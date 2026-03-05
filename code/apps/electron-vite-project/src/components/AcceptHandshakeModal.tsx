@@ -1,0 +1,418 @@
+/**
+ * AcceptHandshakeModal — Context Graph for handshake acceptance
+ *
+ * Mirrors the sender-side Context Graph: Vault Profiles + Ad-hoc tabs.
+ * Receiver can attach context before accepting. Only hashes/commitments
+ * travel in the handshake capsule; raw data syncs via first BEAP-Capsule.
+ */
+
+import { useState } from 'react'
+import { HandshakeContextProfilePicker } from '@ext/handshake/components/HandshakeContextProfilePicker'
+import { acceptHandshake } from '@ext/handshake/handshakeRpc'
+import { computeBlockHashClient } from '../utils/contextBlockHash'
+
+interface HandshakeRecord {
+  handshake_id: string
+  state: string
+  initiator: { email: string; wrdesk_user_id: string } | null
+  acceptor: { email: string; wrdesk_user_id: string } | null
+  local_role: 'initiator' | 'acceptor'
+}
+
+interface Props {
+  record: HandshakeRecord
+  onClose: () => void
+  onSuccess: () => void
+  canUseHsContextProfiles?: boolean
+}
+
+function generateBlockId(): string {
+  return `blk_${crypto.randomUUID().slice(0, 12)}`
+}
+
+export default function AcceptHandshakeModal({
+  record,
+  onClose,
+  onSuccess,
+  canUseHsContextProfiles = false,
+}: Props) {
+  const [showContextGraph, setShowContextGraph] = useState(false)
+  const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
+  const [contextGraphText, setContextGraphText] = useState('')
+  const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
+  const [accepting, setAccepting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const counterpartyEmail = record.initiator?.email ?? '(unknown)'
+
+  const buildContextBlocks = async (): Promise<
+    Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+  > => {
+    const blocks: Array<{
+      block_id: string
+      block_hash: string
+      type: string
+      content: string | Record<string, unknown>
+      scope_id?: string
+    }> = []
+
+    // Ad-hoc: normalize text/JSON to content, compute hash
+    const text = contextGraphText.trim()
+    if (text) {
+      let content: string | Record<string, unknown>
+      if (contextGraphType === 'json') {
+        try {
+          const parsed = JSON.parse(text) as Record<string, unknown>
+          content = parsed
+        } catch {
+          content = text
+        }
+      } else {
+        content = text
+      }
+      const blockHash = await computeBlockHashClient(content)
+      blocks.push({
+        block_id: generateBlockId(),
+        block_hash: blockHash,
+        type: 'plaintext',
+        content,
+        scope_id: 'acceptor',
+      })
+    }
+
+    return blocks
+  }
+
+  const handleAccept = async () => {
+    setError(null)
+    setAccepting(true)
+    try {
+      const context_blocks = await buildContextBlocks()
+      const contextOpts =
+        context_blocks.length > 0 || selectedProfileIds.length > 0
+          ? {
+              context_blocks: context_blocks.length > 0 ? context_blocks : undefined,
+              profile_ids: selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
+            }
+          : undefined
+
+      const result = await acceptHandshake(
+        record.handshake_id,
+        'reciprocal',
+        '',
+        contextOpts as any,
+      )
+
+      if (result?.success !== false) {
+        onSuccess()
+        onClose()
+      } else {
+        setError((result as any)?.error ?? (result as any)?.local_result?.error ?? 'Accept failed.')
+      }
+    } catch (err: any) {
+      setError(err?.message ?? 'Accept failed.')
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  const borderColor = 'rgba(147,51,234,0.14)'
+  const mutedColor = '#6b7280'
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(3px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '16px',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: '480px',
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
+          overflow: 'hidden',
+          maxHeight: 'calc(100vh - 60px)',
+          overflowY: 'auto',
+        }}
+      >
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${borderColor}` }}>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+            Accept handshake
+          </div>
+          <div style={{ fontSize: '12px', color: mutedColor }}>
+            From {counterpartyEmail}
+          </div>
+        </div>
+
+        {/* Context Graph — same pattern as SendHandshakeDelivery */}
+        <div
+          style={{
+            margin: '12px 16px',
+            border: `1px solid ${showContextGraph ? 'rgba(139,92,246,0.28)' : borderColor}`,
+            borderRadius: '10px',
+            overflow: 'hidden',
+            transition: 'border-color 0.15s',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowContextGraph((v) => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              background: showContextGraph ? 'rgba(139,92,246,0.08)' : 'rgba(0,0,0,0.02)',
+              border: 'none',
+              color: showContextGraph ? '#7c3aed' : mutedColor,
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <span>🧠 Attach context (optional)</span>
+            <span style={{ fontSize: '10px', opacity: 0.7 }}>
+              {showContextGraph ? '▲ Collapse' : '▼ Expand'}
+            </span>
+          </button>
+
+          {showContextGraph && (
+            <div style={{ borderTop: `1px solid ${borderColor}` }}>
+              <div style={{ display: 'flex', borderBottom: `1px solid ${borderColor}` }}>
+                {(['vault', 'adhoc'] as const).map((tab) => {
+                  const active = contextGraphTab === tab
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setContextGraphTab(tab)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 10px',
+                        fontSize: '11px',
+                        fontWeight: active ? 700 : 500,
+                        background: active ? 'rgba(139,92,246,0.08)' : 'transparent',
+                        border: 'none',
+                        borderBottom: active ? '2px solid #8b5cf6' : '2px solid transparent',
+                        color: active ? '#7c3aed' : mutedColor,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {tab === 'vault' ? '🗂 Vault Profiles' : '✏️ Ad-hoc Context'}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {contextGraphTab === 'vault' && (
+                <div style={{ padding: '12px 14px' }}>
+                  <div
+                    style={{
+                      padding: '9px 12px',
+                      background: 'rgba(139,92,246,0.08)',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      color: mutedColor,
+                      lineHeight: 1.5,
+                      marginBottom: '10px',
+                    }}
+                  >
+                    Select profiles to attach. Content syncs when the first BEAP-Capsule is exchanged.
+                  </div>
+                  {canUseHsContextProfiles ? (
+                    <HandshakeContextProfilePicker
+                      selectedIds={selectedProfileIds}
+                      onChange={setSelectedProfileIds}
+                      theme="standard"
+                      disabled={accepting}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        padding: '16px',
+                        textAlign: 'center',
+                        border: `1px dashed ${borderColor}`,
+                        borderRadius: '8px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ fontSize: '20px' }}>🔒</div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>
+                        Publisher / Enterprise feature
+                      </div>
+                      <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.5 }}>
+                        Upgrade to attach Vault Profiles when accepting handshakes.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {contextGraphTab === 'adhoc' && (
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div
+                    style={{
+                      padding: '9px 12px',
+                      background: 'rgba(59,130,246,0.06)',
+                      border: '1px solid rgba(59,130,246,0.2)',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      color: mutedColor,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    ℹ️ Ad-hoc context is normalized to plain text. JSON is rendered as Key: Value lines.
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        marginBottom: '5px',
+                        display: 'block',
+                        color: mutedColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      Format
+                    </label>
+                    <select
+                      value={contextGraphType}
+                      onChange={(e) => setContextGraphType(e.target.value as 'text' | 'json')}
+                      disabled={accepting}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        background: 'white',
+                        border: `1px solid ${borderColor}`,
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                      }}
+                    >
+                      <option value="text">📝 Plain Text</option>
+                      <option value="json">📦 JSON / Structured Data</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        marginBottom: '5px',
+                        display: 'block',
+                        color: mutedColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      {contextGraphType === 'json' ? 'JSON Payload' : 'Context Content'}
+                    </label>
+                    <textarea
+                      value={contextGraphText}
+                      onChange={(e) => setContextGraphText(e.target.value)}
+                      disabled={accepting}
+                      placeholder={
+                        contextGraphType === 'json'
+                          ? '{"key": "value", ...}'
+                          : 'Enter context to share with the initiator...'
+                      }
+                      rows={4}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        background: 'white',
+                        border: `1px solid ${borderColor}`,
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        resize: 'vertical',
+                        lineHeight: 1.5,
+                        fontFamily: contextGraphType === 'json' ? 'monospace' : 'inherit',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div
+            style={{
+              margin: '0 16px 12px',
+              padding: '10px 13px',
+              background: 'rgba(239,68,68,0.10)',
+              border: '1px solid rgba(239,68,68,0.30)',
+              borderRadius: '8px',
+              fontSize: '11px',
+              color: '#ef4444',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        <div
+          style={{
+            padding: '16px 20px',
+            borderTop: `1px solid ${borderColor}`,
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              padding: '9px 18px',
+              background: 'transparent',
+              border: `1px solid ${borderColor}`,
+              borderRadius: '8px',
+              color: mutedColor,
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleAccept}
+            disabled={accepting}
+            style={{
+              padding: '9px 18px',
+              background: accepting ? 'rgba(34,197,94,0.5)' : 'rgba(34,197,94,0.9)',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: accepting ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {accepting ? 'Accepting…' : 'Accept'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

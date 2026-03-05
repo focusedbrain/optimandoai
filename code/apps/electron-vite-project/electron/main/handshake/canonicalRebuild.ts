@@ -91,7 +91,7 @@ export interface CanonicalContextBlock {
   readonly block_hash: string
   readonly scope_id: string | null
   readonly type: string
-  readonly content: string | Record<string, unknown>
+  readonly content: string | Record<string, unknown> | null
 }
 
 // ── Denied fields — presence triggers immediate rejection ──
@@ -134,10 +134,10 @@ const FIELD_RULES: Record<string, FieldRule> = {
   capsule_type: { type: 'enum', values: ['initiate', 'accept', 'refresh', 'revoke'] },
   handshake_id: { type: 'regex', pattern: /^hs-[a-f0-9-]{1,128}$/, maxLength: 136 },
   relationship_id: { type: 'regex', pattern: /^rel[-:][a-f0-9-]{1,128}$/, maxLength: 136 },
-  sender_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
-  sender_wrdesk_user_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
+  sender_id: { type: 'regex', pattern: /^[a-zA-Z0-9_@.+-]{1,256}$/, maxLength: 256 },
+  sender_wrdesk_user_id: { type: 'regex', pattern: /^[a-zA-Z0-9_@.+-]{1,256}$/, maxLength: 256 },
   sender_email: { type: 'email' },
-  receiver_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
+  receiver_id: { type: 'regex', pattern: /^[a-zA-Z0-9_@.+-]{1,256}$/, maxLength: 256 },
   receiver_email: { type: 'email' },
   capsule_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
   context_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
@@ -159,7 +159,7 @@ const SENDER_IDENTITY_RULES: Record<string, FieldRule> = {
   iss: { type: 'string', maxLength: 512 },
   sub: { type: 'string', maxLength: 256 },
   email_verified: { type: 'literal', value: true },
-  wrdesk_user_id: { type: 'regex', pattern: /^[a-zA-Z0-9_-]{1,256}$/, maxLength: 256 },
+  wrdesk_user_id: { type: 'regex', pattern: /^[a-zA-Z0-9_@.+-]{1,256}$/, maxLength: 256 },
 }
 
 // ── Tier signals validation rules ──
@@ -529,20 +529,23 @@ function rebuildContextBlocks(raw: unknown): { ok: true; blocks: CanonicalContex
       ? null
       : typeof b.scope_id === 'string' ? sanitizeString(b.scope_id) : null
 
-    let content: string | Record<string, unknown>
-    if (typeof b.content === 'string') {
+    let content: string | Record<string, unknown> | null
+    if (b.content === null || b.content === undefined) {
+      // Hash-only proof block — content intentionally omitted (e.g. initiate capsule)
+      content = null
+    } else if (typeof b.content === 'string') {
       if (Buffer.byteLength(b.content, 'utf-8') > MAX_BLOCK_CONTENT_BYTES) {
         return { ok: false, reason: `${prefix}.content exceeds ${MAX_BLOCK_CONTENT_BYTES} bytes`, field: `${prefix}.content` }
       }
       content = b.content
-    } else if (b.content && typeof b.content === 'object' && !Array.isArray(b.content)) {
+    } else if (typeof b.content === 'object' && !Array.isArray(b.content)) {
       const serialized = JSON.stringify(b.content)
       if (Buffer.byteLength(serialized, 'utf-8') > MAX_BLOCK_CONTENT_BYTES) {
         return { ok: false, reason: `${prefix}.content exceeds ${MAX_BLOCK_CONTENT_BYTES} bytes`, field: `${prefix}.content` }
       }
       content = b.content as Record<string, unknown>
     } else {
-      return { ok: false, reason: `${prefix}.content must be a string or object`, field: `${prefix}.content` }
+      return { ok: false, reason: `${prefix}.content must be a string, object, or null`, field: `${prefix}.content` }
     }
 
     blocks.push({

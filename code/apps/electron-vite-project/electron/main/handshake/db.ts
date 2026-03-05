@@ -140,6 +140,33 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_blocks_publisher ON context_blocks(publisher_id)`,
     ],
   },
+  {
+    version: 3,
+    description: 'Schema v3: context_store for 3-phase content delivery lifecycle',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS context_store (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        block_id         TEXT NOT NULL,
+        block_hash       TEXT NOT NULL,
+        handshake_id     TEXT NOT NULL REFERENCES handshakes(handshake_id),
+        relationship_id  TEXT NOT NULL,
+        scope_id         TEXT,
+        publisher_id     TEXT NOT NULL,
+        type             TEXT NOT NULL DEFAULT 'plaintext',
+        content          TEXT,
+        status           TEXT NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','pending_delivery','delivered','received')),
+        valid_until      TEXT,
+        ingested_at      TEXT,
+        superseded       INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(block_id, block_hash, handshake_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ctx_store_hs ON context_store(handshake_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ctx_store_rel ON context_store(relationship_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_ctx_store_active ON context_store(handshake_id, superseded) WHERE superseded=0`,
+      `CREATE INDEX IF NOT EXISTS idx_ctx_store_status ON context_store(handshake_id, status)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -444,5 +471,80 @@ export function deleteEmbeddingsByHandshake(db: any, handshakeId: string): numbe
       SELECT sender_wrdesk_user_id, block_id, block_hash FROM context_blocks WHERE handshake_id = ?
     )`
   ).run(handshakeId)
+  return result.changes
+}
+
+// ── Context Store (3-phase content delivery) ──
+
+export interface ContextStoreEntry {
+  block_id: string
+  block_hash: string
+  handshake_id: string
+  relationship_id: string
+  scope_id: string | null
+  publisher_id: string
+  type: string
+  content: string | null
+  status: 'pending' | 'pending_delivery' | 'delivered' | 'received'
+  valid_until: string | null
+  ingested_at: string | null
+  superseded: number
+}
+
+export function insertContextStoreEntry(db: any, entry: ContextStoreEntry): void {
+  db.prepare(`INSERT OR IGNORE INTO context_store
+    (block_id, block_hash, handshake_id, relationship_id, scope_id,
+     publisher_id, type, content, status, valid_until, ingested_at, superseded)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.block_id, entry.block_hash, entry.handshake_id, entry.relationship_id,
+    entry.scope_id, entry.publisher_id, entry.type,
+    entry.content, entry.status, entry.valid_until, entry.ingested_at,
+    entry.superseded,
+  )
+}
+
+export function getContextStoreByHandshake(
+  db: any,
+  handshakeId: string,
+  status?: string,
+): ContextStoreEntry[] {
+  let sql = 'SELECT * FROM context_store WHERE handshake_id = ?'
+  const params: any[] = [handshakeId]
+  if (status) {
+    sql += ' AND status = ?'
+    params.push(status)
+  }
+  return db.prepare(sql).all(...params) as ContextStoreEntry[]
+}
+
+export function updateContextStoreStatus(
+  db: any,
+  blockId: string,
+  handshakeId: string,
+  newStatus: string,
+  content?: string | null,
+): void {
+  if (content !== undefined) {
+    db.prepare(
+      `UPDATE context_store SET status = ?, content = ?, ingested_at = ?
+       WHERE block_id = ? AND handshake_id = ?`
+    ).run(newStatus, content, new Date().toISOString(), blockId, handshakeId)
+  } else {
+    db.prepare(
+      `UPDATE context_store SET status = ? WHERE block_id = ? AND handshake_id = ?`
+    ).run(newStatus, blockId, handshakeId)
+  }
+}
+
+export function updateContextStoreStatusBulk(
+  db: any,
+  handshakeId: string,
+  fromStatus: string,
+  toStatus: string,
+): number {
+  const result = db.prepare(
+    `UPDATE context_store SET status = ? WHERE handshake_id = ? AND status = ?`
+  ).run(toStatus, handshakeId, fromStatus)
   return result.changes
 }
