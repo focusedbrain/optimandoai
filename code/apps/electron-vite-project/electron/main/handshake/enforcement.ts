@@ -408,6 +408,8 @@ function buildInitiateRecord(
     initiator_wrdesk_policy_version: input.wrdesk_policy_version,
     acceptor_wrdesk_policy_hash: null,
     acceptor_wrdesk_policy_version: null,
+    initiator_context_commitment: input.context_commitment ?? null,
+    acceptor_context_commitment: null,
   }
 }
 
@@ -438,6 +440,7 @@ function buildAcceptRecord(
     expires_at: input.expires_at ?? existing.expires_at,
     acceptor_wrdesk_policy_hash: input.wrdesk_policy_hash,
     acceptor_wrdesk_policy_version: input.wrdesk_policy_version,
+    acceptor_context_commitment: input.context_commitment ?? null,
   }
 }
 

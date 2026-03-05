@@ -340,6 +340,8 @@ export interface HandshakeRecord {
   initiator_wrdesk_policy_version: string;
   acceptor_wrdesk_policy_hash: string | null;
   acceptor_wrdesk_policy_version: string | null;
+  initiator_context_commitment: string | null;
+  acceptor_context_commitment: string | null;
 }
 
 // ── Context Block (persisted) ──

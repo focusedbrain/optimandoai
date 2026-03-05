@@ -21,6 +21,8 @@ interface HandshakeRecord {
   expires_at: string | null
   last_seq_received: number
   last_capsule_hash_received: string
+  initiator_context_commitment: string | null
+  acceptor_context_commitment: string | null
 }
 
 interface Props {
@@ -78,6 +80,40 @@ function MetaRow({ label, value }: { label: string; value: string }) {
         wordBreak: 'break-all',
       }}>
         {value}
+      </span>
+    </div>
+  )
+}
+
+function CopyableHash({ label, hash }: { label: string; hash: string | null }) {
+  const display = hash ? shortHash(hash) : '—'
+  const copyable = !!hash
+
+  function handleClick() {
+    if (!hash) return
+    try { navigator.clipboard.writeText(hash) } catch { /* clipboard may not be available */ }
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0' }}>
+      <span style={{
+        fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)',
+        textTransform: 'uppercase', letterSpacing: '0.4px',
+      }}>
+        {label}
+      </span>
+      <span
+        onClick={handleClick}
+        title={copyable ? hash! : undefined}
+        style={{
+          fontSize: '12px', color: copyable ? 'var(--color-text, #e2e8f0)' : 'var(--color-text-muted, #94a3b8)',
+          fontFamily: 'monospace', maxWidth: '60%', textAlign: 'right',
+          wordBreak: 'break-all',
+          cursor: copyable ? 'pointer' : 'default',
+          userSelect: 'none',
+        }}
+      >
+        {display}
       </span>
     </div>
   )
@@ -142,6 +178,23 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
         <MetaRow label="Relationship ID" value={record.relationship_id} />
         <MetaRow label="Last seq received" value={String(record.last_seq_received)} />
         <MetaRow label="Last capsule hash" value={shortHash(record.last_capsule_hash_received)} />
+      </div>
+
+      {/* Context Commitments */}
+      <div style={{
+        background: 'var(--color-surface, rgba(255,255,255,0.03))',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        borderRadius: '8px', padding: '14px 16px', marginBottom: '16px',
+      }}>
+        <div style={{
+          fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
+          letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)',
+          marginBottom: '8px',
+        }}>
+          Context Commitments
+        </div>
+        <CopyableHash label="Sender Context" hash={record.initiator_context_commitment} />
+        <CopyableHash label="Receiver Context" hash={record.acceptor_context_commitment} />
       </div>
 
       {/* Timeline */}

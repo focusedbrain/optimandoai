@@ -167,6 +167,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_ctx_store_status ON context_store(handshake_id, status)`,
     ],
   },
+  {
+    version: 4,
+    description: 'Schema v4: context commitment hashes on handshake record',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN initiator_context_commitment TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN acceptor_context_commitment TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -242,6 +250,8 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     initiator_wrdesk_policy_version: record.initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash: record.acceptor_wrdesk_policy_hash,
     acceptor_wrdesk_policy_version: record.acceptor_wrdesk_policy_version,
+    initiator_context_commitment: record.initiator_context_commitment ?? null,
+    acceptor_context_commitment: record.acceptor_context_commitment ?? null,
   }
 }
 
@@ -272,6 +282,8 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     initiator_wrdesk_policy_version: row.initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash: row.acceptor_wrdesk_policy_hash ?? null,
     acceptor_wrdesk_policy_version: row.acceptor_wrdesk_policy_version ?? null,
+    initiator_context_commitment: row.initiator_context_commitment ?? null,
+    acceptor_context_commitment: row.acceptor_context_commitment ?? null,
   }
 }
 
@@ -285,7 +297,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     effective_policy_json, external_processing,
     created_at, activated_at, expires_at, revoked_at, revocation_source,
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
-    acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version
+    acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
+    initiator_context_commitment, acceptor_context_commitment
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -294,7 +307,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @effective_policy_json, @external_processing,
     @created_at, @activated_at, @expires_at, @revoked_at, @revocation_source,
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
-    @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version
+    @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
+    @initiator_context_commitment, @acceptor_context_commitment
   )`).run(s)
 }
 
@@ -313,7 +327,9 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_wrdesk_policy_hash = @initiator_wrdesk_policy_hash,
     initiator_wrdesk_policy_version = @initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash = @acceptor_wrdesk_policy_hash,
-    acceptor_wrdesk_policy_version = @acceptor_wrdesk_policy_version
+    acceptor_wrdesk_policy_version = @acceptor_wrdesk_policy_version,
+    initiator_context_commitment = @initiator_context_commitment,
+    acceptor_context_commitment = @acceptor_context_commitment
   WHERE handshake_id = @handshake_id`).run(s)
 }
 
