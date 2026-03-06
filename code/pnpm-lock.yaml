@@ -262,6 +262,37 @@ importers:
         specifier: ^5.4.20
         version: 5.4.20(@types/node@24.3.0)
 
+  packages/coordination-service:
+    dependencies:
+      '@repo/ingestion-core':
+        specifier: workspace:*
+        version: link:../ingestion-core
+      better-sqlite3:
+        specifier: ^11.0.0
+        version: 11.10.0
+      jose:
+        specifier: ^5.2.0
+        version: 5.10.0
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.11
+      '@types/ws':
+        specifier: ^8.18.0
+        version: 8.18.1
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.2
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.11)(jsdom@26.1.0(canvas@3.2.0))
+      ws:
+        specifier: ^8.18.3
+        version: 8.18.3
+
   packages/hello: {}
 
   packages/ingestion-core:
@@ -5722,7 +5753,7 @@ snapshots:
 
   '@types/better-sqlite3@7.6.13':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
 
   '@types/body-parser@1.19.6':
     dependencies:
@@ -5777,7 +5808,7 @@ snapshots:
 
   '@types/fluent-ffmpeg@2.1.28':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
 
   '@types/fs-extra@9.0.13':
     dependencies:
@@ -5791,7 +5822,7 @@ snapshots:
 
   '@types/imap@0.8.43':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
 
   '@types/json-schema@7.0.15': {}
 
@@ -5805,7 +5836,7 @@ snapshots:
 
   '@types/mailparser@3.4.6':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
       iconv-lite: 0.6.3
 
   '@types/ms@2.1.0': {}
@@ -5828,11 +5859,12 @@ snapshots:
   '@types/node@24.3.0':
     dependencies:
       undici-types: 7.10.0
+    optional: true
 
   '@types/nodemailer@7.0.4':
     dependencies:
       '@aws-sdk/client-sesv2': 3.962.0
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
     transitivePeerDependencies:
       - aws-crt
 
@@ -5842,7 +5874,7 @@ snapshots:
 
   '@types/pg@8.16.0':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
       pg-protocol: 1.10.3
       pg-types: 2.2.0
 
@@ -5887,7 +5919,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 24.3.0
+      '@types/node': 20.19.11
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -8879,7 +8911,8 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici-types@7.10.0: {}
+  undici-types@7.10.0:
+    optional: true
 
   undici@7.15.0: {}
 

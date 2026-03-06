@@ -16,10 +16,15 @@ interface P2PHealthStatus {
   self_test_passed: boolean | null
   enabled?: boolean
   relay_mode?: string
+  use_coordination?: boolean
   last_relay_pull_success?: string | null
   last_relay_pull_failure?: string | null
   last_relay_pull_error?: string | null
   relay_capsules_pulled?: number
+  coordination_connected?: boolean
+  coordination_last_push?: string | null
+  coordination_last_error?: string | null
+  coordination_reconnect_attempts?: number
 }
 
 export default function P2PStatusBadge() {
@@ -100,6 +105,50 @@ export default function P2PStatusBadge() {
         border: '1px solid rgba(245,158,11,0.3)',
       }}>
         P2P — pending
+      </span>
+    )
+  }
+
+  // Coordination mode: show wrdesk.com connection status
+  if (health.use_coordination) {
+    if (health.coordination_last_error && health.coordination_last_error.toLowerCase().includes('auth')) {
+      return (
+        <span
+          title="Authentication failed — please log in again"
+          style={{
+            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+            border: '1px solid rgba(239,68,68,0.3)',
+          }}
+        >
+          Auth failed — log in again
+        </span>
+      )
+    }
+    if (health.coordination_connected) {
+      return (
+        <span
+          title="Connected to wrdesk.com for instant delivery"
+          style={{
+            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+            background: 'rgba(34,197,94,0.15)', color: '#22c55e',
+            border: '1px solid rgba(34,197,94,0.3)',
+          }}
+        >
+          Connected to wrdesk.com
+        </span>
+      )
+    }
+    return (
+      <span
+        title="Reconnecting to wrdesk.com…"
+        style={{
+          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+          background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+          border: '1px solid rgba(245,158,11,0.3)',
+        }}
+      >
+        Reconnecting to wrdesk.com…
       </span>
     )
   }

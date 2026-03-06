@@ -24,6 +24,11 @@ export interface P2PHealthStatus {
   last_relay_pull_error: string | null
   relay_capsules_pulled: number
   relay_mode: string
+  use_coordination: boolean
+  coordination_connected: boolean
+  coordination_last_push: string | null
+  coordination_last_error: string | null
+  coordination_reconnect_attempts: number
 }
 
 let health: P2PHealthStatus = {
@@ -43,6 +48,11 @@ let health: P2PHealthStatus = {
   last_relay_pull_error: null,
   relay_capsules_pulled: 0,
   relay_mode: 'local',
+  use_coordination: true,
+  coordination_connected: false,
+  coordination_last_push: null,
+  coordination_last_error: null,
+  coordination_reconnect_attempts: 0,
 }
 
 const listeners = new Set<(status: P2PHealthStatus) => void>()
@@ -108,8 +118,9 @@ export function setP2PHealthSelfTest(passed: boolean): void {
   notifyListeners()
 }
 
-export function setP2PHealthRelayMode(mode: string): void {
+export function setP2PHealthRelayMode(mode: string, useCoordination?: boolean): void {
   health.relay_mode = mode
+  if (useCoordination !== undefined) health.use_coordination = useCoordination
   notifyListeners()
 }
 
@@ -124,6 +135,32 @@ export function setP2PHealthRelayPullSuccess(pulled: number, accepted: number, _
 export function setP2PHealthRelayPullFailure(error: string): void {
   health.last_relay_pull_failure = new Date().toISOString()
   health.last_relay_pull_error = error
+  notifyListeners()
+}
+
+export function setP2PHealthCoordinationConnected(): void {
+  health.coordination_connected = true
+  health.coordination_last_error = null
+  notifyListeners()
+}
+
+export function setP2PHealthCoordinationDisconnected(): void {
+  health.coordination_connected = false
+  notifyListeners()
+}
+
+export function setP2PHealthCoordinationError(error: string): void {
+  health.coordination_last_error = error
+  notifyListeners()
+}
+
+export function setP2PHealthCoordinationLastPush(): void {
+  health.coordination_last_push = new Date().toISOString()
+  notifyListeners()
+}
+
+export function setP2PHealthCoordinationReconnectAttempts(attempts: number): void {
+  health.coordination_reconnect_attempts = attempts
   notifyListeners()
 }
 

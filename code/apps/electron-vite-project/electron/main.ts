@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo } from '../src/auth/session'
+import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
 import { 
   resolveTier,
   DEFAULT_TIER,
@@ -510,7 +510,7 @@ import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
 import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
-import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, getCurrentSession } from './main/handshake/ipc'
+import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
 import { sessionFromClaims } from './main/handshake/sessionFactory'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
 import {
@@ -523,6 +523,7 @@ import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue } from './main/handshake/outboundQueue'
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
+import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
@@ -2536,6 +2537,12 @@ app.whenReady().then(async () => {
             session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
           })
         } catch { return undefined }
+      })
+      setOidcTokenProvider(async () => {
+        try {
+          const session = await ensureSession()
+          return session.accessToken ?? getAccessToken()
+        } catch { return null }
       })
 
       // Open the handshake ledger using the current SSO session.
@@ -6767,27 +6774,41 @@ app.whenReady().then(async () => {
 
     // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
     let p2pServerStarted = false
+    let coordinationWsClient: ReturnType<typeof createCoordinationWsClient> | null = null
     const getHandshakeDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+
+    async function getOidcToken(): Promise<string | null> {
+      try {
+        const session = await ensureSession()
+        return session.accessToken ?? getAccessToken()
+      } catch {
+        return null
+      }
+    }
 
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) return
-      processOutboundQueue(handshakeDb).catch((err) => {
+      processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
-      pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
-        console.warn('[P2P] pullFromRelay error:', err?.message)
-      })
+      const p2pConfig = getP2PConfig(handshakeDb)
+      setP2PHealthRelayMode(p2pConfig.relay_mode, p2pConfig.use_coordination)
+      // Only pull from relay when relay_mode=remote (coordination mode uses WebSocket push)
+      if (p2pConfig.relay_mode === 'remote') {
+        pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
+          console.warn('[P2P] pullFromRelay error:', err?.message)
+        })
+      }
       if (!p2pServerStarted) {
         try {
           migrateHandshakeTables(handshakeDb)
-          const p2pConfig = getP2PConfig(handshakeDb)
-          setP2PHealthRelayMode(p2pConfig.relay_mode)
-          if (p2pConfig.enabled) {
+          const config = getP2PConfig(handshakeDb)
+          if (config.enabled) {
             const getDb = () => getHandshakeDb()
             const getSsoSession = () => getCurrentSession()
             const server = createP2PServer(
-              p2pConfig,
+              config,
               getDb,
               getSsoSession,
               (localEndpoint) => {
@@ -6807,6 +6828,24 @@ app.whenReady().then(async () => {
         } catch (err: any) {
           console.warn('[P2P] Server startup skipped:', err?.message)
         }
+      }
+      // Coordination WebSocket: connect when use_coordination
+      const coordConfig = getP2PConfig(handshakeDb)
+      if (coordConfig?.use_coordination && coordConfig?.coordination_enabled) {
+        if (!coordinationWsClient) {
+          coordinationWsClient = createCoordinationWsClient(
+            coordConfig,
+            () => getHandshakeDb(),
+            () => getCurrentSession(),
+            getOidcToken,
+          )
+          coordinationWsClient.connect().catch((err) => {
+            console.warn('[Coordination] WS connect error:', err?.message)
+          })
+        }
+      } else if (coordinationWsClient) {
+        coordinationWsClient.disconnect()
+        coordinationWsClient = null
       }
     }
 

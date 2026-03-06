@@ -6,7 +6,7 @@
 
 // ── Source Classification ──
 
-export type SourceType = 'email' | 'file_upload' | 'api' | 'extension' | 'internal' | 'p2p' | 'p2p_relay' | 'relay_pull';
+export type SourceType = 'email' | 'file_upload' | 'api' | 'extension' | 'internal' | 'p2p' | 'p2p_relay' | 'relay_pull' | 'coordination_service' | 'coordination_ws';
 
 export type OriginClassification = 'external' | 'internal';
 

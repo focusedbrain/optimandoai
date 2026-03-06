@@ -15,6 +15,64 @@ export interface SendCapsuleResult {
 }
 
 /**
+ * POST a capsule to the wrdesk.com Coordination Service.
+ * Uses OIDC token for auth. The service looks up the handshake in its registry.
+ *
+ * @param capsule - Serializable capsule object (will be JSON.stringify'd)
+ * @param coordinationUrl - Base URL e.g. https://coordination.wrdesk.com (will append /beap/capsule)
+ * @param oidcToken - OIDC access token for Authorization: Bearer
+ */
+export async function sendCapsuleViaCoordination(
+  capsule: object,
+  coordinationUrl: string,
+  oidcToken: string,
+): Promise<SendCapsuleResult> {
+  const base = coordinationUrl.replace(/\/$/, '')
+  const targetEndpoint = `${base}/beap/capsule`
+  return sendCapsuleViaHttpWithAuth(capsule, targetEndpoint, oidcToken)
+}
+
+async function sendCapsuleViaHttpWithAuth(
+  capsule: object,
+  targetEndpoint: string,
+  bearerToken: string,
+): Promise<SendCapsuleResult> {
+  const body = JSON.stringify(capsule)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${bearerToken.trim()}`,
+  }
+
+  try {
+    const response = await fetch(targetEndpoint, {
+      method: 'POST',
+      headers,
+      body,
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+
+    if (response.status === 200 || response.status === 202) {
+      console.log('[P2P] Coordination delivery OK', { endpoint: targetEndpoint, status: response.status })
+      return { success: true }
+    }
+
+    const errMsg = `HTTP ${response.status}`
+    console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
+    return { success: false, error: errMsg }
+  } catch (err: any) {
+    clearTimeout(timeout)
+    const errMsg = err?.message ?? err?.name ?? String(err)
+    console.warn('[P2P] Coordination delivery error', { endpoint: targetEndpoint, error: errMsg })
+    return { success: false, error: errMsg }
+  }
+}
+
+/**
  * POST a capsule to the target ingestion endpoint.
  *
  * @param capsule - Serializable capsule object (will be JSON.stringify'd)

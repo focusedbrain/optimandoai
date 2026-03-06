@@ -1,8 +1,8 @@
 /**
- * Relay Sync — Register handshakes with remote relay.
+ * Relay Sync — Register handshakes with remote relay or wrdesk.com Coordination Service.
  *
- * When host creates/accepts a handshake, register it with the relay
- * so the relay knows which tokens to expect from counterparties.
+ * When use_coordination: register with coordination service (OIDC auth).
+ * When relay_mode=remote: register with own relay (Bearer secret).
  */
 
 import { getP2PConfig } from './p2pConfig'
@@ -12,12 +12,55 @@ export async function registerHandshakeWithRelay(
   handshakeId: string,
   expectedToken: string,
   counterpartyEmail: string,
+  getOidcToken?: () => Promise<string | null>,
+  handshakeDetails?: {
+    initiator_user_id: string
+    acceptor_user_id: string
+    initiator_email?: string
+    acceptor_email?: string
+  },
 ): Promise<{ success: boolean; error?: string }> {
   if (!db) return { success: false, error: 'No database' }
 
   const config = getP2PConfig(db)
   if (config.relay_mode === 'disabled') {
     return { success: true }
+  }
+
+  if (config.use_coordination && getOidcToken && handshakeDetails) {
+    const token = await getOidcToken()
+    const coordUrl = config.coordination_url?.trim()
+    if (!token?.trim() || !coordUrl) {
+      return { success: false, error: !token ? 'No OIDC token' : 'Coordination URL not configured' }
+    }
+    const base = coordUrl.replace(/\/$/, '')
+    const registerUrl = `${base}/beap/register-handshake`
+    try {
+      const res = await fetch(registerUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          handshake_id: handshakeId,
+          initiator_user_id: handshakeDetails.initiator_user_id,
+          acceptor_user_id: handshakeDetails.acceptor_user_id,
+          initiator_email: handshakeDetails.initiator_email ?? undefined,
+          acceptor_email: handshakeDetails.acceptor_email ?? undefined,
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        console.error('[Coordination] Register handshake failed:', res.status, text)
+        return { success: false, error: res.status === 401 ? 'Auth failed' : `HTTP ${res.status}` }
+      }
+      return { success: true }
+    } catch (err: any) {
+      const msg = err?.message ?? String(err)
+      console.error('[Coordination] Register handshake error:', msg)
+      return { success: false, error: msg }
+    }
   }
 
   if (config.relay_mode === 'local') {

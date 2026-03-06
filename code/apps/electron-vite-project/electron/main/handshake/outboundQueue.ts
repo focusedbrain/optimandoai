@@ -3,10 +3,14 @@
  *
  * All outbound sends go through this queue. Never send directly from accept handler.
  * Table: outbound_capsule_queue (created by handshake migration v6).
+ *
+ * When use_coordination: target = coordination_url/beap/capsule, auth = OIDC token.
+ * When !use_coordination: target = relay URL from queue, auth = handshake Bearer token.
  */
 
-import { sendCapsuleViaHttp } from './p2pTransport'
+import { sendCapsuleViaHttp, sendCapsuleViaCoordination } from './p2pTransport'
 import { getHandshakeRecord } from './db'
+import { getP2PConfig } from '../p2p/p2pConfig'
 import {
   setP2PHealthOutboundSuccess,
   setP2PHealthOutboundFailure,
@@ -41,7 +45,10 @@ export function enqueueOutboundCapsule(
   }
 }
 
-export async function processOutboundQueue(db: any): Promise<void> {
+export async function processOutboundQueue(
+  db: any,
+  getOidcToken?: () => Promise<string | null>,
+): Promise<void> {
   if (!db) return
   try {
     const row = db.prepare(
@@ -65,10 +72,26 @@ export async function processOutboundQueue(db: any): Promise<void> {
     }
 
     const capsule = JSON.parse(row.capsule_json) as object
-    const record = getHandshakeRecord(db, row.handshake_id)
-    const bearerToken = record?.counterparty_p2p_token ?? null
+    const config = getP2PConfig(db)
+    let result: { success: boolean; error?: string }
 
-    const result = await sendCapsuleViaHttp(capsule, row.target_endpoint, row.handshake_id, bearerToken)
+    if (config.use_coordination && getOidcToken) {
+      const token = await getOidcToken()
+      const targetUrl = config.coordination_url?.trim()
+      if (!token?.trim()) {
+        setP2PHealthOutboundFailure('No OIDC token — please log in')
+        return
+      }
+      if (!targetUrl) {
+        setP2PHealthOutboundFailure('Coordination URL not configured')
+        return
+      }
+      result = await sendCapsuleViaCoordination(capsule, targetUrl, token)
+    } else {
+      const record = getHandshakeRecord(db, row.handshake_id)
+      const bearerToken = record?.counterparty_p2p_token ?? null
+      result = await sendCapsuleViaHttp(capsule, row.target_endpoint, row.handshake_id, bearerToken)
+    }
 
     if (result.success) {
       setP2PHealthOutboundSuccess()

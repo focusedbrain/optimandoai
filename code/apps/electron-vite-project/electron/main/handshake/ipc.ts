@@ -134,8 +134,10 @@ function resolveProfileIdsToContextBlocks(
 // ── SSO Session Provider ──
 
 export type SSOSessionProvider = () => SSOSession | undefined
+export type OidcTokenProvider = () => Promise<string | null>
 
 let _getSession: SSOSessionProvider = () => undefined
+let _getOidcToken: OidcTokenProvider = async () => null
 
 /**
  * Inject the SSO session provider. Called once at app startup.
@@ -146,9 +148,17 @@ export function setSSOSessionProvider(provider: SSOSessionProvider): void {
   _getSession = provider
 }
 
+/**
+ * Inject the OIDC token provider for coordination service auth.
+ */
+export function setOidcTokenProvider(provider: OidcTokenProvider): void {
+  _getOidcToken = provider
+}
+
 /** @internal */
 export function _resetSSOSessionProvider(): void {
   _getSession = () => undefined
+  _getOidcToken = async () => null
 }
 
 /**
@@ -282,11 +292,18 @@ export async function handleHandshakeRPC(
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
         localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
-        if (localResult.success && p2pAuthToken && receiverEmail) {
-          setImmediate(() => {
-            registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken, receiverEmail)
-              .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
-              .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+        if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
+          setImmediate(async () => {
+            const p2pConfig = getP2PConfig(db)
+            const result = p2pConfig.use_coordination
+              ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
+                  initiator_user_id: session.wrdesk_user_id,
+                  acceptor_user_id: receiverUserId,
+                  initiator_email: session.email,
+                  acceptor_email: receiverEmail,
+                })
+              : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
+            if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
           })
         }
       } else if (!skipVaultContext) {
@@ -349,11 +366,18 @@ export async function handleHandshakeRPC(
       // Direct insert — NOT the receive pipeline (ownership would reject).
       if (db) {
         const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
-        if (buildLocalResult.success && dlP2PAuthToken && dlReceiverEmail) {
-          setImmediate(() => {
-            registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken, dlReceiverEmail)
-              .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
-              .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+        if (buildLocalResult.success && (dlP2PAuthToken || getP2PConfig(db).use_coordination) && dlReceiverEmail) {
+          setImmediate(async () => {
+            const p2pConfig = getP2PConfig(db)
+            const result = p2pConfig.use_coordination
+              ? await registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
+                  initiator_user_id: session.wrdesk_user_id,
+                  acceptor_user_id: dlReceiverUserId,
+                  initiator_email: session.email,
+                  acceptor_email: dlReceiverEmail,
+                })
+              : await registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
+            if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
           })
         }
         if (!buildLocalResult.success) {
@@ -502,11 +526,18 @@ export async function handleHandshakeRPC(
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
 
-      if (localResult.success && p2pAuthToken && initiatorEmail) {
-        setImmediate(() => {
-          registerHandshakeWithRelay(db, handshake_id, p2pAuthToken, initiatorEmail)
-            .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
-            .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+      if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && initiatorEmail) {
+        setImmediate(async () => {
+          const p2pConfig = getP2PConfig(db)
+          const result = p2pConfig.use_coordination
+            ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
+                initiator_user_id: initiatorUserId,
+                acceptor_user_id: session.wrdesk_user_id,
+                initiator_email: initiatorEmail,
+                acceptor_email: session.email,
+              })
+            : await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail)
+          if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
         })
       }
 

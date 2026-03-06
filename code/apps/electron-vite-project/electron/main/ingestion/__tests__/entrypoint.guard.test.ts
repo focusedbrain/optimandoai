@@ -45,9 +45,11 @@ function collectProductionFiles(dir: string): string[] {
  *   - ipc.ts (ingestion): calls it after validation
  *   - p2pServer.ts: P2P entry point, routes through processIncomingInput → canonicalRebuild → processHandshakeCapsule
  *   - relayPull.ts: Relay pull entry point, routes through processIncomingInput → canonicalRebuild → processHandshakeCapsule
+ *   - coordinationWs.ts: Coordination WebSocket entry point, routes through processIncomingInput → canonicalRebuild → processHandshakeCapsule
  *   - index.ts (ingestion / handshake barrel exports)
  */
 const ALLOWED_CALLERS = new Set([
+  'coordinationWs.ts',
   'enforcement.ts',
   'ipc.ts',
   'index.ts',

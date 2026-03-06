@@ -52,6 +52,7 @@ function collectProductionFiles(dir: string): string[] {
 
 describe('Entrypoint Guard — Static Analysis', () => {
   const ALLOWED_CALLERS = new Set([
+    'coordinationWs.ts',
     'enforcement.ts',
     'ipc.ts',
     'index.ts',

@@ -154,11 +154,15 @@ function RelayStatusHint() {
 
 function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; p2pEndpoint: string | null | undefined }) {
   const [entries, setEntries] = useState<P2PQueueEntry[]>([])
+  const [useCoordination, setUseCoordination] = useState(false)
   useEffect(() => {
     if (!handshakeId || !(window as any).p2p?.getQueueStatus) return
     ;(window as any).p2p.getQueueStatus(handshakeId).then((r: { entries: P2PQueueEntry[] }) => {
       setEntries(r?.entries ?? [])
     }).catch(() => setEntries([]))
+    ;(window as any).p2p?.getHealth?.().then((h: { use_coordination?: boolean }) => {
+      setUseCoordination(!!h?.use_coordination)
+    }).catch(() => {})
     const t = setInterval(() => {
       ;(window as any).p2p?.getQueueStatus(handshakeId).then((r: { entries: P2PQueueEntry[] }) => {
         setEntries(r?.entries ?? [])
@@ -171,10 +175,17 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   const pending = entries.filter((e) => e.status === 'pending')
   const sent = entries.filter((e) => e.status === 'sent')
   const failed = entries.filter((e) => e.status === 'failed')
-  if (sent.length > 0 && pending.length === 0 && failed.length === 0) return <MetaRow label="P2P" value="Context delivered via P2P ✓" />
+  const deliveryLabel = useCoordination ? 'wrdesk.com' : 'P2P'
+  if (sent.length > 0 && pending.length === 0 && failed.length === 0) {
+    return <MetaRow label="P2P" value={`Delivered via ${deliveryLabel} ✓`} />
+  }
   if (pending.length > 0) {
-    const retry = pending[0]?.retry_count ?? 0
-    return <MetaRow label="P2P" value={`Context delivery in progress... (attempt ${retry + 1})`} />
+    return (
+      <MetaRow
+        label="P2P"
+        value={useCoordination ? 'Delivery pending — recipient may be offline' : `Context delivery in progress... (attempt ${(pending[0]?.retry_count ?? 0) + 1})`}
+      />
+    )
   }
   if (failed.length > 0) {
     const err = failed[0]?.error ?? 'Unknown error'

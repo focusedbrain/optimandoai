@@ -30,6 +30,7 @@ import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider } f
 import { getContextStoreByHandshake, insertContextStoreEntry } from '../../handshake/db'
 import { computeBlockHash } from '../../handshake/contextCommitment'
 import type { HandshakeRecord } from '../../handshake/types'
+import { upsertP2PConfig } from '../p2pConfig'
 import type { P2PConfig } from '../p2pConfig'
 import type { Server } from 'http'
 
@@ -889,6 +890,7 @@ describe('P6: Auto-Trigger', () => {
 
   test('P6_02_no_trigger_without_endpoint', async () => {
     if (skipIfNoSqlite()) return
+    upsertP2PConfig(db, { coordination_enabled: false })
     const initiator = buildTestSession({ wrdesk_user_id: 'i', email: 'i@t.com' })
     const acceptor = buildTestSession({ wrdesk_user_id: 'a', email: 'a@t.com' })
     const content = 'test-block'

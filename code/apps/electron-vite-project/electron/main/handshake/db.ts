@@ -248,6 +248,15 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE p2p_config ADD COLUMN relay_cert_fingerprint TEXT`,
     ],
   },
+  {
+    version: 11,
+    description: 'Schema v11: Coordination service config (wrdesk.com relay for Free tier)',
+    sql: [
+      `ALTER TABLE p2p_config ADD COLUMN coordination_url TEXT DEFAULT 'https://coordination.wrdesk.com'`,
+      `ALTER TABLE p2p_config ADD COLUMN coordination_ws_url TEXT DEFAULT 'wss://coordination.wrdesk.com/beap/ws'`,
+      `ALTER TABLE p2p_config ADD COLUMN coordination_enabled INTEGER DEFAULT 1`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
