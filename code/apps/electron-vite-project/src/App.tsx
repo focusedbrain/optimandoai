@@ -4,9 +4,10 @@ import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
 import HandshakeInitiateModal from './components/HandshakeInitiateModal'
+import SettingsView from './components/SettingsView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
-type DashboardView = 'analysis' | 'handshakes'
+type DashboardView = 'analysis' | 'handshakes' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
@@ -116,6 +117,8 @@ function App() {
       <main className="app-main">
         {activeView === 'handshakes' ? (
           <HandshakeView onNewHandshake={() => setShowInitiateModal(true)} />
+        ) : activeView === 'settings' ? (
+          <SettingsView />
         ) : (
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}

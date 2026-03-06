@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { validateCapsule } from '../validator'
-import { ingestInput } from '../ingestor'
+import { validateCapsule, ingestInput } from '@repo/ingestion-core'
 import { processIncomingInput } from '../ingestionPipeline'
 import type { CandidateCapsuleEnvelope, ProvenanceMetadata, RawInput, TransportMetadata } from '../types'
 

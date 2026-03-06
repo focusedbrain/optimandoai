@@ -21,10 +21,7 @@ export type {
   SandboxQueueStatus,
 } from './types'
 export { INGESTION_CONSTANTS } from './types'
-export { ingestInput } from './ingestor'
-export { validateCapsule } from './validator'
-export { routeValidatedCapsule } from './distributionGate'
-export { detectBeapCapsule } from './beapDetection'
+export { ingestInput, validateCapsule, routeValidatedCapsule, detectBeapCapsule } from '@repo/ingestion-core'
 export { processIncomingInput } from './ingestionPipeline'
 export { handleIngestionRPC, registerIngestionRoutes } from './ipc'
 export {

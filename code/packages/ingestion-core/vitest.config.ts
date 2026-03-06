@@ -1,0 +1,14 @@
+import { defineConfig } from 'vitest/config';
+import { resolve } from 'path';
+
+export default defineConfig({
+  test: {
+    globals: false,
+    environment: 'node',
+  },
+  resolve: {
+    alias: {
+      '@repo/ingestion-core': resolve(__dirname, './src/index.ts'),
+    },
+  },
+});

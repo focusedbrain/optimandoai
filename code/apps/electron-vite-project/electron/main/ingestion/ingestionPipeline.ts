@@ -19,9 +19,7 @@ import type {
   DistributionDecision,
 } from './types'
 import { INGESTION_CONSTANTS } from './types'
-import { ingestInput } from './ingestor'
-import { validateCapsule } from './validator'
-import { routeValidatedCapsule } from './distributionGate'
+import { ingestInput, validateCapsule, routeValidatedCapsule } from '@repo/ingestion-core'
 
 export async function processIncomingInput(
   rawInput: RawInput,

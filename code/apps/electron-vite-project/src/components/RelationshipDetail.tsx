@@ -129,6 +129,29 @@ interface P2PQueueEntry {
   error: string | null
 }
 
+function RelayStatusHint() {
+  const [health, setHealth] = useState<{ relay_mode?: string; last_relay_pull_error?: string | null } | null>(null)
+  useEffect(() => {
+    ;(window as any).p2p?.getHealth?.().then((h: any) => setHealth(h)).catch(() => setHealth(null))
+    const t = setInterval(() => {
+      ;(window as any).p2p?.getHealth?.().then((h: any) => setHealth(h)).catch(() => {})
+    }, 15_000)
+    return () => clearInterval(t)
+  }, [])
+  if (!health || health.relay_mode !== 'remote') return null
+  const err = health.last_relay_pull_error
+  if (err) {
+    const isAuth = err.toLowerCase().includes('auth')
+    return (
+      <MetaRow
+        label="Relay"
+        value={isAuth ? 'Auth failed — check configuration' : `Unreachable — ${err.slice(0, 50)}${err.length > 50 ? '…' : ''}`}
+      />
+    )
+  }
+  return <MetaRow label="Relay" value="Active — last sync OK" />
+}
+
 function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; p2pEndpoint: string | null | undefined }) {
   const [entries, setEntries] = useState<P2PQueueEntry[]>([])
   useEffect(() => {
@@ -219,6 +242,7 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
         <MetaRow label="Relationship ID" value={record.relationship_id} />
         <MetaRow label="Last seq received" value={String(record.last_seq_received)} />
         <MetaRow label="Last capsule hash" value={shortHash(record.last_capsule_hash_received)} />
+        <RelayStatusHint />
         <P2PDeliveryStatus handshakeId={record.handshake_id} p2pEndpoint={record.p2p_endpoint} />
       </div>
 

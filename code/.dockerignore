@@ -1,0 +1,3 @@
+# Relay server Docker build: exclude apps to avoid electron postinstall
+# (which rebuilds better-sqlite3 for Electron, breaking Node 20)
+apps/

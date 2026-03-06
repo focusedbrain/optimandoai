@@ -36,7 +36,8 @@ import {
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule } from './outboundQueue'
 import { randomBytes } from 'crypto'
-import { getP2PConfig } from '../p2p/p2pConfig'
+import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
+import { registerHandshakeWithRelay } from '../p2p/relaySync'
 
 // ── Context Block Helpers ──
 
@@ -256,7 +257,9 @@ export async function handleHandshakeRPC(
       }
 
       const contextBlocks = buildContextBlocksFromParams(rawBlocks, rawMessage)
-      const p2pEndpoint = p2pEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const p2pConfig = getP2PConfig(db)
+      const localEndpoint = p2pConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
       const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
@@ -279,6 +282,13 @@ export async function handleHandshakeRPC(
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
         localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
+        if (localResult.success && p2pAuthToken && receiverEmail) {
+          setImmediate(() => {
+            registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken, receiverEmail)
+              .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
+              .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+          })
+        }
       } else if (!skipVaultContext) {
         return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
       }
@@ -319,7 +329,9 @@ export async function handleHandshakeRPC(
       }
 
       const dlContextBlocks = buildContextBlocksFromParams(dlRawBlocks, dlRawMessage)
-      const dlP2PEndpoint = dlP2PEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const dlP2PConfig = getP2PConfig(db)
+      const dlLocalEndpoint = dlP2PConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
       const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
@@ -337,6 +349,13 @@ export async function handleHandshakeRPC(
       // Direct insert — NOT the receive pipeline (ownership would reject).
       if (db) {
         const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
+        if (buildLocalResult.success && dlP2PAuthToken && dlReceiverEmail) {
+          setImmediate(() => {
+            registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken, dlReceiverEmail)
+              .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
+              .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+          })
+        }
         if (!buildLocalResult.success) {
           return {
             type: 'handshake-build-result',
@@ -424,7 +443,9 @@ export async function handleHandshakeRPC(
       const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
       const acceptContextCommitment = acceptContextBlocks.length > 0 ? computeCommitment(acceptContextBlocks) : null
 
-      const p2pEndpoint = p2pEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const acceptP2PConfig = getP2PConfig(db)
+      const acceptLocalEndpoint = acceptP2PConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
       const capsule = buildAcceptCapsule(session, {
@@ -480,6 +501,14 @@ export async function handleHandshakeRPC(
       }
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
+
+      if (localResult.success && p2pAuthToken && initiatorEmail) {
+        setImmediate(() => {
+          registerHandshakeWithRelay(db, handshake_id, p2pAuthToken, initiatorEmail)
+            .then((r) => { if (!r.success) console.warn('[Relay] Register handshake failed:', r.error) })
+            .catch((err) => console.warn('[Relay] Register handshake error:', err?.message))
+        })
+      }
 
       // Auto-trigger P2P context-sync: enqueue for delivery (non-blocking)
       if (localResult.success && db) {

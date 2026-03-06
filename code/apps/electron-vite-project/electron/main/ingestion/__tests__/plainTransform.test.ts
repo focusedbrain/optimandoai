@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { buildPlainDraftPayload } from '../plainTransform'
+import { buildPlainDraftPayload } from '@repo/ingestion-core'
 
 describe('Plain Transform', () => {
   test('wraps string content as internal_draft', () => {

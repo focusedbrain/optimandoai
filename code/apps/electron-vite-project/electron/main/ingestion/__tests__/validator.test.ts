@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { validateCapsule } from '../validator'
+import { validateCapsule } from '@repo/ingestion-core'
 import type { CandidateCapsuleEnvelope, ProvenanceMetadata } from '../types'
 
 function makeProvenance(overrides?: Partial<ProvenanceMetadata>): ProvenanceMetadata {

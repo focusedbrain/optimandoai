@@ -1,0 +1,29 @@
+{
+  "name": "@repo/relay-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "docker:build": "cd ../.. && docker build -t wrdesk/beap-relay:latest -f packages/relay-server/Dockerfile .",
+    "docker:run": "docker run -d --name beap-relay -p 51249:51249 -e RELAY_AUTH_SECRET=test-secret -v beap-relay-data:/data wrdesk/beap-relay:latest",
+    "docker:stop": "docker stop beap-relay 2>/dev/null; docker rm beap-relay 2>/dev/null; true",
+    "docker:push": "echo 'Push to your registry: docker push wrdesk/beap-relay:latest'"
+  },
+  "dependencies": {
+    "@repo/ingestion-core": "workspace:*",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

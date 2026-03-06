@@ -15,6 +15,11 @@ interface P2PHealthStatus {
   failed_queue_count: number
   self_test_passed: boolean | null
   enabled?: boolean
+  relay_mode?: string
+  last_relay_pull_success?: string | null
+  last_relay_pull_failure?: string | null
+  last_relay_pull_error?: string | null
+  relay_capsules_pulled?: number
 }
 
 export default function P2PStatusBadge() {
@@ -99,7 +104,43 @@ export default function P2PStatusBadge() {
     )
   }
 
-  // Healthy
+  // Relay remote mode: show relay-specific status
+  if (health.relay_mode === 'remote') {
+    const err = health.last_relay_pull_error
+    if (err) {
+      const isAuth = err.toLowerCase().includes('auth')
+      return (
+        <span
+          title={isAuth ? 'Relay auth failed — check configuration' : `Relay unreachable — ${err}. Check your relay server.`}
+          style={{
+            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+            border: '1px solid rgba(239,68,68,0.3)',
+          }}
+        >
+          {isAuth ? 'Relay auth failed' : 'Relay unreachable'}
+        </span>
+      )
+    }
+    const lastSuccess = health.last_relay_pull_success
+    const ago = lastSuccess
+      ? Math.round((Date.now() - new Date(lastSuccess).getTime()) / 1000)
+      : null
+    return (
+      <span
+        title={ago != null ? `Relay active — last sync ${ago}s ago` : 'Relay active'}
+        style={{
+          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+          background: 'rgba(34,197,94,0.15)', color: '#22c55e',
+          border: '1px solid rgba(34,197,94,0.3)',
+        }}
+      >
+        Relay active
+      </span>
+    )
+  }
+
+  // Healthy (local mode)
   return (
     <span title={`P2P active on port ${health.port}`} style={{
       fontSize: '10px', padding: '2px 8px', borderRadius: '4px',

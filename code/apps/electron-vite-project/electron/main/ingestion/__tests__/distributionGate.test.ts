@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { routeValidatedCapsule } from '../distributionGate'
+import { routeValidatedCapsule } from '@repo/ingestion-core'
 import type { ValidatedCapsule, ValidatedCapsulePayload, ProvenanceMetadata } from '../types'
 
 function makeProvenance(overrides?: Partial<ProvenanceMetadata>): ProvenanceMetadata {

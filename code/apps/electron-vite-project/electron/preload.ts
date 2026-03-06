@@ -258,6 +258,44 @@ contextBridge.exposeInMainWorld('p2p', {
   },
 })
 
+// ── Auth Status (tier for relay gating) ─────────────────────────────────────
+contextBridge.exposeInMainWorld('auth', {
+  getStatus: () => ipcRenderer.invoke('auth:status'),
+})
+
+// ── Relay Setup Wizard ─────────────────────────────────────────────────────
+function assertRelayUrl(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (s.length === 0 || s.length > 500) throw new Error('relay_url: expected non-empty string (max 500 chars)')
+  return s
+}
+contextBridge.exposeInMainWorld('relay', {
+  generateSecret: () => ipcRenderer.invoke('relay:generateSecret'),
+  testConnection: (url: unknown) => ipcRenderer.invoke('relay:testConnection', assertRelayUrl(url)),
+  verifyEndToEnd: (url: unknown, secret: unknown) => {
+    const u = assertRelayUrl(url)
+    const s = typeof secret === 'string' && secret.length > 0 ? secret : ''
+    if (!s) throw new Error('secret: required for verifyEndToEnd')
+    return ipcRenderer.invoke('relay:verifyEndToEnd', u, s)
+  },
+  activate: (config: unknown) => {
+    const c = config && typeof config === 'object' && config !== null ? config as Record<string, unknown> : {}
+    const url = typeof c.relay_url === 'string' ? c.relay_url.trim() : ''
+    const pull = typeof c.relay_pull_url === 'string' ? c.relay_pull_url.trim() : undefined
+    if (!url) throw new Error('relay_url: required for activate')
+    return ipcRenderer.invoke('relay:activate', { relay_url: url, relay_pull_url: pull })
+  },
+  getSetupStatus: () => ipcRenderer.invoke('relay:getSetupStatus'),
+  deactivate: () => ipcRenderer.invoke('relay:deactivate'),
+  getSecret: () => ipcRenderer.invoke('relay:getSecret'),
+  testTlsConnection: (url: unknown) => ipcRenderer.invoke('relay:testTlsConnection', assertRelayUrl(url)),
+  acceptCertFingerprint: (fingerprint: unknown) => {
+    const fp = typeof fingerprint === 'string' && fingerprint.trim().length > 0 ? fingerprint.trim() : ''
+    if (!fp) throw new Error('fingerprint: required for acceptCertFingerprint')
+    return ipcRenderer.invoke('relay:acceptCertFingerprint', fp)
+  },
+})
+
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),

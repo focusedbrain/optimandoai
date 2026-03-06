@@ -521,9 +521,10 @@ import {
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
 import { processOutboundQueue } from './main/handshake/outboundQueue'
+import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
-import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest } from './main/p2p/p2pHealth'
+import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
 import { setEmailFunctions } from './main/email/beapSync'
@@ -2057,9 +2058,17 @@ app.whenReady().then(async () => {
       try {
         const db = await getHandshakeDb()
         const cfg = getP2PConfig(db)
-        return { ...h, enabled: cfg.enabled }
+        return {
+          ...h,
+          enabled: cfg.enabled,
+          relay_mode: cfg.relay_mode,
+          last_relay_pull_success: h.last_relay_pull_success,
+          last_relay_pull_failure: h.last_relay_pull_failure,
+          last_relay_pull_error: h.last_relay_pull_error,
+          relay_capsules_pulled: h.relay_capsules_pulled,
+        }
       } catch {
-        return { ...h, enabled: true }
+        return { ...h, enabled: true, relay_mode: 'local' }
       }
     })
 
@@ -2075,7 +2084,242 @@ app.whenReady().then(async () => {
       }
     })
 
-    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus')
+    // ── Relay Setup Wizard IPC ─────────────────────────────────────────────
+    ipcMain.handle('relay:generateSecret', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        const secret = crypto.randomBytes(32).toString('hex')
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_auth_secret: secret })
+        return { success: true, secret }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to generate secret' }
+      }
+    })
+
+    ipcMain.handle('relay:testConnection', async (_e, url: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      if (!u) return { success: false, error: 'URL is required' }
+      const healthUrl = u.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '') + '/health'
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        if (res.ok) return { success: true }
+        const text = await res.text()
+        return { success: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        const msg = err?.message ?? String(err)
+        if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused')) {
+          return { success: false, error: `Cannot connect to ${healthUrl}. Check that the relay container is running and port 51249 is open.` }
+        }
+        if (msg.includes('ETIMEDOUT') || msg.includes('timeout') || msg.includes('aborted')) {
+          return { success: false, error: 'Connection timed out. Check your server\'s firewall and that the relay is running.' }
+        }
+        if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+          try {
+            const host = new URL(healthUrl).hostname
+            return { success: false, error: `Cannot resolve ${host}. Check the URL.` }
+          } catch {
+            return { success: false, error: 'Cannot resolve hostname. Check the URL.' }
+          }
+        }
+        if (msg.includes('certificate') || msg.includes('SSL') || msg.includes('TLS')) {
+          return { success: false, error: 'TLS certificate error. If using self-signed certificates, see the TLS setup guide.' }
+        }
+        return { success: false, error: msg }
+      }
+    })
+
+    ipcMain.handle('relay:verifyEndToEnd', async (_e, url: string, secret: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      const s = typeof secret === 'string' ? secret.trim() : ''
+      if (!u || !s) return { success: false, results: [], error: 'URL and secret are required' }
+      const base = u.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '')
+      const healthUrl = base + '/health'
+      const registerUrl = base + '/beap/register-handshake'
+      const pullUrl = base + '/beap/pull'
+      const results: { name: string; ok: boolean; error?: string }[] = []
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const healthRes = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        results.push({ name: 'health', ok: healthRes.ok, error: healthRes.ok ? undefined : `HTTP ${healthRes.status}` })
+        if (!healthRes.ok) {
+          return { success: false, results, error: 'Relay is not reachable' }
+        }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        results.push({ name: 'health', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Relay unreachable' }
+      }
+      try {
+        const regRes = await fetch(registerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s}` },
+          body: JSON.stringify({ handshake_id: '__verify__', expected_token: '__test__', counterparty_email: 'verify@test.local' }),
+        })
+        results.push({ name: 'auth', ok: regRes.ok || regRes.status === 404, error: regRes.ok ? undefined : regRes.status === 401 ? 'Authentication failed' : `HTTP ${regRes.status}` })
+        if (regRes.status === 401) {
+          return { success: false, results, error: 'The relay rejected your credentials.' }
+        }
+      } catch (err: any) {
+        results.push({ name: 'auth', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Auth check failed' }
+      }
+      try {
+        const pullRes = await fetch(pullUrl, { method: 'GET', headers: { Authorization: `Bearer ${s}` } })
+        results.push({ name: 'pull', ok: pullRes.ok, error: pullRes.ok ? undefined : pullRes.status === 401 ? 'Authentication failed' : `HTTP ${pullRes.status}` })
+        if (pullRes.status === 401) {
+          return { success: false, results, error: 'The relay rejected your credentials.' }
+        }
+      } catch (err: any) {
+        results.push({ name: 'pull', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Pull check failed' }
+      }
+      return { success: true, results }
+    })
+
+    ipcMain.handle('relay:activate', async (_e, config: { relay_url: string; relay_pull_url?: string }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        const url = typeof config?.relay_url === 'string' ? config.relay_url.trim() : ''
+        if (!url) return { success: false, error: 'Relay URL is required' }
+        let pullUrl = config.relay_pull_url?.trim()
+        if (!pullUrl) {
+          if (/\/beap\/ingest\/?$/.test(url)) {
+            pullUrl = url.replace(/\/ingest\/?$/, '/pull')
+          } else {
+            const base = url.replace(/\/$/, '')
+            pullUrl = base + '/beap/pull'
+          }
+        }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_mode: 'remote', relay_url: url, relay_pull_url: pullUrl })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Activation failed' }
+      }
+    })
+
+    ipcMain.handle('relay:getSetupStatus', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { relay_mode: 'local', relay_url: null, relay_auth_secret: null }
+        const cfg = getP2PConfig(db)
+        return {
+          relay_mode: cfg.relay_mode,
+          relay_url: cfg.relay_url,
+          relay_pull_url: cfg.relay_pull_url,
+          relay_auth_secret: cfg.relay_auth_secret ? '***' : null,
+        }
+      } catch {
+        return { relay_mode: 'local', relay_url: null, relay_auth_secret: null }
+      }
+    })
+
+    ipcMain.handle('relay:deactivate', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session.' }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_mode: 'local', relay_url: null, relay_pull_url: null })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Deactivation failed' }
+      }
+    })
+
+    ipcMain.handle('relay:getSecret', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, secret: null }
+        const cfg = getP2PConfig(db)
+        return { success: true, secret: cfg.relay_auth_secret ? cfg.relay_auth_secret : null }
+      } catch {
+        return { success: false, secret: null }
+      }
+    })
+
+    ipcMain.handle('relay:testTlsConnection', async (_e, url: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      if (!u) return { success: false, error: 'URL is required' }
+      const httpsUrl = u.replace(/^http:\/\//i, 'https://')
+      const healthUrl = httpsUrl.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '') + '/health'
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        if (res.ok) return { success: true }
+        const text = await res.text()
+        return { success: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        const msg = err?.message ?? String(err)
+        if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused')) {
+          return { success: false, error: `Cannot connect to ${healthUrl}. Check that the relay container is running with TLS and port 51249 is open.` }
+        }
+        if (msg.includes('ETIMEDOUT') || msg.includes('timeout') || msg.includes('aborted')) {
+          return { success: false, error: 'Connection timed out. Check your server\'s firewall and that the relay is running.' }
+        }
+        if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+          try {
+            const host = new URL(healthUrl).hostname
+            return { success: false, error: `Cannot resolve ${host}. Check the URL.` }
+          } catch {
+            return { success: false, error: 'Cannot resolve hostname. Check the URL.' }
+          }
+        }
+        if (msg.includes('certificate') || msg.includes('SSL') || msg.includes('TLS') || msg.includes('UNABLE_TO_VERIFY')) {
+          try {
+            const { https } = await import('https')
+            const fingerprint = await new Promise<string | null>((resolve) => {
+              const req = https.get(healthUrl, { rejectUnauthorized: false }, (res) => {
+                const cert = (res.socket as any).getPeerCertificate?.()
+                res.destroy()
+                if (cert && cert.fingerprint256) {
+                  resolve(cert.fingerprint256)
+                } else {
+                  resolve(null)
+                }
+              })
+              req.on('error', () => resolve(null))
+              req.setTimeout(5000, () => { req.destroy(); resolve(null) })
+            })
+            return {
+              success: false,
+              error: 'TLS certificate is not trusted (likely self-signed). Import the certificate on your system, or accept the fingerprint below.',
+              certFingerprint: fingerprint || undefined,
+            }
+          } catch {
+            return { success: false, error: 'TLS certificate error. If using self-signed certificates, download cert.pem and import it into your system trust store.' }
+          }
+        }
+        return { success: false, error: msg }
+      }
+    })
+
+    ipcMain.handle('relay:acceptCertFingerprint', async (_e, fingerprint: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session.' }
+        const fp = typeof fingerprint === 'string' ? fingerprint.trim() : ''
+        if (!fp) return { success: false, error: 'Fingerprint is required' }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_cert_fingerprint: fp })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to store fingerprint' }
+      }
+    })
+
+    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus, relay:*')
 
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
@@ -6531,10 +6775,14 @@ app.whenReady().then(async () => {
       processOutboundQueue(handshakeDb).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
+      pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
+        console.warn('[P2P] pullFromRelay error:', err?.message)
+      })
       if (!p2pServerStarted) {
         try {
           migrateHandshakeTables(handshakeDb)
           const p2pConfig = getP2PConfig(handshakeDb)
+          setP2PHealthRelayMode(p2pConfig.relay_mode)
           if (p2pConfig.enabled) {
             const getDb = () => getHandshakeDb()
             const getSsoSession = () => getCurrentSession()

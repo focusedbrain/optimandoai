@@ -1,6 +1,9 @@
 {
   "name": "@repo/root",
   "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "version": "0.0.1",
   "scripts": {
     "test": "vitest --passWithNoTests",

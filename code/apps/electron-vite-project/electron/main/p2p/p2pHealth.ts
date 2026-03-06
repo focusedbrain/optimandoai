@@ -19,6 +19,11 @@ export interface P2PHealthStatus {
   pending_queue_count: number
   failed_queue_count: number
   self_test_passed: boolean | null
+  last_relay_pull_success: string | null
+  last_relay_pull_failure: string | null
+  last_relay_pull_error: string | null
+  relay_capsules_pulled: number
+  relay_mode: string
 }
 
 let health: P2PHealthStatus = {
@@ -33,6 +38,11 @@ let health: P2PHealthStatus = {
   pending_queue_count: 0,
   failed_queue_count: 0,
   self_test_passed: null,
+  last_relay_pull_success: null,
+  last_relay_pull_failure: null,
+  last_relay_pull_error: null,
+  relay_capsules_pulled: 0,
+  relay_mode: 'local',
 }
 
 const listeners = new Set<(status: P2PHealthStatus) => void>()
@@ -95,6 +105,25 @@ export function setP2PHealthQueueCounts(pending: number, failed: number): void {
 
 export function setP2PHealthSelfTest(passed: boolean): void {
   health.self_test_passed = passed
+  notifyListeners()
+}
+
+export function setP2PHealthRelayMode(mode: string): void {
+  health.relay_mode = mode
+  notifyListeners()
+}
+
+export function setP2PHealthRelayPullSuccess(pulled: number, accepted: number, _rejected: number): void {
+  health.last_relay_pull_success = new Date().toISOString()
+  health.last_relay_pull_failure = null
+  health.last_relay_pull_error = null
+  health.relay_capsules_pulled = (health.relay_capsules_pulled ?? 0) + pulled
+  notifyListeners()
+}
+
+export function setP2PHealthRelayPullFailure(error: string): void {
+  health.last_relay_pull_failure = new Date().toISOString()
+  health.last_relay_pull_error = error
   notifyListeners()
 }
 

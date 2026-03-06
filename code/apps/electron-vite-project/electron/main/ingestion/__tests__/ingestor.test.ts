@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
-import { ingestInput } from '../ingestor'
+import { ingestInput } from '@repo/ingestion-core'
 import type { RawInput, CandidateCapsuleEnvelope } from '../types'
 import { createHash } from 'crypto'
 

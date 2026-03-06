@@ -228,6 +228,26 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE p2p_config SET enabled = 1 WHERE id = 1`,
     ],
   },
+  {
+    version: 9,
+    description: 'Schema v9: Relay config columns for p2p_config',
+    sql: [
+      `ALTER TABLE p2p_config ADD COLUMN relay_mode TEXT DEFAULT 'local'`,
+      `ALTER TABLE p2p_config ADD COLUMN relay_url TEXT`,
+      `ALTER TABLE p2p_config ADD COLUMN relay_pull_url TEXT`,
+      `ALTER TABLE p2p_config ADD COLUMN relay_auth_secret TEXT`,
+      `ALTER TABLE p2p_config ADD COLUMN remote_relay_host TEXT`,
+      `ALTER TABLE p2p_config ADD COLUMN remote_relay_mtls_cert TEXT`,
+      `ALTER TABLE p2p_config ADD COLUMN remote_relay_mtls_key TEXT`,
+    ],
+  },
+  {
+    version: 10,
+    description: 'Schema v10: relay_cert_fingerprint for self-signed cert pinning (future)',
+    sql: [
+      `ALTER TABLE p2p_config ADD COLUMN relay_cert_fingerprint TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { detectBeapCapsule } from '../beapDetection'
+import { detectBeapCapsule } from '@repo/ingestion-core'
 import type { RawInput } from '../types'
 
 function validBeapPayload(): Record<string, unknown> {

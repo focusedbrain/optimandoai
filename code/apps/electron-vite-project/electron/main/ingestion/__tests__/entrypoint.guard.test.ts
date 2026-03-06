@@ -44,6 +44,7 @@ function collectProductionFiles(dir: string): string[] {
  *   - ingestionPipeline.ts: may import types (but doesn't call it directly)
  *   - ipc.ts (ingestion): calls it after validation
  *   - p2pServer.ts: P2P entry point, routes through processIncomingInput → canonicalRebuild → processHandshakeCapsule
+ *   - relayPull.ts: Relay pull entry point, routes through processIncomingInput → canonicalRebuild → processHandshakeCapsule
  *   - index.ts (ingestion / handshake barrel exports)
  */
 const ALLOWED_CALLERS = new Set([
@@ -52,6 +53,7 @@ const ALLOWED_CALLERS = new Set([
   'index.ts',
   'ingestionPipeline.ts',
   'p2pServer.ts',
+  'relayPull.ts',
 ])
 
 // ── Test 14: Static Scan — No Direct Handshake Callers ──

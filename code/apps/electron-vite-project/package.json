@@ -15,6 +15,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@repo/ingestion-core": "workspace:*",
     "@noble/post-quantum": "^0.2.1",
     "@types/express": "^5.0.5",
     "@types/fluent-ffmpeg": "^2.1.27",
