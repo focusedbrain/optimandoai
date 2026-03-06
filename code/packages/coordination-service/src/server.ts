@@ -84,7 +84,7 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
 
       const token = extractBearerToken(req.headers.authorization)
       const identity = token
-        ? await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url)
+        ? await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
         : null
 
       if (req.method === 'POST' && path === '/beap/register-handshake') {
@@ -248,9 +248,15 @@ export function createServer(config: CoordinationConfig): http.Server | https.Se
       return
     }
 
-    const identity = await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url)
+    const identity = await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
     if (!identity) {
       ws.close(4001, 'Unauthorized')
+      return
+    }
+
+    if (getConnectedCount() >= config.max_connections) {
+      console.warn('[Coordination] WS_MAX_CONNECTIONS_REACHED', { current: getConnectedCount(), limit: config.max_connections })
+      ws.close(1013, 'Try Again Later')
       return
     }
 

@@ -92,13 +92,27 @@ export function markPushed(id: string): void {
   db.prepare(`UPDATE coordination_capsules SET pushed_at = ? WHERE id = ?`).run(now, id)
 }
 
-export function acknowledgeCapsules(ids: string[]): void {
-  if (!db || ids.length === 0) return
+/**
+ * Acknowledge capsules for the given recipient. Only capsules where recipient_user_id = userId
+ * are updated. Returns the count of actually acknowledged rows.
+ * Logs ACK_UNAUTHORIZED if user tries to ACK capsules that don't belong to them.
+ */
+export function acknowledgeCapsules(ids: string[], userId: string): number {
+  if (!db || ids.length === 0) return 0
   const now = new Date().toISOString()
-  const stmt = db.prepare(`UPDATE coordination_capsules SET acknowledged_at = ? WHERE id = ?`)
+  const stmt = db.prepare(
+    `UPDATE coordination_capsules SET acknowledged_at = ? WHERE id = ? AND recipient_user_id = ?`,
+  )
+  let acknowledged = 0
   for (const id of ids) {
-    stmt.run(now, id)
+    const r = stmt.run(now, id, userId)
+    if (r.changes > 0) acknowledged++
   }
+  const unauthorized = ids.length - acknowledged
+  if (unauthorized > 0) {
+    console.warn('[Coordination] ACK_UNAUTHORIZED', { user_id: userId, capsule_ids: ids, unauthorized })
+  }
+  return acknowledged
 }
 
 export function countPending(): number {

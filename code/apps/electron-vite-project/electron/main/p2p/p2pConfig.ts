@@ -48,8 +48,8 @@ export const DEFAULT_P2P_CONFIG: P2PConfig = {
   remote_relay_mtls_cert: null,
   remote_relay_mtls_key: null,
   relay_cert_fingerprint: null,
-  coordination_url: 'https://coordination.wrdesk.com',
-  coordination_ws_url: 'wss://coordination.wrdesk.com/beap/ws',
+  coordination_url: 'https://relay.wrdesk.com',
+  coordination_ws_url: 'wss://relay.wrdesk.com/beap/ws',
   coordination_enabled: true,
   use_coordination: true,
 }

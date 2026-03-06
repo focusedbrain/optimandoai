@@ -32,6 +32,7 @@ function makeConfig(overrides: Partial<CoordinationConfig>): CoordinationConfig 
     tls_key_path: null,
     oidc_issuer: 'https://auth.wrdesk.com/realms/wrdesk',
     oidc_jwks_url: 'https://auth.wrdesk.com/realms/wrdesk/protocol/openid-connect/certs',
+    oidc_audience: null,
     db_path: join(tmpdir(), `coord-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`),
     capsule_retention_days: 7,
     ws_heartbeat_interval: 60_000,
@@ -484,6 +485,45 @@ describe('coordination-service', () => {
     const health = await request(port, 'GET', '/health')
     expect(JSON.parse(health.body).pending_capsules).toBe(0)
     recipientWs.close()
+  })
+
+  test('CS_16_ack_unauthorized: User A ACKs user B capsule → 0 acknowledged, ACK_UNAUTHORIZED logged', async () => {
+    const hsId = 'hs-cs16'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sender16',
+        acceptor_user_id: 'recipient16',
+      }),
+      auth: 'test-sender16-pro',
+      contentType: 'application/json',
+    })
+
+    const recipientWs = await wsConnect(port, 'test-recipient16-pro')
+    let capId: string | null = null
+    recipientWs.on('message', (data) => {
+      const msg = JSON.parse(data.toString())
+      if (msg.type === 'capsule') capId = msg.id
+    })
+
+    await request(port, 'POST', '/beap/capsule', {
+      body: validBeapCapsule(hsId),
+      auth: 'test-sender16-pro',
+      contentType: 'application/json',
+    })
+
+    await new Promise((r) => setTimeout(r, 200))
+    expect(capId).toBeTruthy()
+    recipientWs.close()
+
+    const attackerWs = await wsConnect(port, 'test-attacker-pro')
+    attackerWs.send(JSON.stringify({ type: 'ack', ids: [capId!] }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    const health = await request(port, 'GET', '/health')
+    const hp = JSON.parse(health.body)
+    expect(hp.pending_capsules).toBe(1)
+    attackerWs.close()
   })
 
   test('health: GET /health → 200 with status', async () => {

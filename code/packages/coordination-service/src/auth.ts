@@ -64,6 +64,7 @@ export async function validateOidcToken(
   token: string,
   issuer: string,
   jwksUrl: string,
+  audience?: string | null,
 ): Promise<ValidatedIdentity | null> {
   if (process.env.COORD_TEST_MODE === '1' && token.startsWith('test-')) {
     const parts = token.slice(5).split('-')
@@ -78,7 +79,9 @@ export async function validateOidcToken(
 
   try {
     const JWKS = await getJwks(jwksUrl)
-    const { payload } = await jose.jwtVerify(token, JWKS, { issuer });
+    const verifyOptions: jose.JWTVerifyOptions = { issuer }
+    if (audience?.trim()) verifyOptions.audience = audience.trim()
+    const { payload } = await jose.jwtVerify(token, JWKS, verifyOptions);
 
     const sub = payload.sub
     const email = typeof payload.email === 'string' ? payload.email : (payload.email as string[])?.[0] ?? ''

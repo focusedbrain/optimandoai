@@ -257,6 +257,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE p2p_config ADD COLUMN coordination_enabled INTEGER DEFAULT 1`,
     ],
   },
+  {
+    version: 12,
+    description: 'Schema v12: Update coordination URLs to relay.wrdesk.com (live service)',
+    sql: [
+      `UPDATE p2p_config SET coordination_url = 'https://relay.wrdesk.com' WHERE coordination_url = 'https://coordination.wrdesk.com' OR coordination_url IS NULL`,
+      `UPDATE p2p_config SET coordination_ws_url = 'wss://relay.wrdesk.com/beap/ws' WHERE coordination_ws_url = 'wss://coordination.wrdesk.com/beap/ws' OR coordination_ws_url IS NULL`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

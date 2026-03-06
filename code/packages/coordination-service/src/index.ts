@@ -10,6 +10,9 @@ import { startCleanupInterval } from './cleanup.js'
 
 async function main(): Promise<void> {
   const config = loadConfig()
+  if (!config.oidc_audience?.trim()) {
+    console.warn('[Coordination] COORD_OIDC_AUDIENCE not set — audience check skipped. Consider setting for production.')
+  }
   initStore(config)
   const server = createServer(config)
   startCleanupInterval()

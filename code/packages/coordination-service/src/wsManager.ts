@@ -74,7 +74,7 @@ export function pushPendingCapsules(userId: string): void {
 }
 
 export function handleAck(userId: string, ids: string[]): void {
-  if (ids.length > 0) acknowledgeCapsules(ids)
+  if (ids.length > 0) acknowledgeCapsules(ids, userId)
 }
 
 export function getConnectedCount(): number {

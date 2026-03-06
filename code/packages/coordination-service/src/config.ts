@@ -10,6 +10,7 @@ export interface CoordinationConfig {
   tls_key_path: string | null
   oidc_issuer: string
   oidc_jwks_url: string
+  oidc_audience: string | null
   db_path: string
   capsule_retention_days: number
   ws_heartbeat_interval: number
@@ -21,6 +22,7 @@ export function loadConfig(): CoordinationConfig {
   const host = process.env.COORD_HOST ?? '0.0.0.0'
   const oidcIssuer = process.env.COORD_OIDC_ISSUER ?? 'https://auth.wrdesk.com/realms/wrdesk'
   const oidcJwksUrl = process.env.COORD_OIDC_JWKS_URL ?? `${oidcIssuer}/protocol/openid-connect/certs`
+  const oidcAudience = process.env.COORD_OIDC_AUDIENCE?.trim() || null
   const dbPath = process.env.COORD_DB_PATH ?? './data/coordination.db'
   const retention = parseInt(process.env.COORD_CAPSULE_RETENTION_DAYS ?? '7', 10)
   const heartbeat = parseInt(process.env.COORD_WS_HEARTBEAT_INTERVAL ?? '30000', 10)
@@ -33,6 +35,7 @@ export function loadConfig(): CoordinationConfig {
     tls_key_path: process.env.COORD_TLS_KEY_PATH ?? null,
     oidc_issuer: oidcIssuer,
     oidc_jwks_url: oidcJwksUrl,
+    oidc_audience: oidcAudience,
     db_path: dbPath,
     capsule_retention_days: retention,
     ws_heartbeat_interval: heartbeat,
