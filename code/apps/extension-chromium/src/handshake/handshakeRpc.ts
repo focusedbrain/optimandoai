@@ -166,6 +166,12 @@ export async function revokeHandshake(handshakeId: string): Promise<{ status: st
   })
 }
 
+export async function deleteHandshake(handshakeId: string): Promise<{ success: boolean; error?: string }> {
+  return sendHandshakeRpc<{ success: boolean; error?: string }>('handshake.delete', {
+    handshakeId,
+  })
+}
+
 /**
  * Normalize a backend HandshakeRecord into the extension-side projection.
  * The backend stores initiator/acceptor as nested objects; we flatten to

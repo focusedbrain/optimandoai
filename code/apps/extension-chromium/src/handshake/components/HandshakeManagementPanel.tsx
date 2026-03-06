@@ -8,6 +8,7 @@
 import React, { useState } from 'react'
 import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
 import { useHandshakes } from '../useHandshakes'
+import { deleteHandshake } from '../handshakeRpc'
 import { HandshakeDetailsPanel } from './HandshakeDetailsPanel'
 import { HandshakeAcceptModal } from './HandshakeAcceptModal'
 import { InitiateHandshakeDialog } from './InitiateHandshakeDialog'
@@ -223,6 +224,13 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
                   : undefined
               }
               onRevoke={() => { setSelectedHandshake(null); refresh() }}
+              onDelete={async (id) => {
+                const res = await deleteHandshake(id)
+                if (res?.success !== false) {
+                  setSelectedHandshake(null)
+                  refresh()
+                }
+              }}
             />
           </div>
         </div>

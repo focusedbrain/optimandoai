@@ -44,6 +44,28 @@ function shimExtensionPlugin() {
   }
 }
 
+// Remove the crossorigin attribute from all <script> and <link> tags in the built HTML.
+// When base is './' and Electron loads via file://, the crossorigin="anonymous" attribute
+// causes CORS blocking in sandboxed renderers on Windows → blank white page.
+// Uses closeBundle (not transformIndexHtml) so the source index.html is never modified.
+function removeCrossoriginPlugin() {
+  return {
+    name: 'remove-crossorigin',
+    apply: 'build' as const,
+    closeBundle() {
+      const distHtml = path.resolve(__dirname, 'dist', 'index.html')
+      if (fs.existsSync(distHtml)) {
+        const content = fs.readFileSync(distHtml, 'utf-8')
+        const fixed = content.replace(/ crossorigin(?:="[^"]*")?/g, '')
+        if (fixed !== content) {
+          fs.writeFileSync(distHtml, fixed, 'utf-8')
+          console.log('[remove-crossorigin] Stripped crossorigin from dist/index.html')
+        }
+      }
+    },
+  }
+}
+
 // Plugin to copy pdf.worker.mjs to dist-electron at build time
 function copyPdfWorkerPlugin() {
   return {
@@ -86,6 +108,7 @@ export default defineConfig({
   },
   plugins: [
     shimExtensionPlugin(),
+    removeCrossoriginPlugin(),
     react(),
     electron({
       main: {

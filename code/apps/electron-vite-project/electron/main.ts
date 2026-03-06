@@ -2071,6 +2071,16 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:delete', async (_e, id: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        return await handleHandshakeRPC('handshake.delete', { handshakeId: id }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message }
+      }
+    })
+
     ipcMain.handle('handshake:contextBlockCount', async (_e, handshakeId: string) => {
       try {
         const db = await getHandshakeDb()
@@ -2930,7 +2940,7 @@ app.whenReady().then(async () => {
                 const ledgerDb = getLedgerDb()
                 const db = ledgerDb ?? vaultDb
                 const skipVaultContext = msg.params?.skipVaultContext === true
-                const vaultRequiredMethods = ['handshake.list', 'handshake.accept', 'handshake.refresh', 'handshake.queryStatus', 'handshake.requestContextBlocks', 'handshake.authorizeAction', 'handshake.initiateRevocation', 'handshake.isActive']
+                const vaultRequiredMethods = ['handshake.list', 'handshake.accept', 'handshake.refresh', 'handshake.queryStatus', 'handshake.requestContextBlocks', 'handshake.authorizeAction', 'handshake.initiateRevocation', 'handshake.delete', 'handshake.isActive']
                 if (!db && !skipVaultContext) {
                   socket.send(JSON.stringify({
                     id: msg.id,

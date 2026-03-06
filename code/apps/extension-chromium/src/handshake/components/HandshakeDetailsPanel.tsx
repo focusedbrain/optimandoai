@@ -6,7 +6,7 @@
  * Actions per state:
  *   - PENDING_ACCEPT (acceptor): Accept / Decline
  *   - ACTIVE: Send Message / Revoke
- *   - REVOKED/EXPIRED: View only
+ *   - REVOKED/EXPIRED: View only + Delete
  */
 
 import React from 'react'
@@ -18,6 +18,7 @@ interface HandshakeDetailsPanelProps {
   onSendMessage?: (handshakeId: string) => void
   onAccept?: (handshakeId: string) => void
   onRevoke?: (handshakeId: string) => void
+  onDelete?: (handshakeId: string) => void
   onClose?: () => void
 }
 
@@ -172,6 +173,14 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
             style={{ ...buttonStyle, background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
           >
             Revoke
+          </button>
+        )}
+        {(handshake.state === 'REVOKED' || handshake.state === 'EXPIRED') && onDelete && (
+          <button
+            onClick={() => onDelete(handshake.handshake_id)}
+            style={{ ...buttonStyle, background: 'transparent', border: '1px solid rgba(107,114,128,0.3)', color: '#94a3b8' }}
+          >
+            Delete
           </button>
         )}
       </div>

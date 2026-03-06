@@ -33,6 +33,7 @@ interface Props {
   record: HandshakeRecord
   contextBlockCount: number
   onRevoke?: () => void
+  onDelete?: () => void
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -194,7 +195,7 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   return <MetaRow label="P2P" value="No queue entries" />
 }
 
-export default function RelationshipDetail({ record, contextBlockCount, onRevoke }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, onRevoke, onDelete }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
@@ -230,6 +231,19 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
               }}
             >
               Revoke
+            </button>
+          )}
+          {(record.state === 'REVOKED' || record.state === 'EXPIRED') && onDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                padding: '5px 12px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(107,114,128,0.15)', color: '#94a3b8',
+                border: '1px solid rgba(107,114,128,0.3)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Delete
             </button>
           )}
           <StateBadge state={record.state} />
@@ -303,9 +317,22 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
           <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', marginBottom: '4px' }}>
             Handshake revoked.
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '12px' }}>
             This relationship has been terminated. No further capsules can be exchanged.
           </div>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                padding: '8px 14px', fontSize: '12px', fontWeight: 600,
+                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
+                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Delete handshake
+            </button>
+          )}
         </div>
       ) : record.state === 'EXPIRED' ? (
         <div style={{
@@ -317,9 +344,22 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
           <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>
             Handshake expired.
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '12px' }}>
             This relationship has expired. Start a new handshake to re-establish trust.
           </div>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                padding: '8px 14px', fontSize: '12px', fontWeight: 600,
+                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
+                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Delete handshake
+            </button>
+          )}
         </div>
       ) : record.state === 'PENDING_ACCEPT' ? (
         <div style={{

@@ -12,6 +12,7 @@ import { ReasonCode, HandshakeState as HS } from './types'
 import {
   getHandshakeRecord,
   listHandshakeRecords,
+  deleteHandshakeRecord,
 } from './db'
 import { queryContextBlocks } from './contextBlocks'
 import { authorizeAction, isHandshakeActive } from './enforcement'
@@ -229,6 +230,13 @@ export async function handleHandshakeRPC(
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
       const records = listHandshakeRecords(db, filter)
       return { type: 'handshake-list', records }
+    }
+
+    case 'handshake.delete': {
+      const { handshakeId } = params as { handshakeId: string }
+      if (!handshakeId) return { success: false, error: 'handshakeId is required' }
+      const result = deleteHandshakeRecord(db, handshakeId)
+      return result.success ? { success: true } : { success: false, error: result.error }
     }
 
     case 'handshake.isActive': {

@@ -11,7 +11,6 @@ import CapsuleUploadZone from './CapsuleUploadZone'
 import RelationshipDetail from './RelationshipDetail'
 import HandshakeChatSidebar from './HandshakeChatSidebar'
 import AcceptHandshakeModal from './AcceptHandshakeModal'
-import P2PStatusBadge from './P2PStatusBadge'
 
 // ── Types ──
 
@@ -135,10 +134,21 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
     } catch { /* UI shows stale state until refresh */ }
   }
 
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await window.handshakeView?.deleteHandshake(id)
+      if (res?.success !== false) {
+        if (selectedId === id) setSelectedId(null)
+        await loadHandshakes()
+      }
+    } catch { /* UI shows stale state until refresh */ }
+  }
+
   const handleCapsuleSubmitted = () => { loadHandshakes() }
 
   const renderGroup = (title: string, records: HandshakeRecord[]) => {
     if (records.length === 0) return null
+    const canDelete = title === 'Revoked' || title === 'Expired'
     return (
       <div style={{ marginBottom: '16px' }}>
         <div style={{
@@ -149,31 +159,53 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           {title} ({records.length})
         </div>
         {records.map(r => (
-          <button
+          <div
             key={r.handshake_id}
-            onClick={() => setSelectedId(r.handshake_id)}
             style={{
-              display: 'flex', flexDirection: 'column', gap: '3px',
-              width: '100%', padding: '10px 12px', textAlign: 'left',
+              display: 'flex', alignItems: 'stretch',
               background: selectedId === r.handshake_id
                 ? 'var(--color-accent-bg, rgba(139,92,246,0.12))'
                 : 'transparent',
-              border: 'none', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-              cursor: 'pointer', color: 'inherit',
-              transition: 'background 0.1s',
+              borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
-                {counterpartyEmail(r)}
-              </span>
-              <StateBadge state={r.state} />
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-              {shortId(r.handshake_id)} · {formatDate(r.created_at)}
-              {contextBlockCounts[r.handshake_id] > 0 && ` · ${contextBlockCounts[r.handshake_id]} blocks`}
-            </div>
-          </button>
+            <button
+              onClick={() => setSelectedId(r.handshake_id)}
+              style={{
+                flex: 1, display: 'flex', flexDirection: 'column', gap: '3px',
+                padding: '10px 12px', textAlign: 'left',
+                border: 'none', background: 'transparent',
+                cursor: 'pointer', color: 'inherit',
+                transition: 'background 0.1s',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {counterpartyEmail(r)}
+                </span>
+                <span style={{ flexShrink: 0 }}>
+                  <StateBadge state={r.state} />
+                </span>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+                {shortId(r.handshake_id)} · {formatDate(r.created_at)}
+                {contextBlockCounts[r.handshake_id] > 0 && ` · ${contextBlockCounts[r.handshake_id]} blocks`}
+              </div>
+            </button>
+            {canDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(r.handshake_id) }}
+                title="Delete handshake"
+                style={{
+                  padding: '8px 12px', border: 'none', background: 'transparent',
+                  color: 'var(--color-text-muted, #94a3b8)', cursor: 'pointer',
+                  fontSize: '12px', display: 'flex', alignItems: 'center',
+                }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
         ))}
       </div>
     )
@@ -195,10 +227,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           padding: '14px 12px', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
-            <P2PStatusBadge />
-          </div>
+          <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => onNewHandshake?.()}
@@ -263,6 +292,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 record={selectedRecord}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
                 onRevoke={selectedRecord.state === 'ACTIVE' ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
+                onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
               />
             </div>
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -314,11 +344,13 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
                 borderRadius: '8px',
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {counterpartyEmail(r)}
                   </span>
-                  <StateBadge state={r.state} />
+                  <span style={{ flexShrink: 0 }}>
+                    <StateBadge state={r.state} />
+                  </span>
                 </div>
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
                   {shortId(r.handshake_id)} · {formatDate(r.created_at)}

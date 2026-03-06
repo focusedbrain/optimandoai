@@ -202,6 +202,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
   declineHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:decline', assertString(id, 'id'))
   },
+  deleteHandshake: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:delete', assertString(id, 'id'))
+  },
   getContextBlockCount: (handshakeId: unknown) => {
     return ipcRenderer.invoke('handshake:contextBlockCount', assertString(handshakeId, 'handshakeId'))
   },

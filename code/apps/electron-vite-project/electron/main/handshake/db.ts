@@ -586,6 +586,30 @@ export function deleteEmbeddingsByHandshake(db: any, handshakeId: string): numbe
   return result.changes
 }
 
+/**
+ * Permanently delete a handshake and all related data.
+ * Only allowed for REVOKED or EXPIRED handshakes.
+ */
+export function deleteHandshakeRecord(db: any, handshakeId: string): { success: boolean; error?: string } {
+  const record = getHandshakeRecord(db, handshakeId)
+  if (!record) return { success: false, error: 'Handshake not found' }
+  if (record.state !== 'REVOKED' && record.state !== 'EXPIRED') {
+    return { success: false, error: 'Only revoked or expired handshakes can be deleted' }
+  }
+  try {
+    deleteEmbeddingsByHandshake(db, handshakeId)
+    deleteBlocksByHandshake(db, handshakeId)
+    db.prepare('DELETE FROM context_store WHERE handshake_id = ?').run(handshakeId)
+    db.prepare('DELETE FROM seen_capsule_hashes WHERE handshake_id = ?').run(handshakeId)
+    db.prepare('DELETE FROM outbound_capsule_queue WHERE handshake_id = ?').run(handshakeId)
+    db.prepare('DELETE FROM audit_log WHERE handshake_id = ?').run(handshakeId)
+    db.prepare('DELETE FROM handshakes WHERE handshake_id = ?').run(handshakeId)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? 'Delete failed' }
+  }
+}
+
 // ── Context Store (3-phase content delivery) ──
 
 export interface ContextStoreEntry {
