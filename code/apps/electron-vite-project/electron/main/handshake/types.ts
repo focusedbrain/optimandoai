@@ -259,7 +259,8 @@ export type CapsuleType =
   | 'handshake-initiate'
   | 'handshake-accept'
   | 'handshake-refresh'
-  | 'handshake-revoke';
+  | 'handshake-revoke'
+  | 'handshake-context-sync';
 
 export interface VerifiedCapsuleInput {
   schema_version: number;
@@ -342,6 +343,10 @@ export interface HandshakeRecord {
   acceptor_wrdesk_policy_version: string | null;
   initiator_context_commitment: string | null;
   acceptor_context_commitment: string | null;
+  /** Counterparty's P2P endpoint (where we send context-sync). Full URL e.g. https://host:port/beap/ingest */
+  p2p_endpoint: string | null;
+  /** Counterparty's P2P auth token (Bearer) for authenticating outbound requests to them */
+  counterparty_p2p_token: string | null;
 }
 
 // ── Context Block (persisted) ──
@@ -399,7 +404,11 @@ export enum ReasonCode {
   CLOCK_SKEW = 'CLOCK_SKEW',
   DUPLICATE_CAPSULE = 'DUPLICATE_CAPSULE',
   CONTEXT_HASH_MISMATCH = 'CONTEXT_HASH_MISMATCH',
+  CONTEXT_COMMITMENT_MISMATCH = 'CONTEXT_COMMITMENT_MISMATCH',
   CONTEXT_INGESTION_FAILED = 'CONTEXT_INGESTION_FAILED',
+  HASH_INTEGRITY_FAILURE = 'HASH_INTEGRITY_FAILURE',
+  CONTEXT_INTEGRITY_FAILURE = 'CONTEXT_INTEGRITY_FAILURE',
+  CONTEXT_SYNC_REQUIRED = 'CONTEXT_SYNC_REQUIRED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
 }
 

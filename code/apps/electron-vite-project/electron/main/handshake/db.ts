@@ -175,6 +175,59 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN acceptor_context_commitment TEXT`,
     ],
   },
+  {
+    version: 5,
+    description: 'Schema v5: P2P endpoint for counterparty (context-sync delivery)',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN p2p_endpoint TEXT`,
+    ],
+  },
+  {
+    version: 6,
+    description: 'Schema v6: outbound capsule queue for P2P context-sync delivery',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS outbound_capsule_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handshake_id TEXT NOT NULL,
+        target_endpoint TEXT NOT NULL,
+        capsule_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retries INTEGER NOT NULL DEFAULT 10,
+        last_attempt_at TEXT,
+        created_at TEXT NOT NULL,
+        error TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_outbound_queue_status ON outbound_capsule_queue(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_outbound_queue_handshake ON outbound_capsule_queue(handshake_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_outbound_queue_created ON outbound_capsule_queue(created_at)`,
+    ],
+  },
+  {
+    version: 7,
+    description: 'Schema v7: counterparty_p2p_token for P2P auth, p2p_config table',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN counterparty_p2p_token TEXT`,
+      `CREATE TABLE IF NOT EXISTS p2p_config (
+        id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        port INTEGER NOT NULL DEFAULT 51249,
+        bind_address TEXT NOT NULL DEFAULT '0.0.0.0',
+        tls_enabled INTEGER NOT NULL DEFAULT 0,
+        tls_cert_path TEXT,
+        tls_key_path TEXT,
+        local_p2p_endpoint TEXT
+      )`,
+      `INSERT OR IGNORE INTO p2p_config (id, enabled, port, bind_address, tls_enabled) VALUES (1, 1, 51249, '0.0.0.0', 0)`,
+    ],
+  },
+  {
+    version: 8,
+    description: 'Schema v8: P2P default-on (enabled=1 for existing installs)',
+    sql: [
+      `UPDATE p2p_config SET enabled = 1 WHERE id = 1`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -252,6 +305,8 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     acceptor_wrdesk_policy_version: record.acceptor_wrdesk_policy_version,
     initiator_context_commitment: record.initiator_context_commitment ?? null,
     acceptor_context_commitment: record.acceptor_context_commitment ?? null,
+    p2p_endpoint: record.p2p_endpoint ?? null,
+    counterparty_p2p_token: record.counterparty_p2p_token ?? null,
   }
 }
 
@@ -284,6 +339,8 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     acceptor_wrdesk_policy_version: row.acceptor_wrdesk_policy_version ?? null,
     initiator_context_commitment: row.initiator_context_commitment ?? null,
     acceptor_context_commitment: row.acceptor_context_commitment ?? null,
+    p2p_endpoint: row.p2p_endpoint ?? null,
+    counterparty_p2p_token: row.counterparty_p2p_token ?? null,
   }
 }
 
@@ -298,7 +355,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     created_at, activated_at, expires_at, revoked_at, revocation_source,
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
-    initiator_context_commitment, acceptor_context_commitment
+    initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -308,7 +365,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @created_at, @activated_at, @expires_at, @revoked_at, @revocation_source,
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
-    @initiator_context_commitment, @acceptor_context_commitment
+    @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token
   )`).run(s)
 }
 
@@ -329,7 +386,9 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     acceptor_wrdesk_policy_hash = @acceptor_wrdesk_policy_hash,
     acceptor_wrdesk_policy_version = @acceptor_wrdesk_policy_version,
     initiator_context_commitment = @initiator_context_commitment,
-    acceptor_context_commitment = @acceptor_context_commitment
+    acceptor_context_commitment = @acceptor_context_commitment,
+    p2p_endpoint = @p2p_endpoint,
+    counterparty_p2p_token = @counterparty_p2p_token
   WHERE handshake_id = @handshake_id`).run(s)
 }
 

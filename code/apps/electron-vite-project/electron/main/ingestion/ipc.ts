@@ -26,6 +26,10 @@ import {
   listSandboxQueueItems,
   insertIngestionAuditRecord,
 } from './persistenceDb'
+import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
+import { enqueueOutboundCapsule } from '../handshake/outboundQueue'
+import { getContextStoreByHandshake } from '../handshake/db'
+import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 
 const migratedDbs = new WeakSet<object>()
 
@@ -74,11 +78,11 @@ export async function handleIngestionRPC(
             })
           } catch { /* dedup via INSERT OR IGNORE */ }
         }
+        // Generic client response; full details logged server-side only (audit/validation_details)
         return {
           type: 'ingestion-result',
           success: false,
-          reason: result.reason,
-          validation_reason_code: result.validation_reason_code,
+          reason: 'Capsule rejected',
         }
       }
 
@@ -109,11 +113,11 @@ export async function handleIngestionRPC(
           // rebuild a new trusted object. The original parsed JSON never passes through.
           const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
           if (!rebuildResult.ok) {
+            console.warn('[INGESTION] Gate 2 rejected:', rebuildResult.reason, rebuildResult.field ? `field=${rebuildResult.field}` : '')
             return {
               type: 'ingestion-result',
               success: false,
-              error: `Gate 2 rejected: ${rebuildResult.reason}`,
-              failed_field: rebuildResult.field,
+              error: 'Capsule rejected',
               distribution_target: 'handshake_pipeline',
             }
           }
@@ -131,20 +135,62 @@ export async function handleIngestionRPC(
             ssoSession,
           )
 
+          if (!handshakeResult.success) {
+            console.warn('[INGESTION] Handshake rejected:', handshakeResult.reason, handshakeResult.failedStep ?? '', handshakeResult.detail ?? '')
+          } else {
+            // Step 6: Auto-trigger reverse context-sync when initiator receives first context-sync from acceptor
+            const cap = rebuildResult.capsule as unknown as Record<string, unknown>
+            if (cap?.capsule_type === 'context_sync' && cap?.seq === 1 && handshakeResult.handshakeRecord) {
+              const record = handshakeResult.handshakeRecord
+              const targetEndpoint = record.p2p_endpoint
+              if (targetEndpoint?.trim()) {
+                const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
+                if (pending.length > 0) {
+                  setImmediate(() => {
+                    try {
+                      const counterpartyUserId = record.local_role === 'initiator'
+                        ? record.acceptor!.wrdesk_user_id
+                        : record.initiator.wrdesk_user_id
+                      const counterpartyEmail = record.local_role === 'initiator'
+                        ? record.acceptor!.email
+                        : record.initiator.email
+                      const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
+                        block_id: b.block_id,
+                        block_hash: b.block_hash,
+                        scope_id: b.scope_id ?? undefined,
+                        type: b.type,
+                        content: b.content ?? '',
+                      }))
+                      const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                        handshake_id: record.handshake_id,
+                        counterpartyUserId,
+                        counterpartyEmail,
+                        last_seq_received: 1,
+                        last_capsule_hash_received: cap.capsule_hash as string,
+                        context_blocks: contextBlocks,
+                      })
+                      enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                    } catch (err: any) {
+                      console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
+                    }
+                  })
+                }
+              }
+            }
+          }
           return {
             type: 'ingestion-result',
             success: handshakeResult.success,
-            error: !handshakeResult.success
-              ? `${handshakeResult.reason}${handshakeResult.failedStep ? ` (step: ${handshakeResult.failedStep})` : ''}${handshakeResult.detail ? `: ${handshakeResult.detail}` : ''}`
-              : undefined,
-            handshake_result: handshakeResult,
+            error: !handshakeResult.success ? 'Capsule rejected' : undefined,
+            handshake_result: handshakeResult.success ? handshakeResult : undefined,
             distribution_target: 'handshake_pipeline',
           }
         } catch (err: any) {
+          console.error('[INGESTION] Handshake processing error:', err?.message ?? err)
           return {
             type: 'ingestion-result',
             success: false,
-            error: err?.message ?? 'Handshake processing failed',
+            error: 'Capsule rejected',
             distribution_target: 'handshake_pipeline',
           }
         }
@@ -232,7 +278,10 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
             provenance_json: JSON.stringify(result.audit),
           })
         } catch { /* dedup */ }
-        return res.json(result)
+        return res.json({
+          success: false,
+          reason: 'Capsule rejected',
+        })
       }
 
       const { distribution } = result
@@ -245,10 +294,10 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
             // Gate 2: Canonical rebuild
             const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
             if (!rebuildResult.ok) {
+              console.warn('[INGESTION] Gate 2 rejected:', rebuildResult.reason, rebuildResult.field ? `field=${rebuildResult.field}` : '')
               return res.status(400).json({
                 success: false,
-                error: `Gate 2 rejected: ${rebuildResult.reason}`,
-                failed_field: rebuildResult.field,
+                error: 'Capsule rejected',
                 distribution_target: 'handshake_pipeline',
               })
             }
@@ -265,18 +314,59 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
               receiverPolicy,
               ssoSession,
             )
+            if (!handshakeResult.success) {
+              console.warn('[INGESTION] Handshake rejected:', handshakeResult.reason, handshakeResult.failedStep ?? '', handshakeResult.detail ?? '')
+            } else {
+              const cap = rebuildResult.capsule as unknown as Record<string, unknown>
+              if (cap?.capsule_type === 'context_sync' && cap?.seq === 1 && handshakeResult.handshakeRecord) {
+                const record = handshakeResult.handshakeRecord
+                const targetEndpoint = record.p2p_endpoint
+                if (targetEndpoint?.trim()) {
+                  const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
+                  if (pending.length > 0) {
+                    setImmediate(() => {
+                      try {
+                        const counterpartyUserId = record.local_role === 'initiator'
+                          ? record.acceptor!.wrdesk_user_id
+                          : record.initiator.wrdesk_user_id
+                        const counterpartyEmail = record.local_role === 'initiator'
+                          ? record.acceptor!.email
+                          : record.initiator.email
+                        const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
+                          block_id: b.block_id,
+                          block_hash: b.block_hash,
+                          scope_id: b.scope_id ?? undefined,
+                          type: b.type,
+                          content: b.content ?? '',
+                        }))
+                        const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                          handshake_id: record.handshake_id,
+                          counterpartyUserId,
+                          counterpartyEmail,
+                          last_seq_received: 1,
+                          last_capsule_hash_received: cap.capsule_hash as string,
+                          context_blocks: contextBlocks,
+                        })
+                        enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                      } catch (err: any) {
+                        console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
+                      }
+                    })
+                  }
+                }
+              }
+            }
             return res.json({
               success: handshakeResult.success,
-              error: !handshakeResult.success
-                ? `${handshakeResult.reason}${handshakeResult.failedStep ? ` (step: ${handshakeResult.failedStep})` : ''}${handshakeResult.detail ? `: ${handshakeResult.detail}` : ''}`
-                : undefined,
-              handshake_result: handshakeResult,
+              error: !handshakeResult.success ? 'Capsule rejected' : undefined,
+              handshake_result: handshakeResult.success ? handshakeResult : undefined,
               distribution_target: 'handshake_pipeline',
             })
           } catch (err: any) {
+            console.error('[INGESTION] Handshake processing error:', err?.message ?? err)
             return res.status(500).json({
               success: false,
-              error: err?.message ?? 'Handshake processing failed',
+              error: 'Capsule rejected',
               distribution_target: 'handshake_pipeline',
             })
           }

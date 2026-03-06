@@ -27,16 +27,16 @@ describe('Handshake State Machine', () => {
 
   test('refresh on ACTIVE → passes', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh', seq: 1, prev_hash: 'capsule-hash-accept' }),
-      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.ACTIVE }),
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh', seq: 2, prev_hash: 'capsule-hash-accept' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.ACTIVE, last_seq_received: 1 }),
     })
     expect(checkStateTransition.execute(ctx).passed).toBe(true)
   })
 
   test('revoke on ACTIVE → passes', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-revoke', seq: 1, prev_hash: 'capsule-hash-accept' }),
-      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.ACTIVE }),
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-revoke', seq: 2, prev_hash: 'capsule-hash-accept' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.ACTIVE, last_seq_received: 1 }),
     })
     expect(checkStateTransition.execute(ctx).passed).toBe(true)
   })

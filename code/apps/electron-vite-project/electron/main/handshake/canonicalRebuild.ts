@@ -59,7 +59,7 @@ export interface CanonicalReceiverIdentity {
 
 export interface HandshakeCapsuleCanonical {
   readonly schema_version: 1 | 2
-  readonly capsule_type: 'initiate' | 'accept' | 'refresh' | 'revoke'
+  readonly capsule_type: 'initiate' | 'accept' | 'refresh' | 'revoke' | 'context_sync'
   readonly handshake_id: string
   readonly relationship_id: string
   readonly sender_id: string
@@ -84,6 +84,8 @@ export interface HandshakeCapsuleCanonical {
   readonly prev_hash?: string
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>
   readonly context_blocks?: ReadonlyArray<CanonicalContextBlock>
+  readonly p2p_endpoint?: string | null
+  readonly p2p_auth_token?: string | null
 }
 
 export interface CanonicalContextBlock {
@@ -131,7 +133,7 @@ type FieldRule =
 
 const FIELD_RULES: Record<string, FieldRule> = {
   schema_version: { type: 'enum', values: [1, 2] },
-  capsule_type: { type: 'enum', values: ['initiate', 'accept', 'refresh', 'revoke'] },
+  capsule_type: { type: 'enum', values: ['initiate', 'accept', 'refresh', 'revoke', 'context_sync'] },
   handshake_id: { type: 'regex', pattern: /^hs-[a-f0-9-]{1,128}$/, maxLength: 136 },
   relationship_id: { type: 'regex', pattern: /^rel[-:][a-f0-9-]{1,128}$/, maxLength: 136 },
   sender_id: { type: 'regex', pattern: /^[a-zA-Z0-9_@.+-]{1,256}$/, maxLength: 256 },
@@ -150,6 +152,8 @@ const FIELD_RULES: Record<string, FieldRule> = {
   wrdesk_policy_version: { type: 'string', maxLength: 128 },
   sharing_mode: { type: 'enum', values: ['receive-only', 'reciprocal'] },
   prev_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
+  p2p_endpoint: { type: 'string', maxLength: 512 },
+  p2p_auth_token: { type: 'string', maxLength: 128 },
 }
 
 // ── Sender identity validation rules ──
@@ -440,6 +444,34 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
   }
   if (!('receiverIdentity' in canonical)) {
     canonical.receiverIdentity = null
+  }
+
+  // Validate p2p_endpoint (optional — URL for P2P context-sync delivery)
+  if ('p2p_endpoint' in obj && obj.p2p_endpoint !== undefined && obj.p2p_endpoint !== null) {
+    if (typeof obj.p2p_endpoint !== 'string') {
+      return { ok: false, reason: 'p2p_endpoint must be a string', field: 'p2p_endpoint' }
+    }
+    const clean = sanitizeString(obj.p2p_endpoint)
+    if (clean.length > 512) {
+      return { ok: false, reason: 'p2p_endpoint exceeds max length', field: 'p2p_endpoint' }
+    }
+    if (clean.length > 0) {
+      canonical.p2p_endpoint = clean
+    }
+  }
+
+  // Validate p2p_auth_token (optional — hex token for P2P Bearer auth)
+  if ('p2p_auth_token' in obj && obj.p2p_auth_token !== undefined && obj.p2p_auth_token !== null) {
+    if (typeof obj.p2p_auth_token !== 'string') {
+      return { ok: false, reason: 'p2p_auth_token must be a string', field: 'p2p_auth_token' }
+    }
+    const clean = sanitizeString(obj.p2p_auth_token)
+    if (clean.length > 128) {
+      return { ok: false, reason: 'p2p_auth_token exceeds max length', field: 'p2p_auth_token' }
+    }
+    if (clean.length > 0 && /^[a-f0-9]+$/.test(clean)) {
+      canonical.p2p_auth_token = clean
+    }
   }
 
   // Validate context_commitment (optional — sha-256 hex or null)

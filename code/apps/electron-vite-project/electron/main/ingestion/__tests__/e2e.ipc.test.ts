@@ -64,7 +64,8 @@ describe('E2E IPC — ingest-external-input', () => {
     )
 
     expect(result.success).toBe(false)
-    expect(result.validation_reason_code).toBe('INGESTION_ERROR_PROPAGATED')
+    // Hardening: RPC returns generic "Capsule rejected", not validation_reason_code
+    expect(result.reason).toBe('Capsule rejected')
 
     // DB: quarantine row exists
     const quarantine = db.getQuarantineRows()
@@ -85,7 +86,8 @@ describe('E2E IPC — ingest-external-input', () => {
     )
 
     expect(result.success).toBe(false)
-    expect(result.validation_reason_code).toBe('INGESTION_ERROR_PROPAGATED')
+    // Hardening: RPC returns generic "Capsule rejected", not validation_reason_code
+    expect(result.reason).toBe('Capsule rejected')
 
     // Audit row
     const auditRows = db.getAuditRows()

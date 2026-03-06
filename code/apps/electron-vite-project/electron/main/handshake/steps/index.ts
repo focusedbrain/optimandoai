@@ -11,6 +11,8 @@ import { verifyHandshakeOwnership } from './ownership'
 import { verifySenderDomain } from './domain'
 import { verifyWrdeskPolicyAnchor } from './policyAnchor'
 import { verifyInputLimits } from './inputLimits'
+import { verifyCapsuleHash } from './verifyCapsuleHash'
+import { verifyContextHashStep } from './verifyContextHash'
 import { checkStateTransition } from './stateTransition'
 import { verifyChainIntegrity } from './chainIntegrity'
 import { verifySharingMode } from './sharingMode'
@@ -32,6 +34,8 @@ export const HANDSHAKE_PIPELINE: readonly PipelineStep[] = Object.freeze([
   verifySenderDomain,
   verifyWrdeskPolicyAnchor,
   verifyInputLimits,
+  verifyCapsuleHash,
+  verifyContextHashStep,
   checkStateTransition,
   verifyChainIntegrity,
   verifySharingMode,
@@ -56,6 +60,8 @@ export {
   verifySenderDomain,
   verifyWrdeskPolicyAnchor,
   verifyInputLimits,
+  verifyCapsuleHash,
+  verifyContextHashStep,
   checkStateTransition,
   verifyChainIntegrity,
   verifySharingMode,

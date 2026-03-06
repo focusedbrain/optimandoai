@@ -7,7 +7,7 @@
 
 // ── Source Classification ──
 
-export type SourceType = 'email' | 'file_upload' | 'api' | 'extension' | 'internal';
+export type SourceType = 'email' | 'file_upload' | 'api' | 'extension' | 'internal' | 'p2p';
 
 export type OriginClassification = 'external' | 'internal';
 
@@ -87,6 +87,7 @@ export type CapsuleType =
   | 'accept'
   | 'refresh'
   | 'revoke'
+  | 'context_sync'
   | 'internal_draft';
 
 // ── BEAP Detection ──

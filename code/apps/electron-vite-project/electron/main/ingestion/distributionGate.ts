@@ -19,7 +19,8 @@ export function routeValidatedCapsule(capsule: ValidatedCapsule): DistributionDe
     capsule_type === 'initiate' ||
     capsule_type === 'accept' ||
     capsule_type === 'refresh' ||
-    capsule_type === 'revoke'
+    capsule_type === 'revoke' ||
+    capsule_type === 'context_sync'
   ) {
     return {
       target: 'handshake_pipeline',

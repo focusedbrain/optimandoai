@@ -21,8 +21,10 @@ import {
   buildInitiateCapsuleWithContent,
   buildAcceptCapsule,
   buildRefreshCapsule,
+  buildContextSyncCapsuleWithContent,
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
+import { persistInitiatorHandshakeRecord } from './initiatorPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
 import {
@@ -32,6 +34,9 @@ import {
   updateContextStoreStatusBulk,
 } from './db'
 import { deriveRelationshipId } from './relationshipId'
+import { enqueueOutboundCapsule } from './outboundQueue'
+import { randomBytes } from 'crypto'
+import { getP2PConfig } from '../p2p/p2pConfig'
 
 // ── Context Block Helpers ──
 
@@ -230,6 +235,7 @@ export async function handleHandshakeRPC(
         skipVaultContext,
         context_blocks: rawBlocks,
         message: rawMessage,
+        p2p_endpoint: p2pEndpointParam,
       } = params as {
         receiverUserId: string
         receiverEmail: string
@@ -237,6 +243,7 @@ export async function handleHandshakeRPC(
         skipVaultContext?: boolean
         context_blocks?: ContextBlockForCommitment[]
         message?: string
+        p2p_endpoint?: string | null
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -249,11 +256,15 @@ export async function handleHandshakeRPC(
       }
 
       const contextBlocks = buildContextBlocksFromParams(rawBlocks, rawMessage)
+      const p2pEndpoint = p2pEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
       const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
         receiverEmail,
         ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
+        ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
+        ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
       })
 
       const effectiveAccountId = fromAccountId || session.email || ''
@@ -265,34 +276,11 @@ export async function handleHandshakeRPC(
 
       let localResult: any = { success: true }
       if (db) {
-        localResult = await submitCapsuleViaRpc(capsule, db, session)
+        // Initiator persists own record via direct insert — NOT the receive pipeline.
+        // The pipeline rejects when senderId === localUserId (ownership check).
+        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
       } else if (!skipVaultContext) {
         return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
-      }
-
-      // Phase 1: store content locally as pending_delivery (sender side).
-      // Must run AFTER submitCapsuleViaRpc so the handshakes row exists before
-      // context_store's REFERENCES handshakes(handshake_id) FK is satisfied.
-      if (db && localBlocks.length > 0 && localResult.success) {
-        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, receiverUserId)
-        for (const block of localBlocks) {
-          try {
-            insertContextStoreEntry(db, {
-              block_id: block.block_id,
-              block_hash: block.block_hash,
-              handshake_id: capsule.handshake_id,
-              relationship_id: relationshipId,
-              scope_id: block.scope_id ?? null,
-              publisher_id: session.wrdesk_user_id,
-              type: block.type,
-              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-              status: 'pending_delivery',
-              valid_until: null,
-              ingested_at: null,
-              superseded: 0,
-            })
-          } catch { /* non-fatal — context delivery can be retried */ }
-        }
       }
 
       return {
@@ -311,12 +299,14 @@ export async function handleHandshakeRPC(
         receiverEmail: dlReceiverEmail,
         context_blocks: dlRawBlocks,
         message: dlRawMessage,
+        p2p_endpoint: dlP2PEndpointParam,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         skipVaultContext?: boolean
         context_blocks?: ContextBlockForCommitment[]
         message?: string
+        p2p_endpoint?: string | null
       }
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
@@ -329,44 +319,33 @@ export async function handleHandshakeRPC(
       }
 
       const dlContextBlocks = buildContextBlocksFromParams(dlRawBlocks, dlRawMessage)
+      const dlP2PEndpoint = dlP2PEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
       const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
         ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
+        ...(dlP2PEndpoint ? { p2p_endpoint: dlP2PEndpoint } : {}),
+        ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
       })
 
       const localpart = dlReceiverEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
       const shortHash = capsule.capsule_hash.slice(0, 8)
 
-      // Persist the initiator capsule locally so the handshakes row exists before
-      // context_store's FK constraint is checked.
-      let buildLocalResult: any = { success: true }
+      // Persist the initiator capsule locally so the handshakes row exists.
+      // Direct insert — NOT the receive pipeline (ownership would reject).
       if (db) {
-        buildLocalResult = await submitCapsuleViaRpc(capsule, db, session)
-      }
-
-      // Phase 1: store content locally as pending_delivery (sender side).
-      // Must run AFTER submitCapsuleViaRpc so the handshakes FK parent row exists.
-      if (db && localBlocks.length > 0 && buildLocalResult.success) {
-        const relationshipId = deriveRelationshipId(session.wrdesk_user_id, dlReceiverUserId)
-        for (const block of localBlocks) {
-          try {
-            insertContextStoreEntry(db, {
-              block_id: block.block_id,
-              block_hash: block.block_hash,
-              handshake_id: capsule.handshake_id,
-              relationship_id: relationshipId,
-              scope_id: block.scope_id ?? null,
-              publisher_id: session.wrdesk_user_id,
-              type: block.type,
-              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-              status: 'pending_delivery',
-              valid_until: null,
-              ingested_at: null,
-              superseded: 0,
-            })
-          } catch { /* non-fatal — content delivery can be retried */ }
+        const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
+        if (!buildLocalResult.success) {
+          return {
+            type: 'handshake-build-result',
+            success: false,
+            error: buildLocalResult.error,
+            handshake_id: capsule.handshake_id,
+            capsule_json: JSON.stringify(capsule),
+            suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
+          }
         }
       }
 
@@ -380,12 +359,13 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, p2p_endpoint: p2pEndpointParam } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
         context_blocks?: ContextBlockForCommitment[]
         profile_ids?: string[]
+        p2p_endpoint?: string | null
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -444,6 +424,9 @@ export async function handleHandshakeRPC(
       const { computeContextCommitment: computeCommitment } = await import('./contextCommitment')
       const acceptContextCommitment = acceptContextBlocks.length > 0 ? computeCommitment(acceptContextBlocks) : null
 
+      const p2pEndpoint = p2pEndpointParam ?? getP2PConfig(db)?.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
+      const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
+
       const capsule = buildAcceptCapsule(session, {
         handshake_id,
         initiatorUserId,
@@ -451,6 +434,8 @@ export async function handleHandshakeRPC(
         sharing_mode,
         context_blocks: acceptContextBlocks,
         context_commitment: acceptContextCommitment,
+        ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
+        ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
       })
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
@@ -495,6 +480,42 @@ export async function handleHandshakeRPC(
       }
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
+
+      // Auto-trigger P2P context-sync: enqueue for delivery (non-blocking)
+      if (localResult.success && db) {
+        setImmediate(() => {
+          try {
+            const updatedRecord = getHandshakeRecord(db, handshake_id)
+            if (!updatedRecord || updatedRecord.state !== HS.ACTIVE) return
+            const targetEndpoint = updatedRecord.p2p_endpoint
+            if (!targetEndpoint || targetEndpoint.trim().length === 0) {
+              return
+            }
+            const pending = getContextStoreByHandshake(db, handshake_id, 'pending_delivery')
+            if (pending.length === 0) return
+            const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
+              block_id: b.block_id,
+              block_hash: b.block_hash,
+              scope_id: b.scope_id ?? undefined,
+              type: b.type,
+              content: b.content ?? '',
+            }))
+            const counterpartyUserId = initiatorUserId
+            const counterpartyEmail = initiatorEmail
+            const contextSyncCapsule = buildContextSyncCapsuleWithContent(session, {
+              handshake_id,
+              counterpartyUserId,
+              counterpartyEmail,
+              last_seq_received: 0,
+              last_capsule_hash_received: capsule.capsule_hash,
+              context_blocks: contextBlocks,
+            })
+            enqueueOutboundCapsule(db, handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+          } catch (err: any) {
+            console.warn('[P2P] Auto context-sync enqueue failed:', err?.message)
+          }
+        })
+      }
 
       return {
         type: 'handshake-accept-result',

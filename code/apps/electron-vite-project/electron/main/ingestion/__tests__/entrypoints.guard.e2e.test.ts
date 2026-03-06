@@ -56,6 +56,7 @@ describe('Entrypoint Guard — Static Analysis', () => {
     'ipc.ts',
     'index.ts',
     'ingestionPipeline.ts',
+    'p2pServer.ts',
   ])
 
   test('G1: no production file outside allowed set calls processHandshakeCapsule(', () => {

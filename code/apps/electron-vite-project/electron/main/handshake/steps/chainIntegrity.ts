@@ -21,7 +21,7 @@ export const verifyChainIntegrity: PipelineStep = {
       return { passed: true }
     }
 
-    // refresh/revoke: need handshakeRecord to validate chain
+    // refresh/revoke/context-sync: need handshakeRecord to validate chain
     if (!handshakeRecord) {
       return { passed: false, reason: ReasonCode.HANDSHAKE_NOT_FOUND }
     }

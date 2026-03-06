@@ -249,6 +249,15 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
 })
 
+// ── P2P Health & Queue ─────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('p2p', {
+  getHealth: () => ipcRenderer.invoke('p2p:getHealth'),
+  getQueueStatus: (handshakeId: unknown) => {
+    const id = typeof handshakeId === 'string' && handshakeId.length <= 128 ? handshakeId : ''
+    return ipcRenderer.invoke('p2p:getQueueStatus', id)
+  },
+})
+
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),

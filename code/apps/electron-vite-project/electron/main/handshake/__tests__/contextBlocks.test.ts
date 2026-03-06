@@ -5,11 +5,12 @@ import { ReasonCode } from '../types'
 import { buildCtx, buildVerifiedCapsuleInput, buildReceiverPolicy, buildContextBlock } from './helpers'
 
 describe('Context Binding', () => {
-  test('relationship_id mismatch → INVALID_CONTEXT_BINDING', () => {
+  // Hardened model: verifyContextBinding only validates context_block_proofs structure (proof hashes).
+  // relationship_id, handshake_id, data_classification checks moved to enforcement layer.
+  test('context_block_proofs: missing block_id → INVALID_CONTEXT_BINDING', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
-        relationship_id: 'rel-001',
-        context_blocks: [buildContextBlock({ relationship_id: 'rel-WRONG' })],
+        context_block_proofs: [{ block_hash: 'a'.repeat(64) }],
       }),
     })
     const r = verifyContextBinding.execute(ctx)
@@ -17,11 +18,10 @@ describe('Context Binding', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.INVALID_CONTEXT_BINDING)
   })
 
-  test('block.handshake_id mismatch → INVALID_CONTEXT_BINDING', () => {
+  test('context_block_proofs: missing block_hash → INVALID_CONTEXT_BINDING', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
-        handshake_id: 'hs-001',
-        context_blocks: [buildContextBlock({ handshake_id: 'hs-WRONG' })],
+        context_block_proofs: [{ block_id: 'blk_abc123' }],
       }),
     })
     const r = verifyContextBinding.execute(ctx)
@@ -29,66 +29,34 @@ describe('Context Binding', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.INVALID_CONTEXT_BINDING)
   })
 
-  test('all correct → passes', () => {
+  test('context_block_proofs: valid structure → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
-        relationship_id: 'rel-001',
-        handshake_id: 'hs-001',
-        context_blocks: [buildContextBlock({ relationship_id: 'rel-001', handshake_id: 'hs-001' })],
+        context_block_proofs: [
+          { block_id: 'blk_abc123', block_hash: 'a'.repeat(64) },
+        ],
       }),
     })
     expect(verifyContextBinding.execute(ctx).passed).toBe(true)
   })
 
-  test('unaccepted data classification → CLASSIFICATION_NOT_ACCEPTED', () => {
+  test('context_block_proofs: empty → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
-        context_blocks: [buildContextBlock({ data_classification: 'sensitive-personal-data' })],
+        context_block_proofs: [],
       }),
-      receiverPolicy: buildReceiverPolicy({ acceptedClassifications: ['public'] }),
     })
-    const r = verifyContextBinding.execute(ctx)
-    expect(r.passed).toBe(false)
-    if (!r.passed) expect(r.reason).toBe(ReasonCode.CLASSIFICATION_NOT_ACCEPTED)
+    expect(verifyContextBinding.execute(ctx).passed).toBe(true)
   })
 })
 
 describe('Context Version Monotonicity', () => {
-  test('version > last → passes', () => {
-    const versions = new Map([['sender-user-001:block-1', 1]])
+  // Hardened model: verifyContextVersions is a no-op for handshake capsules (proof-only).
+  // Version checks enforced when full content blocks arrive via BEAP-Capsule pipeline.
+  test('step always passes (no-op for handshake capsules)', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ context_blocks: [buildContextBlock({ block_id: 'block-1', version: 2 })] }),
-      contextBlockVersions: versions,
-    })
-    expect(verifyContextVersions.execute(ctx).passed).toBe(true)
-  })
-
-  test('version == last → INVALID_CONTEXT_BINDING', () => {
-    const versions = new Map([['sender-user-001:block-1', 2]])
-    const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ context_blocks: [buildContextBlock({ block_id: 'block-1', version: 2 })] }),
-      contextBlockVersions: versions,
-    })
-    const r = verifyContextVersions.execute(ctx)
-    expect(r.passed).toBe(false)
-    if (!r.passed) expect(r.reason).toBe(ReasonCode.INVALID_CONTEXT_BINDING)
-  })
-
-  test('version < last → INVALID_CONTEXT_BINDING', () => {
-    const versions = new Map([['sender-user-001:block-1', 3]])
-    const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ context_blocks: [buildContextBlock({ block_id: 'block-1', version: 1 })] }),
-      contextBlockVersions: versions,
-    })
-    const r = verifyContextVersions.execute(ctx)
-    expect(r.passed).toBe(false)
-    if (!r.passed) expect(r.reason).toBe(ReasonCode.INVALID_CONTEXT_BINDING)
-  })
-
-  test('first block (no prior version) → passes', () => {
-    const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ context_blocks: [buildContextBlock({ block_id: 'new-block', version: 1 })] }),
-      contextBlockVersions: new Map(),
+      contextBlockVersions: new Map([['sender-user-001:block-1', 1]]),
     })
     expect(verifyContextVersions.execute(ctx).passed).toBe(true)
   })
@@ -107,3 +75,4 @@ describe('Context Block Dedup', () => {
     expect(verifyContextVersions.execute(ctx).passed).toBe(true)
   })
 })
+

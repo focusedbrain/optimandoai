@@ -90,7 +90,8 @@ describe('E2E HTTP — POST /api/ingestion/ingest', () => {
 
     expect(status).toBe(200)
     expect(body.success).toBe(false)
-    expect(body.validation_reason_code).toBeDefined()
+    // Hardening: client gets generic "Capsule rejected", not validation_reason_code
+    expect(body.reason).toBe('Capsule rejected')
 
     // DB: quarantine row
     const quarantine = ctx.db.getQuarantineRows()
@@ -162,7 +163,8 @@ describe('E2E HTTP — POST /api/ingestion/ingest', () => {
 
     expect(status).toBe(200)
     expect(body.success).toBe(false)
-    expect(body.validation_reason_code).toBe('SCHEMA_VERSION_UNSUPPORTED')
+    // Hardening: client gets generic "Capsule rejected", not validation_reason_code
+    expect(body.reason).toBe('Capsule rejected')
   })
 
   // Additional: plain text email → sandbox routing

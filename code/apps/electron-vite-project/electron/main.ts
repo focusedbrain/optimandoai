@@ -520,6 +520,12 @@ import {
   buildLedgerSessionToken,
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
+import { processOutboundQueue } from './main/handshake/outboundQueue'
+import { createP2PServer } from './main/p2p/p2pServer'
+import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
+import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest } from './main/p2p/p2pHealth'
+import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
+import { migrateHandshakeTables } from './main/handshake/db'
 import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
@@ -2046,7 +2052,30 @@ app.whenReady().then(async () => {
       }
     })
 
-    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule')
+    ipcMain.handle('p2p:getHealth', async () => {
+      const h = getP2PHealth()
+      try {
+        const db = await getHandshakeDb()
+        const cfg = getP2PConfig(db)
+        return { ...h, enabled: cfg.enabled }
+      } catch {
+        return { ...h, enabled: true }
+      }
+    })
+
+    ipcMain.handle('p2p:getQueueStatus', async (_e, handshakeId: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { status: { pending: 0, sent: 0, failed: 0 }, entries: [] }
+        const status = getQueueStatus(db, handshakeId)
+        const entries = getQueueEntries(db, handshakeId)
+        return { status, entries }
+      } catch {
+        return { status: { pending: 0, sent: 0, failed: 0 }, entries: [] }
+      }
+    })
+
+    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus')
 
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
@@ -6491,6 +6520,65 @@ app.whenReady().then(async () => {
         }
       })
     }
+
+    // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
+    let p2pServerStarted = false
+    const getHandshakeDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+
+    function tryP2PStartup(): void {
+      const handshakeDb = getHandshakeDb()
+      if (!handshakeDb) return
+      processOutboundQueue(handshakeDb).catch((err) => {
+        console.warn('[P2P] processOutboundQueue error:', err?.message)
+      })
+      if (!p2pServerStarted) {
+        try {
+          migrateHandshakeTables(handshakeDb)
+          const p2pConfig = getP2PConfig(handshakeDb)
+          if (p2pConfig.enabled) {
+            const getDb = () => getHandshakeDb()
+            const getSsoSession = () => getCurrentSession()
+            const server = createP2PServer(
+              p2pConfig,
+              getDb,
+              getSsoSession,
+              (localEndpoint) => {
+                try {
+                  upsertP2PConfig(handshakeDb, { local_p2p_endpoint: localEndpoint })
+                  console.log('[P2P] local_p2p_endpoint:', localEndpoint)
+                  // Self-test: connect to own endpoint
+                  fetch(localEndpoint, { method: 'POST', body: JSON.stringify({ handshake_id: 'self-test' }), headers: { 'Content-Type': 'application/json' } })
+                    .then(() => setP2PHealthSelfTest(true))
+                    .catch(() => setP2PHealthSelfTest(false))
+                } catch {}
+              },
+              () => { p2pServerStarted = false },
+            )
+            if (server) p2pServerStarted = true
+          }
+        } catch (err: any) {
+          console.warn('[P2P] Server startup skipped:', err?.message)
+        }
+      }
+    }
+
+    tryP2PStartup()
+    setInterval(tryP2PStartup, 10_000)
+
+    // Refresh P2P health queue counts every 60s
+    setInterval(() => {
+      const db = getHandshakeDb()
+      if (!db) return
+      try {
+        const rows = db.prepare('SELECT status, COUNT(*) as cnt FROM outbound_capsule_queue GROUP BY status').all() as Array<{ status: string; cnt: number }>
+        let pending = 0, failed = 0
+        for (const r of rows) {
+          if (r.status === 'pending') pending = r.cnt
+          else if (r.status === 'failed') failed = r.cnt
+        }
+        setP2PHealthQueueCounts(pending, failed)
+      } catch {}
+    }, 60_000)
 
     // Error handling is done via try-catch and httpApp.listen callback
   } catch (err) {

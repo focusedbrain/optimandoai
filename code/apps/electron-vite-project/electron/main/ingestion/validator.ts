@@ -21,7 +21,7 @@ import type {
 import { INGESTION_CONSTANTS } from './types'
 
 const VALID_CAPSULE_TYPES: ReadonlySet<string> = new Set([
-  'initiate', 'accept', 'refresh', 'revoke', 'internal_draft',
+  'accept', 'context_sync', 'initiate', 'internal_draft', 'refresh', 'revoke',
 ])
 
 const VALID_SHARING_MODES: ReadonlySet<string> = new Set([
@@ -39,6 +39,8 @@ const VALID_CLOUD_PAYLOAD_MODES: ReadonlySet<string> = new Set([
 interface RequiredFieldSpec {
   field: string;
   types?: string[];
+  /** If true, null is allowed (e.g. context_commitment when context_blocks is empty) */
+  nullable?: boolean;
 }
 
 const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
@@ -73,6 +75,17 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'sender_id' },
     { field: 'capsule_hash' },
     { field: 'timestamp' },
+  ],
+  context_sync: [
+    { field: 'handshake_id' },
+    { field: 'sender_id' },
+    { field: 'capsule_hash' },
+    { field: 'timestamp' },
+    { field: 'wrdesk_policy_hash' },
+    { field: 'seq' },
+    { field: 'prev_hash' },
+    { field: 'context_hash' },
+    { field: 'context_commitment', nullable: true },
   ],
   internal_draft: [
     { field: 'timestamp' },
@@ -210,8 +223,11 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
   // Step 5: Required fields per capsule_type
   const requiredFields = REQUIRED_FIELDS_BY_TYPE[capsuleType] ?? []
   for (const spec of requiredFields) {
-    if (!(spec.field in obj) || obj[spec.field] === undefined || obj[spec.field] === null) {
+    if (!(spec.field in obj) || obj[spec.field] === undefined) {
       return fail('MISSING_REQUIRED_FIELD', `Missing required field: ${spec.field} for capsule_type ${capsuleType}`)
+    }
+    if (!spec.nullable && obj[spec.field] === null) {
+      return fail('MISSING_REQUIRED_FIELD', `Required field ${spec.field} cannot be null for capsule_type ${capsuleType}`)
     }
   }
 

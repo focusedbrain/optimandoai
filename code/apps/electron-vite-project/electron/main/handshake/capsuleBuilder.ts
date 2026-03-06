@@ -39,7 +39,7 @@ import { deriveRelationshipId } from './relationshipId'
 
 export interface HandshakeCapsuleWire {
   readonly schema_version: 2;
-  readonly capsule_type: 'initiate' | 'accept' | 'refresh' | 'revoke';
+  readonly capsule_type: 'initiate' | 'accept' | 'refresh' | 'revoke' | 'context_sync';
   readonly handshake_id: string;
   readonly relationship_id: string;
   readonly sender_id: string;
@@ -70,6 +70,8 @@ export interface HandshakeCapsuleWire {
   readonly prev_hash?: string;
   readonly context_block_proofs?: ReadonlyArray<ContextBlockProof>;
   readonly context_blocks: ReadonlyArray<ContextBlockWireProof>;
+  /** Sender's P2P endpoint (advertised in initiate/accept). Optional. */
+  readonly p2p_endpoint?: string | null;
 }
 
 // ── Options types ──
@@ -93,6 +95,10 @@ export interface InitiateOptions {
   nonce?: string;
   /** Context blocks to attach to the initiate capsule */
   context_blocks?: ContextBlockForCommitment[];
+  /** Sender's P2P endpoint for context-sync delivery (e.g. https://host:port/beap/ingest). Null if not configured. */
+  p2p_endpoint?: string | null;
+  /** Sender's P2P auth token (Bearer) for authenticating requests to our /beap/ingest. 32 bytes hex. */
+  p2p_auth_token?: string | null;
 }
 
 export interface AcceptOptions {
@@ -118,6 +124,10 @@ export interface AcceptOptions {
   context_blocks?: ContextBlockForCommitment[];
   /** Context commitment from the initiate capsule */
   context_commitment?: string | null;
+  /** Sender's P2P endpoint for context-sync delivery (e.g. https://host:port/beap/ingest). Null if not configured. */
+  p2p_endpoint?: string | null;
+  /** Sender's P2P auth token (Bearer) for authenticating requests to our /beap/ingest. 32 bytes hex. */
+  p2p_auth_token?: string | null;
 }
 
 export interface RefreshOptions {
@@ -154,6 +164,28 @@ export interface RevokeOptions {
   last_seq_received: number;
   /** The hash of the last capsule received FROM the counterparty */
   last_capsule_hash_received: string;
+  /** Explicit timestamp override */
+  timestamp?: string;
+  /** Explicit nonce override (generated if absent) — for testing only */
+  nonce?: string;
+}
+
+/** Options for context_sync — first post-activation capsule delivering context blocks. */
+export interface ContextSyncOptions {
+  /** The handshake_id of the active handshake */
+  handshake_id: string;
+  /** The counterparty's wrdesk_user_id */
+  counterpartyUserId: string;
+  /** The counterparty's email */
+  counterpartyEmail: string;
+  /** Must be 0 (last capsule was accept) */
+  last_seq_received: number;
+  /** The hash of the accept capsule received */
+  last_capsule_hash_received: string;
+  /** Context blocks to deliver (may be empty for minimal sync) */
+  context_blocks?: ContextBlockForCommitment[];
+  /** Policy descriptor to anchor. Defaults to DEFAULT_POLICY_DESCRIPTOR. */
+  policy?: PolicyDescriptor;
   /** Explicit timestamp override */
   timestamp?: string;
   /** Explicit nonce override (generated if absent) — for testing only */
@@ -243,6 +275,8 @@ export function buildInitiateCapsule(
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
     context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
+    ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
+    ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
 }
 
@@ -343,6 +377,8 @@ export function buildAcceptCapsule(
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
     context_blocks: opts.context_blocks ? stripContentFromBlocks(opts.context_blocks) : [],
+    ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
+    ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
 }
 
@@ -435,6 +471,119 @@ export function buildRefreshCapsule(
     context_blocks: refreshCanonicalBlocks ? stripContentFromBlocks(refreshCanonicalBlocks) : [],
   }
   return wire
+}
+
+/**
+ * Build a `context_sync` handshake capsule.
+ *
+ * First post-activation capsule — MUST be sent when last_seq_received === 0.
+ * Delivers context blocks to the counterparty. Uses same hash algorithm as refresh.
+ */
+export function buildContextSyncCapsule(
+  session: SSOSession,
+  opts: ContextSyncOptions,
+): HandshakeCapsuleWire {
+  const timestamp = opts.timestamp ?? new Date().toISOString()
+  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.counterpartyUserId)
+  const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
+  const seq = opts.last_seq_received + 1
+  const nonce = opts.nonce ?? generateNonce()
+  const policyHash = computePolicyHash(policy)
+  const canonicalBlocks = canonicalizeBlockIds(opts.context_blocks ?? [], opts.handshake_id)
+  const contextCommitment = computeContextCommitment(canonicalBlocks)
+
+  const hashInput: CapsuleHashInput = {
+    capsule_type: 'refresh',
+    handshake_id: opts.handshake_id,
+    relationship_id,
+    schema_version: 2,
+    sender_wrdesk_user_id: session.wrdesk_user_id,
+    receiver_email: opts.counterpartyEmail,
+    seq,
+    timestamp,
+    prev_hash: opts.last_capsule_hash_received,
+    wrdesk_policy_hash: policyHash,
+    wrdesk_policy_version: policy.version,
+    context_commitment: contextCommitment,
+  }
+
+  const contextHashInput: ContextHashInput = {
+    schema_version: 2,
+    capsule_type: 'refresh',
+    handshake_id: opts.handshake_id,
+    relationship_id,
+    sender_id: session.wrdesk_user_id,
+    sender_wrdesk_user_id: session.wrdesk_user_id,
+    sender_email: session.email,
+    receiver_id: opts.counterpartyUserId,
+    receiver_email: opts.counterpartyEmail,
+    timestamp,
+    nonce,
+    seq,
+    wrdesk_policy_hash: policyHash,
+    wrdesk_policy_version: policy.version,
+    prev_hash: opts.last_capsule_hash_received,
+  }
+
+  return {
+    schema_version: 2,
+    capsule_type: 'context_sync',
+    handshake_id: opts.handshake_id,
+    relationship_id,
+    sender_id: session.wrdesk_user_id,
+    sender_wrdesk_user_id: session.wrdesk_user_id,
+    sender_email: session.email,
+    receiver_id: opts.counterpartyUserId,
+    receiver_email: opts.counterpartyEmail,
+    senderIdentity: {
+      email: session.email,
+      iss: session.iss,
+      sub: session.sub,
+      email_verified: true,
+      wrdesk_user_id: session.wrdesk_user_id,
+    },
+    receiverIdentity: null,
+    capsule_hash: computeCapsuleHash(hashInput),
+    context_hash: computeContextHash(contextHashInput),
+    context_commitment: contextCommitment,
+    nonce,
+    timestamp,
+    seq,
+    prev_hash: opts.last_capsule_hash_received,
+    external_processing: 'none',
+    reciprocal_allowed: false,
+    tierSignals: sessionToTierSignals(session),
+    wrdesk_policy_hash: policyHash,
+    wrdesk_policy_version: policy.version,
+    context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
+  }
+}
+
+/**
+ * Build a `context_sync` handshake capsule WITH content for P2P delivery.
+ * Same as buildContextSyncCapsule but includes actual block content (no stripContentFromBlocks).
+ * Use for automatic context-sync delivery after accept.
+ */
+export function buildContextSyncCapsuleWithContent(
+  session: SSOSession,
+  opts: ContextSyncOptions,
+): HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> } {
+  const base = buildContextSyncCapsule(session, opts)
+  const canonicalBlocks = canonicalizeBlockIds(opts.context_blocks ?? [], opts.handshake_id)
+  if (!canonicalBlocks || canonicalBlocks.length === 0) {
+    return base as HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> }
+  }
+  const blocksWithContent = canonicalBlocks.map(b => ({
+    block_id: b.block_id,
+    block_hash: b.block_hash,
+    type: b.type,
+    scope_id: b.scope_id ?? null,
+    content: b.content,
+  }))
+  return {
+    ...base,
+    context_blocks: blocksWithContent,
+  } as HandshakeCapsuleWire & { context_blocks: ReadonlyArray<ContextBlockForCommitment> }
 }
 
 /**

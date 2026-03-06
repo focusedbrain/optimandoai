@@ -143,6 +143,12 @@ describe('Handshake E2E — Hardened', () => {
     expect(result.email_sent).toBe(true)
     expect(sentEmails.length).toBe(1)
     expect(sentEmails[0].to).toBe('bob@partner.com')
+
+    // Initiator's record persisted via direct insert (bypasses receive pipeline)
+    const stored = aliceDb.getHandshake(result.handshake_id)
+    expect(stored).toBeTruthy()
+    expect(stored.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(stored.local_role).toBe('initiator')
   })
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -172,12 +178,12 @@ describe('Handshake E2E — Hardened', () => {
 
     const capsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     const rawObj = JSON.parse(JSON.stringify(capsule))
-    rawObj.context_blocks = [{ block_id: 'blk_abc', payload: 'malicious data' }]
+    rawObj.data = 'malicious data'
 
     const result = await submitCapsule(JSON.stringify(rawObj), bobDb, bob)
     expect(result.success).toBe(false)
-    expect(result.error).toContain('Gate 2 rejected')
-    expect(result.error).toContain('context_blocks')
+    // Gate 2 rejects denied fields; client receives generic "Capsule rejected"
+    expect(result.error).toContain('Capsule rejected')
 
     // Nothing stored
     const stored = bobDb.getHandshake(capsule.handshake_id)

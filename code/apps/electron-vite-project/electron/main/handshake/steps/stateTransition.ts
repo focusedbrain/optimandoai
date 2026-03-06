@@ -37,10 +37,28 @@ export const checkStateTransition: PipelineStep = {
       return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
     }
 
-    // ACTIVE
+    // ACTIVE (Critical Finding #3: context-sync enforcement)
+    // When handshake is ACTIVE and last_seq_received === 0, the first post-activation
+    // capsule MUST be context-sync. This ensures the counterparty delivers context
+    // blocks before any refresh/revoke. Any other type at seq 1 is rejected.
     if (currentState === HandshakeState.ACTIVE) {
-      if (capsuleType === 'handshake-refresh') return { passed: true }
-      if (capsuleType === 'handshake-revoke') return { passed: true }
+      const lastSeq = handshakeRecord!.last_seq_received
+      if (lastSeq === 0) {
+        // First post-activation capsule: ONLY handshake-context-sync allowed
+        if (capsuleType === 'handshake-context-sync') return { passed: true }
+        if (capsuleType === 'handshake-refresh' || capsuleType === 'handshake-revoke') {
+          console.warn('[HANDSHAKE] CONTEXT_SYNC_REQUIRED', { handshake_id: input.handshake_id, capsule_hash: input.capsule_hash })
+          return { passed: false, reason: ReasonCode.CONTEXT_SYNC_REQUIRED }
+        }
+      } else {
+        // After context-sync (last_seq_received >= 1): allow refresh and revoke
+        if (capsuleType === 'handshake-refresh') return { passed: true }
+        if (capsuleType === 'handshake-revoke') return { passed: true }
+        if (capsuleType === 'handshake-context-sync') {
+          // context-sync allowed only as first post-activation; subsequent is invalid
+          return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
+        }
+      }
       if (capsuleType === 'handshake-initiate') {
         return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
       }

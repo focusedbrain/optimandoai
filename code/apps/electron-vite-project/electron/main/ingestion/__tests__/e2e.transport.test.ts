@@ -214,9 +214,10 @@ describe('E2E Transport — WebSocket RPC (via handleIngestionRPC)', () => {
     // but the pipeline ran: it's a success from ingestion perspective
     // until the handshake_pipeline target tries to process
     expect(result.type).toBe('ingestion-result')
-    // Without db, it should return vault must be unlocked error
+    // Without db, handshake target returns session/error message
     expect(result.success).toBe(false)
-    expect(result.error).toContain('Vault must be unlocked')
+    expect(result.error).toBeDefined()
+    expect(result.error).toMatch(/vault|session|log in/i)
   })
 
   // Test 7: Malformed BEAP via RPC
@@ -233,7 +234,8 @@ describe('E2E Transport — WebSocket RPC (via handleIngestionRPC)', () => {
 
     expect(result.type).toBe('ingestion-result')
     expect(result.success).toBe(false)
-    expect(result.validation_reason_code).toBe('INGESTION_ERROR_PROPAGATED')
+    // Hardening: RPC returns generic "Capsule rejected", not validation_reason_code
+    expect(result.reason).toBe('Capsule rejected')
   })
 
   // Test 8: Oversized via RPC
@@ -250,7 +252,8 @@ describe('E2E Transport — WebSocket RPC (via handleIngestionRPC)', () => {
 
     expect(result.type).toBe('ingestion-result')
     expect(result.success).toBe(false)
-    expect(result.validation_reason_code).toBe('INGESTION_ERROR_PROPAGATED')
+    // Hardening: RPC returns generic "Capsule rejected", not validation_reason_code
+    expect(result.reason).toBe('Capsule rejected')
   })
 
   // Test 9: Direct handshake RPC — read-only, no state mutation

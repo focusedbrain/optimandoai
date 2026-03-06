@@ -11,6 +11,7 @@ import CapsuleUploadZone from './CapsuleUploadZone'
 import RelationshipDetail from './RelationshipDetail'
 import HandshakeChatSidebar from './HandshakeChatSidebar'
 import AcceptHandshakeModal from './AcceptHandshakeModal'
+import P2PStatusBadge from './P2PStatusBadge'
 
 // ── Types ──
 
@@ -27,6 +28,7 @@ interface HandshakeRecord {
   expires_at: string | null
   last_seq_received: number
   last_capsule_hash_received: string
+  p2p_endpoint?: string | null
 }
 
 import './handshakeViewTypes'
@@ -193,7 +195,10 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           padding: '14px 12px', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700 }}>Handshakes</span>
+            <P2PStatusBadge />
+          </div>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => onNewHandshake?.()}

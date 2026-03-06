@@ -4,9 +4,12 @@
  * Displays:
  *   - Status badge (ACTIVE / PENDING / REVOKED / EXPIRED)
  *   - Chain metadata (relationship_id, seq counts, last capsule hash)
+ *   - P2P delivery status (per-handshake)
  *   - Capsule count and last activity timestamp
  *   - State indicator for content availability
  */
+
+import { useEffect, useState } from 'react'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -23,6 +26,7 @@ interface HandshakeRecord {
   last_capsule_hash_received: string
   initiator_context_commitment: string | null
   acceptor_context_commitment: string | null
+  p2p_endpoint?: string | null
 }
 
 interface Props {
@@ -119,6 +123,43 @@ function CopyableHash({ label, hash }: { label: string; hash: string | null }) {
   )
 }
 
+interface P2PQueueEntry {
+  status: 'pending' | 'sent' | 'failed'
+  retry_count: number
+  error: string | null
+}
+
+function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; p2pEndpoint: string | null | undefined }) {
+  const [entries, setEntries] = useState<P2PQueueEntry[]>([])
+  useEffect(() => {
+    if (!handshakeId || !(window as any).p2p?.getQueueStatus) return
+    ;(window as any).p2p.getQueueStatus(handshakeId).then((r: { entries: P2PQueueEntry[] }) => {
+      setEntries(r?.entries ?? [])
+    }).catch(() => setEntries([]))
+    const t = setInterval(() => {
+      ;(window as any).p2p?.getQueueStatus(handshakeId).then((r: { entries: P2PQueueEntry[] }) => {
+        setEntries(r?.entries ?? [])
+      }).catch(() => {})
+    }, 5000)
+    return () => clearInterval(t)
+  }, [handshakeId])
+
+  if (!p2pEndpoint) return <MetaRow label="P2P" value="No endpoint — context exchanged manually" />
+  const pending = entries.filter((e) => e.status === 'pending')
+  const sent = entries.filter((e) => e.status === 'sent')
+  const failed = entries.filter((e) => e.status === 'failed')
+  if (sent.length > 0 && pending.length === 0 && failed.length === 0) return <MetaRow label="P2P" value="Context delivered via P2P ✓" />
+  if (pending.length > 0) {
+    const retry = pending[0]?.retry_count ?? 0
+    return <MetaRow label="P2P" value={`Context delivery in progress... (attempt ${retry + 1})`} />
+  }
+  if (failed.length > 0) {
+    const err = failed[0]?.error ?? 'Unknown error'
+    return <MetaRow label="P2P" value={`Context delivery failed — ${err.slice(0, 60)}${err.length > 60 ? '…' : ''}`} />
+  }
+  return <MetaRow label="P2P" value="No queue entries" />
+}
+
 export default function RelationshipDetail({ record, contextBlockCount, onRevoke }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
@@ -178,6 +219,7 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
         <MetaRow label="Relationship ID" value={record.relationship_id} />
         <MetaRow label="Last seq received" value={String(record.last_seq_received)} />
         <MetaRow label="Last capsule hash" value={shortHash(record.last_capsule_hash_received)} />
+        <P2PDeliveryStatus handshakeId={record.handshake_id} p2pEndpoint={record.p2p_endpoint} />
       </div>
 
       {/* Context Commitments */}
@@ -261,23 +303,31 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
       ) : (
         <div style={{
           padding: '14px 16px',
-          background: contextBlockCount > 0 ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
-          border: `1px solid ${contextBlockCount > 0 ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
+          background: (contextBlockCount > 0 || record.last_seq_received >= 1) ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+          border: `1px solid ${(contextBlockCount > 0 || record.last_seq_received >= 1) ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
           borderRadius: '8px',
         }}>
           <div style={{
             fontSize: '12px', fontWeight: 600,
-            color: contextBlockCount > 0 ? '#22c55e' : '#f59e0b',
+            color: (contextBlockCount > 0 || record.last_seq_received >= 1) ? '#22c55e' : '#f59e0b',
             marginBottom: '4px',
           }}>
-            {contextBlockCount > 0
-              ? `${contextBlockCount} Context Block${contextBlockCount > 1 ? 's' : ''} — content available`
-              : 'Handshake active. Waiting for first BEAP-Capsule for content.'}
+            {record.last_seq_received >= 1
+              ? 'Context synced. Ready for BEAP messaging.'
+              : contextBlockCount > 0
+                ? `${contextBlockCount} Context Block${contextBlockCount > 1 ? 's' : ''} — content available`
+                : record.p2p_endpoint
+                  ? 'Context sync in progress. P2P delivery may take a few seconds.'
+                  : 'P2P not configured. Enable P2P in settings to auto-sync context, or exchange context manually.'}
           </div>
           <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-            {contextBlockCount > 0
-              ? 'Context data has been received via the BEAP-Capsule pipeline.'
-              : 'Context blocks enter only through fully validated BEAP Capsules, not handshake capsules.'}
+            {record.last_seq_received >= 1
+              ? 'Context has been exchanged via P2P or BEAP capsules.'
+              : contextBlockCount > 0
+                ? 'Context data has been received via the BEAP-Capsule pipeline.'
+                : record.p2p_endpoint
+                  ? 'Waiting for counterparty context-sync delivery.'
+                  : 'Configure P2P before initiating a handshake for automatic context exchange.'}
           </div>
         </div>
       )}

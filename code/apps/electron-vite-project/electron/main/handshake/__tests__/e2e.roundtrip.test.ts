@@ -28,6 +28,7 @@ import {
 import {
   buildInitiateCapsule,
   buildAcceptCapsule,
+  buildContextSyncCapsule,
   buildRefreshCapsule,
 } from '../capsuleBuilder'
 import { HandshakeState } from '../types'
@@ -176,7 +177,47 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     expect(bobAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
 
     // ═══════════════════════════════════════════════════════════════════
-    // STEP 3: Alice sends a refresh with context blocks
+    // STEP 3a: Both parties send context-sync (first post-activation required)
+    // Build both capsules from post-accept state (last_seq_received=0) so each
+    // has seq 1. Order of submission: Alice→Bob, then Bob→Alice.
+    // ═══════════════════════════════════════════════════════════════════
+    const aliceRecordAfterAccept = aliceDb.getHandshake(initiate.handshake_id)
+    const bobRecordAfterAccept = bobDb.getHandshake(initiate.handshake_id)
+    expect(aliceRecordAfterAccept).toBeTruthy()
+    expect(bobRecordAfterAccept).toBeTruthy()
+
+    const aliceContextSync = buildContextSyncCapsule(alice, {
+      handshake_id: initiate.handshake_id,
+      counterpartyUserId: bob.wrdesk_user_id,
+      counterpartyEmail: bob.email,
+      last_seq_received: aliceRecordAfterAccept!.last_seq_received ?? 0,
+      last_capsule_hash_received: aliceRecordAfterAccept!.last_capsule_hash_received ?? '',
+      context_blocks: [],
+    })
+    const bobContextSync = buildContextSyncCapsule(bob, {
+      handshake_id: initiate.handshake_id,
+      counterpartyUserId: alice.wrdesk_user_id,
+      counterpartyEmail: alice.email,
+      last_seq_received: bobRecordAfterAccept!.last_seq_received ?? 0,
+      last_capsule_hash_received: bobRecordAfterAccept!.last_capsule_hash_received ?? '',
+      context_blocks: [],
+    })
+    expect(aliceContextSync.capsule_type).toBe('context_sync')
+    expect(aliceContextSync.seq).toBe(1)
+    expect(bobContextSync.seq).toBe(1)
+
+    const bobContextSyncResult = await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
+    expect(bobContextSyncResult.success).toBe(true)
+    expect(bobContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)
+
+    const aliceContextSyncResult = await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
+    expect(aliceContextSyncResult.success).toBe(true)
+    expect(aliceContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STEP 3c: Alice sends a refresh with context block proofs
+    // prev_hash must be the hash of the last capsule Bob received from Alice
+    // (= Alice's context-sync), not what Alice received from Bob.
     // ═══════════════════════════════════════════════════════════════════
     const aliceRecord = aliceDb.getHandshake(initiate.handshake_id)
     expect(aliceRecord).toBeTruthy()
@@ -186,16 +227,16 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       counterpartyUserId: bob.wrdesk_user_id,
       counterpartyEmail: bob.email,
       last_seq_received: aliceRecord!.last_seq_received ?? 0,
-      last_capsule_hash_received: aliceRecord!.last_capsule_hash_received ?? '',
+      last_capsule_hash_received: aliceContextSync.capsule_hash,
       context_block_proofs: [
-        { block_id: 'blk_msgblock001aabb', block_hash: 'b'.repeat(64) },
-        { block_id: 'blk_msgblock002ccdd', block_hash: 'c'.repeat(64) },
+        { block_id: 'blk_aabb0011223344', block_hash: 'b'.repeat(64) },
+        { block_id: 'blk_ccdd5566778899', block_hash: 'c'.repeat(64) },
       ],
     })
 
     expect(refresh.capsule_type).toBe('refresh')
     expect(refresh.context_block_proofs).toHaveLength(2)
-    expect(refresh.seq).toBeGreaterThan(0)
+    expect(refresh.seq).toBe(2)
 
     // Bob receives and processes the refresh
     const bobRefreshResult = await submitCapsule(JSON.stringify(refresh), bobDb, bob)

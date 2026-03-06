@@ -40,12 +40,12 @@ describe('Asymmetric Sharing Mode', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.INVALID_SHARING_MODE)
   })
 
-  test('accept receive-only with context_blocks present → SHARING_MODE_VIOLATION', () => {
+  test('accept receive-only with context_block_proofs present → SHARING_MODE_VIOLATION', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-accept',
         sharing_mode: 'receive-only',
-        context_blocks: [{ block_id: 'b1', block_hash: 'h1', relationship_id: 'rel-001', handshake_id: 'hs-001', type: 't', data_classification: 'public', version: 1, payload: 'p' }],
+        context_block_proofs: [{ block_id: 'blk_b1', block_hash: 'a'.repeat(64) }],
       }),
       handshakeRecord: buildHandshakeRecord(),
     })
@@ -54,37 +54,37 @@ describe('Asymmetric Sharing Mode', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.SHARING_MODE_VIOLATION)
   })
 
-  test('accept receive-only with context_blocks empty → passes', () => {
+  test('accept receive-only with context_block_proofs empty → passes', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only', context_blocks: [] }),
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only', context_block_proofs: [] }),
       handshakeRecord: buildHandshakeRecord(),
     })
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
   })
 
-  test('accept receive-only with context_blocks undefined → passes', () => {
+  test('accept receive-only with context_block_proofs undefined → passes', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only', context_blocks: undefined }),
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only', context_block_proofs: undefined }),
       handshakeRecord: buildHandshakeRecord(),
     })
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
   })
 
-  test('accept reciprocal with context_blocks present → passes', () => {
+  test('accept reciprocal with context_block_proofs present → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-accept',
         sharing_mode: 'reciprocal',
-        context_blocks: [{ block_id: 'b1', block_hash: 'h1', relationship_id: 'rel-001', handshake_id: 'hs-001', type: 't', data_classification: 'public', version: 1, payload: 'p' }],
+        context_block_proofs: [{ block_id: 'blk_b1', block_hash: 'a'.repeat(64) }],
       }),
       handshakeRecord: buildHandshakeRecord(),
     })
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
   })
 
-  test('accept reciprocal with context_blocks empty → passes', () => {
+  test('accept reciprocal with context_block_proofs empty → passes', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'reciprocal', context_blocks: [] }),
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'reciprocal', context_block_proofs: [] }),
       handshakeRecord: buildHandshakeRecord(),
     })
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
@@ -123,13 +123,13 @@ describe('Asymmetric Sharing Mode', () => {
 })
 
 describe('Sharing Mode Enforcement in Refresh', () => {
-  test('receive-only: initiator sends refresh with blocks → passes', () => {
+  test('receive-only: initiator sends refresh with context_block_proofs → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-refresh',
         sender_wrdesk_user_id: 'sender-user-001',
         senderIdentity: { email: 'sender@example.com', iss: 'https://auth.wrdesk.com', sub: 'sub-sender-001', email_verified: true, wrdesk_user_id: 'sender-user-001' },
-        context_blocks: [{ block_id: 'b1', block_hash: 'h1', relationship_id: 'rel-001', handshake_id: 'hs-001', type: 't', data_classification: 'public', version: 1, payload: 'p' }],
+        context_block_proofs: [{ block_id: 'blk_b1', block_hash: 'a'.repeat(64) }],
         seq: 1, prev_hash: 'h',
       }),
       handshakeRecord: buildActiveHandshakeRecord({ sharing_mode: 'receive-only', initiator: { email: 'sender@example.com', wrdesk_user_id: 'sender-user-001', iss: 'https://auth.wrdesk.com', sub: 'sub-sender-001' }, acceptor: { email: 'local@wrdesk.com', wrdesk_user_id: 'local-user-001', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001' } }),
@@ -137,13 +137,13 @@ describe('Sharing Mode Enforcement in Refresh', () => {
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
   })
 
-  test('receive-only: acceptor sends refresh with blocks → SHARING_MODE_VIOLATION', () => {
+  test('receive-only: acceptor sends refresh with context_block_proofs → SHARING_MODE_VIOLATION', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-refresh',
         sender_wrdesk_user_id: 'local-user-001',
         senderIdentity: { email: 'local@wrdesk.com', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001', email_verified: true, wrdesk_user_id: 'local-user-001' },
-        context_blocks: [{ block_id: 'b1', block_hash: 'h1', relationship_id: 'rel-001', handshake_id: 'hs-001', type: 't', data_classification: 'public', version: 1, payload: 'p' }],
+        context_block_proofs: [{ block_id: 'blk_b1', block_hash: 'a'.repeat(64) }],
         seq: 1, prev_hash: 'h',
       }),
       handshakeRecord: buildActiveHandshakeRecord({ sharing_mode: 'receive-only', acceptor: { email: 'local@wrdesk.com', wrdesk_user_id: 'local-user-001', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001' } }),
@@ -153,13 +153,13 @@ describe('Sharing Mode Enforcement in Refresh', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.SHARING_MODE_VIOLATION)
   })
 
-  test('receive-only: acceptor sends refresh without blocks → passes', () => {
+  test('receive-only: acceptor sends refresh without context_block_proofs → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({
         capsuleType: 'handshake-refresh',
         sender_wrdesk_user_id: 'local-user-001',
         senderIdentity: { email: 'local@wrdesk.com', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001', email_verified: true, wrdesk_user_id: 'local-user-001' },
-        context_blocks: [],
+        context_block_proofs: [],
         seq: 1, prev_hash: 'h',
       }),
       handshakeRecord: buildActiveHandshakeRecord({ sharing_mode: 'receive-only', acceptor: { email: 'local@wrdesk.com', wrdesk_user_id: 'local-user-001', iss: 'https://auth.wrdesk.com', sub: 'sub-local-001' } }),
@@ -167,14 +167,14 @@ describe('Sharing Mode Enforcement in Refresh', () => {
     expect(verifySharingMode.execute(ctx).passed).toBe(true)
   })
 
-  test('reciprocal: both parties can send blocks', () => {
+  test('reciprocal: both parties can send context_block_proofs', () => {
     for (const userId of ['sender-user-001', 'local-user-001']) {
       const ctx = buildCtx({
         input: buildVerifiedCapsuleInput({
           capsuleType: 'handshake-refresh',
           sender_wrdesk_user_id: userId,
           senderIdentity: { email: `${userId}@wrdesk.com`, iss: 'https://auth.wrdesk.com', sub: `sub-${userId}`, email_verified: true, wrdesk_user_id: userId },
-          context_blocks: [{ block_id: 'b1', block_hash: 'h1', relationship_id: 'rel-001', handshake_id: 'hs-001', type: 't', data_classification: 'public', version: 1, payload: 'p' }],
+          context_block_proofs: [{ block_id: 'blk_b1', block_hash: 'a'.repeat(64) }],
           seq: 1, prev_hash: 'h',
         }),
         handshakeRecord: buildActiveHandshakeRecord({ sharing_mode: 'reciprocal' }),

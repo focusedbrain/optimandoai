@@ -44,12 +44,13 @@ import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
  */
-function mapCapsuleTypeToHandshake(type: string): 'handshake-initiate' | 'handshake-accept' | 'handshake-refresh' | 'handshake-revoke' {
+function mapCapsuleTypeToHandshake(type: string): 'handshake-initiate' | 'handshake-accept' | 'handshake-refresh' | 'handshake-revoke' | 'handshake-context-sync' {
   switch (type) {
     case 'initiate': return 'handshake-initiate'
     case 'accept': return 'handshake-accept'
     case 'refresh': return 'handshake-refresh'
     case 'revoke': return 'handshake-revoke'
+    case 'context_sync': return 'handshake-context-sync'
     default: throw new Error(`Cannot map capsule_type "${type}" to handshake type`)
   }
 }
@@ -209,15 +210,29 @@ export function processHandshakeCapsule(
   //    Context ingestion is a HARD GATE: if ingestion fails (commitment
   //    mismatch, SQLite error, etc.), the entire transaction rolls back
   //    and the handshake does NOT transition to active.
+  const capsuleObj = validated.capsule as Record<string, any>
+  const senderP2PEndpoint: string | null =
+    (typeof capsuleObj?.p2p_endpoint === 'string' && capsuleObj.p2p_endpoint.trim().length > 0)
+      ? capsuleObj.p2p_endpoint.trim()
+      : null
+  const senderP2PAuthToken: string | null =
+    (typeof capsuleObj?.p2p_auth_token === 'string' && capsuleObj.p2p_auth_token.trim().length > 0)
+      ? capsuleObj.p2p_auth_token.trim()
+      : null
+
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
-      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy)
+      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken)
       insertHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-accept') {
-      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy)
+      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken)
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-refresh') {
       record = buildRefreshRecord(handshakeRecord!, input, tierDecision)
+      updateHandshakeRecord(db, record)
+    } else if (input.capsuleType === 'handshake-context-sync') {
+      // context-sync updates seq/hash like refresh; context_blocks ingested below
+      record = buildContextSyncRecord(handshakeRecord!, input)
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-revoke') {
       record = buildRevokeRecord(handshakeRecord!, input)
@@ -231,13 +246,63 @@ export function processHandshakeCapsule(
     // For accept/refresh/initiate: if context_blocks are present, they MUST
     // be ingested successfully. Failure throws, which rolls back the entire
     // transaction (including state transitions).
-    const capsuleObj = validated.capsule as Record<string, any>
     const rawContextBlocks = capsuleObj?.context_blocks
+    const capsuleContextCommitment = capsuleObj?.context_commitment ?? null
+
+    // Edge case: stored commitment exists but capsule has no context_blocks → REJECT
+    if (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-context-sync') {
+      const existing = handshakeRecord!
+      const senderId = input.sender_wrdesk_user_id
+      const isInitiator = senderId === existing.initiator.wrdesk_user_id
+      const storedCommitment = isInitiator ? existing.initiator_context_commitment : existing.acceptor_context_commitment
+      const hasBlocks = Array.isArray(rawContextBlocks) && rawContextBlocks.length > 0
+      if (storedCommitment !== null && !hasBlocks) {
+        console.warn('[HANDSHAKE] CONTEXT_COMMITMENT_MISMATCH', {
+          handshake_id: input.handshake_id,
+          sender_role: isInitiator ? 'initiator' : 'acceptor',
+          failure_type: 'stored_commitment_exists_but_capsule_has_no_blocks',
+        })
+        throw new Error('CONTEXT_COMMITMENT_MISMATCH: stored commitment exists but capsule has no context_blocks')
+      }
+    }
+
     if (Array.isArray(rawContextBlocks) && rawContextBlocks.length > 0) {
+      // DB comparison: verify capsule's context_commitment matches what the sender
+      // originally promised during handshake (initiate/accept). Prevents attacker
+      // from sending different context_blocks with a freshly computed valid
+      // context_commitment — both internally consistent but not what was promised.
+      // Skip for initiate/accept: we are creating the stored value.
+      if (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-context-sync') {
+        const existing = handshakeRecord!
+        const senderId = input.sender_wrdesk_user_id
+        const isInitiator = senderId === existing.initiator.wrdesk_user_id
+        const senderRole = isInitiator ? 'initiator' : 'acceptor'
+        const storedCommitment = isInitiator
+          ? existing.initiator_context_commitment
+          : existing.acceptor_context_commitment
+
+        if (storedCommitment === null) {
+          console.warn('[HANDSHAKE] CONTEXT_COMMITMENT_MISMATCH', {
+            handshake_id: input.handshake_id,
+            sender_role: senderRole,
+            failure_type: 'stored_commitment_null_but_capsule_has_blocks',
+          })
+          throw new Error('CONTEXT_COMMITMENT_MISMATCH: stored commitment is null but capsule carries context_blocks')
+        }
+        if (capsuleContextCommitment !== storedCommitment) {
+          console.warn('[HANDSHAKE] CONTEXT_COMMITMENT_MISMATCH', {
+            handshake_id: input.handshake_id,
+            sender_role: senderRole,
+            failure_type: 'commitment_mismatch',
+          })
+          throw new Error('CONTEXT_COMMITMENT_MISMATCH: capsule context_commitment does not match stored handshake commitment')
+        }
+      }
+
       const ingestionResult = ingestContextBlocks(db, {
         handshake_id: input.handshake_id,
         relationship_id: input.relationship_id,
-        context_commitment: capsuleObj?.context_commitment ?? null,
+        context_commitment: capsuleContextCommitment,
         context_blocks: rawContextBlocks,
         publisher_id: input.sender_wrdesk_user_id,
       })
@@ -260,13 +325,14 @@ export function processHandshakeCapsule(
     const errMsg: string = txErr?.message ?? String(txErr)
     console.error('[HANDSHAKE] atomic_transaction error:', errMsg, txErr)
 
+    const isCommitmentMismatch = errMsg.includes('CONTEXT_COMMITMENT_MISMATCH')
     const isIngestionFailure = errMsg.includes('Context commitment') ||
-      errMsg.includes('context_commitment')
+      errMsg.includes('context_commitment') || isCommitmentMismatch
 
     try {
       insertAuditLogEntry(db, buildDenialAuditEntry(
         input,
-        isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR,
+        isCommitmentMismatch ? ReasonCode.CONTEXT_COMMITMENT_MISMATCH : (isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR),
         isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
         durationMs,
       ))
@@ -274,7 +340,7 @@ export function processHandshakeCapsule(
 
     return {
       success: false,
-      reason: isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR,
+      reason: isCommitmentMismatch ? ReasonCode.CONTEXT_COMMITMENT_MISMATCH : (isIngestionFailure ? ReasonCode.CONTEXT_HASH_MISMATCH : ReasonCode.INTERNAL_ERROR),
       failedStep: isIngestionFailure ? 'context_ingestion' : 'atomic_transaction',
       detail: errMsg,
       pipelineDurationMs: durationMs,
@@ -376,6 +442,8 @@ function buildInitiateRecord(
   _ssoSession: SSOSession,
   tierDecision: TierDecision,
   effectivePolicy: EffectivePolicy,
+  p2pEndpoint: string | null,
+  counterpartyP2PToken: string | null,
 ): HandshakeRecord {
   return {
     handshake_id: input.handshake_id,
@@ -410,6 +478,8 @@ function buildInitiateRecord(
     acceptor_wrdesk_policy_version: null,
     initiator_context_commitment: input.context_commitment ?? null,
     acceptor_context_commitment: null,
+    p2p_endpoint: p2pEndpoint,
+    counterparty_p2p_token: counterpartyP2PToken,
   }
 }
 
@@ -419,6 +489,8 @@ function buildAcceptRecord(
   _ssoSession: SSOSession,
   _tierDecision: TierDecision,
   effectivePolicy: EffectivePolicy,
+  p2pEndpoint: string | null,
+  counterpartyP2PToken: string | null,
 ): HandshakeRecord {
   return {
     ...existing,
@@ -441,6 +513,8 @@ function buildAcceptRecord(
     acceptor_wrdesk_policy_hash: input.wrdesk_policy_hash,
     acceptor_wrdesk_policy_version: input.wrdesk_policy_version,
     acceptor_context_commitment: input.context_commitment ?? null,
+    p2p_endpoint: existing.p2p_endpoint ?? p2pEndpoint,
+    counterparty_p2p_token: counterpartyP2PToken ?? existing.counterparty_p2p_token,
   }
 }
 
@@ -452,6 +526,18 @@ function buildRefreshRecord(
   return {
     ...existing,
     current_tier_signals: input.tierSignals,
+    last_seq_received: input.seq,
+    last_capsule_hash_received: input.capsule_hash,
+  }
+}
+
+/** context-sync: updates seq/hash like refresh; context_blocks ingested in transaction. */
+function buildContextSyncRecord(
+  existing: HandshakeRecord,
+  input: VerifiedCapsuleInput,
+): HandshakeRecord {
+  return {
+    ...existing,
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
   }
