@@ -64,6 +64,9 @@ function copyPdfWorkerPlugin() {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Required for Electron loadFile() with file:// protocol — relative paths must resolve
+  // from the index.html location; default '/' breaks in packaged app.
+  base: './',
   resolve: {
     alias: [
       // Shim the extension's handshakeRpc (matched by both alias and absolute path for relative imports)

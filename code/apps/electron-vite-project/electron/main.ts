@@ -242,7 +242,8 @@ async function openDashboardWindow(): Promise<void> {
       win.focus()
       // Open DevTools AFTER showing — never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
-      if (VITE_DEV_SERVER_URL) {
+      // Use --enable-devtools when running packaged app to debug blank page.
+      if (VITE_DEV_SERVER_URL || enableDevTools) {
         win.webContents.openDevTools({ mode: 'detach' })
       }
     }
@@ -686,6 +687,7 @@ Menu.setApplicationMenu(null)
 
 // Check if app was started with --hidden flag (auto-start on login)
 const startHidden = process.argv.includes('--hidden')
+const enableDevTools = process.argv.includes('--enable-devtools')
 console.log('[MAIN] Startup args:', process.argv.join(' '))
 console.log('[MAIN] Start hidden mode:', startHidden)
 
@@ -748,15 +750,22 @@ async function createWindow() {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
+  // Log load failures (blank page in packaged app often caused by failed script/CSS load)
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+    console.error('[MAIN] Renderer did-fail-load:', { errorCode, errorDescription, validatedURL })
+  })
+
   if (VITE_DEV_SERVER_URL) {
     console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    const indexPath = path.join(RENDERER_DIST, 'index.html')
+    // When packaged (AppImage, etc.), __dirname inside app.asar can resolve incorrectly.
+    // Use app.getAppPath() for reliable path resolution.
+    const indexPath = app.isPackaged
+      ? path.join(app.getAppPath(), 'dist', 'index.html')
+      : path.join(RENDERER_DIST, 'index.html')
     console.log('[MAIN] Loading production file:', indexPath)
-    console.log('[MAIN] RENDERER_DIST:', RENDERER_DIST)
-    console.log('[MAIN] __dirname:', __dirname)
-    console.log('[MAIN] APP_ROOT:', process.env.APP_ROOT)
+    console.log('[MAIN] isPackaged:', app.isPackaged, 'RENDERER_DIST:', RENDERER_DIST)
     win.loadFile(indexPath)
   }
 
@@ -1484,8 +1493,9 @@ function createTray() {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'))
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
-    tray.on('click', async () => {
-      console.log('[TRAY] Tray icon clicked')
+
+    const handleTrayActivate = async () => {
+      console.log('[TRAY] Tray icon activated')
       if (hasValidSession) {
         console.log('[TRAY] Session valid - opening dashboard')
         await openDashboardWindow()
@@ -1497,7 +1507,15 @@ function createTray() {
         }
         // requestLogin() already opens dashboard on success
       }
-    })
+    }
+
+    // On Linux, tray 'click' is unreliable — popup the context menu instead.
+    // On Windows/macOS, left-click opens the dashboard directly.
+    if (process.platform === 'linux') {
+      tray.on('click', () => tray?.popUpContextMenu())
+    } else {
+      tray.on('click', handleTrayActivate)
+    }
     // Startup toast
     try {
       new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
@@ -1751,6 +1769,107 @@ app.on('window-all-closed', () => {
 })
 
 console.log('[MAIN] About to call app.whenReady()')
+
+// ============================================================================
+// Cross-platform DBeaver helpers
+// ============================================================================
+
+/**
+ * Returns the platform-appropriate DBeaver data directory.
+ * - Windows: %APPDATA%\DBeaverData  (e.g. C:\Users\<user>\AppData\Roaming\DBeaverData)
+ * - macOS:   ~/Library/DBeaverData
+ * - Linux:   ~/.local/share/DBeaverData
+ */
+function getDbeaverDataPath(os: any, pathMod: any): string {
+  if (process.platform === 'win32') {
+    return process.env.APPDATA || pathMod.join(os.homedir(), 'AppData', 'Roaming')
+  }
+  if (process.platform === 'darwin') {
+    return pathMod.join(os.homedir(), 'Library', 'DBeaverData')
+  }
+  // Linux / XDG
+  return pathMod.join(process.env.XDG_DATA_HOME || pathMod.join(os.homedir(), '.local', 'share'), 'DBeaverData')
+}
+
+/**
+ * Launches DBeaver in a cross-platform way.
+ * - Windows: checks common .exe install paths, falls back to `start dbeaver`
+ * - macOS:   `open -a DBeaver`
+ * - Linux:   tries `dbeaver` in PATH
+ * Returns { ok, message, path? }
+ */
+async function launchDBeaver(
+  spawn: any,
+  exec: any,
+  pathMod: any,
+  fs: any
+): Promise<{ ok: boolean; message: string; path?: string }> {
+  if (process.platform === 'win32') {
+    const candidates = [
+      pathMod.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'),
+      'C:\\Program Files\\DBeaver\\dbeaver.exe',
+      'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
+      pathMod.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
+      pathMod.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe'),
+    ]
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          spawn(p, [], { detached: true, stdio: 'ignore' })
+          console.log('[MAIN] Launched DBeaver:', p)
+          return { ok: true, message: 'DBeaver launched', path: p }
+        }
+      } catch {}
+    }
+    // Fallback: Windows Start menu shortcut
+    return new Promise(resolve => {
+      exec('start "" dbeaver', { shell: true }, (err: any) => {
+        if (err) {
+          resolve({ ok: false, message: 'DBeaver not found. Please install it from https://dbeaver.io' })
+        } else {
+          resolve({ ok: true, message: 'DBeaver launched via Start menu' })
+        }
+      })
+    })
+  }
+
+  if (process.platform === 'darwin') {
+    return new Promise(resolve => {
+      exec('open -a DBeaver', (err: any) => {
+        if (err) {
+          resolve({ ok: false, message: 'DBeaver not found. Install it from https://dbeaver.io' })
+        } else {
+          resolve({ ok: true, message: 'DBeaver launched' })
+        }
+      })
+    })
+  }
+
+  // Linux
+  return new Promise(resolve => {
+    exec('which dbeaver', (err: any, stdout: string) => {
+      const dbeaverBin = stdout?.trim()
+      if (!err && dbeaverBin) {
+        spawn(dbeaverBin, [], { detached: true, stdio: 'ignore' })
+        resolve({ ok: true, message: 'DBeaver launched', path: dbeaverBin })
+      } else {
+        // Try common Linux install paths
+        const linuxPaths = [
+          '/usr/share/dbeaver-ce/dbeaver',
+          '/opt/dbeaver/dbeaver',
+          '/usr/local/bin/dbeaver',
+        ]
+        const found = linuxPaths.find(p => { try { return require('fs').existsSync(p) } catch { return false } })
+        if (found) {
+          spawn(found, [], { detached: true, stdio: 'ignore' })
+          resolve({ ok: true, message: 'DBeaver launched', path: found })
+        } else {
+          resolve({ ok: false, message: 'DBeaver not found. Install it from https://dbeaver.io' })
+        }
+      }
+    })
+  })
+}
 
 app.whenReady().then(async () => {
   console.log('[MAIN] ===== APP READY =====')
@@ -2279,9 +2398,9 @@ app.whenReady().then(async () => {
         }
         if (msg.includes('certificate') || msg.includes('SSL') || msg.includes('TLS') || msg.includes('UNABLE_TO_VERIFY')) {
           try {
-            const { https } = await import('https')
+            const https = await import('https')
             const fingerprint = await new Promise<string | null>((resolve) => {
-              const req = https.get(healthUrl, { rejectUnauthorized: false }, (res) => {
+              const req = https.default.get(healthUrl, { rejectUnauthorized: false }, (res: any) => {
                 const cert = (res.socket as any).getPeerCertificate?.()
                 res.destroy()
                 if (cert && cert.fingerprint256) {
@@ -2338,8 +2457,9 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: auth:status')
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
-    // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
-    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
+    // Auto-start on login. Pass --hidden so it starts in background.
+    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron.
+    // Linux: app.setLoginItemSettings() is unreliable; skip silently.
     const isProduction = !process.env.VITE_DEV_SERVER_URL
     try {
       if (process.platform === 'win32') {
@@ -2362,10 +2482,7 @@ app.whenReady().then(async () => {
           console.log('[MAIN] Production build - autostart registered for the first time')
 
           // Windows-only: also register a Task Scheduler task as a belt-and-
-          // suspenders fallback.  Electron's registry entry lives under
-          // HKCU\…\Run but on some Windows 11 builds that key is silently
-          // suppressed by startup folder policies.  A Scheduled Task is far
-          // more reliable and survives those policies.
+          // suspenders fallback.
           if (process.platform === 'win32') {
             registerWindowsTaskScheduler().catch(err =>
               console.warn('[MAIN] Task Scheduler registration failed (non-fatal):', err)
@@ -2377,6 +2494,10 @@ app.whenReady().then(async () => {
           // their preference across app restarts.
           console.log('[MAIN] Production build - autostart already registered, respecting existing setting')
         }
+      } else if (isProduction && process.platform === 'linux') {
+        // Linux autostart via ~/.config/autostart .desktop file is the standard approach.
+        // app.setLoginItemSettings() is not supported on Linux.
+        console.log('[MAIN] Linux production build - autostart skipped (manage via ~/.config/autostart)')
       } else if (!isProduction) {
         console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
@@ -2460,9 +2581,13 @@ app.whenReady().then(async () => {
   //   1) User actively logs in (SSO via extension)
   //   2) User clicks tray icon (while session is valid)
   //   3) Deep link / explicit API call
-  // It does NOT auto-show on startup even if a valid session exists.
+  // Exception: on Linux, there is no Chrome extension to trigger the dashboard,
+  // so we open it automatically when a valid session exists.
   if (!sessionValid) {
     console.log('[AUTH] No valid session - running in tray only, waiting for login via extension')
+  } else if (process.platform === 'linux') {
+    console.log('[AUTH] Linux + valid session - opening dashboard automatically')
+    openDashboardWindow().catch(err => console.error('[AUTH] Auto-open failed:', err))
   } else {
     console.log('[AUTH] Valid session found - running in tray only (headless service mode)')
     // Session is valid but we don't create or show the window.
@@ -3425,51 +3550,12 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'LAUNCH_DBEAVER') {
               try {
-                const { spawn } = await import('child_process');
-                const path = await import('path');
+                const { spawn, exec } = await import('child_process');
+                const pathMod = await import('path');
                 const fs = await import('fs');
-                
-                // Common DBeaver installation paths
-                const dbeaverPaths = [
-                  path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
-                  'C:\\Program Files\\DBeaver\\dbeaver.exe',
-                  'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
-                  path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
-                  path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
-                ];
-                
-                let launched = false;
-                for (const dbeaverPath of dbeaverPaths) {
-                  try {
-                    if (fs.existsSync(dbeaverPath)) {
-                      console.log('[MAIN] Launching DBeaver from:', dbeaverPath);
-                      spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
-                      launched = true;
-                      try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch {}
-                      break;
-                    }
-                  } catch (err) {
-                    console.error('[MAIN] Error checking/launching DBeaver path:', dbeaverPath, err);
-                  }
-                }
-                
-                if (!launched) {
-                  // Try using Windows start command as fallback
-                  try {
-                    const { exec } = await import('child_process');
-                    exec('start dbeaver', (error) => {
-                      if (error) {
-                        console.error('[MAIN] Failed to launch DBeaver:', error);
-                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: 'DBeaver not found. Please install it or open manually from Start Menu.' })) } catch {}
-                      } else {
-                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch {}
-                      }
-                    });
-                  } catch (err) {
-                    console.error('[MAIN] Failed to launch DBeaver:', err);
-                    try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err) })) } catch {}
-                  }
-                }
+
+                const { ok, message } = await launchDBeaver(spawn, exec, pathMod, fs);
+                try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok, message })) } catch {}
               } catch (err: any) {
                 console.error('[MAIN] Error handling LAUNCH_DBEAVER:', err);
                 try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err?.message || err) })) } catch {}
@@ -4257,77 +4343,29 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP] POST /api/db/launch-dbeaver')
         const postgresConfig = req.body.postgresConfig || req.body.config;
-        const { spawn, execSync } = await import('child_process');
-        const path = await import('path');
+        const { spawn, exec, execSync } = await import('child_process');
+        const pathMod = await import('path');
         const fs = await import('fs');
-        
-        // First, close any running DBeaver instances to ensure clean configuration
-        if (postgresConfig) {
+
+        // Close any running DBeaver instances before reconfiguring (Windows only)
+        if (postgresConfig && process.platform === 'win32') {
           try {
             execSync('taskkill /F /IM dbeaver.exe /T 2>nul', { stdio: 'ignore' });
             console.log('[HTTP] Closed existing DBeaver instances');
-            // Wait a bit for the process to fully close
             await new Promise(resolve => setTimeout(resolve, 1500));
           } catch (e) {
-            // Process might not be running, that's fine
             console.log('[HTTP] No DBeaver process to close or already closed');
           }
         }
-        
-        // Common DBeaver installation paths
-        const dbeaverPaths = [
-          path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
-          'C:\\Program Files\\DBeaver\\dbeaver.exe',
-          'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
-          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
-          path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
-        ];
-        
-        let launched = false;
-        let launchPath = '';
-        
-        for (const dbeaverPath of dbeaverPaths) {
-          try {
-            if (fs.existsSync(dbeaverPath)) {
-              console.log('[HTTP] Launching DBeaver from:', dbeaverPath);
-              spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
-              launched = true;
-              launchPath = dbeaverPath;
-              break;
-            }
-          } catch (err) {
-            console.error('[HTTP] Error checking/launching DBeaver path:', dbeaverPath, err);
-          }
-        }
-        
+
+        const { ok: launched, message: launchMessage, path: launchPath } = await launchDBeaver(spawn, exec, pathMod, fs);
+
         if (!launched) {
-          // Try using Windows start command as fallback
-          try {
-            const { exec } = await import('child_process');
-            exec('start dbeaver', (error) => {
-              if (error) {
-                console.error('[HTTP] Failed to launch DBeaver:', error);
-              } else {
-                console.log('[HTTP] DBeaver launched via start command');
-              }
-            });
-            // Assume success for start command (it's async)
-            res.json({
-              ok: true,
-              message: 'DBeaver launch attempted via start command',
-              method: 'start_command'
-            });
-            return;
-          } catch (err) {
-            console.error('[HTTP] Failed to launch DBeaver:', err);
-            res.status(500).json({
-              ok: false,
-              message: 'DBeaver not found. Please install it or open manually from Start Menu.',
-              details: { error: String(err) }
-            });
-            return;
-          }
+          res.status(500).json({ ok: false, message: launchMessage });
+          return;
         }
+
+        const launchPathStr = launchPath || '';
         
         // If PostgreSQL config is provided, also configure the connection and download drivers
         if (postgresConfig) {
@@ -4337,19 +4375,19 @@ app.whenReady().then(async () => {
             const os = await import('os');
             const https = await import('https');
             
-            const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-            const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
-            
+            const appDataPath = getDbeaverDataPath(os, pathMod);
+            const dbeaverDataPath = pathMod.join(appDataPath, 'DBeaverData');
+
             // Download PostgreSQL JDBC driver if not already present
-            const driversDir = path.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
-            const postgresDriverDir = path.join(driversDir, 'org.postgresql', 'postgresql');
+            const driversDir = pathMod.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
+            const postgresDriverDir = pathMod.join(driversDir, 'org.postgresql', 'postgresql');
             const driverVersion = '42.7.3';
             const driverJarName = `postgresql-${driverVersion}.jar`;
-            const driverJarPath = path.join(postgresDriverDir, driverVersion, driverJarName);
-            
+            const driverJarPath = pathMod.join(postgresDriverDir, driverVersion, driverJarName);
+
             // Ensure driver directory exists
-            if (!fs.existsSync(path.dirname(driverJarPath))) {
-              fs.mkdirSync(path.dirname(driverJarPath), { recursive: true });
+            if (!fs.existsSync(pathMod.dirname(driverJarPath))) {
+              fs.mkdirSync(pathMod.dirname(driverJarPath), { recursive: true });
             }
             
             // Download driver if it doesn't exist
@@ -4404,7 +4442,7 @@ app.whenReady().then(async () => {
             }
             
             // Configure driver in DBeaver's drivers.xml - this ensures the driver is available
-            const driversConfigPath = path.join(dbeaverDataPath, 'drivers.xml');
+            const driversConfigPath = pathMod.join(dbeaverDataPath, 'drivers.xml');
             try {
               // DBeaver will auto-download the driver if we just reference it correctly
               // We create a minimal drivers.xml that references the standard PostgreSQL driver
@@ -4426,7 +4464,7 @@ app.whenReady().then(async () => {
             try {
               const workspaceDirs = fs.readdirSync(dbeaverDataPath, { withFileTypes: true })
                 .filter(dirent => dirent.isDirectory() && dirent.name.startsWith('workspace'))
-                .map(dirent => path.join(dbeaverDataPath, dirent.name));
+                .map(dirent => pathMod.join(dbeaverDataPath, dirent.name));
               
               if (workspaceDirs.length > 0) {
                 workspacePath = workspaceDirs.sort().reverse()[0];
@@ -4436,8 +4474,8 @@ app.whenReady().then(async () => {
             }
             
             if (workspacePath) {
-              const dataSourcesPath = path.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
-              const dataSourcesDir = path.dirname(dataSourcesPath);
+              const dataSourcesPath = pathMod.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
+              const dataSourcesDir = pathMod.dirname(dataSourcesPath);
               
               if (!fs.existsSync(dataSourcesDir)) {
                 fs.mkdirSync(dataSourcesDir, { recursive: true });
@@ -4512,8 +4550,8 @@ app.whenReady().then(async () => {
               
               // Also create credentials file for automatic authentication
               try {
-                const credentialsPath = path.join(workspacePath, 'General', '.dbeaver', 'credentials-config.json');
-                const credentialsDir = path.dirname(credentialsPath);
+                const credentialsPath = pathMod.join(workspacePath, 'General', '.dbeaver', 'credentials-config.json');
+                const credentialsDir = pathMod.dirname(credentialsPath);
                 
                 if (!fs.existsSync(credentialsDir)) {
                   fs.mkdirSync(credentialsDir, { recursive: true });
@@ -4581,7 +4619,7 @@ app.whenReady().then(async () => {
         const https = await import('https');
         
         // Find DBeaver workspace directory
-        const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+        const appDataPath = getDbeaverDataPath(os, path);
         const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
         
         // Download PostgreSQL JDBC driver if not already present

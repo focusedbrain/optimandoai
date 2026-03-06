@@ -294,7 +294,7 @@ export function createCoordinationWsClient(
     }, delay)
   }
 
-  const disconnect = (): void {
+  const disconnect = (): void => {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null

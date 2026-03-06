@@ -36,7 +36,7 @@ function normalizeTheme(theme: string): ExtensionTheme {
 }
 
 function App() {
-  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
+  const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('dark')
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
   const [activeView, setActiveView] = useState<DashboardView>('analysis')
   const [showInitiateModal, setShowInitiateModal] = useState(false)
