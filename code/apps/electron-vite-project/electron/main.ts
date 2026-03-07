@@ -233,17 +233,48 @@ async function openDashboardWindow(): Promise<void> {
     }
     win.show()
     win.focus()
+    // On Linux, send OPEN_ANALYSIS_DASHBOARD to ensure renderer shows content
+    // (it may have been hidden/blank if the window was shown before renderer finished)
+    if (process.platform === 'linux') {
+      if (win.webContents.isLoading()) {
+        win.webContents.once('did-finish-load', () => {
+          win?.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
+        })
+      } else {
+        win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
+      }
+    }
   } else {
     // Create new window
     console.log('[AUTH] Creating new dashboard window')
     await createWindow()
     if (win) {
-      win.show()
-      win.focus()
+      // Wait for renderer to finish loading before showing — prevents blank white flash
+      // on all platforms, but especially important on Linux/Wayland.
+      await new Promise<void>((resolve) => {
+        if (!win || win.isDestroyed()) { resolve(); return }
+        if (!win.webContents.isLoading()) {
+          resolve()
+        } else {
+          win.webContents.once('did-finish-load', () => resolve())
+          // Safety timeout — show after 10s even if load event never fires
+          setTimeout(resolve, 10_000)
+        }
+      })
+      if (win && !win.isDestroyed()) {
+        win.show()
+        win.focus()
+        // On Linux startup auto-open: send IPC so renderer initialises correctly.
+        // On Windows/macOS the extension sends OPEN_ANALYSIS_DASHBOARD via WebSocket.
+        if (process.platform === 'linux') {
+          win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
+          console.log('[AUTH] Linux startup: sent OPEN_ANALYSIS_DASHBOARD to renderer')
+        }
+      }
       // Open DevTools AFTER showing — never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
       // Use --enable-devtools when running packaged app to debug blank page.
-      if (VITE_DEV_SERVER_URL || enableDevTools) {
+      if (win && !win.isDestroyed() && (VITE_DEV_SERVER_URL || enableDevTools)) {
         win.webContents.openDevTools({ mode: 'detach' })
       }
     }
@@ -759,17 +790,10 @@ async function createWindow() {
     console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // When packaged, path resolution differs by platform.
-    // Windows: app.getAppPath() works correctly.
-    // Linux (AppImage): process.resourcesPath + app.asar is more reliable — getAppPath()
-    // can resolve incorrectly when running from mounted AppImage. Do NOT change Windows.
-    const indexPath = app.isPackaged
-      ? (process.platform === 'linux'
-          ? path.join(process.resourcesPath, 'app.asar', 'dist', 'index.html')
-          : path.join(app.getAppPath(), 'dist', 'index.html'))
-      : path.join(RENDERER_DIST, 'index.html')
+    const { getRendererIndexPath } = await import('./main/platform')
+    const indexPath = getRendererIndexPath(__dirname, RENDERER_DIST, app.isPackaged)
     console.log('[MAIN] Loading production file:', indexPath)
-    console.log('[MAIN] isPackaged:', app.isPackaged, 'platform:', process.platform, 'RENDERER_DIST:', RENDERER_DIST)
+    console.log('[MAIN] isPackaged:', app.isPackaged, 'platform:', process.platform)
     win.loadFile(indexPath)
   }
 
