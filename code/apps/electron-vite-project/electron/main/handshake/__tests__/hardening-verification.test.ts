@@ -22,6 +22,7 @@ import {
 import { setEmailSendFn, _resetEmailSendFn } from '../emailTransport'
 import {
   buildInitiateCapsule,
+  buildInitiateCapsuleWithKeypair,
   buildAcceptCapsule,
   buildRefreshCapsule,
   buildContextSyncCapsule,
@@ -32,6 +33,7 @@ import { computeContextHash } from '../contextHash'
 import { computeBlockHash, computeContextCommitment } from '../contextCommitment'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
+import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -47,6 +49,38 @@ function bobSession(): SSOSession {
     email: 'bob@partner.com',
     sub: 'bob-001',
   })
+}
+
+/** Setup initiate+accept and return capsules + keypairs for context_sync/refresh. */
+async function setupHandshakeWithKeypairs(
+  alice: SSOSession,
+  bob: SSOSession,
+  aliceDb: any,
+  bobDb: any,
+  initOpts?: { context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string }> },
+) {
+  const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
+    receiverUserId: 'bob-001',
+    receiverEmail: 'bob@partner.com',
+    ...initOpts,
+  })
+  await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
+  const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
+    handshake_id: initCapsule.handshake_id,
+    initiatorUserId: 'alice-001',
+    initiatorEmail: 'alice@company.com',
+    sharing_mode: 'reciprocal',
+    initiator_capsule_hash: initCapsule.capsule_hash,
+  })
+  await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
+  await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
+  await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+  const handshakeId = initCapsule.handshake_id
+  updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+  updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+  // Bob's record gets counterparty_public_key overwritten when accept is processed (sender=bob); restore alice's key
+  updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
+  return { initCapsule, acceptCapsule, aliceKeypair, bobKeypair }
 }
 
 async function submitCapsule(capsuleJson: string, db: any, session: SSOSession) {
@@ -99,11 +133,12 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
     }, bobDb)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     const result = await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -191,17 +226,22 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
   test('A3_valid_hash_context_sync: Valid context-sync capsule with correct hash → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -209,6 +249,8 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)
@@ -217,17 +259,22 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
   test('A4_valid_hash_refresh: Valid refresh capsule with correct hash → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const aliceContextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -235,6 +282,8 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
     const bobContextSync = buildContextSyncCapsule(bob, {
@@ -244,6 +293,8 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
     const aliceRecord = aliceDb.getHandshake(initCapsule.handshake_id)
@@ -253,6 +304,8 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       counterpartyEmail: 'bob@partner.com',
       last_seq_received: aliceRecord!.last_seq_received,
       last_capsule_hash_received: aliceContextSync.capsule_hash,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(refresh), bobDb, bob)
     expect(result.success).toBe(true)
@@ -432,11 +485,12 @@ describe('Hardening Verification — Fix 2: context_hash and context_commitment'
     const content = JSON.stringify({ acceptor: 'data' })
     const blockHash = computeBlockHash(content)
     const blocks = [{ block_id: 'ctx-acceptor-001', block_hash: blockHash, type: 'test', content }]
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
       context_blocks: blocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
@@ -594,17 +648,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C1_context_sync_at_seq1: After activation, context-sync capsule at seq 1 → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
-    await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
-      handshake_id: initCapsule.handshake_id,
-      initiatorUserId: 'alice-001',
-      initiatorEmail: 'alice@company.com',
-      sharing_mode: 'reciprocal',
-    })
-    await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
-    await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
-    await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const { initCapsule, acceptCapsule, aliceKeypair } = await setupHandshakeWithKeypairs(alice, bob, aliceDb, bobDb)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -612,6 +656,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)
@@ -620,7 +666,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C5_content_at_seq1: After activation, refresh at seq 1 (not context-sync) → CONTEXT_SYNC_REQUIRED', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
     setSSOSessionProvider(() => bob)
     await handleHandshakeRPC('handshake.accept', {
@@ -628,11 +674,12 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
     }, bobDb)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -643,6 +690,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       counterpartyEmail: 'bob@partner.com',
       last_seq_received: aliceRecord?.last_seq_received ?? 0,
       last_capsule_hash_received: aliceRecord?.last_capsule_hash_received ?? '',
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(refresh), bobDb, bob)
     expect(result.success).toBe(false)
@@ -652,7 +701,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C6_skip_to_seq2: Send seq 2 without seq 1 context-sync → rejected', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
     setSSOSessionProvider(() => bob)
     await handleHandshakeRPC('handshake.accept', {
@@ -660,21 +709,23 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
     }, bobDb)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
-    const aliceRecord = aliceDb.getHandshake(initCapsule.handshake_id)
     const refresh = buildRefreshCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
       counterpartyEmail: 'bob@partner.com',
       last_seq_received: 1,
       last_capsule_hash_received: 'fake-hash-for-seq2',
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const raw = JSON.parse(JSON.stringify(refresh))
     raw.seq = 2
@@ -686,7 +737,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C8_context_sync_before_activation: Context-sync while handshake not yet active → rejected', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
@@ -695,6 +746,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: initCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -703,17 +756,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C2_normal_message_after_sync: After context-sync at seq 1, send refresh at seq 2 → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
-    await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
-      handshake_id: initCapsule.handshake_id,
-      initiatorUserId: 'alice-001',
-      initiatorEmail: 'alice@company.com',
-      sharing_mode: 'reciprocal',
-    })
-    await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
-    await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
-    await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const { initCapsule, acceptCapsule, aliceKeypair, bobKeypair } = await setupHandshakeWithKeypairs(alice, bob, aliceDb, bobDb)
     const aliceContextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -721,6 +764,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
     const bobContextSync = buildContextSyncCapsule(bob, {
@@ -730,6 +775,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
     const aliceRecord = aliceDb.getHandshake(initCapsule.handshake_id)
@@ -739,6 +786,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       counterpartyEmail: 'bob@partner.com',
       last_seq_received: aliceRecord!.last_seq_received,
       last_capsule_hash_received: aliceContextSync.capsule_hash,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(refresh), bobDb, bob)
     expect(result.success).toBe(true)
@@ -747,17 +796,22 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C3_context_sync_from_initiator: Initiator sends context-sync to acceptor → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -765,6 +819,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)
@@ -773,13 +829,14 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C4_context_sync_from_acceptor: Acceptor sends context-sync to initiator → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -791,6 +848,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), aliceDb, alice)
     expect(result.success).toBe(true)
@@ -799,13 +858,14 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
   test('C7_second_context_sync: Context-sync at seq 2 after successful seq 1 → INVALID_STATE_TRANSITION', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -817,6 +877,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(firstSync), bobDb, bob)
     const bobRecord = bobDb.getHandshake(initCapsule.handshake_id)
@@ -827,6 +889,8 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       last_seq_received: bobRecord!.last_seq_received,
       last_capsule_hash_received: firstSync.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(secondSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -879,17 +943,7 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
   test('D1_full_happy_path: initiate → accept → context-sync (both) → refresh → all pass', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
-    await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
-      handshake_id: initCapsule.handshake_id,
-      initiatorUserId: 'alice-001',
-      initiatorEmail: 'alice@company.com',
-      sharing_mode: 'reciprocal',
-    })
-    await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
-    await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
-    await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const { initCapsule, acceptCapsule, aliceKeypair, bobKeypair } = await setupHandshakeWithKeypairs(alice, bob, aliceDb, bobDb)
     const aliceContextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -897,6 +951,8 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
     const bobContextSync = buildContextSyncCapsule(bob, {
@@ -906,6 +962,8 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
     const aliceRecord = aliceDb.getHandshake(initCapsule.handshake_id)
@@ -918,6 +976,8 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       context_block_proofs: [
         { block_id: 'blk_aabb00112233', block_hash: 'b'.repeat(64) },
       ],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(refresh), bobDb, bob)
     expect(result.success).toBe(true)
@@ -929,17 +989,18 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
     const bob = bobSession()
     const origContent = JSON.stringify({ data: 'original' })
     const origBlocks = [{ block_id: 'ctx-d3-001', block_hash: computeBlockHash(origContent), type: 'test', content: origContent }]
-    const initCapsule = buildInitiateCapsule(alice, {
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: 'bob-001',
       receiverEmail: 'bob@partner.com',
       context_blocks: origBlocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -953,6 +1014,8 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: tamperedBlocks,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -961,13 +1024,14 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
   test('D2_tampered_hash_in_context_sync: Context-sync with wrong capsule_hash → rejected', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -979,6 +1043,8 @@ describe('Hardening Verification — Integration: Cross-cutting', () => {
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const raw = JSON.parse(JSON.stringify(contextSync))
     raw.capsule_hash = 'a'.repeat(64)
@@ -1024,21 +1090,26 @@ describe('Hardening Verification — Group E: context_commitment DB verification
     const content = JSON.stringify({ data: 'initiator' })
     const blockHash = computeBlockHash(content)
     const blocks = [{ block_id: 'ctx-e1-001', block_hash: blockHash, type: 'test', content }]
-    const initCapsule = buildInitiateCapsule(alice, {
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: 'bob-001',
       receiverEmail: 'bob@partner.com',
       context_blocks: blocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -1046,6 +1117,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: blocks,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)
@@ -1054,15 +1127,16 @@ describe('Hardening Verification — Group E: context_commitment DB verification
   test('E3_commitment_mismatch_acceptor: Acceptor sends context_blocks different from stored → CONTEXT_COMMITMENT_MISMATCH', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
     const origContent = JSON.stringify({ data: 'acceptor-original' })
     const origBlocks = [{ block_id: 'ctx-e3-001', block_hash: computeBlockHash(origContent), type: 'test', content: origContent }]
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
       context_blocks: origBlocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
@@ -1077,6 +1151,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: tamperedBlocks,
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), aliceDb, alice)
     expect(result.success).toBe(false)
@@ -1087,17 +1163,18 @@ describe('Hardening Verification — Group E: context_commitment DB verification
     const bob = bobSession()
     const origContent = JSON.stringify({ data: 'original' })
     const origBlocks = [{ block_id: 'ctx-e2-001', block_hash: computeBlockHash(origContent), type: 'test', content: origContent }]
-    const initCapsule = buildInitiateCapsule(alice, {
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: 'bob-001',
       receiverEmail: 'bob@partner.com',
       context_blocks: origBlocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -1111,6 +1188,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: tamperedBlocks,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -1119,13 +1198,14 @@ describe('Hardening Verification — Group E: context_commitment DB verification
   test('E4_db_null_capsule_has_blocks: Stored commitment is null, capsule carries context_blocks → rejected', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -1139,6 +1219,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: blocks,
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -1149,17 +1231,18 @@ describe('Hardening Verification — Group E: context_commitment DB verification
     const bob = bobSession()
     const content = JSON.stringify({ data: 'initiator' })
     const blocks = [{ block_id: 'ctx-e5-001', block_hash: computeBlockHash(content), type: 'test', content }]
-    const initCapsule = buildInitiateCapsule(alice, {
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: 'bob-001',
       receiverEmail: 'bob@partner.com',
       context_blocks: blocks,
     })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
@@ -1171,6 +1254,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(false)
@@ -1179,17 +1264,22 @@ describe('Hardening Verification — Group E: context_commitment DB verification
   test('E6_both_null: No stored commitment, no blocks in capsule → accepted', async () => {
     const alice = aliceSession()
     const bob = bobSession()
-    const initCapsule = buildInitiateCapsule(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, { receiverUserId: 'bob-001', receiverEmail: 'bob@partner.com' })
     await submitCapsule(JSON.stringify(initCapsule), bobDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
     await submitCapsule(JSON.stringify(acceptCapsule), bobDb, alice)
+    const handshakeId = initCapsule.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
     const contextSync = buildContextSyncCapsule(alice, {
       handshake_id: initCapsule.handshake_id,
       counterpartyUserId: 'bob-001',
@@ -1197,6 +1287,8 @@ describe('Hardening Verification — Group E: context_commitment DB verification
       last_seq_received: 0,
       last_capsule_hash_received: acceptCapsule.capsule_hash,
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const result = await submitCapsule(JSON.stringify(contextSync), bobDb, bob)
     expect(result.success).toBe(true)

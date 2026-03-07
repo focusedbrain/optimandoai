@@ -31,6 +31,7 @@ import {
   buildRefreshCapsule,
   buildRevokeCapsule,
 } from '../capsuleBuilder'
+import { generateSigningKeypair } from '../signatureKeys'
 import { computeCapsuleHash } from '../capsuleHash'
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, DEFAULT_POLICY_HASH } from '../policyHash'
 import { deriveRelationshipId } from '../relationshipId'
@@ -193,11 +194,12 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     expect(initResult.success).toBe(true)
     expect(initResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
 
-    const accept = buildAcceptCapsule(receiver, {
+    const { capsule: accept } = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
       initiatorEmail: sender.email,
       sharing_mode: 'receive-only',
+      initiator_capsule_hash: initiate.capsule_hash,
     })
 
     expect(accept.schema_version).toBe(2)
@@ -226,11 +228,12 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     })
     await submitCapsule(initiate, db, receiver)
 
-    const accept = buildAcceptCapsule(receiver, {
+    const { capsule: accept } = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
       initiatorEmail: sender.email,
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initiate.capsule_hash,
     })
     const result = await submitCapsule(accept, db, sender)
 
@@ -303,12 +306,15 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
   // ── P12: buildRefreshCapsule structure ──
   test('P12: buildRefreshCapsule has seq > 0 and prev_hash set', () => {
     const session = buildTestSession({ wrdesk_user_id: 'u-a' })
+    const keypair = generateSigningKeypair()
     const refresh = buildRefreshCapsule(session, {
       handshake_id: 'hs-r-001',
       counterpartyUserId: 'u-b',
       counterpartyEmail: 'b@example.com',
       last_seq_received: 2,
       last_capsule_hash_received: 'c'.repeat(64),
+      local_public_key: keypair.publicKey,
+      local_private_key: keypair.privateKey,
     })
     expect(refresh.capsule_type).toBe('refresh')
     expect(refresh.seq).toBe(3) // last_seq_received + 1
@@ -320,12 +326,15 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
   // ── P13: buildRevokeCapsule structure ──
   test('P13: buildRevokeCapsule has correct capsule_type and seq', () => {
     const session = buildTestSession({ wrdesk_user_id: 'u-a' })
+    const keypair = generateSigningKeypair()
     const revoke = buildRevokeCapsule(session, {
       handshake_id: 'hs-rv-001',
       counterpartyUserId: 'u-b',
       counterpartyEmail: 'b@example.com',
       last_seq_received: 1,
       last_capsule_hash_received: 'd'.repeat(64),
+      local_public_key: keypair.publicKey,
+      local_private_key: keypair.privateKey,
     })
     expect(revoke.capsule_type).toBe('revoke')
     expect(revoke.seq).toBe(2) // last_seq_received + 1
@@ -382,11 +391,12 @@ describe('BEAP Pipeline — buildInitiateCapsule correctness', () => {
 
   test('buildAcceptCapsule has seq: 0 and sharing_mode set', () => {
     const session = buildTestSession({ wrdesk_user_id: 'u-b' })
-    const accept = buildAcceptCapsule(session, {
+    const { capsule: accept } = buildAcceptCapsule(session, {
       handshake_id: 'hs-x-001',
       initiatorUserId: 'u-a',
       initiatorEmail: 'a@example.com',
       sharing_mode: 'receive-only',
+      initiator_capsule_hash: 'a'.repeat(64),
     })
     expect(accept.seq).toBe(0)
     expect(accept.sharing_mode).toBe('receive-only')

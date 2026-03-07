@@ -79,6 +79,9 @@ export interface ValidatedCapsulePayload {
   readonly capsule_type: CapsuleType;
   readonly handshake_id?: string;
   readonly schema_version: number;
+  readonly sender_public_key?: string;
+  readonly sender_signature?: string;
+  readonly countersigned_hash?: string;
   readonly [key: string]: unknown;
 }
 

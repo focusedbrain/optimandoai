@@ -46,6 +46,8 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'timestamp' },
     { field: 'wrdesk_policy_hash' },
     { field: 'seq' },
+    { field: 'sender_public_key' },
+    { field: 'sender_signature' },
   ],
   accept: [
     { field: 'handshake_id' },
@@ -55,6 +57,9 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'sharing_mode' },
     { field: 'wrdesk_policy_hash' },
     { field: 'seq' },
+    { field: 'sender_public_key' },
+    { field: 'sender_signature' },
+    { field: 'countersigned_hash' },
   ],
   refresh: [
     { field: 'handshake_id' },
@@ -64,12 +69,16 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'wrdesk_policy_hash' },
     { field: 'seq' },
     { field: 'prev_hash' },
+    { field: 'sender_public_key' },
+    { field: 'sender_signature' },
   ],
   revoke: [
     { field: 'handshake_id' },
     { field: 'sender_id' },
     { field: 'capsule_hash' },
     { field: 'timestamp' },
+    { field: 'sender_public_key' },
+    { field: 'sender_signature' },
   ],
   context_sync: [
     { field: 'handshake_id' },
@@ -81,6 +90,8 @@ const REQUIRED_FIELDS_BY_TYPE: Record<string, RequiredFieldSpec[]> = {
     { field: 'prev_hash' },
     { field: 'context_hash' },
     { field: 'context_commitment', nullable: true },
+    { field: 'sender_public_key' },
+    { field: 'sender_signature' },
   ],
   internal_draft: [{ field: 'timestamp' }],
 };
@@ -269,6 +280,22 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
     }
     if (obj.prev_hash.length !== 64) {
       return fail('HASH_BINDING_MISMATCH', `prev_hash wrong length: expected 64, got ${(obj.prev_hash as string).length}`);
+    }
+  }
+
+  if ('sender_public_key' in obj && obj.sender_public_key !== undefined) {
+    if (typeof obj.sender_public_key !== 'string' || !HEX_REGEX.test(obj.sender_public_key) || obj.sender_public_key.length !== 64) {
+      return fail('STRUCTURAL_INTEGRITY_FAILURE', 'sender_public_key must be exactly 64-char hex');
+    }
+  }
+  if ('sender_signature' in obj && obj.sender_signature !== undefined) {
+    if (typeof obj.sender_signature !== 'string' || !HEX_REGEX.test(obj.sender_signature) || obj.sender_signature.length !== 128) {
+      return fail('STRUCTURAL_INTEGRITY_FAILURE', 'sender_signature must be exactly 128-char hex');
+    }
+  }
+  if ('countersigned_hash' in obj && obj.countersigned_hash !== undefined) {
+    if (typeof obj.countersigned_hash !== 'string' || !HEX_REGEX.test(obj.countersigned_hash) || obj.countersigned_hash.length !== 128) {
+      return fail('STRUCTURAL_INTEGRITY_FAILURE', 'countersigned_hash must be exactly 128-char hex');
     }
   }
 

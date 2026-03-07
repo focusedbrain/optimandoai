@@ -39,6 +39,8 @@ import {
 } from './db'
 import { ingestContextBlocks } from './contextIngestion'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
+import { verifyCapsuleSignature } from './signatureKeys'
+import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
 
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
@@ -140,9 +142,72 @@ export function processHandshakeCapsule(
 
   const input = extractVerifiedInput(validated)
   const startTime = performance.now()
+  const capsuleObj = validated.capsule as Record<string, any>
+  const senderPublicKey = typeof capsuleObj?.sender_public_key === 'string' ? capsuleObj.sender_public_key : ''
+  const senderSignature = typeof capsuleObj?.sender_signature === 'string' ? capsuleObj.sender_signature : ''
+  const countersignedHash = typeof capsuleObj?.countersigned_hash === 'string' ? capsuleObj.countersigned_hash : ''
+
+  // 0a. capsule_hash verification (BEFORE signature — signature is over the hash)
+  const hashFailure = verifyCapsuleHashIntegrity(input)
+  if (hashFailure) {
+    try {
+      insertAuditLogEntry(db, buildDenialAuditEntry(input, hashFailure, 'verify_capsule_hash', 0))
+    } catch { /* audit must not mask */ }
+    return {
+      success: false,
+      reason: hashFailure,
+      failedStep: 'verify_capsule_hash',
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
+  // 0b. Signature verification (before pipeline)
+  const handshakeRecord = getHandshakeRecord(db, input.handshake_id)
+  if (!verifyCapsuleSignature(input.capsule_hash, senderSignature, senderPublicKey)) {
+    try {
+      insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.SIGNATURE_INVALID, 'signature_verification', 0))
+    } catch { /* audit must not mask */ }
+    return {
+      success: false,
+      reason: ReasonCode.SIGNATURE_INVALID,
+      failedStep: 'signature_verification',
+      pipelineDurationMs: Math.round(performance.now() - startTime),
+    }
+  }
+
+  if (input.capsuleType === 'handshake-accept' && countersignedHash) {
+    const initiatorHash = handshakeRecord?.last_capsule_hash_received ?? ''
+    if (!initiatorHash || !verifyCapsuleSignature(initiatorHash, countersignedHash, senderPublicKey)) {
+      try {
+        insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.COUNTERSIGNATURE_INVALID, 'countersignature_verification', 0))
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason: ReasonCode.COUNTERSIGNATURE_INVALID,
+        failedStep: 'countersignature_verification',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+  }
+
+  if (
+    (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-revoke' || input.capsuleType === 'handshake-context-sync') &&
+    handshakeRecord?.counterparty_public_key
+  ) {
+    if (senderPublicKey !== handshakeRecord.counterparty_public_key) {
+      try {
+        insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.SIGNATURE_INVALID, 'signature_verification', 0))
+      } catch { /* audit must not mask */ }
+      return {
+        success: false,
+        reason: ReasonCode.SIGNATURE_INVALID,
+        failedStep: 'signature_verification',
+        pipelineDurationMs: Math.round(performance.now() - startTime),
+      }
+    }
+  }
 
   // 1. Determine mode: create or update
-  const handshakeRecord = getHandshakeRecord(db, input.handshake_id)
 
   // 2. Pre-load lookups for pipeline
   const seenHashes = getSeenCapsuleHashes(db, input.handshake_id)
@@ -210,7 +275,6 @@ export function processHandshakeCapsule(
   //    Context ingestion is a HARD GATE: if ingestion fails (commitment
   //    mismatch, SQLite error, etc.), the entire transaction rolls back
   //    and the handshake does NOT transition to active.
-  const capsuleObj = validated.capsule as Record<string, any>
   const senderP2PEndpoint: string | null =
     (typeof capsuleObj?.p2p_endpoint === 'string' && capsuleObj.p2p_endpoint.trim().length > 0)
       ? capsuleObj.p2p_endpoint.trim()
@@ -222,10 +286,10 @@ export function processHandshakeCapsule(
 
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
-      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken)
+      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey)
       insertHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-accept') {
-      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken)
+      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey)
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-refresh') {
       record = buildRefreshRecord(handshakeRecord!, input, tierDecision)
@@ -444,6 +508,7 @@ function buildInitiateRecord(
   effectivePolicy: EffectivePolicy,
   p2pEndpoint: string | null,
   counterpartyP2PToken: string | null,
+  senderPublicKey: string,
 ): HandshakeRecord {
   return {
     handshake_id: input.handshake_id,
@@ -480,6 +545,7 @@ function buildInitiateRecord(
     acceptor_context_commitment: null,
     p2p_endpoint: p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken,
+    counterparty_public_key: senderPublicKey || null,
   }
 }
 
@@ -491,6 +557,7 @@ function buildAcceptRecord(
   effectivePolicy: EffectivePolicy,
   p2pEndpoint: string | null,
   counterpartyP2PToken: string | null,
+  senderPublicKey: string,
 ): HandshakeRecord {
   return {
     ...existing,
@@ -515,6 +582,7 @@ function buildAcceptRecord(
     acceptor_context_commitment: input.context_commitment ?? null,
     p2p_endpoint: existing.p2p_endpoint ?? p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken ?? existing.counterparty_p2p_token,
+    counterparty_public_key: senderPublicKey || existing.counterparty_public_key,
   }
 }
 

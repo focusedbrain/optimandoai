@@ -161,15 +161,23 @@ export async function handleIngestionRPC(
                         type: b.type,
                         content: b.content ?? '',
                       }))
-                      const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-                        handshake_id: record.handshake_id,
-                        counterpartyUserId,
-                        counterpartyEmail,
-                        last_seq_received: 1,
-                        last_capsule_hash_received: cap.capsule_hash as string,
-                        context_blocks: contextBlocks,
-                      })
-                      enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                      const localPub = record.local_public_key
+                      const localPriv = record.local_private_key
+                      if (!localPub || !localPriv) {
+                        console.warn('[P2P] Reverse context-sync skipped: handshake missing signing keys')
+                      } else {
+                        const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                          handshake_id: record.handshake_id,
+                          counterpartyUserId,
+                          counterpartyEmail,
+                          last_seq_received: 1,
+                          last_capsule_hash_received: cap.capsule_hash as string,
+                          context_blocks: contextBlocks,
+                          local_public_key: localPub,
+                          local_private_key: localPriv,
+                        })
+                        enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                      }
                     } catch (err: any) {
                       console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
                     }
@@ -339,15 +347,23 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
                           type: b.type,
                           content: b.content ?? '',
                         }))
-                        const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-                          handshake_id: record.handshake_id,
-                          counterpartyUserId,
-                          counterpartyEmail,
-                          last_seq_received: 1,
-                          last_capsule_hash_received: cap.capsule_hash as string,
-                          context_blocks: contextBlocks,
-                        })
-                        enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                        const localPub = record.local_public_key
+                        const localPriv = record.local_private_key
+                        if (!localPub || !localPriv) {
+                          console.warn('[P2P] Reverse context-sync skipped: handshake missing signing keys')
+                        } else {
+                          const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                            handshake_id: record.handshake_id,
+                            counterpartyUserId,
+                            counterpartyEmail,
+                            last_seq_received: 1,
+                            last_capsule_hash_received: cap.capsule_hash as string,
+                            context_blocks: contextBlocks,
+                            local_public_key: localPub,
+                            local_private_key: localPriv,
+                          })
+                          enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                        }
                       } catch (err: any) {
                         console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
                       }

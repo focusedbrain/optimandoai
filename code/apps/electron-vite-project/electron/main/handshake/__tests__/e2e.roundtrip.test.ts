@@ -26,13 +26,15 @@ import {
   _resetEmailSendFn,
 } from '../emailTransport'
 import {
-  buildInitiateCapsule,
+  buildInitiateCapsuleWithKeypair,
   buildAcceptCapsule,
   buildContextSyncCapsule,
   buildRefreshCapsule,
 } from '../capsuleBuilder'
+import { mockKeypairFields } from './mockKeypair'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
+import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -92,7 +94,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     // ═══════════════════════════════════════════════════════════════════
     // STEP 1: Alice initiates a handshake with Bob
     // ═══════════════════════════════════════════════════════════════════
-    const initiate = buildInitiateCapsule(alice, {
+    const { capsule: initiate, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: bob.wrdesk_user_id,
       receiverEmail: bob.email,
       reciprocal_allowed: true,
@@ -112,11 +114,12 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     // ═══════════════════════════════════════════════════════════════════
     // STEP 2: Bob accepts the handshake
     // ═══════════════════════════════════════════════════════════════════
-    const accept = buildAcceptCapsule(bob, {
+    const { capsule: accept, keypair: bobKeypair } = buildAcceptCapsule(bob, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: alice.wrdesk_user_id,
       initiatorEmail: alice.email,
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initiate.capsule_hash,
     })
 
     // Alice receives the accept capsule via email
@@ -176,6 +179,11 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     expect(bobAcceptResult.success).toBe(true)
     expect(bobAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
 
+    const handshakeId = initiate.handshake_id
+    updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
+    updateHandshakeSigningKeys(bobDb, handshakeId, { local_public_key: bobKeypair.publicKey, local_private_key: bobKeypair.privateKey })
+    updateHandshakeCounterpartyKey(bobDb, handshakeId, aliceKeypair.publicKey)
+
     // ═══════════════════════════════════════════════════════════════════
     // STEP 3a: Both parties send context-sync (first post-activation required)
     // Build both capsules from post-accept state (last_seq_received=0) so each
@@ -193,6 +201,8 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       last_seq_received: aliceRecordAfterAccept!.last_seq_received ?? 0,
       last_capsule_hash_received: aliceRecordAfterAccept!.last_capsule_hash_received ?? '',
       context_blocks: [],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
     const bobContextSync = buildContextSyncCapsule(bob, {
       handshake_id: initiate.handshake_id,
@@ -201,6 +211,8 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       last_seq_received: bobRecordAfterAccept!.last_seq_received ?? 0,
       last_capsule_hash_received: bobRecordAfterAccept!.last_capsule_hash_received ?? '',
       context_blocks: [],
+      local_public_key: bobKeypair.publicKey,
+      local_private_key: bobKeypair.privateKey,
     })
     expect(aliceContextSync.capsule_type).toBe('context_sync')
     expect(aliceContextSync.seq).toBe(1)
@@ -232,6 +244,8 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
         { block_id: 'blk_aabb0011223344', block_hash: 'b'.repeat(64) },
         { block_id: 'blk_ccdd5566778899', block_hash: 'c'.repeat(64) },
       ],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
 
     expect(refresh.capsule_type).toBe('refresh')
@@ -257,6 +271,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       context_block_proofs: [
         { block_id: 'blk_aabb11223344', block_hash: 'x'.repeat(64) },
       ],
+      ...mockKeypairFields(),
     })
     expect(withProofs.context_block_proofs).toHaveLength(1)
     expect(withProofs.context_block_proofs![0].block_id).toBe('blk_aabb11223344')
@@ -267,6 +282,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       counterpartyEmail: 'counterparty@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
+      ...mockKeypairFields(),
     })
     expect(withoutProofs.context_block_proofs).toBeUndefined()
   })
@@ -285,6 +301,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       context_block_proofs: [
         { block_id: 'blk_abc123', block_hash: 'x'.repeat(64) },
       ],
+      ...mockKeypairFields(),
     })
 
     const withoutProofs = buildRefreshCapsule(session, {
@@ -294,6 +311,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
       timestamp: ts,
+      ...mockKeypairFields(),
     })
 
     // Hashes should be identical because context_block_proofs are intentionally

@@ -347,6 +347,12 @@ export interface HandshakeRecord {
   p2p_endpoint: string | null;
   /** Counterparty's P2P auth token (Bearer) for authenticating outbound requests to them */
   counterparty_p2p_token: string | null;
+  /** This device's Ed25519 public key (64-char hex) for handshake signing */
+  local_public_key?: string | null;
+  /** This device's Ed25519 private key (64-char hex) for signing refresh/revoke */
+  local_private_key?: string | null;
+  /** Counterparty's Ed25519 public key (64-char hex), stored after signature verification */
+  counterparty_public_key?: string | null;
 }
 
 // ── Context Block (persisted) ──
@@ -410,6 +416,8 @@ export enum ReasonCode {
   CONTEXT_INTEGRITY_FAILURE = 'CONTEXT_INTEGRITY_FAILURE',
   CONTEXT_SYNC_REQUIRED = 'CONTEXT_SYNC_REQUIRED',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  SIGNATURE_INVALID = 'SIGNATURE_INVALID',
+  COUNTERSIGNATURE_INVALID = 'COUNTERSIGNATURE_INVALID',
 }
 
 // ── Pipeline Types ──

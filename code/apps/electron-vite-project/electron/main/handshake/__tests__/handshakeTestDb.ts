@@ -48,10 +48,32 @@ export function createHandshakeTestDb() {
 
         // UPDATE handshakes
         if (/UPDATE handshakes/i.test(sql)) {
-          if (!args) return { changes: 0 }
-          const existing = handshakes.get(args.handshake_id)
-          if (existing) handshakes.set(args.handshake_id, { ...existing, ...args })
-          return { changes: existing ? 1 : 0 }
+          if (args) {
+            const existing = handshakes.get(args.handshake_id)
+            if (existing) handshakes.set(args.handshake_id, { ...existing, ...args })
+            return { changes: existing ? 1 : 0 }
+          }
+          // Positional: UPDATE handshakes SET local_public_key = ?, local_private_key = ? WHERE handshake_id = ?
+          if (/local_public_key.*local_private_key.*handshake_id/i.test(sql) && pos.length >= 3) {
+            const handshakeId = pos[2]
+            const existing = handshakes.get(handshakeId)
+            if (existing) {
+              handshakes.set(handshakeId, { ...existing, local_public_key: pos[0], local_private_key: pos[1] })
+              return { changes: 1 }
+            }
+            return { changes: 0 }
+          }
+          // Positional: UPDATE handshakes SET counterparty_public_key = ? WHERE handshake_id = ?
+          if (/counterparty_public_key.*WHERE handshake_id/i.test(sql) && pos.length >= 2) {
+            const handshakeId = pos[1]
+            const existing = handshakes.get(handshakeId)
+            if (existing) {
+              handshakes.set(handshakeId, { ...existing, counterparty_public_key: pos[0] })
+              return { changes: 1 }
+            }
+            return { changes: 0 }
+          }
+          return { changes: 0 }
         }
 
         // INSERT INTO seen_capsule_hashes

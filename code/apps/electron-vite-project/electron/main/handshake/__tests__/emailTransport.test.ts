@@ -16,6 +16,7 @@ import {
   type EmailSendFn,
 } from '../emailTransport'
 import { buildInitiateCapsule, buildAcceptCapsule, buildRefreshCapsule } from '../capsuleBuilder'
+import { generateSigningKeypair } from '../signatureKeys'
 import { buildTestSession } from '../sessionFactory'
 
 function sender() {
@@ -84,11 +85,12 @@ describe('Email Transport Bridge', () => {
   })
 
   test('accept capsule subject contains accept', async () => {
-    const capsule = buildAcceptCapsule(sender(), {
+    const { capsule } = buildAcceptCapsule(sender(), {
       handshake_id: 'hs-001',
       initiatorUserId: 'other-001',
       initiatorEmail: 'other@test.com',
       sharing_mode: 'receive-only',
+      initiator_capsule_hash: 'a'.repeat(64),
     })
     await sendCapsuleViaEmail('account-1', 'other@test.com', capsule)
 
@@ -97,12 +99,15 @@ describe('Email Transport Bridge', () => {
   })
 
   test('refresh capsule subject contains refresh', async () => {
+    const keypair = generateSigningKeypair()
     const capsule = buildRefreshCapsule(sender(), {
       handshake_id: 'hs-001',
       counterpartyUserId: 'other-001',
       counterpartyEmail: 'other@test.com',
       last_seq_received: 0,
       last_capsule_hash_received: 'a'.repeat(64),
+      local_public_key: keypair.publicKey,
+      local_private_key: keypair.privateKey,
     })
     await sendCapsuleViaEmail('account-1', 'other@test.com', capsule)
 

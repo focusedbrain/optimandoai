@@ -29,6 +29,7 @@ import { INGESTION_CONSTANTS } from '../../ingestion/types'
 import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider } from '../../handshake/ipc'
 import { getContextStoreByHandshake, insertContextStoreEntry } from '../../handshake/db'
 import { computeBlockHash } from '../../handshake/contextCommitment'
+import { mockKeypairFields } from '../../handshake/__tests__/mockKeypair'
 import type { HandshakeRecord } from '../../handshake/types'
 import { upsertP2PConfig } from '../p2pConfig'
 import type { P2PConfig } from '../p2pConfig'
@@ -97,11 +98,12 @@ async function createValidHandshakeWithContextSync(db: any): Promise<{
     receiverEmail: 'a@t.com',
     reciprocal_allowed: true,
   })
-  const accept = buildAcceptCapsule(acceptor, {
+  const { capsule: accept } = buildAcceptCapsule(acceptor, {
     handshake_id: initiate.handshake_id,
     initiatorUserId: 'i',
     initiatorEmail: 'i@t.com',
     sharing_mode: 'reciprocal',
+    initiator_capsule_hash: initiate.capsule_hash,
   })
   await submitCapsuleToPipeline(initiate, db, acceptor)
   await submitCapsuleToPipeline(initiate, db, initiator)
@@ -115,6 +117,7 @@ async function createValidHandshakeWithContextSync(db: any): Promise<{
     last_seq_received: 0,
     last_capsule_hash_received: accept.capsule_hash,
     context_blocks: [],
+    ...mockKeypairFields(),
   })
   const record = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(initiate.handshake_id) as any
   if (record) {
@@ -154,6 +157,7 @@ function minimalContextSyncCapsule(
     last_seq_received: 0,
     last_capsule_hash_received: '',
     context_blocks: [],
+    ...mockKeypairFields(),
   })
   return capsule as unknown as Record<string, unknown>
 }
@@ -440,6 +444,7 @@ describe('P2: Outbound Queue', () => {
       initiator_wrdesk_policy_hash: '',
       initiator_wrdesk_policy_version: '1.0',
       counterparty_p2p_token: token,
+      ...mockKeypairFields(),
     }
     insertHandshakeRecord(db, record as HandshakeRecord)
     let receivedAuth: string | null = null

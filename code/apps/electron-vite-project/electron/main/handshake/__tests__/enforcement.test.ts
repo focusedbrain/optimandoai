@@ -8,6 +8,8 @@ import { verifyInputLimits } from '../steps/inputLimits'
 import { verifyTimestamp } from '../steps/timestamp'
 import { checkExpiry } from '../steps/expiry'
 import { enforceMinimumTier, runTierSpecificChecks } from '../steps/tierSteps'
+import { verifyCapsuleHashIntegrity } from '../steps/verifyCapsuleHash'
+import { computeCapsuleHash } from '../capsuleHash'
 import { ReasonCode, HandshakeState, INPUT_LIMITS } from '../types'
 import { buildCtx, buildVerifiedCapsuleInput, buildHandshakeRecord, buildActiveHandshakeRecord, buildReceiverPolicy, buildTierDecision, buildTierSignals, buildContextBlock } from './helpers'
 
@@ -322,5 +324,75 @@ describe('Minimum Tier Enforcement', () => {
     const r = enforceMinimumTier.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.TIER_BELOW_RECEIVER_MINIMUM)
+  })
+})
+
+describe('verifyCapsuleHashIntegrity (enforcement pre-signature check)', () => {
+  test('valid capsule: hash matches → passes (null)', () => {
+    const base = buildVerifiedCapsuleInput({
+      capsuleType: 'handshake-initiate',
+      schema_version: 2,
+      handshake_id: 'hs-vh-001',
+      relationship_id: 'rel:ab',
+      sender_wrdesk_user_id: 'alice',
+      receiver_email: 'bob@test.com',
+      seq: 0,
+      timestamp: '2026-03-01T12:00:00.000Z',
+      wrdesk_policy_hash: 'f'.repeat(64),
+      wrdesk_policy_version: '1.0',
+    })
+    const expectedHash = computeCapsuleHash({
+      capsule_type: 'initiate',
+      handshake_id: base.handshake_id,
+      relationship_id: base.relationship_id,
+      schema_version: base.schema_version,
+      sender_wrdesk_user_id: base.sender_wrdesk_user_id,
+      receiver_email: base.receiver_email,
+      seq: base.seq,
+      timestamp: base.timestamp,
+      wrdesk_policy_hash: base.wrdesk_policy_hash,
+      wrdesk_policy_version: base.wrdesk_policy_version,
+    })
+    const input = { ...base, capsule_hash: expectedHash }
+    expect(verifyCapsuleHashIntegrity(input)).toBeNull()
+  })
+
+  test('tampered field: timestamp changed, hash unchanged → HASH_INTEGRITY_FAILURE', () => {
+    const base = buildVerifiedCapsuleInput({
+      capsuleType: 'handshake-initiate',
+      schema_version: 2,
+      handshake_id: 'hs-vh-002',
+      relationship_id: 'rel:cd',
+      sender_wrdesk_user_id: 'alice',
+      receiver_email: 'bob@test.com',
+      seq: 0,
+      timestamp: '2026-03-01T12:00:00.000Z',
+      wrdesk_policy_hash: 'f'.repeat(64),
+      wrdesk_policy_version: '1.0',
+    })
+    const expectedHash = computeCapsuleHash({
+      capsule_type: 'initiate',
+      handshake_id: base.handshake_id,
+      relationship_id: base.relationship_id,
+      schema_version: base.schema_version,
+      sender_wrdesk_user_id: base.sender_wrdesk_user_id,
+      receiver_email: base.receiver_email,
+      seq: base.seq,
+      timestamp: base.timestamp,
+      wrdesk_policy_hash: base.wrdesk_policy_hash,
+      wrdesk_policy_version: base.wrdesk_policy_version,
+    })
+    const input = { ...base, capsule_hash: expectedHash, timestamp: '2099-01-01T00:00:00.000Z' }
+    expect(verifyCapsuleHashIntegrity(input)).toBe(ReasonCode.HASH_INTEGRITY_FAILURE)
+  })
+
+  test('missing capsule_hash → HASH_INTEGRITY_FAILURE', () => {
+    const input = buildVerifiedCapsuleInput({ capsule_hash: '' })
+    expect(verifyCapsuleHashIntegrity(input)).toBe(ReasonCode.HASH_INTEGRITY_FAILURE)
+  })
+
+  test('invalid hash format (too short) → HASH_INTEGRITY_FAILURE', () => {
+    const input = buildVerifiedCapsuleInput({ capsule_hash: 'abc123' })
+    expect(verifyCapsuleHashIntegrity(input)).toBe(ReasonCode.HASH_INTEGRITY_FAILURE)
   })
 })

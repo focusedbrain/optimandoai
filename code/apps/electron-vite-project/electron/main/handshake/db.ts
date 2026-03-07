@@ -265,6 +265,15 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE p2p_config SET coordination_ws_url = 'wss://relay.wrdesk.com/beap/ws' WHERE coordination_ws_url = 'wss://coordination.wrdesk.com/beap/ws' OR coordination_ws_url IS NULL`,
     ],
   },
+  {
+    version: 13,
+    description: 'Schema v13: Ed25519 handshake signature keys',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN local_public_key TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN local_private_key TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN counterparty_public_key TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -344,6 +353,9 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     acceptor_context_commitment: record.acceptor_context_commitment ?? null,
     p2p_endpoint: record.p2p_endpoint ?? null,
     counterparty_p2p_token: record.counterparty_p2p_token ?? null,
+    local_public_key: record.local_public_key ?? null,
+    local_private_key: record.local_private_key ?? null,
+    counterparty_public_key: record.counterparty_public_key ?? null,
   }
 }
 
@@ -378,7 +390,30 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     acceptor_context_commitment: row.acceptor_context_commitment ?? null,
     p2p_endpoint: row.p2p_endpoint ?? null,
     counterparty_p2p_token: row.counterparty_p2p_token ?? null,
+    local_public_key: row.local_public_key ?? null,
+    local_private_key: row.local_private_key ?? null,
+    counterparty_public_key: row.counterparty_public_key ?? null,
   }
+}
+
+export function updateHandshakeSigningKeys(
+  db: any,
+  handshakeId: string,
+  keys: { local_public_key: string; local_private_key: string },
+): void {
+  db.prepare(
+    'UPDATE handshakes SET local_public_key = ?, local_private_key = ? WHERE handshake_id = ?',
+  ).run(keys.local_public_key, keys.local_private_key, handshakeId)
+}
+
+export function updateHandshakeCounterpartyKey(
+  db: any,
+  handshakeId: string,
+  counterparty_public_key: string,
+): void {
+  db.prepare(
+    'UPDATE handshakes SET counterparty_public_key = ? WHERE handshake_id = ?',
+  ).run(counterparty_public_key, handshakeId)
 }
 
 export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
@@ -392,7 +427,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     created_at, activated_at, expires_at, revoked_at, revocation_source,
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
-    initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token
+    initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
+    local_public_key, local_private_key, counterparty_public_key
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -402,7 +438,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @created_at, @activated_at, @expires_at, @revoked_at, @revocation_source,
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
-    @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token
+    @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
+    @local_public_key, @local_private_key, @counterparty_public_key
   )`).run(s)
 }
 
@@ -425,7 +462,10 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_context_commitment = @initiator_context_commitment,
     acceptor_context_commitment = @acceptor_context_commitment,
     p2p_endpoint = @p2p_endpoint,
-    counterparty_p2p_token = @counterparty_p2p_token
+    counterparty_p2p_token = @counterparty_p2p_token,
+    local_public_key = @local_public_key,
+    local_private_key = @local_private_key,
+    counterparty_public_key = @counterparty_public_key
   WHERE handshake_id = @handshake_id`).run(s)
 }
 

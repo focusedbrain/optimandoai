@@ -86,6 +86,12 @@ export interface HandshakeCapsuleCanonical {
   readonly context_blocks?: ReadonlyArray<CanonicalContextBlock>
   readonly p2p_endpoint?: string | null
   readonly p2p_auth_token?: string | null
+  /** Ed25519 public key (64-char hex) — envelope, not in capsule_hash */
+  readonly sender_public_key?: string
+  /** Ed25519 signature over capsule_hash (128-char hex) */
+  readonly sender_signature?: string
+  /** Acceptor's signature over initiator's capsule_hash (128-char hex) — accept only */
+  readonly countersigned_hash?: string
 }
 
 export interface CanonicalContextBlock {
@@ -154,6 +160,9 @@ const FIELD_RULES: Record<string, FieldRule> = {
   prev_hash: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
   p2p_endpoint: { type: 'string', maxLength: 512 },
   p2p_auth_token: { type: 'string', maxLength: 128 },
+  sender_public_key: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
+  sender_signature: { type: 'regex', pattern: /^[a-f0-9]{128}$/ },
+  countersigned_hash: { type: 'regex', pattern: /^[a-f0-9]{128}$/ },
 }
 
 // ── Sender identity validation rules ──
@@ -471,6 +480,18 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     }
     if (clean.length > 0 && /^[a-f0-9]+$/.test(clean)) {
       canonical.p2p_auth_token = clean
+    }
+  }
+
+  // Validate signature envelope fields (optional — Ed25519 keys/signatures)
+  for (const sigField of ['sender_public_key', 'sender_signature', 'countersigned_hash'] as const) {
+    if (sigField in obj && obj[sigField] !== undefined && obj[sigField] !== null) {
+      const rule = FIELD_RULES[sigField]
+      const result = validateField(obj[sigField], rule)
+      if (!result.valid) {
+        return { ok: false, reason: `Invalid value for ${sigField}`, field: sigField }
+      }
+      canonical[sigField] = result.sanitized
     }
   }
 

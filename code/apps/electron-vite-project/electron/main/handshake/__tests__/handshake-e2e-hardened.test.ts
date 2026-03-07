@@ -29,12 +29,14 @@ import {
 } from '../emailTransport'
 import {
   buildInitiateCapsule,
+  buildInitiateCapsuleWithKeypair,
   buildAcceptCapsule,
   buildRefreshCapsule,
 } from '../capsuleBuilder'
 import { canonicalRebuild } from '../canonicalRebuild'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
+import { updateHandshakeSigningKeys } from '../db'
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -340,7 +342,7 @@ describe('Handshake E2E — Hardened', () => {
     const bob = bobSession()
 
     // Set up ACTIVE handshake on Bob's side
-    const initCapsule = buildInitiateCapsule(alice, {
+    const { capsule: initCapsule, keypair: aliceKeypair } = buildInitiateCapsuleWithKeypair(alice, {
       receiverUserId: 'bob-001',
       receiverEmail: 'bob@partner.com',
       reciprocal_allowed: true,
@@ -355,13 +357,15 @@ describe('Handshake E2E — Hardened', () => {
 
     // Seed Alice's DB so she can build refresh capsule
     await submitCapsule(JSON.stringify(initCapsule), aliceDb, bob)
-    const acceptCapsule = buildAcceptCapsule(bob, {
+    const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
       initiatorUserId: 'alice-001',
       initiatorEmail: 'alice@company.com',
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initCapsule.capsule_hash,
     })
     await submitCapsule(JSON.stringify(acceptCapsule), aliceDb, alice)
+    updateHandshakeSigningKeys(aliceDb, initCapsule.handshake_id, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
 
     // Alice sends refresh with context_block_proofs
     const aliceRecord = aliceDb.getHandshake(initCapsule.handshake_id)
@@ -375,6 +379,8 @@ describe('Handshake E2E — Hardened', () => {
         { block_id: 'blk_aabb11223344', block_hash: 'a'.repeat(64) },
         { block_id: 'blk_ccdd55667788', block_hash: 'b'.repeat(64) },
       ],
+      local_public_key: aliceKeypair.publicKey,
+      local_private_key: aliceKeypair.privateKey,
     })
 
     expect(refresh.context_block_proofs).toHaveLength(2)

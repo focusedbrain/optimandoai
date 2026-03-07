@@ -254,6 +254,12 @@ function createP2PRequestHandler(
                       const counterpartyEmail = rec.local_role === 'initiator'
                         ? rec.acceptor!.email
                         : rec.initiator.email
+                      const localPub = rec.local_public_key ?? ''
+                      const localPriv = rec.local_private_key ?? ''
+                      if (!localPub || !localPriv) {
+                        console.warn('[P2P] Skipping reverse context-sync: handshake has no signing keys')
+                        return
+                      }
                       const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
                         block_id: b.block_id,
                         block_hash: b.block_hash,
@@ -268,6 +274,8 @@ function createP2PRequestHandler(
                         last_seq_received: 1,
                         last_capsule_hash_received: cap.capsule_hash as string,
                         context_blocks: contextBlocks,
+                        local_public_key: localPub,
+                        local_private_key: localPriv,
                       })
                       enqueueOutboundCapsule(db, rec.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
                     } catch (err: any) {

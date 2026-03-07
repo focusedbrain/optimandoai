@@ -135,6 +135,12 @@ function processCapsuleInternal(
                   const counterpartyEmail = record.local_role === 'initiator'
                     ? record.acceptor!.email
                     : record.initiator.email
+                  const localPub = record.local_public_key ?? ''
+                  const localPriv = record.local_private_key ?? ''
+                  if (!localPub || !localPriv) {
+                    console.warn('[Coordination] Skipping reverse context-sync: handshake has no signing keys')
+                    return
+                  }
                   const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
                     block_id: b.block_id,
                     block_hash: b.block_hash,
@@ -149,6 +155,8 @@ function processCapsuleInternal(
                     last_seq_received: 1,
                     last_capsule_hash_received: capObj.capsule_hash as string,
                     context_blocks: contextBlocks,
+                    local_public_key: localPub,
+                    local_private_key: localPriv,
                   })
                   enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
                 } catch (err: any) {

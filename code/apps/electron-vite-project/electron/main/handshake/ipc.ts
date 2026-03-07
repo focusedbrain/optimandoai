@@ -13,6 +13,7 @@ import {
   getHandshakeRecord,
   listHandshakeRecords,
   deleteHandshakeRecord,
+  updateHandshakeSigningKeys,
 } from './db'
 import { queryContextBlocks } from './contextBlocks'
 import { authorizeAction, isHandshakeActive } from './enforcement'
@@ -280,7 +281,7 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
+      const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
         receiverEmail,
         ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
@@ -299,7 +300,7 @@ export async function handleHandshakeRPC(
       if (db) {
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
-        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
+        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           setImmediate(async () => {
             const p2pConfig = getP2PConfig(db)
@@ -359,7 +360,7 @@ export async function handleHandshakeRPC(
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
-      const { capsule, localBlocks } = buildInitiateCapsuleWithContent(session, {
+      const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
         ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
@@ -373,7 +374,7 @@ export async function handleHandshakeRPC(
       // Persist the initiator capsule locally so the handshakes row exists.
       // Direct insert — NOT the receive pipeline (ownership would reject).
       if (db) {
-        const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks)
+        const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
         if (buildLocalResult.success && (dlP2PAuthToken || getP2PConfig(db).use_coordination) && dlReceiverEmail) {
           setImmediate(async () => {
             const p2pConfig = getP2PConfig(db)
@@ -480,15 +481,20 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const capsule = buildAcceptCapsule(session, {
+      const { capsule, keypair } = buildAcceptCapsule(session, {
         handshake_id,
         initiatorUserId,
         initiatorEmail,
         sharing_mode,
         context_blocks: acceptContextBlocks,
         context_commitment: acceptContextCommitment,
+        initiator_capsule_hash: record.last_capsule_hash_received,
         ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
+      })
+      updateHandshakeSigningKeys(db, handshake_id, {
+        local_public_key: keypair.publicKey,
+        local_private_key: keypair.privateKey,
       })
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
@@ -570,6 +576,12 @@ export async function handleHandshakeRPC(
             }))
             const counterpartyUserId = initiatorUserId
             const counterpartyEmail = initiatorEmail
+            const localPub = updatedRecord.local_public_key ?? ''
+            const localPriv = updatedRecord.local_private_key ?? ''
+            if (!localPub || !localPriv) {
+              console.warn('[P2P] Skipping auto context-sync: handshake has no signing keys')
+              return
+            }
             const contextSyncCapsule = buildContextSyncCapsuleWithContent(session, {
               handshake_id,
               counterpartyUserId,
@@ -577,6 +589,8 @@ export async function handleHandshakeRPC(
               last_seq_received: 0,
               last_capsule_hash_received: capsule.capsule_hash,
               context_blocks: contextBlocks,
+              local_public_key: localPub,
+              local_private_key: localPriv,
             })
             enqueueOutboundCapsule(db, handshake_id, targetEndpoint.trim(), contextSyncCapsule)
           } catch (err: any) {
@@ -624,6 +638,11 @@ export async function handleHandshakeRPC(
         : record.initiator.wrdesk_user_id
       const counterpartyEmail = getCounterpartyEmail(record, session)
 
+      const localPub = record.local_public_key ?? ''
+      const localPriv = record.local_private_key ?? ''
+      if (!localPub || !localPriv) {
+        return { success: false, error: 'Handshake signing keys not found. Re-accept the handshake to enable signatures.' }
+      }
       const capsule = buildRefreshCapsule(session, {
         handshake_id,
         counterpartyUserId,
@@ -631,6 +650,8 @@ export async function handleHandshakeRPC(
         last_seq_received: record.last_seq_received,
         last_capsule_hash_received: record.last_capsule_hash_received,
         context_block_proofs: context_block_proofs ?? [],
+        local_public_key: localPub,
+        local_private_key: localPriv,
       })
 
       let emailResult: any = null

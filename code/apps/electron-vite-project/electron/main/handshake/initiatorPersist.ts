@@ -11,6 +11,7 @@
  */
 
 import type { HandshakeCapsuleWire } from './capsuleBuilder'
+import type { SigningKeypair } from './signatureKeys'
 import type { SSOSession, HandshakeRecord } from './types'
 import type { ContextBlockForCommitment } from './contextCommitment'
 import { HandshakeState as HS, INPUT_LIMITS } from './types'
@@ -33,6 +34,7 @@ export function persistInitiatorHandshakeRecord(
   capsule: HandshakeCapsuleWire,
   session: SSOSession,
   localBlocks: ContextBlockForCommitment[],
+  keypair: SigningKeypair,
 ): PersistInitiatorResult {
   try {
     const tierDecision = classifyHandshakeTier({
@@ -93,6 +95,8 @@ export function persistInitiatorHandshakeRecord(
       acceptor_context_commitment: null,
       p2p_endpoint: senderP2PEndpoint,
       counterparty_p2p_token: senderP2PAuthToken,
+      local_public_key: keypair.publicKey,
+      local_private_key: keypair.privateKey,
     }
 
     insertHandshakeRecord(db, record)

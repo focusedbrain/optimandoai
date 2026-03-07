@@ -34,6 +34,7 @@ import { computeContextHash, generateNonce, type ContextHashInput } from './cont
 import { computeContextCommitment, stripContentFromBlocks, type ContextBlockForCommitment, type ContextBlockWireProof } from './contextCommitment'
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } from './policyHash'
 import { deriveRelationshipId } from './relationshipId'
+import { generateSigningKeypair, signCapsuleHash, type SigningKeypair } from './signatureKeys'
 
 // ── Wire format types ──
 
@@ -72,6 +73,12 @@ export interface HandshakeCapsuleWire {
   readonly context_blocks: ReadonlyArray<ContextBlockWireProof>;
   /** Sender's P2P endpoint (advertised in initiate/accept). Optional. */
   readonly p2p_endpoint?: string | null;
+  /** Ed25519 public key (64-char hex) — sender's signing key */
+  readonly sender_public_key: string;
+  /** Ed25519 signature (128-char hex) over capsule_hash */
+  readonly sender_signature: string;
+  /** On accept only: acceptor's signature over initiator's capsule_hash (128-char hex) */
+  readonly countersigned_hash?: string;
 }
 
 // ── Options types ──
@@ -101,6 +108,13 @@ export interface InitiateOptions {
   p2p_auth_token?: string | null;
 }
 
+/** Result of buildInitiateCapsuleWithContent including keypair for persistence */
+export interface InitiateBuildResult {
+  capsule: HandshakeCapsuleWire
+  localBlocks: ContextBlockForCommitment[]
+  keypair: SigningKeypair
+}
+
 export interface AcceptOptions {
   /** The handshake_id from the initiate capsule received */
   handshake_id: string;
@@ -128,6 +142,8 @@ export interface AcceptOptions {
   p2p_endpoint?: string | null;
   /** Sender's P2P auth token (Bearer) for authenticating requests to our /beap/ingest. 32 bytes hex. */
   p2p_auth_token?: string | null;
+  /** Initiator's capsule_hash (from received initiate) — required for countersignature */
+  initiator_capsule_hash?: string;
 }
 
 export interface RefreshOptions {
@@ -151,6 +167,10 @@ export interface RefreshOptions {
   timestamp?: string;
   /** Explicit nonce override (generated if absent) — for testing only */
   nonce?: string;
+  /** Sender's public key (64-char hex) — required for refresh. From handshake record. */
+  local_public_key: string;
+  /** Sender's private key (64-char hex) for signing — required for refresh. From handshake record. */
+  local_private_key: string;
 }
 
 export interface RevokeOptions {
@@ -168,6 +188,10 @@ export interface RevokeOptions {
   timestamp?: string;
   /** Explicit nonce override (generated if absent) — for testing only */
   nonce?: string;
+  /** Sender's public key (64-char hex) — required for revoke */
+  local_public_key: string;
+  /** Sender's private key (64-char hex) for signing — required for revoke */
+  local_private_key: string;
 }
 
 /** Options for context_sync — first post-activation capsule delivering context blocks. */
@@ -190,21 +214,21 @@ export interface ContextSyncOptions {
   timestamp?: string;
   /** Explicit nonce override (generated if absent) — for testing only */
   nonce?: string;
+  /** Sender's public key (64-char hex) — required for context_sync */
+  local_public_key: string;
+  /** Sender's private key (64-char hex) for signing — required for context_sync */
+  local_private_key: string;
 }
 
 // ── Builder functions ──
 
 /**
- * Build an `initiate` handshake capsule.
- *
- * The sender is identified by `session.wrdesk_user_id`.
- * A new `handshake_id` and `relationship_id` are generated.
- * `seq` is always `0` (first capsule in the initiate chain).
+ * Build an `initiate` handshake capsule (internal — returns capsule + keypair).
  */
-export function buildInitiateCapsule(
+function buildInitiateCapsuleCore(
   session: SSOSession,
   opts: InitiateOptions,
-): HandshakeCapsuleWire {
+): { capsule: HandshakeCapsuleWire; keypair: SigningKeypair } {
   const timestamp = opts.timestamp ?? new Date().toISOString()
   const handshake_id = opts.handshake_id ?? `hs-${randomUUID()}`
   const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.receiverUserId)
@@ -245,7 +269,11 @@ export function buildInitiateCapsule(
     wrdesk_policy_version: policy.version,
   }
 
-  return {
+  const capsuleHash = computeCapsuleHash(hashInput)
+  const keypair = generateSigningKeypair()
+  const senderSignature = signCapsuleHash(capsuleHash, keypair.privateKey)
+
+  const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'initiate',
     handshake_id,
@@ -263,7 +291,7 @@ export function buildInitiateCapsule(
       wrdesk_user_id: session.wrdesk_user_id,
     },
     receiverIdentity: null,
-    capsule_hash: computeCapsuleHash(hashInput),
+    capsule_hash: capsuleHash,
     context_hash: computeContextHash(contextHashInput),
     context_commitment: contextCommitment,
     nonce,
@@ -275,22 +303,44 @@ export function buildInitiateCapsule(
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
     context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
+    sender_public_key: keypair.publicKey,
+    sender_signature: senderSignature,
     ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
+  return { capsule, keypair }
+}
+
+/**
+ * Build an `initiate` handshake capsule.
+ * The sender is identified by `session.wrdesk_user_id`.
+ * `seq` is always `0` (first capsule in the initiate chain).
+ */
+export function buildInitiateCapsule(
+  session: SSOSession,
+  opts: InitiateOptions,
+): HandshakeCapsuleWire {
+  return buildInitiateCapsuleCore(session, opts).capsule
+}
+
+/** Build initiate capsule and return keypair (for tests that need keys for context_sync). */
+export function buildInitiateCapsuleWithKeypair(
+  session: SSOSession,
+  opts: InitiateOptions,
+): { capsule: HandshakeCapsuleWire; keypair: SigningKeypair } {
+  return buildInitiateCapsuleCore(session, opts)
 }
 
 /**
  * Build an `accept` handshake capsule.
- *
  * Must be created by the party that received an `initiate` capsule.
- * `seq` is always `0` (independent accept chain).
- * `sharing_mode` is required.
+ * `seq` is always `0` (independent accept chain). `sharing_mode` is required.
+ * Returns capsule + keypair for persistence.
  */
 export function buildAcceptCapsule(
   session: SSOSession,
   opts: AcceptOptions,
-): HandshakeCapsuleWire {
+): AcceptBuildResult {
   const timestamp = opts.timestamp ?? new Date().toISOString()
   const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.initiatorUserId)
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
@@ -346,7 +396,16 @@ export function buildAcceptCapsule(
     ? (opts.reciprocal_allowed ?? true)
     : (opts.reciprocal_allowed ?? false)
 
-  return {
+  const capsuleHash = computeCapsuleHash(hashInput)
+  const keypair = generateSigningKeypair()
+  const senderSignature = signCapsuleHash(capsuleHash, keypair.privateKey)
+  const initiatorCapsuleHash = opts.initiator_capsule_hash ?? ''
+  const countersignedHash =
+    initiatorCapsuleHash && /^[a-f0-9]{64}$/i.test(initiatorCapsuleHash)
+      ? signCapsuleHash(initiatorCapsuleHash, keypair.privateKey)
+      : undefined
+
+  const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'accept',
     handshake_id: opts.handshake_id,
@@ -364,7 +423,7 @@ export function buildAcceptCapsule(
       wrdesk_user_id: session.wrdesk_user_id,
     },
     receiverIdentity: receiverIdentity,
-    capsule_hash: computeCapsuleHash(hashInput),
+    capsule_hash: capsuleHash,
     context_hash: computeContextHash(contextHashInput),
     context_commitment: acceptContextCommitment,
     nonce,
@@ -377,9 +436,19 @@ export function buildAcceptCapsule(
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
     context_blocks: opts.context_blocks ? stripContentFromBlocks(opts.context_blocks) : [],
+    sender_public_key: keypair.publicKey,
+    sender_signature: senderSignature,
+    ...(countersignedHash ? { countersigned_hash: countersignedHash } : {}),
     ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
   }
+  return { capsule, keypair }
+}
+
+/** Result of buildAcceptCapsule including keypair for persistence (same shape for accept) */
+export interface AcceptBuildResult {
+  capsule: HandshakeCapsuleWire
+  keypair: SigningKeypair
 }
 
 /**
@@ -435,6 +504,9 @@ export function buildRefreshCapsule(
     prev_hash: opts.last_capsule_hash_received,
   }
 
+  const capsuleHash = computeCapsuleHash(hashInput)
+  const senderSignature = signCapsuleHash(capsuleHash, opts.local_private_key)
+
   const wire: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'refresh',
@@ -453,7 +525,7 @@ export function buildRefreshCapsule(
       wrdesk_user_id: session.wrdesk_user_id,
     },
     receiverIdentity: null,
-    capsule_hash: computeCapsuleHash(hashInput),
+    capsule_hash: capsuleHash,
     context_hash: computeContextHash(contextHashInput),
     context_commitment: contextCommitment,
     nonce,
@@ -465,6 +537,8 @@ export function buildRefreshCapsule(
     tierSignals: sessionToTierSignals(session),
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
+    sender_public_key: opts.local_public_key,
+    sender_signature: senderSignature,
     ...(opts.context_block_proofs && opts.context_block_proofs.length > 0
       ? { context_block_proofs: opts.context_block_proofs }
       : {}),
@@ -525,6 +599,9 @@ export function buildContextSyncCapsule(
     prev_hash: opts.last_capsule_hash_received,
   }
 
+  const capsuleHash = computeCapsuleHash(hashInput)
+  const senderSignature = signCapsuleHash(capsuleHash, opts.local_private_key)
+
   return {
     schema_version: 2,
     capsule_type: 'context_sync',
@@ -543,7 +620,7 @@ export function buildContextSyncCapsule(
       wrdesk_user_id: session.wrdesk_user_id,
     },
     receiverIdentity: null,
-    capsule_hash: computeCapsuleHash(hashInput),
+    capsule_hash: capsuleHash,
     context_hash: computeContextHash(contextHashInput),
     context_commitment: contextCommitment,
     nonce,
@@ -555,6 +632,8 @@ export function buildContextSyncCapsule(
     tierSignals: sessionToTierSignals(session),
     wrdesk_policy_hash: policyHash,
     wrdesk_policy_version: policy.version,
+    sender_public_key: opts.local_public_key,
+    sender_signature: senderSignature,
     context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
   }
 }
@@ -613,6 +692,9 @@ export function buildRevokeCapsule(
     timestamp,
   }
 
+  const capsuleHash = computeCapsuleHash(hashInput)
+  const senderSignature = signCapsuleHash(capsuleHash, opts.local_private_key)
+
   const contextHashInput: ContextHashInput = {
     schema_version: 2,
     capsule_type: 'revoke',
@@ -646,7 +728,9 @@ export function buildRevokeCapsule(
       wrdesk_user_id: session.wrdesk_user_id,
     },
     receiverIdentity: null,
-    capsule_hash: computeCapsuleHash(hashInput),
+    capsule_hash: capsuleHash,
+    sender_public_key: opts.local_public_key,
+    sender_signature: senderSignature,
     context_hash: computeContextHash(contextHashInput),
     context_commitment: null,
     nonce,
@@ -680,16 +764,16 @@ function canonicalizeBlockIds(
 }
 
 /**
- * Build an initiate capsule and return both the wire capsule (no content)
- * and the full context blocks (with content) for local storage.
+ * Build an initiate capsule and return both the wire capsule (no content),
+ * the full context blocks (with content) for local storage, and the keypair for persistence.
  */
 export function buildInitiateCapsuleWithContent(
   session: SSOSession,
   opts: InitiateOptions,
-): { capsule: HandshakeCapsuleWire; localBlocks: ContextBlockForCommitment[] } {
-  const capsule = buildInitiateCapsule(session, opts)
+): InitiateBuildResult {
+  const { capsule, keypair } = buildInitiateCapsuleCore(session, opts)
   const localBlocks = canonicalizeBlockIds(opts.context_blocks, capsule.handshake_id) ?? []
-  return { capsule, localBlocks }
+  return { capsule, localBlocks, keypair }
 }
 
 function sessionToTierSignals(session: SSOSession): TierSignals {

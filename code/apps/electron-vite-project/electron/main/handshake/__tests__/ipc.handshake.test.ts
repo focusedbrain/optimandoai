@@ -20,6 +20,8 @@ import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildInitiateCapsule, buildAcceptCapsule } from '../capsuleBuilder'
 import { handleIngestionRPC } from '../../ingestion/ipc'
+import { updateHandshakeSigningKeys } from '../db'
+import { mockKeypairFields } from './mockKeypair'
 import type { SSOSession } from '../types'
 
 function senderSession(): SSOSession {
@@ -188,11 +190,12 @@ describe('Handshake IPC — handshake.refresh', () => {
       receiver,
     )
 
-    const accept = buildAcceptCapsule(receiver, {
+    const { capsule: accept } = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
       initiatorUserId: sender.wrdesk_user_id,
       initiatorEmail: sender.email,
       sharing_mode: 'reciprocal',
+      initiator_capsule_hash: initiate.capsule_hash,
     })
     await handleIngestionRPC(
       'ingestion.ingest',
@@ -212,6 +215,7 @@ describe('Handshake IPC — handshake.refresh', () => {
     const sender = senderSession()
     setSSOSessionProvider(() => sender)
     const handshakeId = await createActiveHandshake()
+    updateHandshakeSigningKeys(db, handshakeId, mockKeypairFields())
 
     const result = await handleHandshakeRPC('handshake.refresh', {
       handshake_id: handshakeId,
@@ -237,6 +241,7 @@ describe('Handshake IPC — handshake.refresh', () => {
     const sender = senderSession()
     setSSOSessionProvider(() => sender)
     const handshakeId = await createActiveHandshake()
+    updateHandshakeSigningKeys(db, handshakeId, mockKeypairFields())
 
     // Manually update the record state to REVOKED
     const record = db.getHandshake(handshakeId)
