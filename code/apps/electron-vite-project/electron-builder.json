@@ -97,7 +97,8 @@
   "asar": true,
   "asarUnpack": [
     "**/*.node",
-    "resources/**/*"
+    "resources/**/*",
+    "dist-electron/preload.mjs"
   ]
 }
 

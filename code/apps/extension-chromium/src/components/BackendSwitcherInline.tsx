@@ -96,6 +96,9 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({});
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [pictureError, setPictureError] = useState(false);  // Track if picture failed to load
+  const [electronNotRunning, setElectronNotRunning] = useState(false);
+  const [isLaunchingElectron, setIsLaunchingElectron] = useState(false);
+  const [launchTimedOut, setLaunchTimedOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -184,6 +187,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
         if (response?.ok) {
           setIsLoggedIn(true);
           setPictureError(false);
+          setElectronNotRunning(false);
           // Fetch user info after successful login
           chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
             if (statusResponse?.loggedIn) {
@@ -199,15 +203,64 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
           const reason = response?.error || 'unknown';
           console.log('[AUTH] SSO failed. Reason:', reason);
           if (response?.electronNotRunning) {
+            setElectronNotRunning(true);
             chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
+          } else {
+            setElectronNotRunning(false);
           }
-          // Non-fatal: user can retry clicking Sign In
         }
       });
     } catch (err) {
       setIsLoggingIn(false);
       console.error('[AUTH] Login error:', err);
     }
+  };
+
+  const checkConnection = (): Promise<boolean> => {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (r: { data?: { isConnected?: boolean } }) => {
+        resolve(r?.data?.isConnected ?? false);
+      });
+    });
+  };
+
+  const launchElectronApp = async () => {
+    setIsLaunchingElectron(true);
+    setLaunchTimedOut(false);
+    try {
+      window.open('wrdesk://launch', '_blank');
+      const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' });
+      if (response?.success) {
+        setElectronNotRunning(false);
+        await new Promise(r => setTimeout(r, 2000));
+        chrome.runtime.sendMessage({ type: 'GET_STATUS' });
+        handleSignIn();
+      } else {
+        const pollInterval = 2000;
+        const maxWait = 30000;
+        const start = Date.now();
+        const poll = async () => {
+          if (Date.now() - start >= maxWait) {
+            setLaunchTimedOut(true);
+            setIsLaunchingElectron(false);
+            return;
+          }
+          const connected = await checkConnection();
+          if (connected) {
+            setIsLaunchingElectron(false);
+            setElectronNotRunning(false);
+            handleSignIn();
+            return;
+          }
+          setTimeout(poll, pollInterval);
+        };
+        setTimeout(poll, pollInterval);
+        return;
+      }
+    } catch (err) {
+      console.error('[BackendSwitcherInline] Failed to launch Electron:', err);
+    }
+    setIsLaunchingElectron(false);
   };
 
   // Handle Logout click - INSTANT UI update, backend cleanup in background
@@ -354,7 +407,53 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                   Create Account
                 </button>
               </>
-            ) : (
+            )}
+            {electronNotRunning && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', paddingTop: '8px', borderTop: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)' }}>
+                <p style={{ margin: 0, fontSize: '11px', color: effectiveTheme === 'standard' ? '#dc2626' : '#f87171' }}>
+                  WR Desk Orchestrator is not running.
+                </p>
+                {launchTimedOut && (
+                  <p style={{ margin: 0, fontSize: '10px', color: effectiveTheme === 'standard' ? '#dc2626' : '#f87171' }}>
+                    Could not connect. Please make sure WR Desk is running and try again.
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={launchElectronApp}
+                    disabled={isLaunchingElectron}
+                    style={{
+                      padding: '6px 12px',
+                      background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: isLaunchingElectron ? 'rgba(255,255,255,0.8)' : '#fff',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {isLaunchingElectron ? 'Connecting...' : 'Launch WR Desk'}
+                  </button>
+                  <button
+                    onClick={() => { setElectronNotRunning(false); handleSignIn(); }}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      border: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                      borderRadius: '6px',
+                      color: textColor,
+                      fontSize: '11px',
+                      fontWeight: '400',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Retry Sign In
+                  </button>
+                </div>
+              </div>
+            )}
+            {isLoggedIn ? (
               /* ========== LOGGED-IN STATE ========== */
               /* Avatar/initials + visible Logout link + dropdown for more options */
               <>
@@ -541,7 +640,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                   )}
                 </div>
               </>
-            )}
+            ) : null}
           </div>
           <div 
             onClick={() => setIsCollapsed(!isCollapsed)}

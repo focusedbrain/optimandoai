@@ -16,6 +16,9 @@ dist-electron
 # Build output (electron-builder)
 dist/release
 squashfs-root
+build-output/
+**/linux-unpacked/
+**/win-unpacked/
 
 # Editor directories and files
 .vscode/*

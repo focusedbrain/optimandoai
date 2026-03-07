@@ -226,25 +226,13 @@ async function openDashboardWindow(): Promise<void> {
   console.log('[AUTH] Opening dashboard window...')
   
   if (win && !win.isDestroyed()) {
-    // Window exists - show and focus
-    console.log('[AUTH] Dashboard window exists - showing and focusing')
-    if (win.isMinimized()) {
-      win.restore()
-    }
-    win.show()
-    win.focus()
-    // On Linux, send OPEN_ANALYSIS_DASHBOARD to ensure renderer shows content
-    // (it may have been hidden/blank if the window was shown before renderer finished)
-    if (process.platform === 'linux') {
-      if (win.webContents.isLoading()) {
-        win.webContents.once('did-finish-load', () => {
-          win?.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
-        })
-      } else {
-        win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
-      }
-    }
-  } else {
+    // Window exists — destroy and recreate to avoid blank canvas when opened from extension.
+    // Hidden windows can have suspended/discarded renderers; reload was unreliable.
+    console.log('[AUTH] Dashboard window exists - destroying and recreating for fresh load')
+    win.destroy()
+    win = null
+  }
+  if (!win || win.isDestroyed()) {
     // Create new window
     console.log('[AUTH] Creating new dashboard window')
     await createWindow()
@@ -264,12 +252,9 @@ async function openDashboardWindow(): Promise<void> {
       if (win && !win.isDestroyed()) {
         win.show()
         win.focus()
-        // On Linux startup auto-open: send IPC so renderer initialises correctly.
-        // On Windows/macOS the extension sends OPEN_ANALYSIS_DASHBOARD via WebSocket.
-        if (process.platform === 'linux') {
-          win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
-          console.log('[AUTH] Linux startup: sent OPEN_ANALYSIS_DASHBOARD to renderer')
-        }
+        // Always send IPC so renderer shows Analysis view (extension brain icon, tray, etc.)
+        win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
+        console.log('[AUTH] Sent OPEN_ANALYSIS_DASHBOARD to new window')
       }
       // Open DevTools AFTER showing — never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
@@ -674,13 +659,13 @@ process.on('unhandledRejection', (reason, promise) => {
 function handleDeepLink(raw: string) {
   try {
     const url = new URL(raw)
-    // Support both old opengiraffe:// and new wrcode:// protocols for backward compatibility
-    if (url.protocol !== 'opengiraffe:' && url.protocol !== 'wrcode:') return
-    const action = url.hostname // e.g., lmgtfy, start
+    // Support opengiraffe://, wrcode://, and wrdesk:// protocols
+    if (url.protocol !== 'opengiraffe:' && url.protocol !== 'wrcode:' && url.protocol !== 'wrdesk:') return
+    const action = url.hostname // e.g., lmgtfy, start, launch
     const mode = url.searchParams.get('mode') || ''
     
-    // Handle 'start' action - only show dashboard if authenticated
-    if (action === 'start') {
+    // Handle 'start' and 'launch' actions - show dashboard if authenticated, or bring app to foreground
+    if (action === 'start' || action === 'launch') {
       console.log('[MAIN] Received start deep link')
       if (!hasValidSession) {
         console.log('[MAIN] No valid session - ignoring start deep link (stay in tray)')
@@ -1512,7 +1497,7 @@ async function createWindow() {
   globalShortcut.register('Alt+0', () => win?.webContents.send('hotkey', 'stop'))
 
   // Process deep link passed on first launch (Windows passes in argv)
-  const arg = process.argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
+  const arg = process.argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://') || a.startsWith('wrdesk://'))
   if (arg) handleDeepLink(arg)
 }
 
@@ -1691,13 +1676,18 @@ app.on('second-instance', (_e, argv) => {
   } else {
     console.log('[MAIN] No valid session or no window - staying in tray')
   }
-  // Handle opengiraffe:// and wrcode:// deep-links (backward compatibility)
-  const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
+  // Handle opengiraffe://, wrcode://, and wrdesk:// deep-links (backward compatibility)
+  const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://') || a.startsWith('wrdesk://'))
   if (arg) handleDeepLink(arg)
 })
 
-// Register both protocols for backward compatibility
+// Register protocols: wrcode (primary), wrdesk (Launch WR Desk button), opengiraffe (legacy)
 app.setAsDefaultProtocolClient('wrcode')
+try {
+  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch WR Desk" button
+} catch (err) {
+  console.log('[MAIN] Could not register wrdesk protocol (may already be registered):', err)
+}
 try {
   app.setAsDefaultProtocolClient('opengiraffe') // Keep old protocol for backward compatibility
 } catch (err) {
@@ -3132,11 +3122,17 @@ app.whenReady().then(async () => {
                 // create-or-show logic and DevTools in the correct order.
                 await openDashboardWindow()
                 if (win && !win.isDestroyed()) {
-                  // Signal the renderer to switch to Analysis Dashboard view with theme
+                  // Defer IPC so renderer has time to resume when showing existing window
+                  // (fixes blank canvas when opening from extension brain icon)
                   const phase = msg.phase || 'live'
-                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme: currentExtensionTheme })
-                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase, 'theme:', currentExtensionTheme)
-                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
+                  const theme = currentExtensionTheme
+                  setTimeout(() => {
+                    if (win && !win.isDestroyed()) {
+                      win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme })
+                      console.log('[MAIN] ✅ Analysis Dashboard IPC sent (phase:', phase, 'theme:', theme, ')')
+                    }
+                    try { socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' })) } catch {}
+                  }, 250)
                 } else {
                   console.log('[MAIN] ⚠️ Failed to create main window')
                   socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Failed to create main window' }))

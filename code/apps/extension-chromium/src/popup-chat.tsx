@@ -168,20 +168,54 @@ function PopupChatApp() {
     }).catch(() => setPlatformOs(null))
   }, [])
 
-  // Launch Electron app (Linux: tries protocol; Windows: shows notification)
+  const [launchTimedOut, setLaunchTimedOut] = useState(false)
+  
+  const checkConnection = (): Promise<boolean> => {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (r: { data?: { isConnected?: boolean } }) => {
+        resolve(r?.data?.isConnected ?? false)
+      })
+    })
+  }
+  
+  // Launch Electron app (Linux: tries protocol; Windows: polls for manual start)
   const launchElectronApp = async () => {
     setIsLaunchingElectron(true)
+    setLaunchTimedOut(false)
     try {
+      window.open('wrdesk://launch', '_blank')
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
       if (response?.success) {
         setElectronNotRunning(false)
-        setTimeout(() => chrome.runtime.sendMessage({ type: 'GET_STATUS' }), 2000)
+        await new Promise(r => setTimeout(r, 2000))
+        chrome.runtime.sendMessage({ type: 'GET_STATUS' })
+        handleSignIn()
+      } else {
+        const pollInterval = 2000
+        const maxWait = 30000
+        const start = Date.now()
+        const poll = async () => {
+          if (Date.now() - start >= maxWait) {
+            setLaunchTimedOut(true)
+            setIsLaunchingElectron(false)
+            return
+          }
+          const connected = await checkConnection()
+          if (connected) {
+            setIsLaunchingElectron(false)
+            setElectronNotRunning(false)
+            handleSignIn()
+            return
+          }
+          setTimeout(poll, pollInterval)
+        }
+        setTimeout(poll, pollInterval)
+        return
       }
     } catch (err) {
       console.error('[PopupChat] Failed to launch Electron:', err)
-    } finally {
-      setIsLaunchingElectron(false)
     }
+    setIsLaunchingElectron(false)
   }
 
   // Open wrdesk.com when logged out (once per popup open, no tab spam)
@@ -1497,28 +1531,31 @@ function PopupChatApp() {
                   lineHeight: '1.5',
                 }}>
                   {platformOs === 'linux'
-                    ? 'Start WR Desk from your application menu, or click the button below.'
-                    : <>Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.</>}
+                    ? 'Launch WR Desk using the button below, or start it from your application menu.'
+                    : <>Launch WR Desk using the button below, or open it from the Start menu.</>}
                 </p>
-                {platformOs === 'linux' && (
-                  <button
-                    onClick={launchElectronApp}
-                    disabled={isLaunchingElectron}
-                    style={{
-                      marginTop: '4px',
-                      padding: '6px 16px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: 'none',
-                      cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                      background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
-                      color: theme === 'standard' ? '#fff' : '#0f172a',
-                    }}
-                  >
-                    {isLaunchingElectron ? 'Starting...' : 'Start Desktop App'}
-                  </button>
-                )}
+                {launchTimedOut ? (
+                  <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
+                    Could not connect. Please make sure WR Desk is running and try again.
+                  </p>
+                ) : null}
+                <button
+                  onClick={launchElectronApp}
+                  disabled={isLaunchingElectron}
+                  style={{
+                    marginTop: '4px',
+                    padding: '6px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                    background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
+                    color: theme === 'standard' ? '#fff' : '#0f172a',
+                  }}
+                >
+                  {isLaunchingElectron ? 'Connecting to WR Desk...' : 'Launch WR Desk'}
+                </button>
                 <button
                   onClick={handleSignIn}
                   style={{
