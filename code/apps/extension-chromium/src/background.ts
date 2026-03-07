@@ -1670,17 +1670,31 @@ async function launchElectronAppDirect(): Promise<boolean> {
   
   try {
     // ============================================================================
-    // REMOVED: Custom protocol launch attempts (wrcode://start, opengiraffe://start)
-    // 
-    // These caused Windows "Open Electron?" prompts and errors when the protocol
-    // handler was not correctly registered. The extension should NOT attempt
-    // to auto-launch the desktop app via custom protocol.
-    // 
-    // Instead, we simply wait and check if the app becomes available (in case
-    // the user is starting it manually right now).
+    // Linux-only: Try custom protocol launch (wrcode://start). On Linux there is
+    // no autostart, so users need a way to start the app. Protocol works reliably.
+    // Windows: Do NOT use protocol - it caused "Open Electron?" prompts and
+    // "Cannot find module" errors. Windows has autostart via Task Scheduler.
     // ============================================================================
-    
-    // Wait briefly and check if app is starting
+    const platformInfo = await chrome.runtime.getPlatformInfo()
+    if (platformInfo.os === 'linux') {
+      console.log('[BG] Linux detected - attempting wrcode://start protocol launch')
+      try {
+        await chrome.tabs.create({ url: 'wrcode://start' })
+        // Wait for app to start
+        for (let i = 0; i < 8; i++) {
+          await new Promise(r => setTimeout(r, 500))
+          if (await isElectronRunning()) {
+            console.log('[BG] ✅ App launched via protocol on Linux')
+            electronLaunchInProgress = false
+            return true
+          }
+        }
+      } catch (e) {
+        console.warn('[BG] Protocol launch failed (user may need to start manually):', e)
+      }
+    }
+
+    // Wait briefly and check if app is starting (Windows fallback, or Linux if protocol failed)
     console.log('[BG] ⏳ Waiting briefly to see if app is starting...')
     for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 500))

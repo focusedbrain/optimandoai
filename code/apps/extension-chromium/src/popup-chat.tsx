@@ -122,6 +122,8 @@ function PopupChatApp() {
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [electronNotRunning, setElectronNotRunning] = useState(false)
+  const [platformOs, setPlatformOs] = useState<'linux' | 'mac' | 'win' | null>(null)
+  const [isLaunchingElectron, setIsLaunchingElectron] = useState(false)
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   const [userTier, setUserTier] = useState<string>('free')
   const [pictureError, setPictureError] = useState(false)
@@ -159,6 +161,29 @@ function PopupChatApp() {
     return () => clearInterval(interval);
   }, []);
   
+  // Platform detection for Linux vs Windows copy and Start Desktop App button
+  useEffect(() => {
+    chrome.runtime.getPlatformInfo?.().then((info) => {
+      setPlatformOs(info.os as 'linux' | 'mac' | 'win')
+    }).catch(() => setPlatformOs(null))
+  }, [])
+
+  // Launch Electron app (Linux: tries protocol; Windows: shows notification)
+  const launchElectronApp = async () => {
+    setIsLaunchingElectron(true)
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
+      if (response?.success) {
+        setElectronNotRunning(false)
+        setTimeout(() => chrome.runtime.sendMessage({ type: 'GET_STATUS' }), 2000)
+      }
+    } catch (err) {
+      console.error('[PopupChat] Failed to launch Electron:', err)
+    } finally {
+      setIsLaunchingElectron(false)
+    }
+  }
+
   // Open wrdesk.com when logged out (once per popup open, no tab spam)
   const hasTriedOpeningWrdeskRef = React.useRef(false);
   useEffect(() => {
@@ -1471,8 +1496,29 @@ function PopupChatApp() {
                   textAlign: 'center',
                   lineHeight: '1.5',
                 }}>
-                  Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.
+                  {platformOs === 'linux'
+                    ? 'Start WR Desk from your application menu, or click the button below.'
+                    : <>Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.</>}
                 </p>
+                {platformOs === 'linux' && (
+                  <button
+                    onClick={launchElectronApp}
+                    disabled={isLaunchingElectron}
+                    style={{
+                      marginTop: '4px',
+                      padding: '6px 16px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: 'none',
+                      cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                      background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
+                      color: theme === 'standard' ? '#fff' : '#0f172a',
+                    }}
+                  >
+                    {isLaunchingElectron ? 'Starting...' : 'Start Desktop App'}
+                  </button>
+                )}
                 <button
                   onClick={handleSignIn}
                   style={{

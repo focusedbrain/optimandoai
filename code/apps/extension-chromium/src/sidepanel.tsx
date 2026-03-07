@@ -100,6 +100,7 @@ function SidepanelOrchestrator() {
   const [showThirdPartyLicenses, setShowThirdPartyLicenses] = useState(false) // Third party licenses modal
   const [showElectronDialog, setShowElectronDialog] = useState(false) // Dialog when Electron app is not running
   const [isLaunchingElectron, setIsLaunchingElectron] = useState(false) // Loading state for launching Electron
+  const [platformOs, setPlatformOs] = useState<'linux' | 'mac' | 'win' | null>(null)
   
   /**
    * BASELINE LOCATION COMMENTS (Step 1/10 Refactoring)
@@ -182,6 +183,13 @@ function SidepanelOrchestrator() {
     return () => clearInterval(interval);
   }, []);
   
+  // Platform detection for Linux vs Windows copy and Start Desktop App button
+  useEffect(() => {
+    chrome.runtime.getPlatformInfo?.().then((info) => {
+      setPlatformOs(info.os as 'linux' | 'mac' | 'win')
+    }).catch(() => setPlatformOs(null))
+  }, [])
+
   // Open wrdesk.com when logged out (once per sidepanel open, no tab spam)
   const hasTriedOpeningWrdeskRef = useRef(false);
   useEffect(() => {
@@ -3498,11 +3506,23 @@ function SidepanelOrchestrator() {
                   Please start the app manually:
                 </p>
                 <ol style={{ margin: '0', paddingLeft: '20px', fontSize: '12px', lineHeight: 1.6 }}>
-                  <li>Open the <strong>Start Menu</strong></li>
-                  <li>Search for <strong>"WR Desk"</strong></li>
-                  <li>Click to launch the application</li>
-                  <li>Wait for the tray icon (🧠) to appear</li>
-                  <li>Click <strong>Retry Connection</strong> below</li>
+                  {platformOs === 'linux' ? (
+                    <>
+                      <li>Open your application menu</li>
+                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Click to launch the application</li>
+                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Click <strong>Retry Connection</strong> below</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>Open the <strong>Start Menu</strong></li>
+                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Click to launch the application</li>
+                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Click <strong>Retry Connection</strong> below</li>
+                    </>
+                  )}
                 </ol>
               </div>
               
@@ -3571,8 +3591,9 @@ function SidepanelOrchestrator() {
             borderTop: '1px solid rgba(255,255,255,0.2)',
             paddingTop: '12px'
           }}>
-            <strong>Tip:</strong> The dashboard normally starts automatically with Windows. 
-            Check the system tray (🧠) if it's running in the background.
+            <strong>Tip:</strong> {platformOs === 'linux'
+              ? 'On Linux, start WR Desk from your application menu. Check the system tray (🧠) if it\'s running.'
+              : 'The dashboard normally starts automatically with Windows. Check the system tray (🧠) if it\'s running in the background.'}
           </div>
         </div>
       </div>
@@ -3755,8 +3776,29 @@ function SidepanelOrchestrator() {
                   textAlign: 'center',
                   lineHeight: '1.5',
                 }}>
-                  Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.
+                  {platformOs === 'linux'
+                    ? 'Start WR Desk from your application menu, or click the button below.'
+                    : <>Open <strong>WR Desk</strong> from the Start menu, then click Sign In again.</>}
                 </p>
+                {platformOs === 'linux' && (
+                  <button
+                    onClick={launchElectronApp}
+                    disabled={isLaunchingElectron}
+                    style={{
+                      marginTop: '4px',
+                      padding: '6px 16px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: 'none',
+                      cursor: isLaunchingElectron ? 'wait' : 'pointer',
+                      background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
+                      color: theme === 'standard' ? '#fff' : '#0f172a',
+                    }}
+                  >
+                    {isLaunchingElectron ? 'Starting...' : 'Start Desktop App'}
+                  </button>
+                )}
                 <button
                   onClick={handleAuthSignIn}
                   style={{

@@ -759,13 +759,17 @@ async function createWindow() {
     console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // When packaged (AppImage, etc.), __dirname inside app.asar can resolve incorrectly.
-    // Use app.getAppPath() for reliable path resolution.
+    // When packaged, path resolution differs by platform.
+    // Windows: app.getAppPath() works correctly.
+    // Linux (AppImage): process.resourcesPath + app.asar is more reliable — getAppPath()
+    // can resolve incorrectly when running from mounted AppImage. Do NOT change Windows.
     const indexPath = app.isPackaged
-      ? path.join(app.getAppPath(), 'dist', 'index.html')
+      ? (process.platform === 'linux'
+          ? path.join(process.resourcesPath, 'app.asar', 'dist', 'index.html')
+          : path.join(app.getAppPath(), 'dist', 'index.html'))
       : path.join(RENDERER_DIST, 'index.html')
     console.log('[MAIN] Loading production file:', indexPath)
-    console.log('[MAIN] isPackaged:', app.isPackaged, 'RENDERER_DIST:', RENDERER_DIST)
+    console.log('[MAIN] isPackaged:', app.isPackaged, 'platform:', process.platform, 'RENDERER_DIST:', RENDERER_DIST)
     win.loadFile(indexPath)
   }
 
