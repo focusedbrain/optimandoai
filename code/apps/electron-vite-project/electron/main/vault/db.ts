@@ -19,17 +19,28 @@ async function loadSQLCipher(): Promise<any> {
       // Load better-sqlite3 (works in dev and production)
       let sqlite3: any = null
       
-      // First try: standard require (works in dev)
+      // First try: standard require (works in dev with flat node_modules)
       try {
         sqlite3 = require('better-sqlite3')
         console.log('[VAULT DB] better-sqlite3 loaded via standard require')
       } catch (e1: any) {
         console.log('[VAULT DB] Standard require failed, trying fallback paths...')
-        // Second try: from app.asar.unpacked (works in production)
-        try {
+
+        // Second try: app-local node_modules (pnpm workspace — module not in flat node_modules)
+        if (!sqlite3) try {
+          const path = require('path')
+          const appNodeModules = path.join(__dirname, '..', 'node_modules', 'better-sqlite3')
+          console.log('[VAULT DB] Trying app node_modules path:', appNodeModules)
+          sqlite3 = require(appNodeModules)
+          console.log('[VAULT DB] better-sqlite3 loaded from app node_modules')
+        } catch (e1b: any) {
+          console.log('[VAULT DB] App node_modules failed:', e1b?.message)
+        }
+
+        // Third try: from app.asar.unpacked (works in production)
+        if (!sqlite3) try {
           const path = require('path')
           const { app } = require('electron')
-          // app.getAppPath() returns path to app.asar, so we go up one level to resources
           const resourcesPath = path.dirname(app.getAppPath())
           const unpackedPath = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3')
           console.log('[VAULT DB] Trying unpacked path:', unpackedPath)
@@ -37,22 +48,21 @@ async function loadSQLCipher(): Promise<any> {
           console.log('[VAULT DB] better-sqlite3 loaded from unpacked directory')
         } catch (e2: any) {
           console.log('[VAULT DB] Unpacked path failed:', e2?.message)
-          // Third try: from node_modules in app directory
-          try {
-            const path = require('path')
-            const { app } = require('electron')
-            const resourcesPath = path.dirname(app.getAppPath())
-            const nodeModulesPath = path.join(resourcesPath, 'node_modules', 'better-sqlite3')
-            console.log('[VAULT DB] Trying node_modules path:', nodeModulesPath)
-            sqlite3 = require(nodeModulesPath)
-            console.log('[VAULT DB] better-sqlite3 loaded from node_modules')
-          } catch (e3: any) {
-            console.error('[VAULT DB] All better-sqlite3 load attempts failed')
-            console.error('[VAULT DB] Attempt 1 (require):', e1?.message)
-            console.error('[VAULT DB] Attempt 2 (unpacked):', e2?.message)
-            console.error('[VAULT DB] Attempt 3 (node_modules):', e3?.message)
-            throw e1 // Throw the original error
-          }
+        }
+
+        // Fourth try: from node_modules relative to app resources
+        if (!sqlite3) try {
+          const path = require('path')
+          const { app } = require('electron')
+          const resourcesPath = path.dirname(app.getAppPath())
+          const nodeModulesPath = path.join(resourcesPath, 'node_modules', 'better-sqlite3')
+          console.log('[VAULT DB] Trying node_modules path:', nodeModulesPath)
+          sqlite3 = require(nodeModulesPath)
+          console.log('[VAULT DB] better-sqlite3 loaded from node_modules')
+        } catch (e3: any) {
+          console.error('[VAULT DB] All better-sqlite3 load attempts failed')
+          console.error('[VAULT DB] Attempt 1 (require):', e1?.message)
+          throw e1
         }
       }
       

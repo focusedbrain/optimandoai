@@ -37,16 +37,21 @@ async function loadSQLite(): Promise<any> {
       _DatabaseConstructor = _require('better-sqlite3')
     } catch {
       const path = _require('path')
-      const { app } = _require('electron')
-      const resourcesPath = path.dirname(app.getAppPath())
+      // Try app-local node_modules first (pnpm workspace — not in flat node_modules)
       try {
-        _DatabaseConstructor = _require(
-          path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3'),
-        )
+        _DatabaseConstructor = _require(path.join(__dirname, '..', 'node_modules', 'better-sqlite3'))
       } catch {
-        _DatabaseConstructor = _require(
-          path.join(resourcesPath, 'node_modules', 'better-sqlite3'),
-        )
+        const { app } = _require('electron')
+        const resourcesPath = path.dirname(app.getAppPath())
+        try {
+          _DatabaseConstructor = _require(
+            path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3'),
+          )
+        } catch {
+          _DatabaseConstructor = _require(
+            path.join(resourcesPath, 'node_modules', 'better-sqlite3'),
+          )
+        }
       }
     }
     if (typeof _DatabaseConstructor !== 'function') {

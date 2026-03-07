@@ -258,8 +258,7 @@ async function openDashboardWindow(): Promise<void> {
       }
       // Open DevTools AFTER showing — never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
-      // Use --enable-devtools when running packaged app to debug blank page.
-      if (win && !win.isDestroyed() && (VITE_DEV_SERVER_URL || enableDevTools)) {
+      if (win && !win.isDestroyed()) {
         win.webContents.openDevTools({ mode: 'detach' })
       }
     }
@@ -2024,18 +2023,47 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:submitCapsule', async (_e, jsonString: string) => {
       try {
-        // Get the SSO session from the registered provider (vault-independent)
-        const ssoSession = getCurrentSession()
+        // Get the SSO session — try refreshing first if not available
+        let ssoSession = getCurrentSession()
+        console.log('[SUBMIT-CAPSULE] getCurrentSession():', ssoSession ? `ok (user=${ssoSession.email})` : 'null')
+        if (!ssoSession) {
+          // Try to refresh the session from stored refresh token
+          try {
+            const refreshed = await ensureSession()
+            console.log('[SUBMIT-CAPSULE] ensureSession() result: accessToken=', !!refreshed.accessToken, 'userInfo=', !!refreshed.userInfo)
+            if (refreshed.accessToken) {
+              // Re-register session info so getCurrentSession() works
+              const userInfo = getCachedUserInfo()
+              console.log('[SUBMIT-CAPSULE] getCachedUserInfo() after refresh:', userInfo ? `sub=${userInfo.sub}, email=${userInfo.email}` : 'null')
+              if (userInfo?.sub && userInfo?.email && userInfo?.iss) {
+                ssoSession = sessionFromClaims({
+                  wrdesk_user_id: userInfo.wrdesk_user_id || userInfo.sub,
+                  email: userInfo.email,
+                  iss: userInfo.iss,
+                  sub: userInfo.sub!,
+                  plan: (userInfo.wrdesk_plan as any) || 'free',
+                  session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+                })
+                console.log('[SUBMIT-CAPSULE] ssoSession built from refresh:', !!ssoSession)
+              }
+            }
+          } catch (refreshErr) {
+            console.warn('[MAIN] handshake:submitCapsule — session refresh failed:', refreshErr)
+          }
+        }
+        console.log('[SUBMIT-CAPSULE] Final ssoSession:', ssoSession ? `ok` : 'null — returning auth error')
         if (!ssoSession) return { success: false, error: 'No active session. Please log in first.' }
 
         // Open the ledger lazily if it isn't open yet (e.g. startup race condition)
         let db = getLedgerDb()
+        console.log('[SUBMIT-CAPSULE] getLedgerDb():', db ? 'ok' : 'null')
         if (!db) {
           try {
             const userInfo = getCachedUserInfo()
             if (userInfo?.sub && userInfo?.iss) {
               const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
               db = await openLedger(ledgerToken)
+              console.log('[SUBMIT-CAPSULE] lazy openLedger():', db ? 'ok' : 'failed')
             }
           } catch (ledgerErr: any) {
             console.warn('[MAIN] handshake:submitCapsule — lazy ledger open failed:', ledgerErr?.message)
@@ -2046,9 +2074,10 @@ app.whenReady().then(async () => {
         if (!db) {
           const vs = (globalThis as any).__og_vault_service_ref
           db = vs?.getDb?.() ?? vs?.db ?? null
+          console.log('[SUBMIT-CAPSULE] vault DB fallback:', db ? 'ok' : 'null')
         }
 
-        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        if (!db) return { success: false, error: 'Database unavailable. Handshake ledger could not be opened.' }
 
         return await handleIngestionRPC('ingestion.ingest', {
           rawInput: { body: jsonString, mime_type: 'application/vnd.beap+json', headers: { 'content-type': 'application/vnd.beap+json' } },
