@@ -599,14 +599,18 @@ function buildRefreshRecord(
   }
 }
 
-/** context-sync: updates seq/hash; ACCEPTED → ACTIVE when roundtrip completes. */
+/** context-sync: updates seq/hash; ACCEPTED → ACTIVE when roundtrip completes.
+ * Only transition to ACTIVE when BOTH: (1) received other's context_sync (seq>=1),
+ * (2) own context_sync was sent (context_sync_pending=false).
+ * If own is still pending (vault was locked), stay ACCEPTED until we send ours.
+ */
 function buildContextSyncRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
 ): HandshakeRecord {
-  const nextState = existing.state === HS.ACCEPTED && input.seq >= 1
-    ? HS.ACTIVE
-    : existing.state
+  const receivedContextSync = existing.state === HS.ACCEPTED && input.seq >= 1
+  const ownSent = !existing.context_sync_pending
+  const nextState = receivedContextSync && ownSent ? HS.ACTIVE : existing.state
   return {
     ...existing,
     state: nextState,

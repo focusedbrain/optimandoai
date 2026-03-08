@@ -216,6 +216,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
   deleteHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:delete', assertString(id, 'id'))
   },
+  requestUnlockVault: () => {
+    return ipcRenderer.invoke('vault:unlockForHandshake')
+  },
   forceRevokeHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:forceRevoke', assertString(id, 'id'))
   },

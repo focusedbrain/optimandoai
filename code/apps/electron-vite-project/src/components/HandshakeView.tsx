@@ -314,6 +314,12 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
                 onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
+                onRequestUnlockVault={selectedRecord.state === 'ACCEPTED' && selectedRecord.context_sync_pending
+                  ? () => {
+                      window.handshakeView?.requestUnlockVault?.().then(() => refreshList()).catch(() => {})
+                      window.dispatchEvent(new CustomEvent('vault:requestUnlock'))
+                    }
+                  : undefined}
               />
             </div>
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>

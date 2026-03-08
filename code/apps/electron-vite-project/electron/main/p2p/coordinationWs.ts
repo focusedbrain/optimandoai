@@ -16,10 +16,7 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
-import { enqueueOutboundCapsule } from '../handshake/outboundQueue'
-import { getContextStoreByHandshake } from '../handshake/db'
-import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
-import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
+import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -142,88 +139,34 @@ async function processCapsuleInternal(
       const record = handshakeResult.handshakeRecord!
       const targetEndpoint = record.p2p_endpoint?.trim()
 
-      // After ACCEPT: send initial context_sync (we have pending_delivery blocks)
+      // After ACCEPT: send initial context_sync (or defer if vault locked)
       if (newState === 'ACCEPTED' && targetEndpoint) {
-        const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
-        if (pending.length > 0) {
-          const counterpartyUserId = record.local_role === 'initiator'
-            ? record.acceptor!.wrdesk_user_id
-            : record.initiator.wrdesk_user_id
-          const counterpartyEmail = record.local_role === 'initiator'
-            ? record.acceptor!.email
-            : record.initiator.email
-          const localPub = record.local_public_key ?? ''
-          const localPriv = record.local_private_key ?? ''
-          if (localPub && localPriv) {
-            const lastHash = (rebuildResult.capsule as unknown as Record<string, unknown>)?.capsule_hash as string ?? ''
-            const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
-              block_id: b.block_id,
-              block_hash: b.block_hash,
-              scope_id: b.scope_id ?? undefined,
-              type: b.type,
-              content: b.content ?? '',
-            }))
-            const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-              handshake_id: record.handshake_id,
-              counterpartyUserId,
-              counterpartyEmail,
-              last_seq_received: 0,
-              last_capsule_hash_received: lastHash,
-              context_blocks: contextBlocks,
-              local_public_key: localPub,
-              local_private_key: localPriv,
-            })
-            enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint, contextSyncCapsule)
-            console.log('[Coordination] Initial context_sync enqueued for handshake=', record.handshake_id)
-          } else {
-            console.warn('[Coordination] Skipping initial context-sync: handshake has no signing keys')
-          }
+        const lastHash = (rebuildResult.capsule as unknown as Record<string, unknown>)?.capsule_hash as string ?? ''
+        const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
+          lastCapsuleHash: lastHash,
+          lastSeqReceived: 0,
+        })
+        if (contextResult.success) {
+          console.log('[Coordination] Initial context_sync enqueued for handshake=', record.handshake_id)
+        } else if (contextResult.reason === 'VAULT_LOCKED') {
+          console.log('[Coordination] Context sync deferred for initiator — vault locked')
         }
       }
 
-      // After context_sync (seq 1): send reverse context_sync if we have pending_delivery
+      // After context_sync (seq 1): send reverse context_sync (or defer if vault locked)
       const capObjRebuilt = rebuildResult.capsule as unknown as Record<string, unknown>
       if (capObjRebuilt?.capsule_type === 'context_sync' && capObjRebuilt?.seq === 1 && targetEndpoint) {
-        const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
-        if (pending.length > 0) {
-          setImmediate(() => {
-            try {
-              const counterpartyUserId = record.local_role === 'initiator'
-                ? record.acceptor!.wrdesk_user_id
-                : record.initiator.wrdesk_user_id
-              const counterpartyEmail = record.local_role === 'initiator'
-                ? record.acceptor!.email
-                : record.initiator.email
-              const localPub = record.local_public_key ?? ''
-              const localPriv = record.local_private_key ?? ''
-              if (!localPub || !localPriv) {
-                console.warn('[Coordination] Skipping reverse context-sync: handshake has no signing keys')
-                return
-              }
-              const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
-                block_id: b.block_id,
-                block_hash: b.block_hash,
-                scope_id: b.scope_id ?? undefined,
-                type: b.type,
-                content: b.content ?? '',
-              }))
-              const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-                handshake_id: record.handshake_id,
-                counterpartyUserId,
-                counterpartyEmail,
-                last_seq_received: 1,
-                last_capsule_hash_received: capObjRebuilt.capsule_hash as string,
-                context_blocks: contextBlocks,
-                local_public_key: localPub,
-                local_private_key: localPriv,
-              })
-              enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint, contextSyncCapsule)
-              console.log('[Coordination] Reverse context_sync enqueued for handshake=', record.handshake_id)
-            } catch (err: any) {
-              console.warn('[Coordination] Reverse context-sync enqueue failed:', err?.message)
-            }
+        setImmediate(() => {
+          const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
+            lastCapsuleHash: capObjRebuilt.capsule_hash as string,
+            lastSeqReceived: 1,
           })
-        }
+          if (contextResult.success) {
+            console.log('[Coordination] Reverse context_sync enqueued for handshake=', record.handshake_id)
+          } else if (contextResult.reason === 'VAULT_LOCKED') {
+            console.log('[Coordination] Reverse context sync deferred — vault locked')
+          }
+        })
       }
     } else {
       console.warn('[Coordination] Handshake rejected:', handshakeResult.reason)

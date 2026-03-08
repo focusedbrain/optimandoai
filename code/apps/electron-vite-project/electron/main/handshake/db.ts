@@ -375,6 +375,13 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_hs_expires ON handshakes(expires_at)`,
     ],
   },
+  {
+    version: 17,
+    description: 'Schema v17: context_sync_pending for vault-deferred completion',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN context_sync_pending INTEGER DEFAULT 0`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -496,7 +503,12 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_private_key: row.local_private_key ?? null,
     counterparty_public_key: row.counterparty_public_key ?? null,
     receiver_email: row.receiver_email ?? null,
+    context_sync_pending: !!(row.context_sync_pending),
   }
+}
+
+export function updateHandshakeContextSyncPending(db: any, handshakeId: string, pending: boolean): void {
+  db.prepare('UPDATE handshakes SET context_sync_pending = ? WHERE handshake_id = ?').run(pending ? 1 : 0, handshakeId)
 }
 
 export function updateHandshakeSigningKeys(

@@ -545,6 +545,7 @@ import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
+import { completePendingContextSyncs } from './main/handshake/contextSyncEnqueue'
 import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
@@ -2294,6 +2295,22 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('vault:unlockForHandshake', async () => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status?.isUnlocked) {
+          return { success: false, reason: 'VAULT_LOCKED', needsUnlock: true }
+        }
+        const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
+        completePendingContextSyncs(db, getCurrentSession())
+        try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, reason: err?.message ?? 'UNKNOWN' }
+      }
+    })
+
     ipcMain.handle('p2p:getHealth', async () => {
       const h = getP2PHealth()
       try {
@@ -3032,6 +3049,18 @@ app.whenReady().then(async () => {
                 // Auto-bind VSBT to this connection on successful create/unlock
                 if (response.success && response.sessionToken) {
                   wsVsbtBindings.set(socket, response.sessionToken)
+                }
+
+                // Complete pending context syncs when vault unlocks
+                if ((msg.method === 'vault.unlock' || msg.method === 'vault.create') && response.success) {
+                  setImmediate(async () => {
+                    try {
+                      const { vaultService: vs } = await import('./main/vault/rpc')
+                      const db = getLedgerDb() ?? vs.getDb?.() ?? null
+                      completePendingContextSyncs(db, getCurrentSession())
+                      try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+                    } catch (e) { /* non-fatal */ }
+                  })
                 }
 
                 // Clear ALL WS bindings on vault.lock (VSBT invalidated globally)
@@ -5172,6 +5201,11 @@ app.whenReady().then(async () => {
         const vaultService = await getVaultService()
         await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
         res.json({ success: true, sessionToken: vaultService.getSessionToken() })
+        setImmediate(() => {
+          const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
+          completePendingContextSyncs(db, getCurrentSession())
+          try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in unlock:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })

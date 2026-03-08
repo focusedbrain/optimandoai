@@ -10,7 +10,7 @@
  * Submits raw file content to Electron via IPC for full pipeline processing.
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 const MAX_FILE_SIZE = 64 * 1024
 
@@ -69,6 +69,13 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
     setError(null)
     setResult(null)
   }, [])
+
+  // Auto-dismiss success message after 5 seconds
+  useEffect(() => {
+    if (!result?.success) return
+    const t = setTimeout(() => setResult(null), 5000)
+    return () => clearTimeout(t)
+  }, [result?.success])
 
   const processFile = useCallback(async (file: File) => {
     resetState()
@@ -183,7 +190,7 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => { setResult(null); fileInputRef.current?.click() }}
         style={{
           padding: '20px 16px', textAlign: 'center',
           border: `2px dashed ${dragOver ? 'var(--color-accent, #a78bfa)' : 'var(--color-border, rgba(255,255,255,0.12))'}`,

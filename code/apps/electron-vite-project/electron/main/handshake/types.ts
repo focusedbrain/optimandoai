@@ -357,6 +357,8 @@ export interface HandshakeRecord {
   counterparty_public_key?: string | null;
   /** For initiator PENDING_ACCEPT: intended receiver's email (from initiate capsule) */
   receiver_email?: string | null;
+  /** True when context_sync was deferred (vault locked); cleared on successful enqueue */
+  context_sync_pending?: boolean;
 }
 
 // ── Context Block (persisted) ──

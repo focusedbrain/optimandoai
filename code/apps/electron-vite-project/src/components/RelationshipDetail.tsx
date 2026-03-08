@@ -27,6 +27,7 @@ interface HandshakeRecord {
   initiator_context_commitment: string | null
   acceptor_context_commitment: string | null
   p2p_endpoint?: string | null
+  context_sync_pending?: boolean
 }
 
 interface Props {
@@ -34,6 +35,7 @@ interface Props {
   contextBlockCount: number
   onRevoke?: () => void
   onDelete?: () => void
+  onRequestUnlockVault?: () => void
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -196,7 +198,7 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   return <MetaRow label="P2P" value="No queue entries" />
 }
 
-export default function RelationshipDetail({ record, contextBlockCount, onRevoke, onDelete }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, onRevoke, onDelete, onRequestUnlockVault }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
@@ -250,6 +252,46 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
           <StateBadge state={record.state} />
         </div>
       </div>
+
+      {/* ACCEPTED + vault locked: unlock guidance */}
+      {record.state === 'ACCEPTED' && record.context_sync_pending && (
+        <div style={{
+          marginBottom: '16px', padding: '14px 16px',
+          background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b', marginBottom: '6px' }}>
+            Vault unlock required
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5, marginBottom: '10px' }}>
+            Unlock your vault to securely complete this handshake. Signatures and sensitive data will be stored in your vault. The connection will be finalized automatically once unlocked.
+          </div>
+          {onRequestUnlockVault && (
+            <button
+              onClick={onRequestUnlockVault}
+              style={{
+                padding: '6px 12px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
+                border: '1px solid rgba(245,158,11,0.4)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Unlock Vault
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ACCEPTED + context sync sent: waiting for other party */}
+      {record.state === 'ACCEPTED' && !record.context_sync_pending && (
+        <div style={{
+          marginBottom: '16px', padding: '10px 14px',
+          background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: '8px', fontSize: '11px', color: '#94a3b8',
+        }}>
+          Completing handshake… Context exchange in progress. Waiting for the other party.
+        </div>
+      )}
 
       {/* Chain Metadata */}
       <div style={{

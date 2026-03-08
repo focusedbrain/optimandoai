@@ -36,6 +36,7 @@ import {
   updateContextStoreStatus,
   updateContextStoreStatusBulk,
 } from './db'
+import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule } from './outboundQueue'
 import { randomBytes } from 'crypto'
@@ -644,48 +645,13 @@ export async function handleHandshakeRPC(
         })
       }
 
-      // Auto-trigger P2P context-sync: enqueue for delivery when ACCEPTED (acceptor sends first)
+      // Auto-trigger P2P context-sync: enqueue when ACCEPTED, or defer if vault locked
+      let contextSyncStatus: 'sent' | 'vault_locked' | 'skipped' = 'skipped'
       if (localResult.success && db) {
-        setImmediate(() => {
-          try {
-            const updatedRecord = getHandshakeRecord(db, handshake_id)
-            if (!updatedRecord || updatedRecord.state !== HS.ACCEPTED) return
-            const targetEndpoint = updatedRecord.p2p_endpoint
-            if (!targetEndpoint || targetEndpoint.trim().length === 0) {
-              return
-            }
-            const pending = getContextStoreByHandshake(db, handshake_id, 'pending_delivery')
-            if (pending.length === 0) return
-            const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
-              block_id: b.block_id,
-              block_hash: b.block_hash,
-              scope_id: b.scope_id ?? undefined,
-              type: b.type,
-              content: b.content ?? '',
-            }))
-            const counterpartyUserId = initiatorUserId
-            const counterpartyEmail = initiatorEmail
-            const localPub = updatedRecord.local_public_key ?? ''
-            const localPriv = updatedRecord.local_private_key ?? ''
-            if (!localPub || !localPriv) {
-              console.warn('[P2P] Skipping auto context-sync: handshake has no signing keys')
-              return
-            }
-            const contextSyncCapsule = buildContextSyncCapsuleWithContent(session, {
-              handshake_id,
-              counterpartyUserId,
-              counterpartyEmail,
-              last_seq_received: 0,
-              last_capsule_hash_received: capsule.capsule_hash,
-              context_blocks: contextBlocks,
-              local_public_key: localPub,
-              local_private_key: localPriv,
-            })
-            enqueueOutboundCapsule(db, handshake_id, targetEndpoint.trim(), contextSyncCapsule)
-          } catch (err: any) {
-            console.warn('[P2P] Auto context-sync enqueue failed:', err?.message)
-          }
+        const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
+          lastCapsuleHash: capsule.capsule_hash,
         })
+        contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
       }
 
       return {
@@ -695,6 +661,12 @@ export async function handleHandshakeRPC(
         email_sent: emailResult?.success ?? false,
         email_error: emailResult?.error,
         local_result: localResult,
+        context_sync_status: contextSyncStatus,
+        message: contextSyncStatus === 'vault_locked'
+          ? 'Handshake accepted. Unlock your vault to complete the secure exchange.'
+          : contextSyncStatus === 'sent'
+            ? 'Handshake accepted. Completing exchange...'
+            : undefined,
       }
     }
 
