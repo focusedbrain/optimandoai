@@ -279,7 +279,7 @@ export async function handleHandshakeRPC(
       return {
         success: true,
         handshake_id: persistResult.handshake_id,
-        state: HS.PENDING_REVIEW,
+        state: HS.PENDING_ACCEPT,
         sender: (cap?.senderIdentity ?? cap?.sender_email) as { email?: string } | string,
       }
     }

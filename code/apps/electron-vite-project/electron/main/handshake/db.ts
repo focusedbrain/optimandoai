@@ -413,10 +413,11 @@ export function migrateHandshakeTables(db: any): void {
         try {
           db.prepare(sql).run()
         } catch (e: any) {
-          // Ignore "already exists" — additive migration
-          if (!e?.message?.includes('already exists') && !e?.message?.includes('duplicate')) {
-            console.warn(`[HANDSHAKE DB] Migration ${migration.version} statement warning:`, e?.message)
-          }
+          const msg = e?.message ?? ''
+          // Ignore "already exists" / "duplicate" for additive migrations (CREATE INDEX IF NOT EXISTS, etc.)
+          if (msg.includes('already exists') || msg.includes('duplicate')) continue
+          // Rethrow so transaction rolls back — do not mark migration as applied on failure
+          throw e
         }
       }
       db.prepare(

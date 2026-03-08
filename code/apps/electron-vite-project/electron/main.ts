@@ -2118,7 +2118,7 @@ app.whenReady().then(async () => {
     ipcMain.handle('handshake:importCapsule', async (_e, capsuleJson: string) => {
       try {
         console.log('[IMPORT] Handler called, capsuleJson length=', capsuleJson?.length ?? 0)
-        // Import uses Ledger only — no vault needed (parse, validate, persist PENDING_REVIEW)
+        // Import uses Ledger only — no vault needed (parse, validate, persist PENDING_ACCEPT)
         const db = await getLedgerDbOrOpen()
         if (!db) {
           console.warn('[IMPORT] No DB — user not logged in')
@@ -2126,7 +2126,7 @@ app.whenReady().then(async () => {
         }
         const result = await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
         if (result?.success) {
-          console.log('[IMPORT] Record created: PENDING_REVIEW, handshake_id=', result?.handshake_id)
+          console.log('[IMPORT] Record created: PENDING_ACCEPT, handshake_id=', result?.handshake_id)
         }
         return result
       } catch (err: any) {
