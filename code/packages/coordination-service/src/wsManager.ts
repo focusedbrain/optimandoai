@@ -47,8 +47,24 @@ export function isOnline(userId: string): boolean {
   return clients.has(userId)
 }
 
+/**
+ * Resolve recipient identifier (UUID or email) to connected client.
+ * Handles initiator-registered capsules where recipient_user_id=email but
+ * WebSocket clients register with UUID.
+ */
+function resolveClient(recipientUserId: string): ConnectedClient | undefined {
+  const byUuid = clients.get(recipientUserId)
+  if (byUuid) return byUuid
+  if (recipientUserId.includes('@')) {
+    for (const client of clients.values()) {
+      if (client.email === recipientUserId) return client
+    }
+  }
+  return undefined
+}
+
 export function pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean {
-  const client = clients.get(recipientUserId)
+  const client = resolveClient(recipientUserId)
   if (!client) return false
   try {
     client.ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsuleJson) }))
@@ -62,7 +78,7 @@ export function pushCapsule(recipientUserId: string, id: string, capsuleJson: st
 export function pushPendingCapsules(userId: string): void {
   const client = clients.get(userId)
   if (!client) return
-  const pending = getPendingCapsules(userId)
+  const pending = getPendingCapsules(userId, client.email)
   for (const { id, capsule_json } of pending) {
     try {
       client.ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsule_json) }))
@@ -74,7 +90,9 @@ export function pushPendingCapsules(userId: string): void {
 }
 
 export function handleAck(userId: string, ids: string[]): void {
-  if (ids.length > 0) acknowledgeCapsules(ids, userId)
+  if (ids.length === 0) return
+  const client = clients.get(userId)
+  acknowledgeCapsules(ids, userId, client?.email)
 }
 
 export function getConnectedCount(): number {

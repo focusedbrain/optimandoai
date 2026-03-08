@@ -76,13 +76,27 @@ export function storeCapsule(
   ).run(id, handshakeId, senderUserId, recipientUserId, capsuleJson, now, expires)
 }
 
-export function getPendingCapsules(userId: string): Array<{ id: string; capsule_json: string }> {
+/**
+ * Get pending capsules for a recipient. Matches by userId (UUID) OR email.
+ * This handles the case where initiator registers with acceptor_user_id=email
+ * (acceptor UUID unknown at initiate time) but WebSocket client connects with UUID.
+ */
+export function getPendingCapsules(userId: string, email?: string | null): Array<{ id: string; capsule_json: string }> {
   if (!db) return []
+  const now = new Date().toISOString()
+  if (email?.includes('@')) {
+    const rows = db.prepare(
+      `SELECT id, capsule_json FROM coordination_capsules
+       WHERE (recipient_user_id = ? OR recipient_user_id = ?) AND acknowledged_at IS NULL AND expires_at > ?
+       ORDER BY received_at ASC`,
+    ).all(userId, email, now) as Array<{ id: string; capsule_json: string }>
+    return rows
+  }
   const rows = db.prepare(
     `SELECT id, capsule_json FROM coordination_capsules
      WHERE recipient_user_id = ? AND acknowledged_at IS NULL AND expires_at > ?
      ORDER BY received_at ASC`,
-  ).all(userId, new Date().toISOString()) as Array<{ id: string; capsule_json: string }>
+  ).all(userId, now) as Array<{ id: string; capsule_json: string }>
   return rows
 }
 
@@ -93,20 +107,25 @@ export function markPushed(id: string): void {
 }
 
 /**
- * Acknowledge capsules for the given recipient. Only capsules where recipient_user_id = userId
- * are updated. Returns the count of actually acknowledged rows.
- * Logs ACK_UNAUTHORIZED if user tries to ACK capsules that don't belong to them.
+ * Acknowledge capsules for the given recipient. Capsules where recipient_user_id
+ * matches userId (UUID) OR email are updated. Handles initiator-registered capsules
+ * stored with recipient=email when acceptor connects with UUID.
  */
-export function acknowledgeCapsules(ids: string[], userId: string): number {
+export function acknowledgeCapsules(ids: string[], userId: string, email?: string | null): number {
   if (!db || ids.length === 0) return 0
   const now = new Date().toISOString()
-  const stmt = db.prepare(
-    `UPDATE coordination_capsules SET acknowledged_at = ? WHERE id = ? AND recipient_user_id = ?`,
-  )
+  const allowedRecipients = email?.includes('@') ? [userId, email] : [userId]
   let acknowledged = 0
   for (const id of ids) {
-    const r = stmt.run(now, id, userId)
-    if (r.changes > 0) acknowledged++
+    for (const recipient of allowedRecipients) {
+      const r = db.prepare(
+        `UPDATE coordination_capsules SET acknowledged_at = ? WHERE id = ? AND recipient_user_id = ?`,
+      ).run(now, id, recipient)
+      if (r.changes > 0) {
+        acknowledged++
+        break
+      }
+    }
   }
   const unauthorized = ids.length - acknowledged
   if (unauthorized > 0) {
