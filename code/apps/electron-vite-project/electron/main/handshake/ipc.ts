@@ -644,12 +644,12 @@ export async function handleHandshakeRPC(
         })
       }
 
-      // Auto-trigger P2P context-sync: enqueue for delivery (non-blocking)
+      // Auto-trigger P2P context-sync: enqueue for delivery when ACCEPTED (acceptor sends first)
       if (localResult.success && db) {
         setImmediate(() => {
           try {
             const updatedRecord = getHandshakeRecord(db, handshake_id)
-            if (!updatedRecord || updatedRecord.state !== HS.ACTIVE) return
+            if (!updatedRecord || updatedRecord.state !== HS.ACCEPTED) return
             const targetEndpoint = updatedRecord.p2p_endpoint
             if (!targetEndpoint || targetEndpoint.trim().length === 0) {
               return
