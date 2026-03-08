@@ -144,7 +144,8 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     expect(result.success).toBe(false)
     if (result.handshake_result) {
-      expect(result.handshake_result.failedStep ?? '').toMatch(/chain/)
+      // Rejected by chain integrity or hash verification (pipeline order may vary)
+      expect(result.handshake_result.failedStep ?? '').toMatch(/chain|verify_capsule_hash/)
     }
   })
 
@@ -179,8 +180,8 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     expect(hs.handshakeRecord?.handshake_id).toBe(capsule.handshake_id)
   })
 
-  // ── P2: accept → ACTIVE ──
-  test('P2: buildAcceptCapsule → pipeline → HandshakeRecord ACTIVE', async () => {
+  // ── P2: accept → ACCEPTED (ACTIVE requires context_sync) ──
+  test('P2: buildAcceptCapsule → pipeline → HandshakeRecord ACCEPTED', async () => {
     const sender = senderSession()
     const receiver = receiverSession()
 
@@ -212,11 +213,12 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     expect(acceptResult.success).toBe(true)
     const hs = acceptResult.handshake_result
-    expect(hs?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
+    // Per design: accept → ACCEPTED; ACTIVE only after context_sync roundtrip
+    expect(hs?.handshakeRecord?.state).toBe(HandshakeState.ACCEPTED)
   })
 
-  // ── P3: full round-trip produces ACTIVE record ──
-  test('P3: full initiate → accept produces ACTIVE HandshakeRecord', async () => {
+  // ── P3: full initiate → accept produces ACCEPTED record ──
+  test('P3: full initiate → accept produces ACCEPTED HandshakeRecord', async () => {
     const sender = senderSession()
     const receiver = receiverSession()
 
@@ -238,7 +240,8 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     const result = await submitCapsule(accept, db, sender)
 
     expect(result.success).toBe(true)
-    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
+    // Per design: accept → ACCEPTED; ACTIVE only after context_sync roundtrip
+    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACCEPTED)
     expect(result.handshake_result?.handshakeRecord?.sharing_mode).toBe('reciprocal')
   })
 

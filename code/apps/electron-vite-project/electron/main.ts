@@ -2034,7 +2034,8 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:list', async (_e, filter: any) => {
       try {
-        const db = await getHandshakeDb()
+        // List uses Ledger only — no vault needed (handshake metadata always in Ledger)
+        const db = await getLedgerDbOrOpen()
         if (!db) return []
         const result = await handleHandshakeRPC('handshake.list', { filter }, db)
         return result.records ?? []

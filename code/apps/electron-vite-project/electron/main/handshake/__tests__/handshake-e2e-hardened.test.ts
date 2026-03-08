@@ -192,7 +192,7 @@ describe('Handshake E2E — Hardened', () => {
     expect(stored).toBeUndefined()
   })
 
-  test('Accept → state ACTIVE + accept capsule generated', async () => {
+  test('Accept → state ACCEPTED + accept capsule generated', async () => {
     const alice = aliceSession()
     const bob = bobSession()
 
@@ -215,9 +215,9 @@ describe('Handshake E2E — Hardened', () => {
     expect(acceptResult.success).toBe(true)
     expect(acceptResult.email_sent).toBe(true)
 
-    // Bob's record is now ACTIVE
+    // Per design: accept → ACCEPTED; ACTIVE only after context_sync roundtrip
     const bobRecord = bobDb.getHandshake(initCapsule.handshake_id)
-    expect(bobRecord.state).toBe(HandshakeState.ACTIVE)
+    expect(bobRecord.state).toBe(HandshakeState.ACCEPTED)
   })
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -257,9 +257,9 @@ describe('Handshake E2E — Hardened', () => {
     )
     expect(acceptResult.success).toBe(true)
 
-    // Step 4: Verify both sides
+    // Step 4: Verify both sides — per design: accept → ACCEPTED; ACTIVE requires context_sync
     const bobRecord = bobDb.getHandshake(parsed.handshake_id)
-    expect(bobRecord.state).toBe(HandshakeState.ACTIVE)
+    expect(bobRecord.state).toBe(HandshakeState.ACCEPTED)
     expect(bobRecord.sharing_mode).toBe('reciprocal')
 
     // relationship_id should be consistent

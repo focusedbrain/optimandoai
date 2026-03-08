@@ -20,9 +20,10 @@ import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildInitiateCapsule, buildAcceptCapsule } from '../capsuleBuilder'
 import { handleIngestionRPC } from '../../ingestion/ipc'
-import { updateHandshakeSigningKeys } from '../db'
+import { updateHandshakeSigningKeys, updateHandshakeRecord, getHandshakeRecord } from '../db'
 import { mockKeypairFields } from './mockKeypair'
 import type { SSOSession } from '../types'
+import { HandshakeState } from '../types'
 
 function senderSession(): SSOSession {
   return buildTestSession({
@@ -207,6 +208,13 @@ describe('Handshake IPC — handshake.refresh', () => {
       db,
       sender,
     )
+
+    // Per design: ACCEPTED → ACTIVE requires context_sync roundtrip.
+    // For this unit test we bypass by directly setting ACTIVE so handshake.refresh can run.
+    const record = getHandshakeRecord(db, initiate.handshake_id)
+    if (record && record.state === HandshakeState.ACCEPTED) {
+      updateHandshakeRecord(db, { ...record, state: HandshakeState.ACTIVE, last_seq_received: 1 })
+    }
 
     return initiate.handshake_id
   }

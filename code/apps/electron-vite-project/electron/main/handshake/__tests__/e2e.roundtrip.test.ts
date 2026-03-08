@@ -169,15 +169,16 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     // Now submit Bob's accept to Alice's DB
     const aliceAcceptResult = await submitCapsule(JSON.stringify(accept), aliceDb, alice)
     expect(aliceAcceptResult.success).toBe(true)
-    expect(aliceAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
+    // Per design: accept → ACCEPTED; ACTIVE only after context_sync roundtrip
+    expect(aliceAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACCEPTED)
     expect(aliceAcceptResult.handshake_result?.handshakeRecord?.sharing_mode).toBe('reciprocal')
 
     // Also submit accept to Bob's own DB so his record transitions too
     const bobAcceptResult = await submitCapsule(JSON.stringify(accept), bobDb, alice)
     // Bob already has a PENDING_ACCEPT record. Accept from bob (sender) processed
-    // with alice's session (local user ≠ sender) should transition to ACTIVE.
+    // with alice's session (local user ≠ sender) → ACCEPTED (ACTIVE after context_sync)
     expect(bobAcceptResult.success).toBe(true)
-    expect(bobAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
+    expect(bobAcceptResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACCEPTED)
 
     const handshakeId = initiate.handshake_id
     updateHandshakeSigningKeys(aliceDb, handshakeId, { local_public_key: aliceKeypair.publicKey, local_private_key: aliceKeypair.privateKey })
@@ -221,10 +222,14 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     const bobContextSyncResult = await submitCapsule(JSON.stringify(aliceContextSync), bobDb, bob)
     expect(bobContextSyncResult.success).toBe(true)
     expect(bobContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)
+    // context_sync (seq 1) received → ACCEPTED → ACTIVE
+    expect(bobContextSyncResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
 
     const aliceContextSyncResult = await submitCapsule(JSON.stringify(bobContextSync), aliceDb, alice)
     expect(aliceContextSyncResult.success).toBe(true)
     expect(aliceContextSyncResult.handshake_result?.handshakeRecord?.last_seq_received).toBe(1)
+    // context_sync (seq 1) received → ACCEPTED → ACTIVE
+    expect(aliceContextSyncResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.ACTIVE)
 
     // ═══════════════════════════════════════════════════════════════════
     // STEP 3c: Alice sends a refresh with context block proofs
