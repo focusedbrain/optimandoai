@@ -215,8 +215,21 @@ describe('Timestamp Verification (Email-Delay Safe)', () => {
     const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ timestamp: new Date(Date.now() + INPUT_LIMITS.CLOCK_SKEW_TOLERANCE_MS).toISOString() }) })
     expect(verifyTimestamp.execute(ctx).passed).toBe(true)
   })
-  test('timestamp 10 minutes in future → CLOCK_SKEW', () => {
-    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ timestamp: new Date(Date.now() + 10*60*1000).toISOString() }) })
+  test('timestamp 10 minutes in future (accept) → CLOCK_SKEW', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only', timestamp: new Date(Date.now() + 10*60*1000).toISOString() }),
+      handshakeRecord: buildHandshakeRecord(),
+    })
+    const r = verifyTimestamp.execute(ctx)
+    expect(r.passed).toBe(false)
+    if (!r.passed) expect(r.reason).toBe(ReasonCode.CLOCK_SKEW)
+  })
+  test('timestamp 10 minutes in future (initiate) → passes (24h tolerance for transfer)', () => {
+    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-initiate', timestamp: new Date(Date.now() + 10*60*1000).toISOString() }) })
+    expect(verifyTimestamp.execute(ctx).passed).toBe(true)
+  })
+  test('timestamp 25 hours in future (initiate) → CLOCK_SKEW', () => {
+    const ctx = buildCtx({ input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-initiate', timestamp: new Date(Date.now() + 25*60*60*1000).toISOString() }) })
     const r = verifyTimestamp.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.CLOCK_SKEW)
@@ -273,6 +286,20 @@ describe('Expiry', () => {
     const r = checkExpiry.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_EXPIRED)
+  })
+  test('accept on PENDING_ACCEPT with past expires_at → allowed (user accepting resets clock)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only' }),
+      handshakeRecord: buildHandshakeRecord({ expires_at: new Date(Date.now() - 5000).toISOString() }),
+    })
+    expect(checkExpiry.execute(ctx).passed).toBe(true)
+  })
+  test('accept on PENDING_REVIEW with past expires_at → allowed (user accepting resets clock)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.PENDING_REVIEW, expires_at: new Date(Date.now() - 5000).toISOString() }),
+    })
+    expect(checkExpiry.execute(ctx).passed).toBe(true)
   })
 })
 

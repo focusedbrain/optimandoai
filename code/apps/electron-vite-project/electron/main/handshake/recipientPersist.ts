@@ -10,6 +10,14 @@
 
 import type { HandshakeRecord } from './types'
 import { HandshakeState as HS, INPUT_LIMITS } from './types'
+
+/** Use capsule expires_at only if it is in the future; otherwise default to PENDING_TIMEOUT. Prevents "expired" on import when capsule has stale expires_at. */
+function resolveExpiresAt(capsuleExpiresAt: string | undefined): string {
+  if (!capsuleExpiresAt) return new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString()
+  const parsed = Date.parse(capsuleExpiresAt)
+  if (isNaN(parsed) || parsed <= Date.now()) return new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString()
+  return capsuleExpiresAt
+}
 import { buildDefaultReceiverPolicy } from './types'
 import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
@@ -90,7 +98,7 @@ export function persistRecipientHandshakeRecord(
       external_processing: c.external_processing ?? 'none',
       created_at: c.timestamp ?? new Date().toISOString(),
       activated_at: null,
-      expires_at: c.expires_at ?? new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString(),
+      expires_at: resolveExpiresAt(c.expires_at),
       revoked_at: null,
       revocation_source: null,
       initiator_wrdesk_policy_hash: c.wrdesk_policy_hash ?? '',
@@ -111,9 +119,20 @@ export function persistRecipientHandshakeRecord(
 
     return { success: true, handshake_id: record.handshake_id, handshakeRecord: record }
   } catch (err: any) {
+    const msg = err?.message ?? String(err)
+    const stack = err?.stack ?? ''
+    console.error('[HANDSHAKE] Recipient persist failed:', msg, stack)
+    try {
+      const fs = require('fs')
+      const path = require('path')
+      const logDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.opengiraffe')
+      const logFile = path.join(logDir, 'import-error.log')
+      fs.mkdirSync(logDir, { recursive: true })
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] persistRecipientHandshakeRecord: ${msg}\n${stack}\n\n`)
+    } catch (_) { /* ignore */ }
     return {
       success: false,
-      error: err?.message ?? 'Import failed',
+      error: msg,
       reason: 'INTERNAL_ERROR',
     }
   }

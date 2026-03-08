@@ -501,6 +501,14 @@ export { resolveEffectivePolicyFn as resolveEffectivePolicy }
 
 // ── Record Builders (internal) ──
 
+/** Use capsule expires_at only if it is in the future; otherwise default to PENDING_TIMEOUT. Prevents "expired" on import when capsule has stale expires_at. */
+function resolveExpiresAt(capsuleExpiresAt: string | undefined): string {
+  if (!capsuleExpiresAt) return new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString()
+  const parsed = Date.parse(capsuleExpiresAt)
+  if (isNaN(parsed) || parsed <= Date.now()) return new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString()
+  return capsuleExpiresAt
+}
+
 function buildInitiateRecord(
   input: VerifiedCapsuleInput,
   _ssoSession: SSOSession,
@@ -534,7 +542,7 @@ function buildInitiateRecord(
     external_processing: input.external_processing,
     created_at: new Date().toISOString(),
     activated_at: null,
-    expires_at: input.expires_at ?? new Date(Date.now() + INPUT_LIMITS.PENDING_TIMEOUT_MS).toISOString(),
+    expires_at: resolveExpiresAt(input.expires_at),
     revoked_at: null,
     revocation_source: null,
     initiator_wrdesk_policy_hash: input.wrdesk_policy_hash,
@@ -576,7 +584,7 @@ function buildAcceptRecord(
     effective_policy: effectivePolicy,
     external_processing: effectivePolicy.effectiveExternalProcessing,
     activated_at: new Date().toISOString(),
-    expires_at: input.expires_at ?? existing.expires_at,
+    expires_at: resolveExpiresAt(input.expires_at ?? existing.expires_at),
     acceptor_wrdesk_policy_hash: input.wrdesk_policy_hash,
     acceptor_wrdesk_policy_version: input.wrdesk_policy_version,
     acceptor_context_commitment: input.context_commitment ?? null,

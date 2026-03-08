@@ -2130,8 +2130,19 @@ app.whenReady().then(async () => {
         }
         return result
       } catch (err: any) {
-        console.error('[IMPORT] Error:', err?.message ?? err, err?.stack)
-        return { success: false, error: err?.message ?? 'Import failed', reason: 'INTERNAL_ERROR' }
+        const errMsg = err?.message ?? String(err)
+        const errStack = err?.stack ?? ''
+        console.error('[IMPORT] Error:', errMsg, errStack)
+        // Write to file for diagnostics when console isn't available
+        try {
+          const fs = require('fs')
+          const path = require('path')
+          const logDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.opengiraffe')
+          const logFile = path.join(logDir, 'import-error.log')
+          fs.mkdirSync(logDir, { recursive: true })
+          fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${errMsg}\n${errStack}\n\n`)
+        } catch (_) { /* ignore */ }
+        return { success: false, error: errMsg, reason: 'INTERNAL_ERROR' }
       }
     })
 
