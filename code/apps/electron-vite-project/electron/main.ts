@@ -559,7 +559,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // │ │
 // │ ├─┬ dist-electron
 // │ │ ├── main.js
-// │ │ └── preload.mjs
+// │ │ └── preload.cjs
 // │
 process.env.APP_ROOT = path.join(__dirname, '..')
 
@@ -713,7 +713,7 @@ async function createWindow() {
     title: 'WR Desk™',
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: process.platform !== 'linux',  // Linux has no Chromium sandbox; disable to avoid issues

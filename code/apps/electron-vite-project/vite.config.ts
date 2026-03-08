@@ -156,11 +156,17 @@ const __dirname = ___dirname(__filename);
           build: {
             rollupOptions: {
               output: {
-                // ESM required when sandbox:false (Linux) — require() is not defined in .mjs scope
-                format: 'es',
+                // CommonJS format with .cjs extension works on ALL platforms:
+                //  - Windows (sandbox:true):  require() ✔  import ✘  → CJS required
+                //  - Linux   (sandbox:false): require() ✘  import ✔  BUT .cjs is
+                //    always loaded as CommonJS by Node regardless of package.json "type"
+                //    and Electron supports require() in .cjs preload even with sandbox:false.
+                // Using .mjs (ESM) breaks Windows. Using .js (CJS) breaks when
+                // package.json has "type":"module". .cjs is the universal solution.
+                format: 'cjs',
                 inlineDynamicImports: true,
-                entryFileNames: '[name].mjs',
-                chunkFileNames: '[name].mjs',
+                entryFileNames: '[name].cjs',
+                chunkFileNames: '[name].cjs',
               },
             },
           },
