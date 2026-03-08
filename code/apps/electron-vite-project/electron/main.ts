@@ -2014,6 +2014,24 @@ app.whenReady().then(async () => {
       return db
     }
 
+    /**
+     * Ledger-only DB access — no vault fallback.
+     * Use for operations that must work without vault unlock: import, list, receive.
+     */
+    async function getLedgerDbOrOpen(): Promise<any> {
+      let db = getLedgerDb()
+      if (!db) {
+        try {
+          const userInfo = getCachedUserInfo()
+          if (userInfo?.sub && userInfo?.iss) {
+            const tok = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+            db = await openLedger(tok)
+          }
+        } catch { /* non-fatal */ }
+      }
+      return db ?? null
+    }
+
     ipcMain.handle('handshake:list', async (_e, filter: any) => {
       try {
         const db = await getHandshakeDb()
@@ -2097,8 +2115,9 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:importCapsule', async (_e, capsuleJson: string) => {
       try {
-        const db = await getHandshakeDb()
-        if (!db) return { success: false, error: 'Database unavailable. Please unlock vault or ensure you are logged in.', reason: 'DB_UNAVAILABLE' }
+        // Import uses Ledger only — no vault needed (parse, validate, persist PENDING_REVIEW)
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, error: 'Please log in first to import handshake capsules.', reason: 'NOT_LOGGED_IN' }
         return await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
       } catch (err: any) {
         return { success: false, error: err?.message ?? 'Import failed', reason: 'INTERNAL_ERROR' }
@@ -2109,6 +2128,19 @@ app.whenReady().then(async () => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        // Accept requires vault unlock (signing key). If vault exists and is locked, prompt user.
+        try {
+          const { vaultService } = await import('./main/vault/rpc')
+          const status = vaultService.getStatus()
+          if (status.exists && status.locked) {
+            return {
+              success: false,
+              reason: 'VAULT_LOCKED',
+              error: 'Please unlock your vault to accept this handshake. Your signing key is needed to create a secure connection.',
+              action: 'UNLOCK_VAULT',
+            }
+          }
+        } catch { /* vault not initialized — allow (keys in ledger) */ }
         const params: Record<string, unknown> = { handshake_id: id, sharing_mode: sharingMode, fromAccountId }
         if (contextOpts?.context_blocks?.length) params.context_blocks = contextOpts.context_blocks
         if (contextOpts?.profile_ids?.length) params.profile_ids = contextOpts.profile_ids
@@ -6990,7 +7022,7 @@ app.whenReady().then(async () => {
           console.log('[P2P] Starting coordination WebSocket client (relay:', coordConfig.coordination_ws_url, ')')
           coordinationWsClient = createCoordinationWsClient(
             coordConfig,
-            () => getHandshakeDb(),
+            () => getLedgerDb(), // Ledger only — receive works without vault
             () => getCurrentSession(),
             getOidcToken,
             {

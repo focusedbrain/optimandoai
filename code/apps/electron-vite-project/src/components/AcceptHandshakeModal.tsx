@@ -108,7 +108,9 @@ export default function AcceptHandshakeModal({
         onSuccess()
         onClose()
       } else {
-        setError((result as any)?.error ?? (result as any)?.local_result?.error ?? 'Accept failed.')
+        const reason = (result as any)?.reason
+        const msg = (result as any)?.error ?? (result as any)?.local_result?.error ?? 'Accept failed.'
+        setError(reason === 'VAULT_LOCKED' ? 'Please unlock your vault to accept. Use the Vault section to unlock, then try again.' : msg)
       }
     } catch (err: any) {
       setError(err?.message ?? 'Accept failed.')
