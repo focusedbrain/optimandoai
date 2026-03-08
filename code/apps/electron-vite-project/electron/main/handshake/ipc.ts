@@ -27,6 +27,7 @@ import {
 } from './capsuleBuilder'
 import { submitCapsuleViaRpc } from './capsuleTransport'
 import { persistInitiatorHandshakeRecord } from './initiatorPersist'
+import { persistRecipientHandshakeRecord } from './recipientPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
 import {
@@ -40,6 +41,8 @@ import { enqueueOutboundCapsule } from './outboundQueue'
 import { randomBytes } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
+import { processIncomingInput } from '../ingestion/ingestionPipeline'
+import { canonicalRebuild } from './canonicalRebuild'
 
 // ── Context Block Helpers ──
 
@@ -227,6 +230,58 @@ export async function handleHandshakeRPC(
       }
     }
 
+    case 'handshake.importCapsule': {
+      const { capsuleJson } = params as { capsuleJson: string }
+      if (!capsuleJson || typeof capsuleJson !== 'string') {
+        return { success: false, error: 'capsuleJson is required', reason: 'INVALID_INPUT' }
+      }
+      let session: SSOSession
+      try { session = requireSession() } catch (err: any) {
+        return { success: false, error: err.message, reason: 'NO_SESSION' }
+      }
+      if (!db) {
+        return { success: false, error: 'Database unavailable. Please unlock vault or ensure you are logged in.', reason: 'DB_UNAVAILABLE' }
+      }
+      const rawInput = {
+        body: capsuleJson,
+        mime_type: 'application/vnd.beap+json' as const,
+        headers: { 'content-type': 'application/vnd.beap+json' },
+      }
+      const result = await processIncomingInput(rawInput, 'file_upload', { mime_type: 'application/vnd.beap+json' })
+      if (!result.success) {
+        return { success: false, error: result.reason ?? 'Capsule validation failed', reason: result.validation_reason_code ?? 'VALIDATION_FAILED' }
+      }
+      const { distribution } = result
+      if (distribution.target !== 'handshake_pipeline') {
+        return { success: false, error: 'Capsule is not a handshake capsule', reason: 'NOT_HANDSHAKE_PIPELINE' }
+      }
+      const cap = distribution.validated_capsule?.capsule as Record<string, unknown> | undefined
+      const capsuleType = (cap?.capsule_type as string) ?? ''
+      if (capsuleType !== 'initiate') {
+        return { success: false, error: `Only initiate capsules can be imported. Got: ${capsuleType}`, reason: 'NOT_INITIATE_CAPSULE' }
+      }
+      const handshakeId = (cap?.handshake_id as string) ?? ''
+      const existing = getHandshakeRecord(db, handshakeId)
+      if (existing) {
+        return { success: false, error: 'Handshake already exists', reason: 'HANDSHAKE_ALREADY_EXISTS' }
+      }
+      const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
+      if (!rebuildResult.ok) {
+        return { success: false, error: rebuildResult.reason ?? 'Canonical rebuild failed', reason: 'CANONICAL_REBUILD_FAILED' }
+      }
+      const canonicalValidated = { ...distribution.validated_capsule, capsule: rebuildResult.capsule }
+      const persistResult = persistRecipientHandshakeRecord(db, canonicalValidated, session)
+      if (!persistResult.success) {
+        return { success: false, error: persistResult.error, reason: persistResult.reason ?? 'PERSIST_FAILED' }
+      }
+      return {
+        success: true,
+        handshake_id: persistResult.handshake_id,
+        state: HS.PENDING_REVIEW,
+        sender: (cap?.senderIdentity ?? cap?.sender_email) as { email?: string } | string,
+      }
+    }
+
     case 'handshake.list': {
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
       const records = listHandshakeRecords(db, filter)
@@ -313,15 +368,7 @@ export async function handleHandshakeRPC(
                 })
               : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
             if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
-            // Enqueue initiate capsule for relay delivery to acceptor (same pattern as accept capsule)
-            const targetEndpoint = capsule.p2p_endpoint?.trim()
-            if (targetEndpoint) {
-              try {
-                enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
-              } catch (err: any) {
-                console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
-              }
-            }
+            // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
           })
         }
       } else if (!skipVaultContext) {
@@ -425,14 +472,7 @@ export async function handleHandshakeRPC(
 
         await registerPromise.then((result) => {
           if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
-          const targetEndpoint = capsule.p2p_endpoint?.trim()
-          if (targetEndpoint) {
-            try {
-              enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
-            } catch (err: any) {
-              console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
-            }
-          }
+          // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
         }).catch((err: any) => {
           console.warn('[Relay] Register handshake error (non-fatal):', err?.message)
         })
@@ -470,8 +510,8 @@ export async function handleHandshakeRPC(
       if (!record) {
         return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
       }
-      if (record.state !== HS.PENDING_ACCEPT) {
-        return { success: false, error: `Handshake is in state ${record.state}, expected PENDING_ACCEPT` }
+      if (record.state !== HS.PENDING_ACCEPT && record.state !== HS.PENDING_REVIEW) {
+        return { success: false, error: `Handshake is in state ${record.state}, expected PENDING_ACCEPT or PENDING_REVIEW` }
       }
 
       // Clamp sharing_mode: if the initiator did not allow reciprocal, force receive-only

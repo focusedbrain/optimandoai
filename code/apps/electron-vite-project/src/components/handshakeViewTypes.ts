@@ -10,6 +10,7 @@ declare global {
     handshakeView?: {
       listHandshakes: (filter?: { state?: string }) => Promise<any[]>
       submitCapsule: (jsonString: string) => Promise<any>
+      importCapsule: (jsonString: string) => Promise<any>
       acceptHandshake: (id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => Promise<any>
       declineHandshake: (id: string) => Promise<any>
       deleteHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>

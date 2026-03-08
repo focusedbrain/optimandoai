@@ -161,6 +161,23 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
           return
         }
 
+        // Reject initiate capsules — must be delivered out-of-band (file/email/USB)
+        const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke']
+        let capsuleType: string
+        try {
+          const capsuleData = JSON.parse(body) as { capsule_type?: string }
+          capsuleType = typeof capsuleData?.capsule_type === 'string' ? capsuleData.capsule_type : ''
+        } catch {
+          capsuleType = ''
+        }
+        if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
+          sendError(res, 400, {
+            error: 'capsule_type_not_allowed',
+            detail: `Type '${capsuleType || 'unknown'}' must be delivered out-of-band (file, email, USB). Relay accepts: ${RELAY_ALLOWED_TYPES.join(', ')}`,
+          })
+          return
+        }
+
         const recipientUserId = getRecipientForSender(handshakeId, identity.userId)
         if (!recipientUserId) {
           sendError(res, 403)

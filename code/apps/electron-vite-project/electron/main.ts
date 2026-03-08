@@ -2095,6 +2095,16 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:importCapsule', async (_e, capsuleJson: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'Database unavailable. Please unlock vault or ensure you are logged in.', reason: 'DB_UNAVAILABLE' }
+        return await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Import failed', reason: 'INTERNAL_ERROR' }
+      }
+    })
+
     ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => {
       try {
         const db = await getHandshakeDb()

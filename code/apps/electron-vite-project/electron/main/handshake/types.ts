@@ -72,6 +72,7 @@ export const ALL_DATA_CLASSIFICATIONS: readonly DataClassification[] = [
 export enum HandshakeState {
   DRAFT = 'DRAFT',
   PENDING_ACCEPT = 'PENDING_ACCEPT',
+  PENDING_REVIEW = 'PENDING_REVIEW',  // Acceptor imported .beap file, reviewing before accept
   ACCEPTED = 'ACCEPTED',  // Accept capsule processed; roundtrip (context exchange) not yet complete
   ACTIVE = 'ACTIVE',      // Roundtrip complete: context/signatures exchanged
   EXPIRED = 'EXPIRED',

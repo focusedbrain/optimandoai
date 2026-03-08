@@ -196,6 +196,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     return ipcRenderer.invoke('handshake:submitCapsule', jsonString)
   },
+  importCapsule: (jsonString: unknown) => {
+    if (typeof jsonString !== 'string' || jsonString.length === 0 || jsonString.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    return ipcRenderer.invoke('handshake:importCapsule', jsonString)
+  },
   acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
     const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
     const safeOpts = opts ? {

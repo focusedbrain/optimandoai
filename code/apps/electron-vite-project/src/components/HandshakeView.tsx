@@ -119,7 +119,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
   const accepted = handshakes.filter(h => h.state === 'ACCEPTED')
   const revoked = handshakes.filter(h => h.state === 'REVOKED')
   const expired = handshakes.filter(h => h.state === 'EXPIRED')
-  const pending = handshakes.filter(h => h.state === 'PENDING_ACCEPT')
+  const pending = handshakes.filter(h => h.state === 'PENDING_ACCEPT' || h.state === 'PENDING_REVIEW')
   const pendingIncoming = pending.filter(h => h.local_role === 'acceptor')
   const pendingOutgoing = pending.filter(h => h.local_role === 'initiator')
 

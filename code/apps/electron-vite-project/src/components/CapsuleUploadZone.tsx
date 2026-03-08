@@ -30,6 +30,11 @@ interface Props {
 function mapPipelineError(raw: string | undefined): string {
   if (!raw) return 'Processing failed. Please try again.'
   const r = raw.toLowerCase()
+  if (r.includes('handshake_not_found')) return 'No matching handshake found. Import the initiate capsule first, then accept.'
+  if (r.includes('handshake_ownership_violation')) return 'Cannot process a capsule you sent yourself.'
+  if (r.includes('handshake_already_exists')) return 'This handshake has already been imported.'
+  if (r.includes('db_unavailable') || r.includes('vault')) return 'Database unavailable. Please unlock your vault or ensure you are logged in.'
+  if (r.includes('not_initiate_capsule')) return 'Only initiate capsules can be imported. Use Submit for verification for other capsule types.'
   if (r.includes('denied field')) return `The capsule contains disallowed fields and was rejected.`
   if (r.includes('missing required field')) {
     const field = raw.match(/field:\s*(\S+)/i)?.[1]
@@ -134,13 +139,21 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
     setSubmitting(true)
     setResult(null)
     try {
-      const res = await window.handshakeView?.submitCapsule(preview.rawJson)
+      const isInitiate = preview.capsule_type === 'initiate'
+      const res = isInitiate
+        ? await window.handshakeView?.importCapsule(preview.rawJson)
+        : await window.handshakeView?.submitCapsule(preview.rawJson)
       if (res?.success) {
-        setResult({ success: true, message: 'Capsule verified and submitted successfully.' })
+        setResult({
+          success: true,
+          message: isInitiate
+            ? 'Handshake imported. It will appear in your Pending list.'
+            : 'Capsule verified and submitted successfully.',
+        })
         setPreview(null)
         onSubmitted?.()
       } else {
-        const rawError = res?.error || res?.reason || res?.handshake_result?.reason
+        const rawError = res?.handshake_result?.reason ?? res?.reason ?? res?.error
         setResult({ success: false, message: mapPipelineError(rawError) })
       }
     } catch (err: any) {
@@ -149,6 +162,9 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
       setSubmitting(false)
     }
   }
+
+  const isInitiate = preview?.capsule_type === 'initiate'
+  const submitButtonLabel = isInitiate ? 'Import Handshake' : 'Submit for verification'
 
   const shortId = (id: string) => id.length > 16 ? `${id.slice(0, 8)}…` : id
 
@@ -230,7 +246,7 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
                 cursor: submitting ? 'wait' : 'pointer',
               }}
             >
-              {submitting ? 'Verifying…' : 'Submit for verification'}
+              {submitting ? (isInitiate ? 'Importing…' : 'Verifying…') : submitButtonLabel}
             </button>
             <button
               onClick={resetState}

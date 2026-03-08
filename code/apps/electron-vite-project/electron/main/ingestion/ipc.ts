@@ -78,11 +78,13 @@ export async function handleIngestionRPC(
             })
           } catch { /* dedup via INSERT OR IGNORE */ }
         }
-        // Generic client response; full details logged server-side only (audit/validation_details)
+        // Generic client response; include validation_reason_code for mapPipelineError
         return {
           type: 'ingestion-result',
           success: false,
           reason: 'Capsule rejected',
+          error: result.reason ?? 'Capsule rejected',
+          validation_reason_code: result.validation_reason_code,
         }
       }
 
@@ -137,6 +139,16 @@ export async function handleIngestionRPC(
 
           if (!handshakeResult.success) {
             console.warn('[INGESTION] Handshake rejected:', handshakeResult.reason, handshakeResult.failedStep ?? '', handshakeResult.detail ?? '')
+          }
+          if (!handshakeResult.success) {
+            return {
+              type: 'ingestion-result',
+              success: false,
+              error: 'Capsule rejected',
+              reason: handshakeResult.reason,
+              handshake_result: handshakeResult,
+              distribution_target: 'handshake_pipeline',
+            }
           } else {
             // Step 6: Auto-trigger reverse context-sync when initiator receives first context-sync from acceptor
             const cap = rebuildResult.capsule as unknown as Record<string, unknown>

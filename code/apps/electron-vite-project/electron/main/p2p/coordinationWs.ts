@@ -65,6 +65,14 @@ function processCapsuleInternal(
     return
   }
 
+  // Diagnostic: log local handshake records (helps debug HANDSHAKE_NOT_FOUND)
+  try {
+    const rows = db.prepare('SELECT handshake_id, state, local_role FROM handshakes').all() as Array<{ handshake_id: string; state: string; local_role: string }>
+    console.log('[Coordination] Local handshake records:', JSON.stringify(rows.map(r => ({ id: r.handshake_id, state: r.state, role: r.local_role }))))
+  } catch (diagErr: any) {
+    console.warn('[Coordination] Diagnostic query failed:', diagErr?.message)
+  }
+
   const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
   const rawInput = {
     body: capsuleJson,
@@ -297,6 +305,14 @@ export function createCoordinationWsClient(
               capsule: msg.capsule ?? msg,
             }
             console.log('[Coordination] Capsule received:', msg.id, msg.handshake_id ? `handshake=${msg.handshake_id}` : '')
+            const capPayload = msg.capsule ?? msg
+            const cap = typeof capPayload === 'object' && capPayload !== null ? capPayload as Record<string, unknown> : {}
+            console.log('[Coordination] Capsule payload:', JSON.stringify({
+              type: msg.type,
+              id: msg.id,
+              capsule_type: cap?.capsule_type,
+              handshake_id: cap?.handshake_id ?? msg.handshake_id,
+            }))
             if (capsuleHandler) {
               capsuleHandler(capsuleMsg).catch(() => sendAck([msg.id]))
             } else {
