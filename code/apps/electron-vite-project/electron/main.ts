@@ -808,6 +808,7 @@ async function createWindow() {
       console.log(msg)
     })
     // Handle request for desktop sources (for video recording)
+    ipcMain.removeHandler('get-desktop-sources')
     ipcMain.handle('get-desktop-sources', async (_e, opts: any) => {
       try {
         const { desktopCapturer } = await import('electron')
