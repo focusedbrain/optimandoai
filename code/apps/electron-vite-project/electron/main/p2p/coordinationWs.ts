@@ -55,7 +55,16 @@ function processCapsuleInternal(
   db: any,
   ssoSession: SSOSession,
   sendAckFn: (ids: string[]) => void,
+  onHandshakeUpdated?: () => void,
 ): void {
+  console.log('[Coordination] Processing capsule:', id)
+
+  if (!db) {
+    console.warn('[Coordination] Handshake DB is null — ACKing without processing')
+    sendAckFn([id])
+    return
+  }
+
   const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
   const rawInput = {
     body: capsuleJson,
@@ -66,114 +75,129 @@ function processCapsuleInternal(
   processIncomingInput(rawInput, 'coordination_ws', {
     channel_id: 'coordination_ws',
     mime_type: 'application/vnd.beap+json',
-  }).then((result) => {
-    if (db) {
-      try {
-        insertIngestionAuditRecord(db, result.audit)
-      } catch { /* non-fatal */ }
-    }
-
-    if (!result.success) {
+  })
+    .then((result) => {
       if (db) {
         try {
-          insertQuarantineRecord(db, {
-            raw_input_hash: result.audit.raw_input_hash,
-            source_type: result.audit.source_type,
-            origin_classification: result.audit.origin_classification,
-            input_classification: result.audit.input_classification,
-            validation_reason_code: result.validation_reason_code ?? 'INTERNAL_VALIDATION_ERROR',
-            validation_details: result.reason,
-            provenance_json: JSON.stringify(result.audit),
-          })
-        } catch { /* dedup */ }
+          insertIngestionAuditRecord(db, result.audit)
+        } catch { /* non-fatal */ }
       }
-      console.warn('[Coordination] Capsule rejected:', result.reason)
-      sendAckFn([id])
-      return
-    }
 
-    const { distribution } = result
-    if (distribution.target !== 'handshake_pipeline') {
-      sendAckFn([id])
-      return
-    }
-
-    try {
-      const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
-      if (!rebuildResult.ok) {
-        console.warn('[Coordination] Canonical rebuild rejected:', rebuildResult.reason)
+      if (!result.success) {
+        if (db) {
+          try {
+            insertQuarantineRecord(db, {
+              raw_input_hash: result.audit.raw_input_hash,
+              source_type: result.audit.source_type,
+              origin_classification: result.audit.origin_classification,
+              input_classification: result.audit.input_classification,
+              validation_reason_code: result.validation_reason_code ?? 'INTERNAL_VALIDATION_ERROR',
+              validation_details: result.reason,
+              provenance_json: JSON.stringify(result.audit),
+            })
+          } catch { /* dedup */ }
+        }
+        console.warn('[Coordination] Capsule rejected:', result.reason)
         sendAckFn([id])
         return
       }
 
-      const canonicalValidated = {
-        ...distribution.validated_capsule,
-        capsule: rebuildResult.capsule as any,
+      const { distribution } = result
+      if (distribution.target !== 'handshake_pipeline') {
+        console.log('[Coordination] Capsule routed to', distribution.target, '— ACKing (not handshake_pipeline)')
+        sendAckFn([id])
+        return
       }
 
-      const handshakeResult = processHandshakeCapsule(
-        db,
-        canonicalValidated,
-        buildDefaultReceiverPolicy(),
-        ssoSession,
-      )
+      const capObj = distribution.validated_capsule?.capsule as Record<string, unknown> | undefined
+      const handshakeId = (capObj?.handshake_id as string) ?? 'unknown'
+      const capsuleType = (capObj?.capsule_type as string) ?? 'unknown'
+      console.log('[Coordination] Processing capsule:', id, 'handshake=', handshakeId, 'type=', capsuleType)
 
-      if (handshakeResult.success) {
-        setP2PHealthCoordinationLastPush()
-        const capObj = rebuildResult.capsule as unknown as Record<string, unknown>
-        if (capObj?.capsule_type === 'context_sync' && capObj?.seq === 1 && handshakeResult.handshakeRecord) {
-          const record = handshakeResult.handshakeRecord
-          const targetEndpoint = record.p2p_endpoint
-          if (targetEndpoint?.trim()) {
-            const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
-            if (pending.length > 0) {
-              setImmediate(() => {
-                try {
-                  const counterpartyUserId = record.local_role === 'initiator'
-                    ? record.acceptor!.wrdesk_user_id
-                    : record.initiator.wrdesk_user_id
-                  const counterpartyEmail = record.local_role === 'initiator'
-                    ? record.acceptor!.email
-                    : record.initiator.email
-                  const localPub = record.local_public_key ?? ''
-                  const localPriv = record.local_private_key ?? ''
-                  if (!localPub || !localPriv) {
-                    console.warn('[Coordination] Skipping reverse context-sync: handshake has no signing keys')
-                    return
+      try {
+        const rebuildResult = canonicalRebuild(distribution.validated_capsule.capsule)
+        if (!rebuildResult.ok) {
+          console.warn('[Coordination] Canonical rebuild rejected:', rebuildResult.reason)
+          sendAckFn([id])
+          return
+        }
+
+        console.log('[Coordination] Capsule validated OK')
+        const canonicalValidated = {
+          ...distribution.validated_capsule,
+          capsule: rebuildResult.capsule as any,
+        }
+
+        const handshakeResult = processHandshakeCapsule(
+          db,
+          canonicalValidated,
+          buildDefaultReceiverPolicy(),
+          ssoSession,
+        )
+
+        if (handshakeResult.success) {
+          const newState = handshakeResult.handshakeRecord?.state ?? 'unknown'
+          console.log('[Coordination] Handshake state updated to:', newState)
+          setP2PHealthCoordinationLastPush()
+          onHandshakeUpdated?.()
+          const capObj = rebuildResult.capsule as unknown as Record<string, unknown>
+          if (capObj?.capsule_type === 'context_sync' && capObj?.seq === 1 && handshakeResult.handshakeRecord) {
+            const record = handshakeResult.handshakeRecord
+            const targetEndpoint = record.p2p_endpoint
+            if (targetEndpoint?.trim()) {
+              const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
+              if (pending.length > 0) {
+                setImmediate(() => {
+                  try {
+                    const counterpartyUserId = record.local_role === 'initiator'
+                      ? record.acceptor!.wrdesk_user_id
+                      : record.initiator.wrdesk_user_id
+                    const counterpartyEmail = record.local_role === 'initiator'
+                      ? record.acceptor!.email
+                      : record.initiator.email
+                    const localPub = record.local_public_key ?? ''
+                    const localPriv = record.local_private_key ?? ''
+                    if (!localPub || !localPriv) {
+                      console.warn('[Coordination] Skipping reverse context-sync: handshake has no signing keys')
+                      return
+                    }
+                    const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
+                      block_id: b.block_id,
+                      block_hash: b.block_hash,
+                      scope_id: b.scope_id ?? undefined,
+                      type: b.type,
+                      content: b.content ?? '',
+                    }))
+                    const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                      handshake_id: record.handshake_id,
+                      counterpartyUserId,
+                      counterpartyEmail,
+                      last_seq_received: 1,
+                      last_capsule_hash_received: capObj.capsule_hash as string,
+                      context_blocks: contextBlocks,
+                      local_public_key: localPub,
+                      local_private_key: localPriv,
+                    })
+                    enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                  } catch (err: any) {
+                    console.warn('[Coordination] Reverse context-sync enqueue failed:', err?.message)
                   }
-                  const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
-                    block_id: b.block_id,
-                    block_hash: b.block_hash,
-                    scope_id: b.scope_id ?? undefined,
-                    type: b.type,
-                    content: b.content ?? '',
-                  }))
-                  const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-                    handshake_id: record.handshake_id,
-                    counterpartyUserId,
-                    counterpartyEmail,
-                    last_seq_received: 1,
-                    last_capsule_hash_received: capObj.capsule_hash as string,
-                    context_blocks: contextBlocks,
-                    local_public_key: localPub,
-                    local_private_key: localPriv,
-                  })
-                  enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
-                } catch (err: any) {
-                  console.warn('[Coordination] Reverse context-sync enqueue failed:', err?.message)
-                }
-              })
+                })
+              }
             }
           }
+        } else {
+          console.warn('[Coordination] Handshake rejected:', handshakeResult.reason)
         }
-      } else {
-        console.warn('[Coordination] Handshake rejected:', handshakeResult.reason)
+      } catch (err: any) {
+        console.error('[Coordination] Processing error:', err?.message, err)
       }
-    } catch (err: any) {
-      console.warn('[Coordination] Processing error:', err?.message)
-    }
     sendAckFn([id])
-  })
+    })
+    .catch((err: any) => {
+      console.error('[Coordination] Capsule processing failed:', err?.message ?? err)
+      sendAckFn([id])
+    })
 }
 
 export function createCoordinationWsClient(
@@ -181,7 +205,9 @@ export function createCoordinationWsClient(
   getDb: () => any,
   getSsoSession: () => SSOSession | undefined,
   getOidcToken: () => Promise<string | null>,
+  opts?: { onHandshakeUpdated?: () => void },
 ): CoordinationWsClient {
+  const onHandshakeUpdated = opts?.onHandshakeUpdated
   let ws: WebSocket | null = null
   let reconnectAttempt = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -274,7 +300,7 @@ export function createCoordinationWsClient(
             if (capsuleHandler) {
               capsuleHandler(capsuleMsg).catch(() => sendAck([msg.id]))
             } else {
-              processCapsuleInternal(msg.id, msg.capsule ?? msg, db, ssoSession, sendAck)
+              processCapsuleInternal(msg.id, msg.capsule ?? msg, db, ssoSession, sendAck, onHandshakeUpdated)
             }
           }
         } catch (err: any) {

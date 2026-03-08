@@ -179,6 +179,11 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   },
 })
 
+// ── Handshake list refresh (main → renderer when coordination receives capsule) ─
+ipcRenderer.on('handshake-list-refresh', () => {
+  window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
+})
+
 // ── Handshake View (Relationships + Capsule Import) ────────────────────────
 contextBridge.exposeInMainWorld('handshakeView', {
   listHandshakes: (filter?: unknown) => {

@@ -6983,6 +6983,11 @@ app.whenReady().then(async () => {
             () => getHandshakeDb(),
             () => getCurrentSession(),
             getOidcToken,
+            {
+              onHandshakeUpdated: () => {
+                try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+              },
+            },
           )
           coordinationWsClient.connect().catch((err) => {
             console.warn('[Coordination] WS connect error:', err?.message)
