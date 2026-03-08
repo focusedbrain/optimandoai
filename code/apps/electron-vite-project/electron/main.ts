@@ -716,7 +716,7 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: process.platform !== 'linux',  // Linux has no Chromium sandbox; disable to avoid issues
       webSecurity: true,
     },
     show: false,
@@ -2128,6 +2128,28 @@ app.whenReady().then(async () => {
       }
     })
 
+    // Force-revoke: bypasses state checks and directly marks the record REVOKED locally.
+    // Use this to clean up stuck/orphaned handshakes that cannot be revoked through normal flow.
+    ipcMain.handle('handshake:forceRevoke', async (_e, id: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        console.log('[HANDSHAKE:FORCE_REVOKE] attempting revoke for id:', id)
+        const { revokeHandshake } = await import('./main/handshake/revocation')
+        // Check if record exists first
+        const { getHandshakeRecord } = await import('./main/handshake/db')
+        const record = getHandshakeRecord(db, id)
+        console.log('[HANDSHAKE:FORCE_REVOKE] record found:', record ? `state=${record.state}` : 'null')
+        if (!record) return { success: false, error: `Handshake ${id} not found in database` }
+        await revokeHandshake(db, id, 'local-user')
+        console.log('[HANDSHAKE:FORCE_REVOKE] revoke completed for id:', id)
+        return { success: true }
+      } catch (err: any) {
+        console.error('[HANDSHAKE:FORCE_REVOKE] error:', err?.message, err?.stack)
+        return { success: false, error: err?.message }
+      }
+    })
+
     ipcMain.handle('handshake:contextBlockCount', async (_e, handshakeId: string) => {
       try {
         const db = await getHandshakeDb()
@@ -2181,8 +2203,7 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.() ?? null
+        const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
           receiverUserId: receiverEmail,
           receiverEmail,
@@ -2198,8 +2219,11 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
       try {
-        const vs = (globalThis as any).__og_vault_service_ref
-        const db = vs?.getDb?.() ?? null
+        const db = await getHandshakeDb()
+        if (!db) {
+          console.error('[MAIN] handshake:buildForDownload — getHandshakeDb() returned null; refusing export')
+          return { success: false, error: 'No active session. Please log in before exporting a handshake capsule.' }
+        }
         return await handleHandshakeRPC('handshake.buildForDownload', {
           receiverUserId: receiverEmail,
           receiverEmail,

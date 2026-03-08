@@ -1774,6 +1774,17 @@ function SidepanelOrchestrator() {
     setShowManualLaunchInstructions(false)
     setLaunchTimedOut(false)
     try {
+      // First check if Electron is already running (common in dev mode on Linux
+      // where protocol launch can't start the app but it's already running).
+      const alreadyRunning = await checkConnection()
+      if (alreadyRunning) {
+        setIsLaunchingElectron(false)
+        setShowElectronDialog(false)
+        handleAuthSignIn()
+        return
+      }
+
+      // Try to launch via protocol and background message
       window.open('wrdesk://launch', '_blank')
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
       

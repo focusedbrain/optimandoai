@@ -72,7 +72,8 @@ export const ALL_DATA_CLASSIFICATIONS: readonly DataClassification[] = [
 export enum HandshakeState {
   DRAFT = 'DRAFT',
   PENDING_ACCEPT = 'PENDING_ACCEPT',
-  ACTIVE = 'ACTIVE',
+  ACCEPTED = 'ACCEPTED',  // Accept capsule processed; roundtrip (context exchange) not yet complete
+  ACTIVE = 'ACTIVE',      // Roundtrip complete: context/signatures exchanged
   EXPIRED = 'EXPIRED',
   REVOKED = 'REVOKED',
 }
@@ -353,6 +354,8 @@ export interface HandshakeRecord {
   local_private_key?: string | null;
   /** Counterparty's Ed25519 public key (64-char hex), stored after signature verification */
   counterparty_public_key?: string | null;
+  /** For initiator PENDING_ACCEPT: intended receiver's email (from initiate capsule) */
+  receiver_email?: string | null;
 }
 
 // ── Context Block (persisted) ──

@@ -25,7 +25,7 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE TABLE IF NOT EXISTS handshakes (
         handshake_id TEXT PRIMARY KEY,
         relationship_id TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('DRAFT','PENDING_ACCEPT','ACTIVE','EXPIRED','REVOKED')),
+        state TEXT NOT NULL CHECK (state IN ('DRAFT','PENDING_ACCEPT','ACCEPTED','ACTIVE','EXPIRED','REVOKED')),
         initiator_json TEXT NOT NULL,
         acceptor_json TEXT,
         local_role TEXT NOT NULL CHECK (local_role IN ('initiator','acceptor')),
@@ -274,6 +274,60 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN counterparty_public_key TEXT`,
     ],
   },
+  {
+    version: 14,
+    description: 'Schema v14: receiver_email for initiator pending (intended recipient)',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN receiver_email TEXT`,
+    ],
+  },
+  {
+    version: 15,
+    description: 'Schema v15: ACCEPTED state (accept→ACCEPTED, context_sync→ACTIVE)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS handshakes_new (
+        handshake_id TEXT PRIMARY KEY,
+        relationship_id TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('DRAFT','PENDING_ACCEPT','ACCEPTED','ACTIVE','EXPIRED','REVOKED')),
+        initiator_json TEXT NOT NULL,
+        acceptor_json TEXT,
+        local_role TEXT NOT NULL CHECK (local_role IN ('initiator','acceptor')),
+        sharing_mode TEXT CHECK (sharing_mode IN ('receive-only','reciprocal')),
+        reciprocal_allowed INTEGER NOT NULL DEFAULT 1,
+        tier_snapshot_json TEXT NOT NULL,
+        current_tier_signals_json TEXT NOT NULL,
+        last_seq_sent INTEGER NOT NULL DEFAULT 0,
+        last_seq_received INTEGER NOT NULL DEFAULT 0,
+        last_capsule_hash_sent TEXT NOT NULL DEFAULT '',
+        last_capsule_hash_received TEXT NOT NULL DEFAULT '',
+        effective_policy_json TEXT NOT NULL,
+        external_processing TEXT NOT NULL DEFAULT 'none',
+        created_at TEXT NOT NULL,
+        activated_at TEXT,
+        expires_at TEXT,
+        revoked_at TEXT,
+        revocation_source TEXT CHECK (revocation_source IN ('local-user','remote-capsule')),
+        initiator_wrdesk_policy_hash TEXT NOT NULL DEFAULT '',
+        initiator_wrdesk_policy_version TEXT NOT NULL DEFAULT '',
+        acceptor_wrdesk_policy_hash TEXT,
+        acceptor_wrdesk_policy_version TEXT,
+        initiator_context_commitment TEXT,
+        acceptor_context_commitment TEXT,
+        p2p_endpoint TEXT,
+        counterparty_p2p_token TEXT,
+        local_public_key TEXT,
+        local_private_key TEXT,
+        counterparty_public_key TEXT,
+        receiver_email TEXT
+      )`,
+      `INSERT INTO handshakes_new SELECT handshake_id, relationship_id, state, initiator_json, acceptor_json, local_role, sharing_mode, reciprocal_allowed, tier_snapshot_json, current_tier_signals_json, last_seq_sent, last_seq_received, last_capsule_hash_sent, last_capsule_hash_received, effective_policy_json, external_processing, created_at, activated_at, expires_at, revoked_at, revocation_source, initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version, acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version, initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token, local_public_key, local_private_key, counterparty_public_key, receiver_email FROM handshakes`,
+      `DROP TABLE handshakes`,
+      `ALTER TABLE handshakes_new RENAME TO handshakes`,
+      `CREATE INDEX IF NOT EXISTS idx_hs_relationship ON handshakes(relationship_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_hs_state ON handshakes(state)`,
+      `CREATE INDEX IF NOT EXISTS idx_hs_expires ON handshakes(expires_at)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -356,6 +410,7 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     local_public_key: record.local_public_key ?? null,
     local_private_key: record.local_private_key ?? null,
     counterparty_public_key: record.counterparty_public_key ?? null,
+    receiver_email: record.receiver_email ?? null,
   }
 }
 
@@ -393,6 +448,7 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_public_key: row.local_public_key ?? null,
     local_private_key: row.local_private_key ?? null,
     counterparty_public_key: row.counterparty_public_key ?? null,
+    receiver_email: row.receiver_email ?? null,
   }
 }
 
@@ -428,7 +484,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
     initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
-    local_public_key, local_private_key, counterparty_public_key
+    local_public_key, local_private_key, counterparty_public_key, receiver_email
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -439,7 +495,7 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
     @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
-    @local_public_key, @local_private_key, @counterparty_public_key
+    @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email
   )`).run(s)
 }
 
@@ -465,7 +521,8 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     counterparty_p2p_token = @counterparty_p2p_token,
     local_public_key = @local_public_key,
     local_private_key = @local_private_key,
-    counterparty_public_key = @counterparty_public_key
+    counterparty_public_key = @counterparty_public_key,
+    receiver_email = @receiver_email
   WHERE handshake_id = @handshake_id`).run(s)
 }
 
@@ -497,7 +554,7 @@ export function listHandshakeRecords(
 
 export function getExistingHandshakesForLookup(db: any): HandshakeRecord[] {
   const rows = db.prepare(
-    "SELECT * FROM handshakes WHERE state IN ('PENDING_ACCEPT','ACTIVE')"
+    "SELECT * FROM handshakes WHERE state IN ('PENDING_ACCEPT','ACCEPTED','ACTIVE')"
   ).all() as any[]
   return rows.map(deserializeHandshakeRecord)
 }
@@ -628,13 +685,17 @@ export function deleteEmbeddingsByHandshake(db: any, handshakeId: string): numbe
 
 /**
  * Permanently delete a handshake and all related data.
- * Only allowed for REVOKED or EXPIRED handshakes.
+ * Allowed for: REVOKED, EXPIRED, or PENDING_ACCEPT when local_role is initiator (cancel request).
  */
 export function deleteHandshakeRecord(db: any, handshakeId: string): { success: boolean; error?: string } {
   const record = getHandshakeRecord(db, handshakeId)
   if (!record) return { success: false, error: 'Handshake not found' }
-  if (record.state !== 'REVOKED' && record.state !== 'EXPIRED') {
-    return { success: false, error: 'Only revoked or expired handshakes can be deleted' }
+  const canDelete =
+    record.state === 'REVOKED' ||
+    record.state === 'EXPIRED' ||
+    (record.state === 'PENDING_ACCEPT' && record.local_role === 'initiator')
+  if (!canDelete) {
+    return { success: false, error: 'Only revoked, expired, or your own pending requests can be deleted' }
   }
   try {
     deleteEmbeddingsByHandshake(db, handshakeId)

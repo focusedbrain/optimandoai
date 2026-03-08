@@ -12,6 +12,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "diagnose": "node scripts/diagnose-websocket.js",
+    "restart": "bash scripts/restart.sh",
     "postinstall": "electron-builder install-app-deps && electron-rebuild -f -w better-sqlite3,keytar,canvas",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3,keytar,canvas"
   },

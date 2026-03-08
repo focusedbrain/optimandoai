@@ -17,7 +17,7 @@ import AcceptHandshakeModal from './AcceptHandshakeModal'
 interface HandshakeRecord {
   handshake_id: string
   relationship_id: string
-  state: 'PENDING_ACCEPT' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  state: 'PENDING_ACCEPT' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
   initiator: { email: string; wrdesk_user_id: string } | null
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
@@ -28,6 +28,7 @@ interface HandshakeRecord {
   last_seq_received: number
   last_capsule_hash_received: string
   p2p_endpoint?: string | null
+  receiver_email?: string | null
 }
 
 import './handshakeViewTypes'
@@ -50,7 +51,7 @@ function formatDate(isoString: string | null): string {
 
 function counterpartyEmail(record: HandshakeRecord): string {
   if (record.local_role === 'initiator') {
-    return record.acceptor?.email ?? '(pending)'
+    return record.acceptor?.email ?? record.receiver_email ?? '(pending)'
   }
   return record.initiator?.email ?? ''
 }
@@ -60,6 +61,7 @@ function counterpartyEmail(record: HandshakeRecord): string {
 function StateBadge({ state }: { state: string }) {
   const colors: Record<string, { bg: string; text: string; border: string }> = {
     ACTIVE: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.3)' },
+    ACCEPTED: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6', border: 'rgba(59,130,246,0.3)' },
     PENDING_ACCEPT: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
     REVOKED: { bg: 'rgba(239,68,68,0.12)', text: '#ef4444', border: 'rgba(239,68,68,0.3)' },
     EXPIRED: { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
@@ -105,12 +107,21 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
 
   useEffect(() => { loadHandshakes() }, [loadHandshakes])
 
+  useEffect(() => {
+    const onRefresh = () => loadHandshakes()
+    window.addEventListener('handshake-list-refresh', onRefresh)
+    return () => window.removeEventListener('handshake-list-refresh', onRefresh)
+  }, [loadHandshakes])
+
   const selectedRecord = handshakes.find(h => h.handshake_id === selectedId) ?? null
 
   const active = handshakes.filter(h => h.state === 'ACTIVE')
+  const accepted = handshakes.filter(h => h.state === 'ACCEPTED')
   const revoked = handshakes.filter(h => h.state === 'REVOKED')
   const expired = handshakes.filter(h => h.state === 'EXPIRED')
   const pending = handshakes.filter(h => h.state === 'PENDING_ACCEPT')
+  const pendingIncoming = pending.filter(h => h.local_role === 'acceptor')
+  const pendingOutgoing = pending.filter(h => h.local_role === 'initiator')
 
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptModalRecord, setAcceptModalRecord] = useState<HandshakeRecord | null>(null)
@@ -122,9 +133,18 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
 
   const handleRevoke = async (id: string) => {
     try {
-      await window.handshakeView?.declineHandshake(id)
-      await loadHandshakes()
-    } catch { /* stale state until refresh */ }
+      console.log('[Revoke] calling forceRevokeHandshake for', id)
+      const res = await window.handshakeView?.forceRevokeHandshake(id)
+      console.log('[Revoke] result:', res)
+      if (res?.success !== false) {
+        if (selectedId === id) setSelectedId(null)
+        await loadHandshakes()
+      } else {
+        console.error('[Revoke] failed:', res?.error)
+      }
+    } catch (err) {
+      console.error('[Revoke] exception:', err)
+    }
   }
 
   const handleDecline = async (id: string) => {
@@ -260,6 +280,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           ) : (
             <>
               {renderGroup('Active', active)}
+              {renderGroup('Accepted', accepted)}
               {renderGroup('Revoked', revoked)}
               {renderGroup('Expired', expired)}
               {handshakes.length === 0 && (
@@ -291,7 +312,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               <RelationshipDetail
                 record={selectedRecord}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
-                onRevoke={selectedRecord.state === 'ACTIVE' ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
+                onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
               />
             </div>
@@ -337,51 +358,86 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               </div>
             </div>
           ) : (
-            pending.map(r => (
-              <div key={r.handshake_id} style={{
-                padding: '12px', marginBottom: '8px',
-                background: 'var(--color-surface, rgba(255,255,255,0.04))',
-                border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-                borderRadius: '8px',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {counterpartyEmail(r)}
-                  </span>
-                  <span style={{ flexShrink: 0 }}>
-                    <StateBadge state={r.state} />
-                  </span>
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
-                  {shortId(r.handshake_id)} · {formatDate(r.created_at)}
-                </div>
-                {acceptError && !acceptModalRecord && (
-                  <div style={{ fontSize: '10px', color: '#ef4444', marginBottom: '8px', wordBreak: 'break-word' }}>
-                    {acceptError}
+            <>
+              {pendingOutgoing.map(r => (
+                <div key={r.handshake_id} style={{
+                  padding: '12px', marginBottom: '8px',
+                  background: 'var(--color-surface, rgba(255,255,255,0.04))',
+                  border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)', textTransform: 'uppercase' }}>
+                      To:
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: '10px', fontWeight: 600, color: '#f59e0b' }}>
+                      Awaiting Approval
+                    </span>
                   </div>
-                )}
-                <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', wordBreak: 'break-all' }}>
+                    {r.receiver_email}
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '8px' }}>
+                    {shortId(r.handshake_id)} · {formatDate(r.created_at)}
+                  </div>
                   <button
-                    onClick={() => openAcceptModal(r)}
+                    onClick={() => handleDelete(r.handshake_id)}
+                    title="Cancel handshake request"
                     style={{
-                      flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-                      background: 'rgba(34,197,94,0.15)', color: '#22c55e',
-                      border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px',
-                      cursor: 'pointer',
-                    }}
-                  >Accept</button>
-                  <button
-                    onClick={() => handleDecline(r.handshake_id)}
-                    style={{
-                      flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
+                      width: '100%', padding: '6px 10px', fontSize: '10px', fontWeight: 600,
                       background: 'rgba(239,68,68,0.12)', color: '#ef4444',
                       border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
                       cursor: 'pointer',
                     }}
-                  >Decline</button>
+                  >Cancel Request</button>
                 </div>
-              </div>
-            ))
+              ))}
+              {pendingIncoming.map(r => (
+                <div key={r.handshake_id} style={{
+                  padding: '12px', marginBottom: '8px',
+                  background: 'var(--color-surface, rgba(255,255,255,0.04))',
+                  border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {counterpartyEmail(r)}
+                    </span>
+                    <span style={{ flexShrink: 0 }}>
+                      <StateBadge state={r.state} />
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
+                    {shortId(r.handshake_id)} · {formatDate(r.created_at)}
+                  </div>
+                  {acceptError && acceptModalRecord?.handshake_id === r.handshake_id && (
+                    <div style={{ fontSize: '10px', color: '#ef4444', marginBottom: '8px', wordBreak: 'break-word' }}>
+                      {acceptError}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={() => openAcceptModal(r)}
+                      style={{
+                        flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
+                        background: 'rgba(34,197,94,0.15)', color: '#22c55e',
+                        border: '1px solid rgba(34,197,94,0.3)', borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}
+                    >Accept</button>
+                    <button
+                      onClick={() => handleDecline(r.handshake_id)}
+                      style={{
+                        flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
+                        background: 'rgba(239,68,68,0.12)', color: '#ef4444',
+                        border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}
+                    >Decline</button>
+                  </div>
+                </div>
+              ))}
+            </>
           )}
 
           <div style={{ marginTop: '12px' }}>

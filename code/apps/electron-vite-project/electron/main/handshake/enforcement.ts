@@ -561,7 +561,7 @@ function buildAcceptRecord(
 ): HandshakeRecord {
   return {
     ...existing,
-    state: HS.ACTIVE,
+    state: HS.ACCEPTED,  // ACTIVE only after context roundtrip (see buildContextSyncRecord)
     acceptor: {
       email: input.senderIdentity.email,
       wrdesk_user_id: input.sender_wrdesk_user_id,
@@ -599,13 +599,17 @@ function buildRefreshRecord(
   }
 }
 
-/** context-sync: updates seq/hash like refresh; context_blocks ingested in transaction. */
+/** context-sync: updates seq/hash; ACCEPTED → ACTIVE when roundtrip completes. */
 function buildContextSyncRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
 ): HandshakeRecord {
+  const nextState = existing.state === HS.ACCEPTED && input.seq >= 1
+    ? HS.ACTIVE
+    : existing.state
   return {
     ...existing,
+    state: nextState,
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
   }

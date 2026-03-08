@@ -77,26 +77,25 @@ So the initiator's `registerHandshakeWithRelay` runs. If it 401s, the relay has 
 
 ## Problem 3: Initiator Doesn't See Handshake in List
 
+### Root Cause (FIXED)
+
+**Different database used for write vs. read.**
+
+- **handshake:initiate** and **handshake:buildForDownload** IPC handlers used `vs?.getDb()` (vault DB)
+- **handshake:list** uses `getHandshakeDb()` → ledger DB first, vault fallback
+- Result: persist wrote to vault, list read from ledger → record invisible
+
+**Fix applied:** Both initiate and buildForDownload now use `await getHandshakeDb()` so they write to the same DB (ledger) that list reads from.
+
 ### Local Persistence (verified)
 
 - **handshake.initiate** and **handshake.buildForDownload** both call `persistInitiatorHandshakeRecord` before returning
 - This inserts into `handshakes` via `insertHandshakeRecord`
 - `listHandshakeRecords` queries `SELECT * FROM handshakes WHERE 1=1` with optional state/relationship_id filter, no default filter that would hide PENDING_ACCEPT
 
-### Possible Causes
+### Accept Capsule Roundtrip
 
-1. **Different database** — Initiator might be using the handshake ledger (session-keyed) vs. vault DB. `getHandshakeDb()` returns `getLedgerDb() ?? vaultService.getDb()`. If the initiator created the handshake before the ledger was open, or in a different session, the record could be in a different DB. (Unlikely if same app instance.)
-2. **UI filter** — Check if the Handshakes list component passes a filter (e.g. only ACTIVE) that excludes PENDING_ACCEPT.
-3. **Export-only flow** — If the user only downloaded the file and never completed the initiate RPC (e.g. closed before persist), the record might not exist. But `persistInitiatorHandshakeRecord` runs synchronously before the return with the download.
-
-### Quick Check
-
-```typescript
-// In Electron main process or via IPC
-const db = getLedgerDb() ?? vaultService?.getDb()
-const rows = db.prepare('SELECT handshake_id, state, local_role FROM handshakes').all()
-console.log('[DB-DEBUG] Handshake records:', rows)
-```
+When the initiator has no local handshake record, `processHandshakeCapsule` rejects accept capsules with `HANDSHAKE_NOT_FOUND` (ownership step). The fix above ensures the record exists in the ledger before the accept capsule arrives via WebSocket.
 
 ---
 

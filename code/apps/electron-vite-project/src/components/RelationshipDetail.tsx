@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 interface HandshakeRecord {
   handshake_id: string
   relationship_id: string
-  state: 'PENDING_ACCEPT' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  state: 'PENDING_ACCEPT' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
   initiator: { email: string; wrdesk_user_id: string } | null
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
@@ -39,6 +39,7 @@ interface Props {
 function StateBadge({ state }: { state: string }) {
   const colors: Record<string, { bg: string; text: string; border: string }> = {
     ACTIVE: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.3)' },
+    ACCEPTED: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6', border: 'rgba(59,130,246,0.3)' },
     PENDING_ACCEPT: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
     REVOKED: { bg: 'rgba(239,68,68,0.12)', text: '#ef4444', border: 'rgba(239,68,68,0.3)' },
     EXPIRED: { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
@@ -220,7 +221,7 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {record.state === 'ACTIVE' && onRevoke && (
+          {(record.state === 'ACTIVE' || record.state === 'ACCEPTED') && onRevoke && (
             <button
               onClick={onRevoke}
               style={{
@@ -373,6 +374,20 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
           </div>
           <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
             The counterparty has not yet accepted this handshake request.
+          </div>
+        </div>
+      ) : record.state === 'ACCEPTED' ? (
+        <div style={{
+          padding: '14px 16px',
+          background: 'rgba(59,130,246,0.08)',
+          border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#3b82f6', marginBottom: '4px' }}>
+            Accepted — awaiting context roundtrip.
+          </div>
+          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            Handshake accepted. Context exchange in progress. Will become Active when roundtrip completes.
           </div>
         </div>
       ) : (

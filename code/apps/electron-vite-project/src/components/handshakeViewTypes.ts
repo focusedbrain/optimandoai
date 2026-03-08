@@ -13,6 +13,7 @@ declare global {
       acceptHandshake: (id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => Promise<any>
       declineHandshake: (id: string) => Promise<any>
       deleteHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
+      forceRevokeHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       getContextBlockCount: (handshakeId: string) => Promise<number>
       queryContextBlocks?: (handshakeId: string) => Promise<VerifiedContextBlock[]>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>

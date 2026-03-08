@@ -97,10 +97,12 @@ export function persistInitiatorHandshakeRecord(
       counterparty_p2p_token: senderP2PAuthToken,
       local_public_key: keypair.publicKey,
       local_private_key: keypair.privateKey,
+      receiver_email: capsule.receiver_email ?? null,
     }
 
     insertHandshakeRecord(db, record)
     insertSeenCapsuleHash(db, capsule.handshake_id, capsule.capsule_hash)
+    console.log('[HANDSHAKE] Initiator persist OK:', capsule.handshake_id, 'state=PENDING_ACCEPT')
 
     const relationshipId = capsule.relationship_id
     for (const block of localBlocks) {

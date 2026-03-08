@@ -8,10 +8,11 @@ import { SendHandshakeDelivery } from '@ext/handshake/components/SendHandshakeDe
 
 interface Props {
   onClose: () => void
+  onSuccess?: () => void
   onSubmit?: (data: { recipientEmail: string; deliveryMode: string }) => void
 }
 
-export default function HandshakeInitiateModal({ onClose }: Props) {
+export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
   return (
     <div
       onClick={onClose}
@@ -40,7 +41,7 @@ export default function HandshakeInitiateModal({ onClose }: Props) {
           onBack={onClose}
           fromAccountId=""
           emailAccounts={[]}
-          onSuccess={onClose}
+          onSuccess={onSuccess ?? onClose}
         />
       </div>
     </div>

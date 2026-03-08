@@ -382,41 +382,60 @@ export async function handleHandshakeRPC(
 
       // Persist the initiator capsule locally so the handshakes row exists.
       // Direct insert — NOT the receive pipeline (ownership would reject).
-      if (db) {
-        const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
-        if (buildLocalResult.success && (dlP2PAuthToken || getP2PConfig(db).use_coordination) && dlReceiverEmail) {
-          setImmediate(async () => {
-            const p2pConfig = getP2PConfig(db)
-            const result = p2pConfig.use_coordination
-              ? await registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
-                  initiator_user_id: session.wrdesk_user_id,
-                  acceptor_user_id: dlReceiverUserId,
-                  initiator_email: session.email,
-                  acceptor_email: dlReceiverEmail,
-                })
-              : await registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
-            if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
-            // Enqueue initiate capsule for relay delivery to acceptor (same pattern as accept capsule)
-            const targetEndpoint = capsule.p2p_endpoint?.trim()
-            if (targetEndpoint) {
-              try {
-                enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
-              } catch (err: any) {
-                console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
-              }
+      // If db is null the session/ledger isn't open — fail immediately so the caller
+      // knows the capsule should NOT be exported (it would be undeliverable).
+      if (!db) {
+        return {
+          type: 'handshake-build-result',
+          success: false,
+          error: 'No active session database — please ensure you are logged in before exporting a handshake capsule.',
+          handshake_id: capsule.handshake_id,
+          capsule_json: null,
+          suggested_filename: null,
+        }
+      }
+
+      const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
+      if (!buildLocalResult.success) {
+        return {
+          type: 'handshake-build-result',
+          success: false,
+          error: buildLocalResult.error,
+          handshake_id: capsule.handshake_id,
+          capsule_json: JSON.stringify(capsule),
+          suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
+        }
+      }
+
+      // Register with relay BEFORE returning the capsule so that when the acceptor
+      // imports and submits the accept capsule, the relay already knows the routing.
+      // We still do this async (non-blocking) because relay registration failure is
+      // not fatal for the export — the relay will reject the accept capsule, but the
+      // user can retry via email or direct delivery.
+      if (dlP2PAuthToken || getP2PConfig(db).use_coordination) {
+        const p2pConfig = getP2PConfig(db)
+        const registerPromise = p2pConfig.use_coordination
+          ? registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
+              initiator_user_id: session.wrdesk_user_id,
+              acceptor_user_id: dlReceiverUserId,
+              initiator_email: session.email,
+              acceptor_email: dlReceiverEmail,
+            })
+          : registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
+
+        await registerPromise.then((result) => {
+          if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
+          const targetEndpoint = capsule.p2p_endpoint?.trim()
+          if (targetEndpoint) {
+            try {
+              enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
+            } catch (err: any) {
+              console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
             }
-          })
-        }
-        if (!buildLocalResult.success) {
-          return {
-            type: 'handshake-build-result',
-            success: false,
-            error: buildLocalResult.error,
-            handshake_id: capsule.handshake_id,
-            capsule_json: JSON.stringify(capsule),
-            suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
           }
-        }
+        }).catch((err: any) => {
+          console.warn('[Relay] Register handshake error (non-fatal):', err?.message)
+        })
       }
 
       return {

@@ -128,6 +128,10 @@ function App() {
         {showInitiateModal && (
           <HandshakeInitiateModal
             onClose={() => setShowInitiateModal(false)}
+            onSuccess={() => {
+              setShowInitiateModal(false)
+              window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
+            }}
           />
         )}
       </main>

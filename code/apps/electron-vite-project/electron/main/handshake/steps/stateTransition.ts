@@ -37,6 +37,27 @@ export const checkStateTransition: PipelineStep = {
       return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
     }
 
+    // ACCEPTED (after accept, before context roundtrip) — same as ACTIVE with last_seq_received=0
+    if (currentState === HandshakeState.ACCEPTED) {
+      const lastSeq = handshakeRecord!.last_seq_received
+      if (lastSeq === 0) {
+        if (capsuleType === 'handshake-context-sync') return { passed: true }
+        if (capsuleType === 'handshake-revoke') return { passed: true }
+        if (capsuleType === 'handshake-refresh') {
+          console.warn('[HANDSHAKE] CONTEXT_SYNC_REQUIRED', { handshake_id: input.handshake_id })
+          return { passed: false, reason: ReasonCode.CONTEXT_SYNC_REQUIRED }
+        }
+      } else {
+        if (capsuleType === 'handshake-refresh') return { passed: true }
+        if (capsuleType === 'handshake-revoke') return { passed: true }
+        if (capsuleType === 'handshake-context-sync') return { passed: true }
+      }
+      if (capsuleType === 'handshake-initiate' || capsuleType === 'handshake-accept') {
+        return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
+      }
+      return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
+    }
+
     // ACTIVE (Critical Finding #3: context-sync enforcement)
     // When handshake is ACTIVE and last_seq_received === 0, the first post-activation
     // capsule MUST be context-sync. This ensures the counterparty delivers context

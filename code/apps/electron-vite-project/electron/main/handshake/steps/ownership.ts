@@ -15,7 +15,7 @@ export const verifyHandshakeOwnership: PipelineStep = {
 
       // Check for duplicate active/pending handshake for same tuple
       const duplicate = existingHandshakes.find(h =>
-        (h.state === HandshakeState.PENDING_ACCEPT || h.state === HandshakeState.ACTIVE) &&
+        (h.state === HandshakeState.PENDING_ACCEPT || h.state === HandshakeState.ACCEPTED || h.state === HandshakeState.ACTIVE) &&
         h.relationship_id === input.relationship_id &&
         ((h.initiator.wrdesk_user_id === senderId && h.acceptor?.wrdesk_user_id === localUserId) ||
          (h.initiator.wrdesk_user_id === localUserId && h.acceptor?.wrdesk_user_id === senderId) ||
