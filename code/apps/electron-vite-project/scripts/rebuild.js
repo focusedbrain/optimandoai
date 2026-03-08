@@ -33,3 +33,15 @@ for (const dir of dirs) {
     console.log('[rebuild] Removed:', dir)
   }
 }
+
+// 3. Rebuild native modules for Electron (fixes better-sqlite3 NODE_MODULE_VERSION mismatch on Linux)
+const appDir = path.join(__dirname, '..')
+try {
+  execSync('pnpm exec electron-rebuild -f -w better-sqlite3,keytar,canvas', {
+    cwd: appDir,
+    stdio: 'inherit',
+  })
+  console.log('[rebuild] Native modules rebuilt for Electron')
+} catch (err) {
+  console.warn('[rebuild] electron-rebuild failed (non-fatal):', err?.message)
+}

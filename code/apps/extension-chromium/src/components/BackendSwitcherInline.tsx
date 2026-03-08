@@ -407,7 +407,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                   Create Account
                 </button>
               </>
-            )}
+            ) : null}
             {electronNotRunning && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', paddingTop: '8px', borderTop: effectiveTheme === 'standard' ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.15)' }}>
                 <p style={{ margin: 0, fontSize: '11px', color: effectiveTheme === 'standard' ? '#dc2626' : '#f87171' }}>

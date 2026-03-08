@@ -2,7 +2,10 @@
   "name": "@repo/root",
   "private": true,
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "electron"]
+    "onlyBuiltDependencies": ["better-sqlite3", "electron"],
+    "overrides": {
+      "electron": "30.5.1"
+    }
   },
   "version": "0.0.1",
   "scripts": {
