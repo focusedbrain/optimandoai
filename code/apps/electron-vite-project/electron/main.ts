@@ -2117,11 +2117,20 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('handshake:importCapsule', async (_e, capsuleJson: string) => {
       try {
+        console.log('[IMPORT] Handler called, capsuleJson length=', capsuleJson?.length ?? 0)
         // Import uses Ledger only — no vault needed (parse, validate, persist PENDING_REVIEW)
         const db = await getLedgerDbOrOpen()
-        if (!db) return { success: false, error: 'Please log in first to import handshake capsules.', reason: 'NOT_LOGGED_IN' }
-        return await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
+        if (!db) {
+          console.warn('[IMPORT] No DB — user not logged in')
+          return { success: false, error: 'Please log in first to import handshake capsules.', reason: 'NOT_LOGGED_IN' }
+        }
+        const result = await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
+        if (result?.success) {
+          console.log('[IMPORT] Record created: PENDING_REVIEW, handshake_id=', result?.handshake_id)
+        }
+        return result
       } catch (err: any) {
+        console.error('[IMPORT] Error:', err?.message ?? err, err?.stack)
         return { success: false, error: err?.message ?? 'Import failed', reason: 'INTERNAL_ERROR' }
       }
     })
@@ -2589,7 +2598,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus, relay:*')
+    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/importCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus, relay:*')
 
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
@@ -7057,7 +7066,7 @@ app.whenReady().then(async () => {
           console.log('[P2P] Starting coordination WebSocket client (relay:', coordConfig.coordination_ws_url, ')')
           coordinationWsClient = createCoordinationWsClient(
             coordConfig,
-            () => getLedgerDb(), // Ledger only — receive works without vault
+            () => getHandshakeDb(), // Handshake DB (ledger or vault fallback) — receive works when either is ready
             () => getCurrentSession(),
             getOidcToken,
             {

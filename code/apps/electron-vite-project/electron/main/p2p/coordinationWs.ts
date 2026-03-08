@@ -60,7 +60,7 @@ async function processCapsuleInternal(
   console.log('[Coordination] Processing capsule:', id, 'type=', capsuleType, 'handshake=', handshakeId)
 
   if (!db) {
-    console.error('[Coordination] DB check: FAILED — getLedgerDb() returned null')
+    console.error('[Coordination] DB check: FAILED — getHandshakeDb() returned null')
     console.error('[Coordination] NOT acknowledging — capsule will be retried by relay')
     return
   }

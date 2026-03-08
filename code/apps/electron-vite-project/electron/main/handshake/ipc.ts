@@ -258,10 +258,11 @@ export async function handleHandshakeRPC(
       }
       const cap = distribution.validated_capsule?.capsule as Record<string, unknown> | undefined
       const capsuleType = (cap?.capsule_type as string) ?? ''
+      const handshakeId = (cap?.handshake_id as string) ?? ''
+      console.log('[IMPORT] Parsed OK, type:', capsuleType, 'id:', handshakeId)
       if (capsuleType !== 'initiate') {
         return { success: false, error: `Only initiate capsules can be imported. Got: ${capsuleType}`, reason: 'NOT_INITIATE_CAPSULE' }
       }
-      const handshakeId = (cap?.handshake_id as string) ?? ''
       const existing = getHandshakeRecord(db, handshakeId)
       if (existing) {
         return { success: false, error: 'Handshake already exists', reason: 'HANDSHAKE_ALREADY_EXISTS' }
