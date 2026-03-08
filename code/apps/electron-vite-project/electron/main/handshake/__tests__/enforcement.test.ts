@@ -7,6 +7,7 @@ import { verifyWrdeskPolicyAnchor } from '../steps/policyAnchor'
 import { verifyInputLimits } from '../steps/inputLimits'
 import { verifyTimestamp } from '../steps/timestamp'
 import { checkExpiry } from '../steps/expiry'
+import { checkStateTransition } from '../steps/stateTransition'
 import { enforceMinimumTier, runTierSpecificChecks } from '../steps/tierSteps'
 import { verifyCapsuleHashIntegrity } from '../steps/verifyCapsuleHash'
 import { computeCapsuleHash } from '../capsuleHash'
@@ -300,6 +301,13 @@ describe('Expiry', () => {
       handshakeRecord: buildHandshakeRecord({ state: HandshakeState.PENDING_REVIEW, expires_at: new Date(Date.now() - 5000).toISOString() }),
     })
     expect(checkExpiry.execute(ctx).passed).toBe(true)
+  })
+  test('accept on EXPIRED record with no acceptor → allowed (recovery from incorrect expiry)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.EXPIRED, acceptor: null }),
+    })
+    expect(checkStateTransition.execute(ctx).passed).toBe(true)
   })
 })
 

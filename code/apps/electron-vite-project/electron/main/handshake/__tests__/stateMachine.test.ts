@@ -25,6 +25,14 @@ describe('Handshake State Machine', () => {
     expect(checkStateTransition.execute(ctx).passed).toBe(true)
   })
 
+  test('accept on PENDING_REVIEW → passes (imported initiate awaiting user decision)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sharing_mode: 'receive-only' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.PENDING_REVIEW }),
+    })
+    expect(checkStateTransition.execute(ctx).passed).toBe(true)
+  })
+
   test('refresh on ACTIVE → passes', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh', seq: 2, prev_hash: 'capsule-hash-accept' }),
@@ -61,8 +69,8 @@ describe('Handshake State Machine', () => {
     }
   })
 
-  test('any capsule on EXPIRED → HANDSHAKE_EXPIRED', () => {
-    for (const capsuleType of ['handshake-initiate', 'handshake-accept', 'handshake-refresh', 'handshake-revoke'] as const) {
+  test('initiate/refresh/revoke on EXPIRED → HANDSHAKE_EXPIRED', () => {
+    for (const capsuleType of ['handshake-initiate', 'handshake-refresh', 'handshake-revoke'] as const) {
       const ctx = buildCtx({
         input: buildVerifiedCapsuleInput({ capsuleType }),
         handshakeRecord: buildHandshakeRecord({ state: HandshakeState.EXPIRED }),
@@ -71,6 +79,22 @@ describe('Handshake State Machine', () => {
       expect(result.passed).toBe(false)
       if (!result.passed) expect(result.reason).toBe(ReasonCode.HANDSHAKE_EXPIRED)
     }
+  })
+  test('accept on EXPIRED with acceptor set → HANDSHAKE_EXPIRED', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.EXPIRED, acceptor: { email: 'a@t.com', wrdesk_user_id: 'a', iss: '', sub: '' } }),
+    })
+    const result = checkStateTransition.execute(ctx)
+    expect(result.passed).toBe(false)
+    if (!result.passed) expect(result.reason).toBe(ReasonCode.HANDSHAKE_EXPIRED)
+  })
+  test('accept on EXPIRED with no acceptor → allowed (recovery)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept' }),
+      handshakeRecord: buildHandshakeRecord({ state: HandshakeState.EXPIRED, acceptor: null }),
+    })
+    expect(checkStateTransition.execute(ctx).passed).toBe(true)
   })
 
   test('initiate on ACTIVE → INVALID_STATE_TRANSITION', () => {

@@ -19,11 +19,17 @@ export const checkStateTransition: PipelineStep = {
       return { passed: false, reason: ReasonCode.HANDSHAKE_REVOKED }
     }
     if (currentState === HandshakeState.EXPIRED) {
+      // Recovery: if record was never accepted (acceptor null) and user is accepting,
+      // allow through — retention job may have incorrectly expired due to stale expires_at.
+      if (capsuleType === 'handshake-accept' && handshakeRecord && !handshakeRecord.acceptor) {
+        return { passed: true }
+      }
       return { passed: false, reason: ReasonCode.HANDSHAKE_EXPIRED }
     }
 
-    // PENDING_ACCEPT
-    if (currentState === HandshakeState.PENDING_ACCEPT) {
+    // PENDING_ACCEPT and PENDING_REVIEW: acceptor can accept or revoke
+    // PENDING_REVIEW = imported initiate awaiting user decision; treat same as PENDING_ACCEPT for accept/revoke
+    if (currentState === HandshakeState.PENDING_ACCEPT || currentState === HandshakeState.PENDING_REVIEW) {
       if (capsuleType === 'handshake-accept') return { passed: true }
       if (capsuleType === 'handshake-revoke') return { passed: true }
       // refresh on PENDING_ACCEPT is invalid

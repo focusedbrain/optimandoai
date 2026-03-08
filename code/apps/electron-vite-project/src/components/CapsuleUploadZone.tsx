@@ -51,7 +51,10 @@ function mapPipelineError(raw: string | undefined): string {
   if (r.includes('clock_skew')) return 'System clock may be out of sync. Ensure your device time is correct and try again.'
   if (r.includes('handshake_expired')) return 'This handshake has expired. Start a new handshake to re-establish trust.'
   if (r.includes('expiry_extension') || r.includes('expiry_mutation')) return 'Cannot change the handshake expiry. The capsule was rejected.'
-  if (r.includes('expired') || r.includes('expiry')) return 'The capsule has expired.'
+  if (r.includes('expired') || r.includes('expiry')) {
+    // Include raw error for diagnostics when reporting issues
+    return raw ? `The capsule has expired. (Code: ${raw})` : 'The capsule has expired.'
+  }
   if (r.includes('ownership') || r.includes('self-send')) return 'Cannot process a capsule you sent yourself.'
   if (r.includes('sso') || r.includes('session')) return 'Authentication required. Please log in first.'
   if (r.includes('VAULT_LOCKED') || (r.includes('vault') && r.includes('locked'))) return 'Vault is locked. Please unlock first.'
