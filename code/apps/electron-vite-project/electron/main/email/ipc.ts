@@ -16,10 +16,21 @@ import {
 } from './types'
 
 /**
- * Register all email-related IPC handlers
+ * Register all email-related IPC handlers.
+ * Uses removeHandler before each handle to allow re-registration (idempotent).
  */
 export function registerEmailHandlers(): void {
   console.log('[Email IPC] Registering handlers...')
+  
+  const channels = [
+    'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
+    'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
+    'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap',
+    'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
+    'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail',
+    'email:syncAccount', 'email:getSyncStatus',
+  ] as const
+  channels.forEach(ch => ipcMain.removeHandler(ch))
   
   // =================================================================
   // Account Management

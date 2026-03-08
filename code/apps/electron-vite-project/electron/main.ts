@@ -300,6 +300,7 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
         const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
         openLedger(ledgerToken).then(() => {
           console.log('[AUTH] Handshake ledger opened after login')
+          onLedgerReady?.()
         }).catch(err => {
           console.warn('[AUTH] Handshake ledger open after login failed:', err?.message)
         })
@@ -549,6 +550,9 @@ import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtecte
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
+
+/** Called when ledger opens — triggers P2P/coordination startup immediately instead of waiting for 10s poll */
+let onLedgerReady: (() => void) | null = null
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -2192,15 +2196,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('email:listAccounts', async () => {
-      try {
-        const { emailGateway } = await import('./main/email/gateway')
-        const accounts = await emailGateway.listAccounts()
-        return { ok: true, data: accounts }
-      } catch (err: any) {
-        return { ok: false, error: err?.message || 'Failed to list accounts' }
-      }
-    })
+    // email:listAccounts is registered by registerEmailHandlers() — do not duplicate here
 
     ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
       try {
@@ -2657,6 +2653,7 @@ app.whenReady().then(async () => {
         const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
         openLedger(ledgerToken).then(() => {
           console.log('[MAIN] Handshake ledger opened at startup')
+          onLedgerReady?.()
         }).catch(err => {
           console.warn('[MAIN] Handshake ledger open at startup failed:', err?.message)
         })
@@ -2773,6 +2770,7 @@ app.whenReady().then(async () => {
           const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
           openLedger(ledgerToken).then(() => {
             console.log('[MAIN] Handshake ledger opened for SSO session')
+            onLedgerReady?.()
           }).catch(err => {
             console.warn('[MAIN] Failed to open handshake ledger:', err?.message)
           })
@@ -4131,7 +4129,7 @@ app.whenReady().then(async () => {
         try {
           if (session?.sub && session?.iss) {
             const ledgerToken = buildLedgerSessionToken(session.wrdesk_user_id || session.sub, session.iss)
-            openLedger(ledgerToken).catch(err => {
+            openLedger(ledgerToken).then(() => onLedgerReady?.()).catch(err => {
               console.warn('[HTTP] Handshake ledger open after SSO callback failed:', err?.message)
             })
           }
@@ -6932,7 +6930,9 @@ app.whenReady().then(async () => {
 
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
-      if (!handshakeDb) return
+      if (!handshakeDb) {
+        return // Ledger not ready yet — will retry in 10s
+      }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
@@ -6973,10 +6973,11 @@ app.whenReady().then(async () => {
           console.warn('[P2P] Server startup skipped:', err?.message)
         }
       }
-      // Coordination WebSocket: connect when use_coordination
+      // Coordination WebSocket: connect when use_coordination (receives capsules from relay)
       const coordConfig = getP2PConfig(handshakeDb)
       if (coordConfig?.use_coordination && coordConfig?.coordination_enabled) {
         if (!coordinationWsClient) {
+          console.log('[P2P] Starting coordination WebSocket client (relay:', coordConfig.coordination_ws_url, ')')
           coordinationWsClient = createCoordinationWsClient(
             coordConfig,
             () => getHandshakeDb(),
@@ -6993,6 +6994,7 @@ app.whenReady().then(async () => {
       }
     }
 
+    onLedgerReady = tryP2PStartup
     tryP2PStartup()
     setInterval(tryP2PStartup, 10_000)
 

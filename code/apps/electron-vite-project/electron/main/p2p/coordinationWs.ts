@@ -215,9 +215,15 @@ export function createCoordinationWsClient(
   }
 
   const connect = async (): Promise<void> => {
-    if (!config.use_coordination || !config.coordination_enabled) return
+    if (!config.use_coordination || !config.coordination_enabled) {
+      console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
+      return
+    }
     const wsUrl = config.coordination_ws_url?.trim()
-    if (!wsUrl) return
+    if (!wsUrl) {
+      console.log('[Coordination] Skipping connect: no coordination_ws_url')
+      return
+    }
 
     const token = await getOidcToken()
     if (!token?.trim()) {
@@ -226,6 +232,7 @@ export function createCoordinationWsClient(
     }
 
     const url = wsUrl.includes('?') ? `${wsUrl}&token=${encodeURIComponent(token)}` : `${wsUrl}?token=${encodeURIComponent(token)}`
+    console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
     return new Promise((resolve, reject) => {
       try {
@@ -241,6 +248,7 @@ export function createCoordinationWsClient(
         setP2PHealthCoordinationConnected()
         setP2PHealthCoordinationReconnectAttempts(0)
         flushAcks()
+        console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
         resolve()
       })
 
@@ -262,6 +270,7 @@ export function createCoordinationWsClient(
               handshake_id: msg.handshake_id,
               capsule: msg.capsule ?? msg,
             }
+            console.log('[Coordination] Capsule received:', msg.id, msg.handshake_id ? `handshake=${msg.handshake_id}` : '')
             if (capsuleHandler) {
               capsuleHandler(capsuleMsg).catch(() => sendAck([msg.id]))
             } else {
