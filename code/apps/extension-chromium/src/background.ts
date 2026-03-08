@@ -1520,7 +1520,8 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
  * Check if Electron app is running and launch it if needed
  * Uses a Windows-compatible notification approach (buttons don't work on Windows)
  */
-async function checkAndLaunchElectronApp(sendResponse: (response: any) => void): Promise<void> {
+async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, theme?: string): Promise<void> {
+  const themePayload = theme && ['standard', 'dark', 'pro'].includes(theme) ? { theme } : {}
   try {
     // First check if app is running via HTTP
     const isRunning = await isElectronRunning()
@@ -1531,7 +1532,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
       connectToWebSocketServer()
       setTimeout(async () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+          try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD', ...themePayload })) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
           // WebSocket still not connected, but app is running - try direct HTTP to open window
@@ -1568,7 +1569,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
         connectToWebSocketServer()
         setTimeout(() => {
           if (ws && ws.readyState === WebSocket.OPEN) {
-            try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+            try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD', ...themePayload })) } catch {}
             try { sendResponse({ success: true }) } catch {}
           } else {
             // App started but WebSocket not ready yet
@@ -2597,7 +2598,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           // First check if WebSocket is connected
           if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-            const payload = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            const payload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) payload.theme = msg.theme
             try { ws.send(JSON.stringify(payload)) } catch {}
             try { sendResponse({ success: true }) } catch {}
             return
@@ -2610,24 +2612,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const timeout = setTimeout(() => {
             temp.close()
             // Check if Electron app is running via HTTP
-            checkAndLaunchElectronApp(sendResponse)
+            checkAndLaunchElectronApp(sendResponse, msg.theme)
           }, 2000) // 2 second timeout
           
           temp.addEventListener('open', () => {
             clearTimeout(timeout)
             try { ws = temp as any } catch {}
-            try { ws?.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+            const payload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) payload.theme = msg.theme
+            try { ws?.send(JSON.stringify(payload)) } catch {}
             try { sendResponse({ success: true }) } catch {}
           })
           
           temp.addEventListener('error', () => {
             clearTimeout(timeout)
             // Check if Electron app is running via HTTP
-            checkAndLaunchElectronApp(sendResponse)
+            checkAndLaunchElectronApp(sendResponse, msg.theme)
           })
         } catch (err) {
           // Check if Electron app is running via HTTP
-          checkAndLaunchElectronApp(sendResponse)
+          checkAndLaunchElectronApp(sendResponse, msg.theme)
         }
       })()
       return true // Indicate async response

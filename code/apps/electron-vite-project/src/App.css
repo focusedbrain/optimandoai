@@ -47,9 +47,9 @@
   --purple-accent-hover: #7c3aed;
   --purple-accent-muted: rgba(147, 51, 234, 0.2);
 
-  /* Fallback before theme is applied — avoid white flash */
-  --bg-base: var(--bg-base-dark);
-  --text-primary: var(--text-primary-dark);
+  /* Fallback before theme is applied — use Standard (light) as default */
+  --bg-base: var(--bg-base-prof);
+  --text-primary: var(--text-primary-prof);
 
   /* Handshake view aliases — default to dark-safe values */
   --color-bg: #0f172a;

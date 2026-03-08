@@ -1878,7 +1878,7 @@ function SidepanelOrchestrator() {
     setNotification({ message: 'Opening Analysis Dashboard...', type: 'info' })
     setTimeout(() => setNotification(null), 3000)
     
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' }, (response) => {
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD', theme }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('❌ Error:', chrome.runtime.lastError.message)
         setNotification({ message: 'Failed to open Dashboard. Is the extension loaded?', type: 'error' })
