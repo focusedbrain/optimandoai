@@ -2261,6 +2261,18 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('p2p:flushOutboundQueue', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No database' }
+        await processOutboundQueue(db, getOidcToken)
+        return { success: true }
+      } catch (err: any) {
+        console.warn('[P2P] flushOutboundQueue error:', err?.message)
+        return { success: false, error: err?.message }
+      }
+    })
+
     // ── Relay Setup Wizard IPC ─────────────────────────────────────────────
     ipcMain.handle('relay:generateSecret', async () => {
       try {
@@ -4124,6 +4136,12 @@ app.whenReady().then(async () => {
         const result = await requestLogin()
         if (result.ok) {
           console.log('[HTTP] SSO login successful - tier:', result.tier)
+          const handshakeDb = await getHandshakeDb()
+          if (handshakeDb) {
+            processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
+              console.warn('[P2P] Queue flush after login error:', err?.message)
+            })
+          }
           res.json({ ok: true, tier: result.tier })
         } else {
           console.error('[HTTP] SSO login failed:', result.error)

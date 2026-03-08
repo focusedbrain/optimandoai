@@ -80,6 +80,8 @@ export async function processOutboundQueue(
       const targetUrl = config.coordination_url?.trim()
       if (!token?.trim()) {
         setP2PHealthOutboundFailure('No OIDC token — please log in')
+        const counts = getQueueCountsInternal(db)
+        setP2PHealthQueueCounts(counts.pending, counts.failed)
         return
       }
       if (!targetUrl) {
@@ -99,23 +101,33 @@ export async function processOutboundQueue(
         `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ? WHERE id = ?`,
       ).run(now, row.id)
     } else {
-      const userError = formatP2PErrorForUser(result.error ?? 'Unknown', row.target_endpoint)
+      const is401 = result.statusCode === 401
+      const userError = is401
+        ? 'Authentication failed — please log in again'
+        : formatP2PErrorForUser(result.error ?? 'Unknown', row.target_endpoint)
       setP2PHealthOutboundFailure(userError)
-      const newRetry = row.retry_count + 1
-      const isFailed = newRetry >= row.max_retries
-      if (isFailed) {
-        console.warn('[P2P] Outbound capsule failed after max retries', {
-          handshake_id: row.handshake_id,
-          retries: newRetry,
-          error: result.error,
-        })
+      // 401 = auth issue — do not increment retry; leave pending for retry after re-auth
+      if (is401) {
         db.prepare(
-          `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
-        ).run(newRetry, now, userError, row.id)
+          `UPDATE outbound_capsule_queue SET last_attempt_at = ?, error = ? WHERE id = ?`,
+        ).run(now, userError, row.id)
       } else {
-        db.prepare(
-          `UPDATE outbound_capsule_queue SET retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
-        ).run(newRetry, now, userError, row.id)
+        const newRetry = row.retry_count + 1
+        const isFailed = newRetry >= row.max_retries
+        if (isFailed) {
+          console.warn('[P2P] Outbound capsule failed after max retries', {
+            handshake_id: row.handshake_id,
+            retries: newRetry,
+            error: result.error,
+          })
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
+          ).run(newRetry, now, userError, row.id)
+        } else {
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
+          ).run(newRetry, now, userError, row.id)
+        }
       }
     }
 

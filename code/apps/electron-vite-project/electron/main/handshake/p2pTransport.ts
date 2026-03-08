@@ -12,6 +12,7 @@ const TIMEOUT_MS = 30_000
 export interface SendCapsuleResult {
   success: boolean
   error?: string
+  statusCode?: number
 }
 
 /**
@@ -63,7 +64,7 @@ async function sendCapsuleViaHttpWithAuth(
 
     const errMsg = `HTTP ${response.status}`
     console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, statusCode: response.status }
   } catch (err: any) {
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)
@@ -123,7 +124,7 @@ export async function sendCapsuleViaHttp(
 
     const errMsg = `HTTP ${response.status}`
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
-    return { success: false, error: errMsg }
+    return { success: false, error: errMsg, statusCode: response.status }
   } catch (err: any) {
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)

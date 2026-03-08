@@ -551,7 +551,19 @@ export async function handleHandshakeRPC(
                 acceptor_email: session.email,
               })
             : await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail)
-          if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
+          if (!result.success) {
+            console.warn('[Relay] Register handshake failed:', result.error)
+            return
+          }
+          // Enqueue accept capsule for relay delivery to initiator
+          const targetEndpoint = record.p2p_endpoint?.trim()
+          if (targetEndpoint) {
+            try {
+              enqueueOutboundCapsule(db, handshake_id, targetEndpoint, capsule)
+            } catch (err: any) {
+              console.warn('[P2P] Enqueue accept capsule failed:', err?.message)
+            }
+          }
         })
       }
 

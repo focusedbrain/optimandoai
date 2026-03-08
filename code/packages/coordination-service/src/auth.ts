@@ -3,6 +3,16 @@
  */
 
 import * as jose from 'jose'
+
+// Production startup guard — refuse to run with TEST_MODE in production
+if (process.env.COORD_TEST_MODE === '1') {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: COORD_TEST_MODE is enabled in production. Refusing to start.')
+    process.exit(1)
+  }
+  console.warn('⚠️  TEST_MODE active — auth is bypassed. Do not use in production.')
+}
+
 import { createHash } from 'node:crypto'
 import { getDb } from './store.js'
 

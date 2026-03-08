@@ -11,6 +11,10 @@ import { startCleanupInterval } from './cleanup.js'
 async function main(): Promise<void> {
   const config = loadConfig()
   if (!config.oidc_audience?.trim()) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Coordination] FATAL: COORD_OIDC_AUDIENCE is not set. Refusing to start.')
+      process.exit(1)
+    }
     console.warn('[Coordination] COORD_OIDC_AUDIENCE not set — audience check skipped. Consider setting for production.')
   }
   initStore(config)

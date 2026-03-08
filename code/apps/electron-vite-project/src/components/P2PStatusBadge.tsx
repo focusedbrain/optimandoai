@@ -25,6 +25,13 @@ interface P2PHealthStatus {
   coordination_last_push?: string | null
   coordination_last_error?: string | null
   coordination_reconnect_attempts?: number
+  last_outbound_error?: string | null
+}
+
+function isAuthRelatedError(err: string | null | undefined): boolean {
+  if (!err) return false
+  const lower = err.toLowerCase()
+  return lower.includes('oidc') || lower.includes('log in') || lower.includes('auth') || lower.includes('401')
 }
 
 export default function P2PStatusBadge() {
@@ -96,15 +103,20 @@ export default function P2PStatusBadge() {
     )
   }
 
-  // Warning: delivery pending
+  // Warning: delivery pending — distinguish auth-required vs in-progress
   if (health.pending_queue_count > 0) {
+    const authRequired = isAuthRelatedError(health.last_outbound_error) || isAuthRelatedError(health.coordination_last_error)
     return (
-      <span title="P2P active — delivery pending" style={{
-        fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-        background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
-        border: '1px solid rgba(245,158,11,0.3)',
-      }}>
-        P2P — pending
+      <span
+        title={authRequired ? `${health.pending_queue_count} item(s) pending — please log in to deliver` : 'P2P active — delivery pending'}
+        style={{
+          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
+          background: authRequired ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+          color: authRequired ? '#ef4444' : '#f59e0b',
+          border: `1px solid ${authRequired ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
+        }}
+      >
+        {authRequired ? 'Login required to sync' : 'P2P — pending'}
       </span>
     )
   }

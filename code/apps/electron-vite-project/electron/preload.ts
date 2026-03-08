@@ -259,6 +259,7 @@ contextBridge.exposeInMainWorld('p2p', {
     const id = typeof handshakeId === 'string' && handshakeId.length <= 128 ? handshakeId : ''
     return ipcRenderer.invoke('p2p:getQueueStatus', id)
   },
+  flushOutboundQueue: () => ipcRenderer.invoke('p2p:flushOutboundQueue'),
 })
 
 // ── Auth Status (tier for relay gating) ─────────────────────────────────────
