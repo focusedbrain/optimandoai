@@ -9,6 +9,20 @@
 
 const TIMEOUT_MS = 30_000
 
+/** Decode JWT payload (middle segment) for debug logging. Returns null on parse error. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payloadB64 = parts[1]
+    const padded = payloadB64 + '='.repeat((4 - (payloadB64.length % 4)) % 4)
+    const json = Buffer.from(padded, 'base64url').toString('utf8')
+    return JSON.parse(json) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
 export interface SendCapsuleResult {
   success: boolean
   error?: string
@@ -47,6 +61,25 @@ async function sendCapsuleViaHttpWithAuth(
     Authorization: `Bearer ${bearerToken.trim()}`,
   }
 
+  // P2P-DEBUG: temporary diagnostic logging for 401 / audience investigation
+  const capsuleObj = capsule as { handshake_id?: string; capsule_type?: string }
+  console.log('[P2P-DEBUG] Sending capsule to:', targetEndpoint, 'handshake_id:', capsuleObj.handshake_id, 'capsule_type:', capsuleObj.capsule_type)
+  console.log('[P2P-DEBUG] Auth header present:', !!headers.Authorization)
+  if (bearerToken?.trim()) {
+    try {
+      const payload = decodeJwtPayload(bearerToken.trim())
+      if (payload) {
+        const aud = payload.aud
+        const audStr = typeof aud === 'string' ? aud : Array.isArray(aud) ? aud.join(',') : JSON.stringify(aud)
+        console.log('[P2P-DEBUG] Token aud:', audStr ?? '(absent) — relay expects COORD_OIDC_AUDIENCE to match')
+      }
+    } catch {
+      console.log('[P2P-DEBUG] Token first 20 chars:', bearerToken.substring(0, 20))
+    }
+  } else {
+    console.log('[P2P-DEBUG] Token: null')
+  }
+
   try {
     const response = await fetch(targetEndpoint, {
       method: 'POST',
@@ -64,6 +97,10 @@ async function sendCapsuleViaHttpWithAuth(
 
     const errMsg = `HTTP ${response.status}`
     console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
+    if (!response.ok) {
+      const errBody = await response.text()
+      console.log('[P2P-DEBUG] Error body:', errBody)
+    }
     return { success: false, error: errMsg, statusCode: response.status }
   } catch (err: any) {
     clearTimeout(timeout)

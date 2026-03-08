@@ -313,6 +313,15 @@ export async function handleHandshakeRPC(
                 })
               : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
             if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
+            // Enqueue initiate capsule for relay delivery to acceptor (same pattern as accept capsule)
+            const targetEndpoint = capsule.p2p_endpoint?.trim()
+            if (targetEndpoint) {
+              try {
+                enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
+              } catch (err: any) {
+                console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
+              }
+            }
           })
         }
       } else if (!skipVaultContext) {
@@ -387,6 +396,15 @@ export async function handleHandshakeRPC(
                 })
               : await registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
             if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
+            // Enqueue initiate capsule for relay delivery to acceptor (same pattern as accept capsule)
+            const targetEndpoint = capsule.p2p_endpoint?.trim()
+            if (targetEndpoint) {
+              try {
+                enqueueOutboundCapsule(db, capsule.handshake_id, targetEndpoint, capsule)
+              } catch (err: any) {
+                console.warn('[P2P] Enqueue initiate capsule failed:', err?.message)
+              }
+            }
           })
         }
         if (!buildLocalResult.success) {

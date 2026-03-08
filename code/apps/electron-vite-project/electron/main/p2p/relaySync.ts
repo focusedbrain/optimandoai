@@ -7,6 +7,19 @@
 
 import { getP2PConfig } from './p2pConfig'
 
+/** Decode JWT payload for debug — returns aud value or null */
+function decodeJwtAud(token: string): string | string[] | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8')
+    const payload = JSON.parse(json) as Record<string, unknown>
+    return (payload.aud as string | string[] | null) ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function registerHandshakeWithRelay(
   db: any,
   handshakeId: string,
@@ -33,6 +46,8 @@ export async function registerHandshakeWithRelay(
     if (!token?.trim() || !coordUrl) {
       return { success: false, error: !token ? 'No OIDC token' : 'Coordination URL not configured' }
     }
+    const aud = decodeJwtAud(token)
+    console.log('[P2P-DEBUG] Register handshake — token aud:', aud ?? '(absent) — relay expects COORD_OIDC_AUDIENCE to match')
     const base = coordUrl.replace(/\/$/, '')
     const registerUrl = `${base}/beap/register-handshake`
     try {
@@ -53,8 +68,10 @@ export async function registerHandshakeWithRelay(
       if (!res.ok) {
         const text = await res.text()
         console.error('[Coordination] Register handshake failed:', res.status, text)
+        console.log('[P2P-DEBUG] Register failed — handshake_id:', handshakeId, 'status:', res.status, 'body:', text)
         return { success: false, error: res.status === 401 ? 'Auth failed' : `HTTP ${res.status}` }
       }
+      console.log('[P2P-DEBUG] Register handshake OK:', handshakeId)
       return { success: true }
     } catch (err: any) {
       const msg = err?.message ?? String(err)
