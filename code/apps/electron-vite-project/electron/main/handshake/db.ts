@@ -409,6 +409,10 @@ const HANDSHAKE_MIGRATIONS: Array<{
     version: 20,
     description: 'Schema v20: Repair state CHECK constraint to include PENDING_REVIEW (defensive rebuild)',
     sql: [
+      // Ensure policy_selections and default_policy_json exist before the table rebuild,
+      // guarding against DBs where v18/v19 were skipped or partially applied.
+      `ALTER TABLE handshakes ADD COLUMN policy_selections TEXT DEFAULT '{}'`,
+      `ALTER TABLE handshakes ADD COLUMN default_policy_json TEXT`,
       // Rebuild handshakes table unconditionally to ensure the CHECK constraint is current.
       // Guards against DBs where v16 was skipped or partially applied.
       `CREATE TABLE IF NOT EXISTS handshakes_v20 (
@@ -507,8 +511,8 @@ export function migrateHandshakeTables(db: any): void {
           db.prepare(sql).run()
         } catch (e: any) {
           const msg = e?.message ?? ''
-          // Ignore "already exists" / "duplicate" for additive migrations (CREATE INDEX IF NOT EXISTS, etc.)
-          if (msg.includes('already exists') || msg.includes('duplicate')) continue
+          // Ignore "already exists" / "duplicate column" for additive migrations (ALTER TABLE ADD COLUMN, CREATE INDEX IF NOT EXISTS, etc.)
+          if (msg.includes('already exists') || msg.includes('duplicate') || msg.includes('duplicate column name')) continue
           // Rethrow so transaction rolls back — do not mark migration as applied on failure
           throw e
         }
