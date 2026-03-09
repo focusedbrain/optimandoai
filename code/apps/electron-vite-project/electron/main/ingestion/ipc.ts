@@ -150,22 +150,27 @@ export async function handleIngestionRPC(
               distribution_target: 'handshake_pipeline',
             }
           } else {
-            // Step 6: Auto-trigger reverse context-sync when initiator receives first context-sync from acceptor
+            // Step 6: Auto-trigger reverse context-sync when initiator receives first context-sync from acceptor.
+            // Always send to close the roundtrip, even if the local side has no blocks.
             const cap = rebuildResult.capsule as unknown as Record<string, unknown>
             if (cap?.capsule_type === 'context_sync' && cap?.seq === 1 && handshakeResult.handshakeRecord) {
               const record = handshakeResult.handshakeRecord
               const targetEndpoint = record.p2p_endpoint
               if (targetEndpoint?.trim()) {
-                const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
-                if (pending.length > 0) {
-                  setImmediate(() => {
-                    try {
-                      const counterpartyUserId = record.local_role === 'initiator'
-                        ? record.acceptor!.wrdesk_user_id
-                        : record.initiator.wrdesk_user_id
-                      const counterpartyEmail = record.local_role === 'initiator'
-                        ? record.acceptor!.email
-                        : record.initiator.email
+                setImmediate(() => {
+                  try {
+                    const counterpartyUserId = record.local_role === 'initiator'
+                      ? record.acceptor!.wrdesk_user_id
+                      : record.initiator.wrdesk_user_id
+                    const counterpartyEmail = record.local_role === 'initiator'
+                      ? record.acceptor!.email
+                      : record.initiator.email
+                    const localPub = record.local_public_key
+                    const localPriv = record.local_private_key
+                    if (!localPub || !localPriv) {
+                      console.warn('[P2P] Reverse context-sync skipped: handshake missing signing keys')
+                    } else {
+                      const pending = getContextStoreByHandshake(db, record.handshake_id, 'pending_delivery')
                       const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
                         block_id: b.block_id,
                         block_hash: b.block_hash,
@@ -173,28 +178,22 @@ export async function handleIngestionRPC(
                         type: b.type,
                         content: b.content ?? '',
                       }))
-                      const localPub = record.local_public_key
-                      const localPriv = record.local_private_key
-                      if (!localPub || !localPriv) {
-                        console.warn('[P2P] Reverse context-sync skipped: handshake missing signing keys')
-                      } else {
-                        const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
-                          handshake_id: record.handshake_id,
-                          counterpartyUserId,
-                          counterpartyEmail,
-                          last_seq_received: 1,
-                          last_capsule_hash_received: cap.capsule_hash as string,
-                          context_blocks: contextBlocks,
-                          local_public_key: localPub,
-                          local_private_key: localPriv,
-                        })
-                        enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
-                      }
-                    } catch (err: any) {
-                      console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
+                      const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
+                        handshake_id: record.handshake_id,
+                        counterpartyUserId,
+                        counterpartyEmail,
+                        last_seq_received: 1,
+                        last_capsule_hash_received: cap.capsule_hash as string,
+                        context_blocks: contextBlocks,
+                        local_public_key: localPub,
+                        local_private_key: localPriv,
+                      })
+                      enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
                     }
-                  })
-                }
+                  } catch (err: any) {
+                    console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
+                  }
+                })
               }
             }
           }

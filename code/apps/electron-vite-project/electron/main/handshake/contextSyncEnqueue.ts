@@ -76,38 +76,35 @@ export function tryEnqueueContextSync(
     return { success: false, reason: 'NO_P2P_ENDPOINT' }
   }
 
-  const pending = getContextStoreByHandshake(db, handshakeId, 'pending_delivery')
-  if (pending.length === 0) {
-    return { success: true }
-  }
-
-  const baseline = baselineFromHandshake(record)
-  const allowed = filterBlocksForPeerTransmission(
-    pending.map((b) => {
-      const legacy: LegacyBlockInput = {
-        block_id: b.block_id,
-        type: b.type,
-        data_classification: undefined,
-        scope_id: b.scope_id ?? undefined,
-        sender_wrdesk_user_id: b.publisher_id,
-        publisher_id: b.publisher_id,
-        source: undefined,
-      }
-      const itemGov = parseGovernanceJson(b.governance_json)
-      const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
-      return { ...b, governance }
-    }),
-    baseline,
-  )
-  if (allowed.length === 0) {
-    return { success: true }
-  }
-
   const localPub = record.local_public_key ?? ''
   const localPriv = record.local_private_key ?? ''
   if (!localPub || !localPriv) {
     console.warn('[ContextSync] Skipping — handshake has no signing keys')
     return { success: false, reason: 'NO_SIGNING_KEYS' }
+  }
+
+  // Resolve allowed blocks (may be empty — we still send an empty context_sync to close the roundtrip)
+  const pending = getContextStoreByHandshake(db, handshakeId, 'pending_delivery')
+  let allowed: typeof pending = []
+  if (pending.length > 0) {
+    const baseline = baselineFromHandshake(record)
+    allowed = filterBlocksForPeerTransmission(
+      pending.map((b) => {
+        const legacy: LegacyBlockInput = {
+          block_id: b.block_id,
+          type: b.type,
+          data_classification: undefined,
+          scope_id: b.scope_id ?? undefined,
+          sender_wrdesk_user_id: b.publisher_id,
+          publisher_id: b.publisher_id,
+          source: undefined,
+        }
+        const itemGov = parseGovernanceJson(b.governance_json)
+        const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+        return { ...b, governance }
+      }),
+      baseline,
+    )
   }
 
   const counterpartyUserId = record.local_role === 'initiator'

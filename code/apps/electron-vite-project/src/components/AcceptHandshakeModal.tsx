@@ -330,6 +330,7 @@ export default function AcceptHandshakeModal({
                       defaultPolicy={policies}
                       theme="standard"
                       disabled={accepting}
+                      isVaultUnlocked={isVaultUnlocked}
                     />
                   ) : (
                     <div
