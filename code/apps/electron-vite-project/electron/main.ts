@@ -545,7 +545,7 @@ import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
-import { completePendingContextSyncs } from './main/handshake/contextSyncEnqueue'
+import { completePendingContextSyncs, tryEnqueueContextSync } from './main/handshake/contextSyncEnqueue'
 import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
@@ -7113,6 +7113,37 @@ app.whenReady().then(async () => {
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
       })
+
+      // Re-trigger context_sync for any ACCEPTED handshakes where we haven't sent yet
+      // (context_sync_pending=1, vault now unlocked). Also retry for stuck ACCEPTED
+      // handshakes where context_sync_pending=0 but last_seq_received=0 (we sent but
+      // counterparty may not have received — re-enqueue so their relay retries delivery).
+      const session = getCurrentSession()
+      if (session) {
+        completePendingContextSyncs(handshakeDb, session)
+        try {
+          const stuckRows = handshakeDb.prepare(
+            `SELECT handshake_id, last_capsule_hash_received, last_seq_received
+             FROM handshakes
+             WHERE state = 'ACCEPTED'
+               AND context_sync_pending = 0
+               AND last_seq_received = 0
+               AND activated_at < datetime('now', '-30 seconds')`
+          ).all() as Array<{ handshake_id: string; last_capsule_hash_received: string; last_seq_received: number }>
+          for (const row of stuckRows) {
+            console.log('[P2P] Re-triggering context_sync for stuck ACCEPTED handshake:', row.handshake_id)
+            const result = tryEnqueueContextSync(handshakeDb, row.handshake_id, session, {
+              lastCapsuleHash: row.last_capsule_hash_received ?? '',
+              lastSeqReceived: 0,
+            })
+            if (result.success) {
+              processOutboundQueue(handshakeDb, getOidcToken).catch(() => {})
+            }
+          }
+        } catch (err: any) {
+          console.warn('[P2P] Stuck ACCEPTED re-trigger error:', err?.message)
+        }
+      }
       const p2pConfig = getP2PConfig(handshakeDb)
       setP2PHealthRelayMode(p2pConfig.relay_mode, p2pConfig.use_coordination)
       // Only pull from relay when relay_mode=remote (coordination mode uses WebSocket push)
