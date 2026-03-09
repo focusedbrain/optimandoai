@@ -2242,15 +2242,12 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { cloud_ai?: boolean; internal_ai?: boolean }) => {
+    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
         const { updateHandshakePolicySelections } = await import('./main/handshake/db')
-        updateHandshakePolicySelections(db, handshakeId, {
-          cloud_ai: !!policies.cloud_ai,
-          internal_ai: !!policies.internal_ai,
-        })
+        updateHandshakePolicySelections(db, handshakeId, policies)
         return { success: true }
       } catch (err: any) {
         return { success: false, reason: err?.message ?? 'UPDATE_FAILED' }

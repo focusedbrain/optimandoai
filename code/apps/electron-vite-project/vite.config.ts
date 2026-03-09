@@ -91,6 +91,8 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: [
+      // Shared package (used by extension-chromium components bundled in renderer)
+      { find: '@shared', replacement: path.resolve(__dirname, '../../packages/shared/src') },
       // Shim the extension's handshakeRpc (matched by both alias and absolute path for relative imports)
       { find: '@ext/handshake/handshakeRpc', replacement: path.resolve(__dirname, 'src/shims/handshakeRpc') },
       { find: path.resolve(__dirname, '../extension-chromium/src/handshake/handshakeRpc'), replacement: path.resolve(__dirname, 'src/shims/handshakeRpc') },

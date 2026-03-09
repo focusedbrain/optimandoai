@@ -25,7 +25,12 @@ export enum HandshakeState {
 
 // ── Per-item policy (Phase 2 fine-grained governance) ──
 
-export type PolicySelection = { cloud_ai?: boolean; internal_ai?: boolean }
+export type AiProcessingMode = 'none' | 'local_only' | 'internal_and_cloud'
+
+/** Exclusive AI policy. Replaces legacy cloud_ai/internal_ai booleans. */
+export interface PolicySelection {
+  ai_processing_mode: AiProcessingMode
+}
 
 export type PolicyMode = 'inherit' | 'override'
 

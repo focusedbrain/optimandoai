@@ -12,7 +12,8 @@
 import { useEffect, useState } from 'react'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import HandshakeContextSection from './HandshakeContextSection'
-import { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
+import { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
+import { parsePolicyToMode } from '@shared/handshake/policyUtils'
 import type { VerifiedContextBlock } from './contextEscaping'
 
 interface HandshakeRecord {
@@ -32,7 +33,7 @@ interface HandshakeRecord {
   acceptor_context_commitment: string | null
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
-  policy_selections?: PolicySelection
+  policy_selections?: PolicySelection | { cloud_ai?: boolean; internal_ai?: boolean }
 }
 
 interface VaultStatus {
@@ -215,7 +216,10 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
   const [contextBlocks, setContextBlocks] = useState<VerifiedContextBlock[]>([])
-  const [policies, setPolicies] = useState<PolicySelection>(record.policy_selections ?? DEFAULT_POLICIES)
+  const initialPolicy: PolicySelection = record.policy_selections
+    ? { ai_processing_mode: parsePolicyToMode(record.policy_selections) }
+    : DEFAULT_AI_POLICY
+  const [policies, setPolicies] = useState<PolicySelection>(initialPolicy)
 
   const showVaultIndicator = ((record.state === 'PENDING_ACCEPT' || record.state === 'PENDING_REVIEW') && record.local_role === 'acceptor') || record.state === 'ACCEPTED'
 
@@ -238,12 +242,16 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   }, [record.handshake_id, record.state])
 
   useEffect(() => {
-    setPolicies(record.policy_selections ?? DEFAULT_POLICIES)
+    setPolicies(
+      record.policy_selections
+        ? { ai_processing_mode: parsePolicyToMode(record.policy_selections) }
+        : DEFAULT_AI_POLICY,
+    )
   }, [record.policy_selections])
 
   const handlePolicyChange = (next: PolicySelection) => {
     setPolicies(next)
-    window.handshakeView?.updateHandshakePolicies?.(record.handshake_id, next)
+    window.handshakeView?.updateHandshakePolicies?.(record.handshake_id, { ai_processing_mode: next.ai_processing_mode })
   }
 
   const handleAttachData = () => {

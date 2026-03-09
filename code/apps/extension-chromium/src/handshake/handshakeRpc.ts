@@ -13,6 +13,7 @@ import type {
   HandshakeRefreshResponse,
   HandshakeBuildForDownloadResponse,
 } from './rpcTypes'
+import type { PolicySelectionInput } from '@shared/handshake/policyUtils'
 
 let _rpcIdCounter = 0
 
@@ -97,10 +98,10 @@ export async function initiateHandshake(
   options?: {
     skipVaultContext?: boolean
     message?: string
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     profile_ids?: string[]
-    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
-    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
+    policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
@@ -122,10 +123,10 @@ export async function buildHandshakeForDownload(
   options?: {
     skipVaultContext?: boolean
     message?: string
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     profile_ids?: string[]
-    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
-    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
+    policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
@@ -145,10 +146,10 @@ export async function acceptHandshake(
   sharingMode: 'receive-only' | 'reciprocal',
   fromAccountId: string,
   contextOpts?: {
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     profile_ids?: string[]
-    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
-    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
+    policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeAcceptResponse> {
   return sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {

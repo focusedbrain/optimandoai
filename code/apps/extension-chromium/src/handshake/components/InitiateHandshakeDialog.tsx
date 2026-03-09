@@ -6,7 +6,7 @@
  * and email transport.
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
 import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
@@ -27,6 +27,7 @@ import {
   secondaryButtonStyle,
   notificationStyle,
 } from '../../shared/ui/lightboxTheme'
+import { getVaultStatus } from '../../vault/api'
 
 interface InitiateHandshakeDialogProps {
   fromAccountId: string
@@ -49,8 +50,16 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  // Contextual Handshakes — enabled by default
-  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+  // Include Vault Profiles — enabled by default when profiles available
+  const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
+
+  // Vault lock status — used to gate profile picker
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState<boolean | undefined>(undefined)
+  useEffect(() => {
+    getVaultStatus()
+      .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
+      .catch(() => setIsVaultUnlocked(false))
+  }, [])
 
   // Context Graph (optional — attached to handshake.initiate RPC)
   const [showContextGraph, setShowContextGraph] = useState(false)
@@ -60,8 +69,8 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
 
   // HS Context Profiles (publisher+ only) — structured for per-item policy
   const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
-  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>({ policy_mode: 'inherit' })
-  const defaultPolicy = { cloud_ai: false, internal_ai: false }
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }>({ policy_mode: 'inherit' })
+  const defaultPolicy = { ai_processing_mode: 'local_only' as const }
 
   const t = getThemeTokens(theme)
 
@@ -83,7 +92,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
     try {
       const receiverUserId = recipientEmail.trim().toLowerCase()
       const opts = await buildInitiateContextOptions({
-        skipVaultContext: !contextualHandshakes,
+        skipVaultContext: !canUseHsContextProfiles || !includeVaultProfiles,
         policySelections: defaultPolicy,
         selectedProfileItems,
         contextGraphText,
@@ -166,7 +175,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               />
             </div>
 
-            {error && !(contextualHandshakes && error.toLowerCase().includes('vault')) && (
+            {error && !(includeVaultProfiles && error.toLowerCase().includes('vault')) && (
               <div style={notificationStyle('error')}>✕ {error}</div>
             )}
 
@@ -182,38 +191,40 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               ℹ️ The recipient will receive an email with a handshake capsule. Once they accept, you can exchange secure BEAP messages.
             </div>
 
-            {/* Contextual Handshakes toggle */}
+            {/* Include Vault Profiles toggle — only when HS Context Profiles available */}
+            {canUseHsContextProfiles && (
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 14px',
-              background: contextualHandshakes ? 'rgba(129,140,248,0.08)' : 'transparent',
-              border: `1px solid ${contextualHandshakes ? 'rgba(129,140,248,0.30)' : t.border}`,
+              background: includeVaultProfiles ? 'rgba(129,140,248,0.08)' : 'transparent',
+              border: `1px solid ${includeVaultProfiles ? 'rgba(129,140,248,0.30)' : t.border}`,
               borderRadius: '10px',
               transition: 'all 0.18s',
             }}>
               <div>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>🧠 Contextual Handshakes</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Add a Context Graph</div>
                 <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '2px' }}>
-                  {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+                  {includeVaultProfiles ? 'Attach structured business context from your Vault to this handshake.' : 'No context graph will be attached.'}
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setContextualHandshakes(v => !v)}
-                aria-pressed={contextualHandshakes}
-                aria-label="Toggle Contextual Handshakes"
-                style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#818cf8' : 'rgba(255,255,255,0.2)', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+                onClick={() => setIncludeVaultProfiles(v => !v)}
+                aria-pressed={includeVaultProfiles}
+                aria-label="Toggle Context Graph"
+                style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: includeVaultProfiles ? '#818cf8' : 'rgba(255,255,255,0.2)', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
               >
-                <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+                <span style={{ position: 'absolute', top: '3px', left: includeVaultProfiles ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
               </button>
             </div>
+            )}
 
-            {/* Vault Access Required banner — only when contextual ON + vault locked (RPC will fail) */}
-            {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
+            {/* Vault Access Required banner — only when include profiles ON + vault error */}
+            {includeVaultProfiles && error && error.toLowerCase().includes('vault') && (
               <div style={{ padding: '12px 14px', background: 'rgba(239,68,68,0.12)', border: '2px solid rgba(239,68,68,0.4)', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                 <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault access required to include Vault profiles.</div>
                   <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
                 </div>
               </div>
@@ -293,6 +304,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                           defaultPolicy={defaultPolicy}
                           theme={theme === 'professional' ? 'standard' : 'dark'}
                           disabled={isSubmitting}
+                          isVaultUnlocked={isVaultUnlocked}
                         />
                       ) : (
                         <div style={{
@@ -350,7 +362,6 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                           }}
                         />
                       </div>
-                    </div>
                     <div style={{ padding: '8px 12px', background: 'rgba(139,92,246,0.06)', borderRadius: '8px', border: `1px solid ${t.border}` }}>
                         <div style={{ fontSize: '10px', fontWeight: 600, color: t.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Policy for this ad-hoc context
@@ -374,7 +385,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                           </button>
                           <button
                             type="button"
-                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...defaultPolicy } })}
+                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ai_processing_mode: defaultPolicy.ai_processing_mode } })}
                             disabled={isSubmitting}
                             style={{
                               padding: '4px 10px',
@@ -390,25 +401,20 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                           </button>
                         </div>
                         {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSubmitting ? 'default' : 'pointer', color: t.text }}>
-                              <input
-                                type="checkbox"
-                                checked={adhocBlockPolicy.policy.cloud_ai ?? false}
-                                disabled={isSubmitting}
-                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
-                              />
-                              <span>Cloud AI Processing</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSubmitting ? 'default' : 'pointer', color: t.text }}>
-                              <input
-                                type="checkbox"
-                                checked={adhocBlockPolicy.policy.internal_ai ?? false}
-                                disabled={isSubmitting}
-                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
-                              />
-                              <span>Internal AI Only</span>
-                            </label>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {(['none', 'local_only', 'internal_and_cloud'] as const).map((m) => (
+                              <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSubmitting ? 'default' : 'pointer', color: t.text }}>
+                                <input
+                                  type="radio"
+                                  name="adhoc-ai-policy-init"
+                                  checked={(adhocBlockPolicy.policy.ai_processing_mode ?? 'local_only') === m}
+                                  disabled={isSubmitting}
+                                  onChange={() => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ai_processing_mode: m } })}
+                                  style={{ accentColor: '#8b5cf6' }}
+                                />
+                                <span>{m === 'none' ? 'No AI processing' : m === 'local_only' ? 'Internal AI only' : 'Allow Internal + Cloud AI'}</span>
+                              </label>
+                            ))}
                           </div>
                         )}
                       </div>

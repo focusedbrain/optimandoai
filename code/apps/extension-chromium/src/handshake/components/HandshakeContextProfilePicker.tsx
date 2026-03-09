@@ -13,7 +13,7 @@ import { listHsProfiles } from '../../vault/hsContextProfilesRpc'
 import type { HsContextProfileSummary } from '../../vault/hsContextProfilesRpc'
 import type { ProfileContextItem, PolicySelection } from '../../../../packages/shared/src/handshake/types'
 
-const DEFAULT_POLICY: PolicySelection = { cloud_ai: false, internal_ai: false }
+const DEFAULT_POLICY: PolicySelection = { ai_processing_mode: 'local_only' }
 
 export interface HandshakeContextProfilePickerProps {
   /** Selected profile items with per-item policy (Phase 2). */
@@ -27,6 +27,8 @@ export interface HandshakeContextProfilePickerProps {
   onChangeIds?: (ids: string[]) => void
   theme?: 'standard' | 'pro' | 'dark'
   disabled?: boolean
+  /** When false, shows a vault-locked gate instead of the profile list and skips the fetch. */
+  isVaultUnlocked?: boolean
 }
 
 export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePickerProps> = ({
@@ -37,6 +39,7 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
   onChangeIds: onChangeIdsLegacy,
   theme = 'dark',
   disabled = false,
+  isVaultUnlocked,
 }) => {
   // Phase 2: selectedItems + onChange. Legacy: selectedIds + onChangeIds (all inherit)
   const selectedItems = selectedItemsProp ?? (selectedIdsLegacy?.map((id) => ({ profile_id: id, policy_mode: 'inherit' as const })) ?? [])
@@ -65,7 +68,10 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
     }
   }, [])
 
-  useEffect(() => { loadProfiles() }, [loadProfiles])
+  useEffect(() => {
+    if (isVaultUnlocked === false) return
+    loadProfiles()
+  }, [loadProfiles, isVaultUnlocked])
 
   const selectedIds = selectedItems.map((i) => i.profile_id)
 
@@ -89,6 +95,20 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
   const selectedProfiles = profiles.filter((p) => selectedIds.includes(p.id))
 
   const hasPendingDocs = selectedProfiles.some((p) => p.document_count > 0)
+
+  if (isVaultUnlocked === false) {
+    return (
+      <div style={{ padding: '16px', textAlign: 'center' }}>
+        <div style={{ fontSize: '20px', marginBottom: '8px' }}>🔒</div>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '4px' }}>
+          Vault is locked
+        </div>
+        <div style={{ fontSize: '11px', color: mutedColor }}>
+          Unlock your Vault to access Context Profiles and attach context data to this handshake.
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -215,7 +235,7 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
                     </button>
                     <button
                       type="button"
-                      onClick={() => setItemPolicy(profile.id, 'override', { ...defaultPolicy })}
+                      onClick={() => setItemPolicy(profile.id, 'override', { ai_processing_mode: defaultPolicy.ai_processing_mode })}
                       disabled={disabled}
                       style={{
                         padding: '4px 10px',
@@ -231,25 +251,20 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
                     </button>
                   </div>
                   {policyMode === 'override' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: disabled ? 'default' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={itemPolicy.cloud_ai ?? false}
-                          disabled={disabled}
-                          onChange={(e) => setItemPolicy(profile.id, 'override', { ...itemPolicy, cloud_ai: e.target.checked })}
-                        />
-                        <span style={{ color: textColor }}>Cloud AI Processing</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: disabled ? 'default' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={itemPolicy.internal_ai ?? false}
-                          disabled={disabled}
-                          onChange={(e) => setItemPolicy(profile.id, 'override', { ...itemPolicy, internal_ai: e.target.checked })}
-                        />
-                        <span style={{ color: textColor }}>Internal AI Only</span>
-                      </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {(['none', 'local_only', 'internal_and_cloud'] as const).map((m) => (
+                        <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: disabled ? 'default' : 'pointer', color: textColor }}>
+                          <input
+                            type="radio"
+                            name={`profile-policy-${profile.id}`}
+                            checked={(itemPolicy.ai_processing_mode ?? 'local_only') === m}
+                            disabled={disabled}
+                            onChange={() => setItemPolicy(profile.id, 'override', { ai_processing_mode: m })}
+                            style={{ accentColor: '#8b5cf6' }}
+                          />
+                          <span>{m === 'none' ? 'No AI processing' : m === 'local_only' ? 'Internal AI only' : 'Allow Internal + Cloud AI'}</span>
+                        </label>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -3,8 +3,15 @@
  *
  * All handshake tables live in the existing vault SQLCipher database.
  * Migrations are additive — safe to call on every open.
+ *
+ * STORAGE SEMANTICS (per FINE_GRAINED_GOVERNANCE):
+ * - Private key (local_private_key): Vault-bound. Handshake tables live in vault DB.
+ * - Signatures / verification artifacts: May live in ledger/capsule; no inner vault needed for verify.
+ * - Metadata / hashes / ledger entries: Visible without inner vault unlock.
+ * - Sensitive profiles / HS context: Vault-only.
  */
 
+import { parsePolicyToMode, serializePolicyForDb, type AiProcessingMode } from '../../../../../packages/shared/src/handshake/policyUtils'
 import type {
   HandshakeRecord,
   AuditLogEntry,
@@ -525,14 +532,10 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
   }
 }
 
-function parsePolicySelections(json: string | null | undefined): { cloud_ai: boolean; internal_ai: boolean } | undefined {
+function parsePolicySelections(json: string | null | undefined): Record<string, unknown> | undefined {
   if (!json || json === '{}') return undefined
   try {
-    const p = JSON.parse(json) as Record<string, boolean>
-    return {
-      cloud_ai: !!p.cloud_ai,
-      internal_ai: !!p.internal_ai,
-    }
+    return JSON.parse(json) as Record<string, unknown>
   } catch {
     return undefined
   }
@@ -542,8 +545,14 @@ export function updateHandshakeContextSyncPending(db: any, handshakeId: string, 
   db.prepare('UPDATE handshakes SET context_sync_pending = ? WHERE handshake_id = ?').run(pending ? 1 : 0, handshakeId)
 }
 
-export function updateHandshakePolicySelections(db: any, handshakeId: string, policies: { cloud_ai: boolean; internal_ai: boolean }): void {
-  const json = JSON.stringify(policies)
+export function updateHandshakePolicySelections(
+  db: any,
+  handshakeId: string,
+  policies: { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean },
+): void {
+  const mode = (policies as { ai_processing_mode?: AiProcessingMode }).ai_processing_mode
+    ?? parsePolicyToMode(policies)
+  const json = serializePolicyForDb(mode)
   try {
     db.prepare('UPDATE handshakes SET policy_selections = ? WHERE handshake_id = ?').run(json, handshakeId)
   } catch (e: any) {

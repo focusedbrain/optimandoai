@@ -67,13 +67,13 @@ const MAX_BLOCKS_PER_CAPSULE = 64
 /** Raw block from client; may include per-item policy (Phase 2) */
 interface RawBlockWithPolicy extends ContextBlockForCommitment {
   policy_mode?: 'inherit' | 'override'
-  policy?: { cloud_ai?: boolean; internal_ai?: boolean }
+  policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
 }
 
-/** Result of building blocks with per-item policy map (block_id -> effective policy selections) */
+/** Result of building blocks with per-item policy map (block_id -> effective policy) */
 interface BuildBlocksResult {
   blocks: ContextBlockForCommitment[]
-  blockPolicyMap: Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>
+  blockPolicyMap: Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>
 }
 
 /**
@@ -99,7 +99,7 @@ function buildContextBlocksFromParamsWithPolicy(
   rawMessage: string | undefined,
 ): BuildBlocksResult {
   const blocks: ContextBlockForCommitment[] = []
-  const blockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
+  const blockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
 
   if (Array.isArray(rawBlocks)) {
     for (const b of rawBlocks) {
@@ -383,9 +383,9 @@ export async function handleHandshakeRPC(
         context_blocks?: RawBlockWithPolicy[]
         message?: string
         profile_ids?: string[]
-        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
-        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+        policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -425,7 +425,7 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
       })
 
-      const canonicalBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
+      const canonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
       for (let i = 0; i < allBlocks.length && i < localBlocks.length; i++) {
         const policy = initBlockPolicyMap.get(allBlocks[i].block_id)
         if (policy) canonicalBlockPolicyMap.set(localBlocks[i].block_id, policy)
@@ -489,8 +489,8 @@ export async function handleHandshakeRPC(
         context_blocks?: RawBlockWithPolicy[]
         message?: string
         profile_ids?: string[]
-        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
-        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
+        policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
         p2p_endpoint?: string | null
       }
 
@@ -531,7 +531,7 @@ export async function handleHandshakeRPC(
         ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
       })
 
-      const dlCanonicalBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
+      const dlCanonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
       for (let i = 0; i < dlAllBlocks.length && i < localBlocks.length; i++) {
         const policy = dlBlockPolicyMap.get(dlAllBlocks[i].block_id)
         if (policy) dlCanonicalBlockPolicyMap.set(localBlocks[i].block_id, policy)
@@ -607,9 +607,9 @@ export async function handleHandshakeRPC(
         fromAccountId: string
         context_blocks?: RawBlockWithPolicy[]
         profile_ids?: string[]
-        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
-        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+        policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -665,7 +665,7 @@ export async function handleHandshakeRPC(
       }
 
       // Per-item policy map: adhoc blocks + profile blocks (profile_items zip with resolved blocks)
-      const receiverBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>(adhocBlockPolicyMap)
+      const receiverBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>(adhocBlockPolicyMap)
       if (receiverProfileItems?.length && receiverProfileItems.length === receiverProfileBlocks.length) {
         for (let i = 0; i < receiverProfileBlocks.length; i++) {
           const item = receiverProfileItems[i]
@@ -702,14 +702,16 @@ export async function handleHandshakeRPC(
       })
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
-      if (acceptPolicySelections && (acceptPolicySelections.cloud_ai !== undefined || acceptPolicySelections.internal_ai !== undefined)) {
-        updateHandshakePolicySelections(db, handshake_id, {
-          cloud_ai: acceptPolicySelections.cloud_ai ?? false,
-          internal_ai: acceptPolicySelections.internal_ai ?? false,
-        })
+      const hasAcceptPolicy = acceptPolicySelections && (
+        (acceptPolicySelections as { ai_processing_mode?: string }).ai_processing_mode !== undefined ||
+        (acceptPolicySelections as { cloud_ai?: boolean }).cloud_ai !== undefined ||
+        (acceptPolicySelections as { internal_ai?: boolean }).internal_ai !== undefined
+      )
+      if (hasAcceptPolicy) {
+        updateHandshakePolicySelections(db, handshake_id, acceptPolicySelections!)
       }
       const relationshipId = deriveRelationshipId(initiatorUserId, session.wrdesk_user_id)
-      const baseline = (acceptPolicySelections && (acceptPolicySelections.cloud_ai !== undefined || acceptPolicySelections.internal_ai !== undefined))
+      const baseline = hasAcceptPolicy
         ? baselineFromPolicySelections(acceptPolicySelections, record.effective_policy)
         : baselineFromHandshake(record)
 

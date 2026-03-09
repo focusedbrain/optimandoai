@@ -8,11 +8,13 @@
  *  - "Email as attachment"  → Download .beap capsule; recipient copies the email template.
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { initiateHandshake, buildHandshakeForDownload } from '../handshakeRpc'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
+import { parsePolicyToMode } from '@shared/handshake/policyUtils'
 import type { ProfileContextItem } from '@shared/handshake/types'
+import { getVaultStatus } from '../../vault/api'
 
 // =============================================================================
 // Types
@@ -45,8 +47,10 @@ export interface SendHandshakeDeliveryProps {
   onSuccess?: (result?: { handshake_id?: string }) => void
   /** Whether the current user has Publisher/Enterprise tier. */
   canUseHsContextProfiles?: boolean
-  /** Policy selections (cloud_ai, internal_ai) to send with initiate/buildForDownload. */
-  policySelections?: { cloud_ai?: boolean; internal_ai?: boolean }
+  /** Policy selections: ai_processing_mode (exclusive) or legacy cloud_ai/internal_ai. */
+  policySelections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
+  /** Called when vault is required for current action (e.g. vault profiles selected). */
+  onRequiresVaultChange?: (requires: boolean) => void
 }
 
 // =============================================================================
@@ -208,11 +212,20 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   onSuccess,
   canUseHsContextProfiles = false,
   policySelections,
+  onRequiresVaultChange,
 }) => {
   const t = useThemeTokens(theme)
 
-  // Contextual Handshakes — enabled by default
-  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+  // Include Vault Profiles — enabled by default when profiles available
+  const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
+
+  // Vault lock status — used to gate profile picker
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState<boolean | undefined>(undefined)
+  useEffect(() => {
+    getVaultStatus()
+      .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
+      .catch(() => setIsVaultUnlocked(false))
+  }, [])
 
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
@@ -220,7 +233,12 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
   const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
-  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>({ policy_mode: 'inherit' })
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }>({ policy_mode: 'inherit' })
+
+  // Notify parent when vault is required (vault profiles selected)
+  useEffect(() => {
+    onRequiresVaultChange?.(includeVaultProfiles && selectedProfileItems.length > 0)
+  }, [includeVaultProfiles, selectedProfileItems.length, onRequiresVaultChange])
 
   // Delivery mode
   const [mode, setMode] = useState<DeliveryMode>('attachment')
@@ -256,8 +274,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
 
   const buildContextOptions = () =>
     buildInitiateContextOptions({
-      skipVaultContext: !contextualHandshakes,
-      policySelections: policySelections ?? { cloud_ai: false, internal_ai: false },
+      skipVaultContext: !canUseHsContextProfiles || !includeVaultProfiles,
+      policySelections: policySelections ?? { ai_processing_mode: 'local_only' },
       selectedProfileItems,
       messageText: message,
       contextGraphText,
@@ -524,34 +542,36 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         </div>
 
-        {/* ---- Contextual Handshakes toggle ---- */}
+        {/* ---- Include Vault Profiles toggle (only when HS Context Profiles available) ---- */}
+        {canUseHsContextProfiles && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px',
-          background: contextualHandshakes ? t.accentPrimaryLight : 'transparent',
-          border: `1px solid ${contextualHandshakes ? t.accentPrimaryBorder : t.border}`,
+          background: includeVaultProfiles ? t.accentPrimaryLight : 'transparent',
+          border: `1px solid ${includeVaultProfiles ? t.accentPrimaryBorder : t.border}`,
           borderRadius: '10px',
           transition: 'all 0.18s',
         }}>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Contextual Handshakes</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Add a Context Graph</div>
             <div style={{ fontSize: '11px', color: t.muted, marginTop: '2px' }}>
-              {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+              {includeVaultProfiles ? 'Attach structured business context from your Vault to this handshake.' : 'No context graph will be attached.'}
             </div>
           </div>
           <button
             type="button"
-            onClick={() => setContextualHandshakes(v => !v)}
-            aria-pressed={contextualHandshakes}
-            aria-label="Toggle Contextual Handshakes"
-            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? t.accentPrimary : (t.isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+            onClick={() => setIncludeVaultProfiles(v => !v)}
+            aria-pressed={includeVaultProfiles}
+            aria-label="Toggle Context Graph"
+            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: includeVaultProfiles ? t.accentPrimary : (t.isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
           >
-            <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+            <span style={{ position: 'absolute', top: '3px', left: includeVaultProfiles ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
           </button>
         </div>
+        )}
 
-        {/* ---- Vault Access Required banner (contextual ON + vault error) ---- */}
-        {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
+        {/* ---- Vault Access Required banner (include profiles ON + vault error) ---- */}
+        {includeVaultProfiles && error && error.toLowerCase().includes('vault') && (
           <div style={{
             padding: '12px 14px',
             background: t.errorBg,
@@ -561,7 +581,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           }}>
             <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: t.errorText, marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: t.errorText, marginBottom: '4px' }}>Vault access required to include Vault profiles.</div>
               <div style={{ fontSize: '11px', color: t.errorText, lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
             </div>
           </div>
@@ -646,7 +666,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         )}
 
         {/* ---- Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc ---- */}
-        {contextualHandshakes && (
+        {includeVaultProfiles && canUseHsContextProfiles && (
           <div style={{
             border: `1px solid ${showContextGraph ? t.accentPrimaryBorder : t.border}`,
             borderRadius: '10px',
@@ -717,6 +737,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                         defaultPolicy={policySelections ?? { cloud_ai: false, internal_ai: false }}
                         theme={theme}
                         disabled={sending}
+                        isVaultUnlocked={isVaultUnlocked}
                       />
                     ) : (
                       <div style={{
@@ -796,7 +817,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...(policySelections ?? { cloud_ai: false, internal_ai: false }) } })}
+                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ai_processing_mode: parsePolicyToMode(policySelections) } })}
                             disabled={sending}
                             style={{
                               padding: '4px 10px',
@@ -812,25 +833,20 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                           </button>
                         </div>
                         {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: sending ? 'default' : 'pointer', color: t.text }}>
-                              <input
-                                type="checkbox"
-                                checked={adhocBlockPolicy.policy.cloud_ai ?? false}
-                                disabled={sending}
-                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
-                              />
-                              <span>Cloud AI Processing</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: sending ? 'default' : 'pointer', color: t.text }}>
-                              <input
-                                type="checkbox"
-                                checked={adhocBlockPolicy.policy.internal_ai ?? false}
-                                disabled={sending}
-                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
-                              />
-                              <span>Internal AI Only</span>
-                            </label>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {(['none', 'local_only', 'internal_and_cloud'] as const).map((m) => (
+                              <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: sending ? 'default' : 'pointer', color: t.text }}>
+                                <input
+                                  type="radio"
+                                  name="adhoc-ai-policy"
+                                  checked={(adhocBlockPolicy.policy.ai_processing_mode ?? 'local_only') === m}
+                                  disabled={sending}
+                                  onChange={() => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ai_processing_mode: m } })}
+                                  style={{ accentColor: '#8b5cf6' }}
+                                />
+                                <span>{m === 'none' ? 'No AI processing' : m === 'local_only' ? 'Internal AI only' : 'Allow Internal + Cloud AI'}</span>
+                              </label>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -880,7 +896,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         )}
 
         {/* ---- Error banner ---- */}
-        {error && !(contextualHandshakes && error.toLowerCase().includes('vault')) && (
+        {error && !(includeVaultProfiles && error.toLowerCase().includes('vault')) && (
           <div
             style={{
               padding: '10px 13px',

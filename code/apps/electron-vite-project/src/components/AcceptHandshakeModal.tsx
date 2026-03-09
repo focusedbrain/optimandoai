@@ -14,7 +14,7 @@ import { HandshakeContextProfilePicker } from '@ext/handshake/components/Handsha
 import { acceptHandshake } from '@ext/handshake/handshakeRpc'
 import { computeBlockHashClient } from '../utils/contextBlockHash'
 import VaultStatusIndicator from './VaultStatusIndicator'
-import PolicyCheckboxes, { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
+import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import type { ProfileContextItem, ContextBlockWithPolicy } from '../../../../packages/shared/src/handshake/types'
 
 interface HandshakeRecord {
@@ -47,13 +47,13 @@ export default function AcceptHandshakeModal({
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
   const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
-  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: PolicySelection }>({ policy_mode: 'inherit' })
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }>({ policy_mode: 'inherit' })
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [vaultWarning, setVaultWarning] = useState(false)
-  const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_POLICIES)
+  const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_AI_POLICY)
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
 
@@ -84,7 +84,7 @@ export default function AcceptHandshakeModal({
           selectedProfileItems?: ProfileContextItem[]
           contextGraphText?: string
           contextGraphType?: 'text' | 'json'
-          adhocBlockPolicy?: { policy_mode: 'inherit' | 'override'; policy?: PolicySelection }
+          adhocBlockPolicy?: { policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }
         }
         if (draft.selectedProfileItems?.length) setSelectedProfileItems(draft.selectedProfileItems)
         if (draft.contextGraphText != null) setContextGraphText(draft.contextGraphText)
@@ -157,7 +157,7 @@ export default function AcceptHandshakeModal({
         context_blocks?: ContextBlockWithPolicy[]
         profile_ids?: string[]
         profile_items?: ProfileContextItem[]
-        policy_selections?: { cloud_ai: boolean; internal_ai: boolean }
+        policy_selections?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }
       } = {
         policy_selections: policies,
       }
@@ -243,7 +243,7 @@ export default function AcceptHandshakeModal({
         </div>
 
         <div style={{ margin: '0 16px 12px' }}>
-          <PolicyCheckboxes policies={policies} onChange={setPolicies} readOnly={false} variant="light" />
+          <PolicyRadioGroup value={policies} onChange={setPolicies} readOnly={false} variant="light" />
         </div>
 
         {/* Context Graph — same pattern as SendHandshakeDelivery */}
@@ -463,7 +463,7 @@ export default function AcceptHandshakeModal({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...policies } })}
+                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ai_processing_mode: policies.ai_processing_mode } })}
                           disabled={accepting}
                           style={{
                             padding: '4px 10px',
@@ -479,25 +479,20 @@ export default function AcceptHandshakeModal({
                         </button>
                       </div>
                       {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: accepting ? 'default' : 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={adhocBlockPolicy.policy.cloud_ai ?? false}
-                              disabled={accepting}
-                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
-                            />
-                            <span style={{ color: '#374151' }}>Cloud AI Processing</span>
-                          </label>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: accepting ? 'default' : 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={adhocBlockPolicy.policy.internal_ai ?? false}
-                              disabled={accepting}
-                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
-                            />
-                            <span style={{ color: '#374151' }}>Internal AI Only</span>
-                          </label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {(['none', 'local_only', 'internal_and_cloud'] as const).map((m) => (
+                            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: accepting ? 'default' : 'pointer', color: '#374151' }}>
+                              <input
+                                type="radio"
+                                name="adhoc-ai-policy-accept"
+                                checked={(adhocBlockPolicy.policy.ai_processing_mode ?? 'local_only') === m}
+                                disabled={accepting}
+                                onChange={() => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ai_processing_mode: m } })}
+                                style={{ accentColor: '#8b5cf6' }}
+                              />
+                              <span>{m === 'none' ? 'No AI processing' : m === 'local_only' ? 'Internal AI only' : 'Allow Internal + Cloud AI'}</span>
+                            </label>
+                          ))}
                         </div>
                       )}
                     </div>

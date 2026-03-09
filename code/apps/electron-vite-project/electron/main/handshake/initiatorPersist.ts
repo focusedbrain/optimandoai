@@ -19,6 +19,7 @@ import { buildDefaultReceiverPolicy } from './types'
 import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
 import { insertHandshakeRecord, insertSeenCapsuleHash, insertContextStoreEntry, updateHandshakePolicySelections } from './db'
+import type { AiProcessingMode } from '../../../../../packages/shared/src/handshake/policyUtils'
 import {
   createDefaultGovernance,
   createMessageGovernance,
@@ -42,8 +43,8 @@ export function persistInitiatorHandshakeRecord(
   session: SSOSession,
   localBlocks: ContextBlockForCommitment[],
   keypair: SigningKeypair,
-  policySelections?: { cloud_ai?: boolean; internal_ai?: boolean },
-  blockPolicyMap?: Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>,
+  policySelections?: { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean },
+  blockPolicyMap?: Map<string, { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean }>,
 ): PersistInitiatorResult {
   try {
     const tierDecision = classifyHandshakeTier({
@@ -111,16 +112,18 @@ export function persistInitiatorHandshakeRecord(
 
     insertHandshakeRecord(db, record)
     insertSeenCapsuleHash(db, capsule.handshake_id, capsule.capsule_hash)
-    if (policySelections && (policySelections.cloud_ai !== undefined || policySelections.internal_ai !== undefined)) {
-      updateHandshakePolicySelections(db, capsule.handshake_id, {
-        cloud_ai: policySelections.cloud_ai ?? false,
-        internal_ai: policySelections.internal_ai ?? false,
-      })
+    if (policySelections && ((policySelections as { ai_processing_mode?: AiProcessingMode }).ai_processing_mode !== undefined
+      || (policySelections as { cloud_ai?: boolean }).cloud_ai !== undefined
+      || (policySelections as { internal_ai?: boolean }).internal_ai !== undefined)) {
+      updateHandshakePolicySelections(db, capsule.handshake_id, policySelections)
     }
     console.log('[HANDSHAKE] Initiator persist OK:', capsule.handshake_id, 'state=PENDING_ACCEPT')
 
     const relationshipId = capsule.relationship_id
-    const globalBaseline = (policySelections && (policySelections.cloud_ai !== undefined || policySelections.internal_ai !== undefined))
+    const hasPolicy = policySelections && ((policySelections as { ai_processing_mode?: AiProcessingMode }).ai_processing_mode !== undefined
+      || (policySelections as { cloud_ai?: boolean }).cloud_ai !== undefined
+      || (policySelections as { internal_ai?: boolean }).internal_ai !== undefined)
+    const globalBaseline = hasPolicy
       ? baselineFromPolicySelections(policySelections, record.effective_policy)
       : baselineFromHandshake(record)
     const buildGov = (b: { block_id: string; type: string }): ContextItemGovernance => {
@@ -131,10 +134,10 @@ export function persistInitiatorHandshakeRecord(
           sender_wrdesk_user_id: session.wrdesk_user_id,
         })
       }
-      // Per-item policy: override wins over global (Phase 2)
+      // Per-item policy: override wins over global (Phase 2). itemPolicy uses ai_processing_mode or legacy.
       const itemPolicy = blockPolicyMap?.get(b.block_id)
       const baseline = itemPolicy
-        ? baselineFromPolicySelections(itemPolicy, record.effective_policy)
+        ? baselineFromPolicySelections(itemPolicy as Parameters<typeof baselineFromPolicySelections>[0], record.effective_policy)
         : globalBaseline
       return createDefaultGovernance({
         origin: 'local',

@@ -5,16 +5,17 @@
  */
 
 import { computeBlockHashClient } from '../utils/contextBlockHash'
-import type { ProfileContextItem, ContextBlockWithPolicy } from '@shared/handshake/types'
+import { parsePolicyToMode } from '@shared/handshake/policyUtils'
+import type { AiProcessingMode, ProfileContextItem, ContextBlockWithPolicy } from '@shared/handshake/types'
 
 export interface BuildInitiateContextOptionsParams {
   skipVaultContext: boolean
-  policySelections?: { cloud_ai?: boolean; internal_ai?: boolean }
+  policySelections?: { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean }
   selectedProfileItems: ProfileContextItem[]
   messageText?: string
   contextGraphText: string
   contextGraphType: 'text' | 'json'
-  adhocBlockPolicy: { policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }
+  adhocBlockPolicy: { policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode?: AiProcessingMode } }
 }
 
 export async function buildInitiateContextOptions(
@@ -31,13 +32,8 @@ export async function buildInitiateContextOptions(
   } = params
 
   const opts: Record<string, unknown> = { skipVaultContext }
-  const defaultPolicy = policySelections ?? { cloud_ai: false, internal_ai: false }
-  if (defaultPolicy.cloud_ai !== undefined || defaultPolicy.internal_ai !== undefined) {
-    opts.policy_selections = {
-      cloud_ai: defaultPolicy.cloud_ai ?? false,
-      internal_ai: defaultPolicy.internal_ai ?? false,
-    }
-  }
+  const mode = parsePolicyToMode(policySelections)
+  opts.policy_selections = { ai_processing_mode: mode }
   if (selectedProfileItems.length > 0) {
     opts.profile_ids = selectedProfileItems.map((i) => i.profile_id)
     opts.profile_items = selectedProfileItems
@@ -57,6 +53,9 @@ export async function buildInitiateContextOptions(
       content = combinedText
     }
     const blockHash = await computeBlockHashClient(content)
+    const blockPolicy = adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy
+      ? { ai_processing_mode: adhocBlockPolicy.policy.ai_processing_mode ?? parsePolicyToMode(policySelections) }
+      : undefined
     const block: ContextBlockWithPolicy = {
       block_id: 'ctx-msg-pending',
       block_hash: blockHash,
@@ -64,7 +63,7 @@ export async function buildInitiateContextOptions(
       content,
       scope_id: 'initiator',
       policy_mode: adhocBlockPolicy.policy_mode,
-      policy: adhocBlockPolicy.policy,
+      policy: blockPolicy,
     }
     opts.context_blocks = [block]
   }

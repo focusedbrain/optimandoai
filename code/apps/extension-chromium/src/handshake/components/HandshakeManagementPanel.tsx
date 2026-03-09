@@ -37,7 +37,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
   const [selectedHandshake, setSelectedHandshake] = useState<HandshakeRecord | null>(null)
   const [acceptingHandshake, setAcceptingHandshake] = useState<HandshakeRecord | null>(null)
   const [showInitiate, setShowInitiate] = useState(false)
-  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+  const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
 
   const isProfessional = theme === 'professional'
 
@@ -99,39 +99,39 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
         </div>
       </div>
 
-      {/* Contextual Handshakes toggle */}
+      {/* Add a Context Graph toggle */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 16px',
         borderBottom: `1px solid ${isProfessional ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'}`,
-        background: contextualHandshakes
+        background: includeVaultProfiles
           ? (isProfessional ? 'rgba(129,140,248,0.06)' : 'rgba(129,140,248,0.08)')
           : 'transparent',
         transition: 'background 0.18s',
       }}>
         <div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: isProfessional ? '#1f2937' : 'white' }}>Contextual Handshakes</div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: isProfessional ? '#1f2937' : 'white' }}>Add a Context Graph</div>
           <div style={{ fontSize: '11px', color: isProfessional ? '#6b7280' : 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
-            {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+            {includeVaultProfiles ? 'Attach structured business context from your Vault to this handshake.' : 'No context graph will be attached.'}
           </div>
         </div>
         <button
           type="button"
-          onClick={() => setContextualHandshakes(v => !v)}
-          aria-pressed={contextualHandshakes}
-          aria-label="Toggle Contextual Handshakes"
-          style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#818cf8' : (isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+          onClick={() => setIncludeVaultProfiles(v => !v)}
+          aria-pressed={includeVaultProfiles}
+          aria-label="Toggle Context Graph"
+          style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: includeVaultProfiles ? '#818cf8' : (isProfessional ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
         >
-          <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+          <span style={{ position: 'absolute', top: '3px', left: includeVaultProfiles ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
         </button>
       </div>
 
       {/* Vault Access Required banner */}
-      {contextualHandshakes && isVaultError && (
+      {includeVaultProfiles && isVaultError && (
         <div style={{ margin: '10px 16px', padding: '12px 14px', background: isProfessional ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.12)', border: `2px solid ${isProfessional ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.4)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
           <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault access required to include Vault profiles.</div>
             <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
           </div>
         </div>

@@ -20,6 +20,13 @@ import {
   DEFAULT_USAGE_POLICY,
   MESSAGE_DEFAULT_POLICY,
 } from '../../../../../packages/shared/src/handshake/contextGovernance'
+import {
+  parsePolicyToMode,
+  modeToUsageFlags,
+  DEFAULT_AI_PROCESSING_MODE,
+  type AiProcessingMode,
+  type LegacyPolicySelection,
+} from '../../../../../packages/shared/src/handshake/policyUtils'
 import type { EffectivePolicy } from './types'
 import type { HandshakeRecord } from './types'
 import type { DataClassification } from './types'
@@ -76,11 +83,12 @@ export interface HandshakeBaselinePolicy {
 
 export function baselineFromHandshake(record: HandshakeRecord): HandshakeBaselinePolicy {
   const policy = record.effective_policy
-  const selections = record.policy_selections
+  const mode = parsePolicyToMode(record.policy_selections as LegacyPolicySelection | { ai_processing_mode?: AiProcessingMode } | null)
+  const flags = modeToUsageFlags(mode)
   return {
     searchable: true, // Default allow for search
-    local_ai_allowed: selections?.internal_ai ?? true,
-    cloud_ai_allowed: selections?.cloud_ai ?? policy?.allowsCloudEscalation ?? false,
+    local_ai_allowed: flags.local_ai_allowed,
+    cloud_ai_allowed: flags.cloud_ai_allowed,
     auto_reply_allowed: false, // Conservative default
     export_allowed: policy?.allowsExport ?? false,
     transmit_to_peer_allowed: true, // Handshake context is shared by design
@@ -89,16 +97,18 @@ export function baselineFromHandshake(record: HandshakeRecord): HandshakeBaselin
 
 /**
  * Build baseline from explicit policy_selections (e.g. from RPC request).
- * Fallback: effective_policy when selections omit a field.
+ * Accepts ai_processing_mode (new) or legacy cloud_ai/internal_ai.
  */
 export function baselineFromPolicySelections(
-  selections: { cloud_ai?: boolean; internal_ai?: boolean } | null | undefined,
+  selections: { ai_processing_mode?: AiProcessingMode } | LegacyPolicySelection | null | undefined,
   effectivePolicy?: { allowsCloudEscalation?: boolean; allowsExport?: boolean } | null,
 ): HandshakeBaselinePolicy {
+  const mode = parsePolicyToMode(selections)
+  const flags = modeToUsageFlags(mode)
   return {
     searchable: true,
-    local_ai_allowed: selections?.internal_ai ?? true,
-    cloud_ai_allowed: selections?.cloud_ai ?? effectivePolicy?.allowsCloudEscalation ?? false,
+    local_ai_allowed: flags.local_ai_allowed,
+    cloud_ai_allowed: flags.cloud_ai_allowed,
     auto_reply_allowed: false,
     export_allowed: effectivePolicy?.allowsExport ?? false,
     transmit_to_peer_allowed: true,

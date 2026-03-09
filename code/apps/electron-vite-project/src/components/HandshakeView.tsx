@@ -476,7 +476,10 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           record={acceptModalRecord}
           onClose={() => setAcceptModalRecord(null)}
           onSuccess={() => { setAcceptModalRecord(null); loadHandshakes() }}
-          canUseHsContextProfiles={false}
+          // TODO(feature-gate): Wire to actual plan/subscription check.
+          // Context Profiles require Publisher or Enterprise plan.
+          // Currently hardcoded to true — all users get access.
+          canUseHsContextProfiles={true}
         />
       )}
     </div>

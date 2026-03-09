@@ -50,7 +50,7 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
   onClose,
 }) => {
   const [sharingMode, setSharingMode] = useState<SharingMode>('receive-only')
-  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+  const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -164,41 +164,41 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
               </p>
             </div>
 
-            {/* Contextual Handshakes toggle */}
+            {/* Include Vault Profiles toggle */}
             <div style={{
               ...cardStyle(t),
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
               <div>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Contextual Handshakes</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Include Vault Profiles</div>
                 <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '2px' }}>
-                  {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+                  {includeVaultProfiles ? 'Adds secured business data from your Vault to the handshake.' : 'No Vault profiles will be attached.'}
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setContextualHandshakes(v => !v)}
-                aria-pressed={contextualHandshakes}
-                aria-label="Toggle Contextual Handshakes"
-                style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#818cf8' : 'rgba(255,255,255,0.2)', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+                onClick={() => setIncludeVaultProfiles(v => !v)}
+                aria-pressed={includeVaultProfiles}
+                aria-label="Toggle Include Vault Profiles"
+                style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: includeVaultProfiles ? '#818cf8' : 'rgba(255,255,255,0.2)', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
               >
-                <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+                <span style={{ position: 'absolute', top: '3px', left: includeVaultProfiles ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
               </button>
             </div>
 
             {/* Vault Access Required banner */}
-            {contextualHandshakes && error && error.toLowerCase().includes('vault') && (
+            {includeVaultProfiles && error && error.toLowerCase().includes('vault') && (
               <div style={{ padding: '12px 14px', background: 'rgba(239,68,68,0.12)', border: '2px solid rgba(239,68,68,0.4)', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                 <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault access required to include Vault profiles.</div>
                   <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
                 </div>
               </div>
             )}
 
             {/* Error */}
-            {error && !(contextualHandshakes && error.toLowerCase().includes('vault')) && (
+            {error && !(includeVaultProfiles && error.toLowerCase().includes('vault')) && (
               <div style={notificationStyle('error')}>
                 ✕ {error}
               </div>

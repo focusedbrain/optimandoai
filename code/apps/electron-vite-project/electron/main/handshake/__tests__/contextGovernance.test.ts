@@ -12,22 +12,40 @@ import {
 import type { HandshakeRecord } from '../types'
 
 describe('contextGovernance — baselineFromPolicySelections', () => {
-  test('explicit cloud_ai and internal_ai override effective_policy', () => {
+  test('ai_processing_mode internal_and_cloud', () => {
+    const baseline = baselineFromPolicySelections(
+      { ai_processing_mode: 'internal_and_cloud' },
+      { allowsCloudEscalation: false, allowsExport: false },
+    )
+    expect(baseline.cloud_ai_allowed).toBe(true)
+    expect(baseline.local_ai_allowed).toBe(true)
+  })
+
+  test('backward compat: legacy cloud_allowed value still maps correctly', () => {
+    const baseline = baselineFromPolicySelections(
+      { ai_processing_mode: 'cloud_allowed' as any },
+      { allowsCloudEscalation: false, allowsExport: false },
+    )
+    expect(baseline.cloud_ai_allowed).toBe(true)
+    expect(baseline.local_ai_allowed).toBe(true)
+  })
+
+  test('legacy cloud_ai=true internal_ai=false => internal_and_cloud', () => {
     const baseline = baselineFromPolicySelections(
       { cloud_ai: true, internal_ai: false },
       { allowsCloudEscalation: false, allowsExport: false },
     )
     expect(baseline.cloud_ai_allowed).toBe(true)
-    expect(baseline.local_ai_allowed).toBe(false)
+    expect(baseline.local_ai_allowed).toBe(true)
   })
 
-  test('undefined selections fall back to effective_policy', () => {
+  test('undefined selections use default ai_processing_mode (local_only)', () => {
     const baseline = baselineFromPolicySelections(undefined, {
       allowsCloudEscalation: true,
       allowsExport: true,
     })
-    expect(baseline.cloud_ai_allowed).toBe(true)
     expect(baseline.local_ai_allowed).toBe(true)
+    expect(baseline.cloud_ai_allowed).toBe(false)
   })
 
   test('null selections use defaults', () => {
@@ -86,22 +104,33 @@ describe('contextGovernance — baselineFromHandshake', () => {
     }
   }
 
-  test('policy_selections override effective_policy for cloud_ai', () => {
+  test('policy_selections ai_processing_mode internal_and_cloud', () => {
     const record = mockRecord({
       effective_policy: { allowsCloudEscalation: false },
-      policy_selections: { cloud_ai: true, internal_ai: true },
+      policy_selections: { ai_processing_mode: 'internal_and_cloud' },
     })
     const baseline = baselineFromHandshake(record)
     expect(baseline.cloud_ai_allowed).toBe(true)
     expect(baseline.local_ai_allowed).toBe(true)
   })
 
-  test('missing policy_selections uses effective_policy', () => {
+  test('legacy policy_selections cloud_ai+internal_ai parsed', () => {
+    const record = mockRecord({
+      effective_policy: { allowsCloudEscalation: false },
+      policy_selections: { cloud_ai: true, internal_ai: true },
+    })
+    const baseline = baselineFromHandshake(record)
+    expect(baseline.local_ai_allowed).toBe(true)
+    expect(baseline.cloud_ai_allowed).toBe(false)
+  })
+
+  test('missing policy_selections uses default ai_processing_mode', () => {
     const record = mockRecord({
       effective_policy: { allowsCloudEscalation: true },
       policy_selections: undefined,
     })
     const baseline = baselineFromHandshake(record)
-    expect(baseline.cloud_ai_allowed).toBe(true)
+    expect(baseline.local_ai_allowed).toBe(true)
+    expect(baseline.cloud_ai_allowed).toBe(false)
   })
 })

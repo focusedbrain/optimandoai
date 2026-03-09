@@ -16,6 +16,10 @@ export default function HandshakeRequestView({ onBack }: Props) {
         theme="standard"
         onBack={onBack}
         fromAccountId=""
+        // TODO(feature-gate): Wire to actual plan/subscription check.
+        // Context Profiles require Publisher or Enterprise plan.
+        // Currently hardcoded to true — all users get access.
+        canUseHsContextProfiles={true}
       />
     </div>
   )

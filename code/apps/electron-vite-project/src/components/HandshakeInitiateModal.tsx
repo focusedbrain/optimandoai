@@ -1,12 +1,12 @@
 /**
  * HandshakeInitiateModal — wraps SendHandshakeDelivery with vault status
- * and policy checkboxes. Shows vault unlock logic when adding context.
+ * and policy selection. Vault hint only shown when action requires vault (e.g. vault profiles).
  */
 
 import { useState, useEffect } from 'react'
 import { SendHandshakeDelivery } from '@ext/handshake/components/SendHandshakeDelivery'
 import VaultStatusIndicator from './VaultStatusIndicator'
-import PolicyCheckboxes, { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
+import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 
 interface Props {
   onClose: () => void
@@ -16,7 +16,8 @@ interface Props {
 
 export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
   const [vaultStatus, setVaultStatus] = useState<{ isUnlocked: boolean; name: string | null }>({ isUnlocked: false, name: null })
-  const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_POLICIES)
+  const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_AI_POLICY)
+  const [requiresVault, setRequiresVault] = useState(false)
 
   useEffect(() => {
     const check = async () => {
@@ -70,10 +71,11 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
             vaultName={vaultStatus.name}
             isUnlocked={vaultStatus.isUnlocked}
             warningEscalated={false}
+            requiresVault={requiresVault}
           />
         </div>
         <div style={{ padding: '16px 16px 0', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
-          <PolicyCheckboxes policies={policies} onChange={setPolicies} readOnly={false} variant="light" />
+          <PolicyRadioGroup value={policies} onChange={setPolicies} readOnly={false} variant="light" />
         </div>
         <SendHandshakeDelivery
           theme="standard"
@@ -82,6 +84,11 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
           emailAccounts={[]}
           onSuccess={handleSuccess}
           policySelections={policies}
+          onRequiresVaultChange={setRequiresVault}
+          // TODO(feature-gate): Wire to actual plan/subscription check.
+          // Context Profiles require Publisher or Enterprise plan.
+          // Currently hardcoded to true — all users get access.
+          canUseHsContextProfiles={true}
         />
       </div>
     </div>

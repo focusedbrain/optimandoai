@@ -18,7 +18,7 @@ declare global {
       unlockVaultWithPassword: (password: string, vaultId?: string) => Promise<{ success?: boolean; error?: string }>
       getVaultStatus?: () => Promise<{ isUnlocked?: boolean; name?: string | null }>
       forceRevokeHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
-      updateHandshakePolicies?: (handshakeId: string, policies: Record<string, boolean>) => Promise<{ success?: boolean }>
+      updateHandshakePolicies?: (handshakeId: string, policies: { ai_processing_mode?: string } | Record<string, boolean>) => Promise<{ success?: boolean }>
       updateContextItemGovernance?: (handshakeId: string, blockId: string, blockHash: string, senderUserId: string, governance: Record<string, unknown>) => Promise<{ success?: boolean; error?: string }>
       getContextBlockCount: (handshakeId: string) => Promise<number>
       queryContextBlocks?: (handshakeId: string, purpose?: 'local_ai' | 'cloud_ai' | 'export' | 'search' | 'peer_transmission' | 'auto_reply') => Promise<VerifiedContextBlock[]>

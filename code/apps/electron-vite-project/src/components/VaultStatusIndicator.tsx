@@ -4,20 +4,32 @@
  * State 1: Informational (vault locked, no failed action yet)
  * State 2: Warning escalated (user tried to proceed without unlock)
  * State 3: Vault unlocked (compact)
+ *
+ * requiresVault: When false and vault is locked, do NOT show "Vault unlock required".
+ * Only show the blocking hint when the current action actually needs vault access
+ * (sign, accept, attach vault profiles, sensitive context).
  */
 
 interface VaultStatusIndicatorProps {
   vaultName: string | null
   isUnlocked: boolean
   warningEscalated: boolean
+  /** When false and locked: hide the "Vault unlock required" block. Default true for backward compat. */
+  requiresVault?: boolean
 }
 
 export default function VaultStatusIndicator({
   vaultName,
   isUnlocked,
   warningEscalated,
+  requiresVault = true,
 }: VaultStatusIndicatorProps) {
   const displayName = vaultName ?? 'Default Vault'
+
+  // When action doesn't require vault and vault is locked: don't show blocking hint
+  if (!isUnlocked && !requiresVault) {
+    return null
+  }
 
   if (isUnlocked) {
     return (

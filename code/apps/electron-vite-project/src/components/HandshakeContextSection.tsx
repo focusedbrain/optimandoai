@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import type { VerifiedContextBlock } from './contextEscaping'
-import PolicyCheckboxes, { type PolicySelection } from './PolicyCheckboxes'
+import PolicyRadioGroup, { type PolicySelection } from './PolicyRadioGroup'
 import ContextItemEditor, { type ContextItemGovernanceEdit } from './ContextItemEditor'
 
 interface HandshakeRecord {
@@ -185,7 +185,7 @@ export default function HandshakeContextSection({
         </button>
       )}
 
-      <PolicyCheckboxes policies={policies} onChange={onPolicyChange} readOnly={readOnly} />
+      <PolicyRadioGroup value={policies} onChange={onPolicyChange} readOnly={readOnly} />
 
       {editingBlock && (
         <ContextItemEditor

@@ -15,13 +15,14 @@
  * - Real RPC call via initiateHandshake
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
 import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
 import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import type { ProfileContextItem } from '@shared/handshake/types'
+import { getVaultStatus } from '../../vault/api'
 
 export interface EmailAccount {
   id: string
@@ -89,8 +90,16 @@ export function HandshakeRequestForm({
   const [message, setMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
-  // Contextual Handshakes — enabled by default
-  const [contextualHandshakes, setContextualHandshakes] = useState(true)
+  // Include Vault Profiles — enabled by default when profiles available
+  const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
+
+  // Vault lock status — used to gate profile picker
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState<boolean | undefined>(undefined)
+  useEffect(() => {
+    getVaultStatus()
+      .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
+      .catch(() => setIsVaultUnlocked(false))
+  }, [])
 
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
@@ -100,8 +109,8 @@ export function HandshakeRequestForm({
 
   // HS Context Profiles (publisher+ only) — structured for per-item policy
   const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
-  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>({ policy_mode: 'inherit' })
-  const defaultPolicy = { cloud_ai: false, internal_ai: false }
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }>({ policy_mode: 'inherit' })
+  const defaultPolicy = { ai_processing_mode: 'local_only' as const }
 
   // Send state
   const [isSending, setIsSending] = useState(false)
@@ -132,7 +141,7 @@ export function HandshakeRequestForm({
 
     try {
       const opts = await buildInitiateContextOptions({
-        skipVaultContext: !contextualHandshakes,
+        skipVaultContext: !canUseHsContextProfiles || !includeVaultProfiles,
         policySelections: defaultPolicy,
         selectedProfileItems,
         messageText: message,
@@ -326,39 +335,41 @@ export function HandshakeRequestForm({
           />
         </div>
 
-        {/* Contextual Handshakes toggle */}
+        {/* Include Vault Profiles toggle — only when HS Context Profiles available */}
+        {canUseHsContextProfiles && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px',
-          background: contextualHandshakes ? (isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)') : 'transparent',
-          border: `1px solid ${contextualHandshakes ? (isStandard ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.35)') : borderColor}`,
+          background: includeVaultProfiles ? (isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)') : 'transparent',
+          border: `1px solid ${includeVaultProfiles ? (isStandard ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.35)') : borderColor}`,
           borderRadius: '10px',
           transition: 'all 0.18s',
         }}>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: textColor }}>Contextual Handshakes</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: textColor }}>Add a Context Graph</div>
             <div style={{ fontSize: '11px', color: mutedColor, marginTop: '2px' }}>
-              {contextualHandshakes ? 'Includes secured business data from your Vault.' : 'Basic mode — no Vault data required.'}
+              {includeVaultProfiles ? 'Attach structured business context from your Vault to this handshake.' : 'No context graph will be attached.'}
             </div>
           </div>
           <button
             type="button"
-            onClick={() => setContextualHandshakes(v => !v)}
-            aria-pressed={contextualHandshakes}
-            aria-label="Toggle Contextual Handshakes"
-            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: contextualHandshakes ? '#8b5cf6' : (isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
+            onClick={() => setIncludeVaultProfiles(v => !v)}
+            aria-pressed={includeVaultProfiles}
+            aria-label="Toggle Context Graph"
+            style={{ width: '40px', height: '22px', borderRadius: '11px', border: 'none', background: includeVaultProfiles ? '#8b5cf6' : (isStandard ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'), cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s', padding: 0 }}
           >
-            <span style={{ position: 'absolute', top: '3px', left: contextualHandshakes ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+            <span style={{ position: 'absolute', top: '3px', left: includeVaultProfiles ? '21px' : '3px', width: '16px', height: '16px', borderRadius: '50%', background: 'white', transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
           </button>
         </div>
+        )}
 
-        {/* Vault Access Required banner — contextual ON + vault error from RPC */}
-        {contextualHandshakes && sendError && sendError.toLowerCase().includes('vault') && (
+        {/* Vault Access Required banner — include profiles ON + vault error from RPC */}
+        {includeVaultProfiles && sendError && sendError.toLowerCase().includes('vault') && (
           <div style={{ padding: '12px 14px', background: isStandard ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.12)', border: `2px solid ${isStandard ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.4)'}`, borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
             <span style={{ fontSize: '18px', flexShrink: 0 }}>🔒</span>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault Access Required for Contextual Handshakes.</div>
-              <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Contextual handshakes rely on secured business data stored in your Vault.</div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Vault access required to include Vault profiles.</div>
+              <div style={{ fontSize: '11px', color: '#ef4444', lineHeight: 1.5 }}>Vault profiles require secure access to data stored in your Vault.</div>
             </div>
           </div>
         )}
@@ -441,6 +452,7 @@ export function HandshakeRequestForm({
                       defaultPolicy={defaultPolicy}
                       theme={theme}
                       disabled={isSending}
+                      isVaultUnlocked={isVaultUnlocked}
                     />
                   ) : (
                     <div style={{
@@ -519,7 +531,7 @@ export function HandshakeRequestForm({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...defaultPolicy } })}
+                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ai_processing_mode: defaultPolicy.ai_processing_mode } })}
                           disabled={isSending}
                           style={{
                             padding: '4px 10px',
@@ -535,25 +547,20 @@ export function HandshakeRequestForm({
                         </button>
                       </div>
                       {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSending ? 'default' : 'pointer', color: textColor }}>
-                            <input
-                              type="checkbox"
-                              checked={adhocBlockPolicy.policy.cloud_ai ?? false}
-                              disabled={isSending}
-                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
-                            />
-                            <span>Cloud AI Processing</span>
-                          </label>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSending ? 'default' : 'pointer', color: textColor }}>
-                            <input
-                              type="checkbox"
-                              checked={adhocBlockPolicy.policy.internal_ai ?? false}
-                              disabled={isSending}
-                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
-                            />
-                            <span>Internal AI Only</span>
-                          </label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {(['none', 'local_only', 'internal_and_cloud'] as const).map((m) => (
+                            <label key={m} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSending ? 'default' : 'pointer', color: textColor }}>
+                              <input
+                                type="radio"
+                                name="adhoc-ai-policy-req"
+                                checked={(adhocBlockPolicy.policy.ai_processing_mode ?? 'local_only') === m}
+                                disabled={isSending}
+                                onChange={() => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ai_processing_mode: m } })}
+                                style={{ accentColor: '#8b5cf6' }}
+                              />
+                              <span>{m === 'none' ? 'No AI processing' : m === 'local_only' ? 'Internal AI only' : 'Allow Internal + Cloud AI'}</span>
+                            </label>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -573,7 +580,7 @@ export function HandshakeRequestForm({
         </div>
 
         {/* Error / Success */}
-        {sendError && !(contextualHandshakes && sendError.toLowerCase().includes('vault')) && (
+        {sendError && !(includeVaultProfiles && sendError.toLowerCase().includes('vault')) && (
           <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontSize: '12px', color: '#ef4444' }}>
             ⚠️ {sendError}
           </div>
