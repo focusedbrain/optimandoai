@@ -7128,7 +7128,7 @@ app.whenReady().then(async () => {
              WHERE state = 'ACCEPTED'
                AND context_sync_pending = 0
                AND last_seq_received = 0
-               AND activated_at < datetime('now', '-30 seconds')`
+               AND created_at < datetime('now', '-5 seconds')`
           ).all() as Array<{ handshake_id: string; last_capsule_hash_received: string; last_seq_received: number }>
           for (const row of stuckRows) {
             console.log('[P2P] Re-triggering context_sync for stuck ACCEPTED handshake:', row.handshake_id)

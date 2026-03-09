@@ -184,6 +184,19 @@ async function processCapsuleInternal(
       }
     } else {
       console.warn('[Coordination] Handshake rejected:', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
+      // For context_sync capsules rejected due to ordering issues (capsule arrived before
+      // the accept was processed — the acceptor is not yet persisted in the record), do NOT
+      // ACK the capsule. The relay will retry delivery, and by then the accept will have been
+      // processed and the context_sync will succeed.
+      const isTransientContextSyncRejection =
+        capsuleType === 'context_sync' &&
+        (handshakeResult.reason === 'HANDSHAKE_OWNERSHIP_VIOLATION' ||
+         handshakeResult.reason === 'CHAIN_INTEGRITY_VIOLATION' ||
+         handshakeResult.reason === 'INVALID_CHAIN')
+      if (isTransientContextSyncRejection) {
+        console.warn('[Coordination] Transient rejection for context_sync — NOT ACKing (relay will retry):', handshakeResult.reason)
+        return // Do not sendAckFn — let relay retry
+      }
     }
 
     sendAckFn([id])
