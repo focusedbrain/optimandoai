@@ -314,7 +314,9 @@ export function processHandshakeCapsule(
     const capsuleContextCommitment = capsuleObj?.context_commitment ?? null
 
     // Edge case: stored commitment exists but capsule has no context_blocks → REJECT
-    if (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-context-sync') {
+    // Note: context_sync is excluded — it is the delivery mechanism itself and may send
+    // empty blocks if all were filtered by policy or not yet available.
+    if (input.capsuleType === 'handshake-refresh') {
       const existing = handshakeRecord!
       const senderId = input.sender_wrdesk_user_id
       const isInitiator = senderId === existing.initiator.wrdesk_user_id
@@ -335,8 +337,10 @@ export function processHandshakeCapsule(
       // originally promised during handshake (initiate/accept). Prevents attacker
       // from sending different context_blocks with a freshly computed valid
       // context_commitment — both internally consistent but not what was promised.
-      // Skip for initiate/accept: we are creating the stored value.
-      if (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-context-sync') {
+      // Skip for initiate/accept (creating the stored value) and context_sync
+      // (context_sync is the delivery vehicle; blocks may differ from the initiate
+      // commitment due to policy filtering — commitment is verified block-by-block).
+      if (input.capsuleType === 'handshake-refresh') {
         const existing = handshakeRecord!
         const senderId = input.sender_wrdesk_user_id
         const isInitiator = senderId === existing.initiator.wrdesk_user_id
