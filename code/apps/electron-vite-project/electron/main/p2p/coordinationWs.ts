@@ -192,7 +192,8 @@ async function processCapsuleInternal(
         capsuleType === 'context_sync' &&
         (handshakeResult.reason === 'HANDSHAKE_OWNERSHIP_VIOLATION' ||
          handshakeResult.reason === 'CHAIN_INTEGRITY_VIOLATION' ||
-         handshakeResult.reason === 'INVALID_CHAIN')
+         handshakeResult.reason === 'INVALID_CHAIN' ||
+         handshakeResult.reason === 'SIGNATURE_INVALID')
       if (isTransientContextSyncRejection) {
         console.warn('[Coordination] Transient rejection for context_sync — NOT ACKing (relay will retry):', handshakeResult.reason)
         return // Do not sendAckFn — let relay retry

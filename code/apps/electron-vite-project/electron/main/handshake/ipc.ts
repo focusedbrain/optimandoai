@@ -817,19 +817,39 @@ export async function handleHandshakeRPC(
               console.warn('[P2P] Enqueue accept capsule failed:', err?.message)
             }
           }
+          // Enqueue context_sync AFTER the accept so the initiator always receives
+          // the accept capsule first. The accept updates counterparty_public_key on the
+          // initiator's record; if context_sync arrives first, the signature check fails.
+          const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
+            lastCapsuleHash: capsule.capsule_hash,
+          })
+          if (contextResult.success) {
+            processOutboundQueue(db, _getOidcToken).catch(() => {})
+          } else if (contextResult.reason === 'VAULT_LOCKED') {
+            // Already deferred — will be retried when vault is unlocked
+          } else {
+            console.warn('[P2P] context_sync enqueue skipped after accept:', contextResult.reason)
+          }
         })
       }
 
       // Auto-trigger P2P context-sync: enqueue when ACCEPTED, or defer if vault locked
       let contextSyncStatus: 'sent' | 'vault_locked' | 'skipped' = 'skipped'
       if (localResult.success && db) {
-        const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
-          lastCapsuleHash: capsule.capsule_hash,
-        })
-        contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
-        // Flush the outbound queue immediately so the capsule is delivered without waiting for the 10s poller
-        if (contextResult.success) {
-          setImmediate(() => { processOutboundQueue(db, _getOidcToken).catch(() => {}) })
+        // NOTE: for coordination mode, context_sync is enqueued inside the setImmediate above
+        // (after the accept capsule) to guarantee ordering. Here we only handle non-coordination
+        // mode (direct P2P) or when relay registration is not applicable.
+        if (!getP2PConfig(db).use_coordination) {
+          const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
+            lastCapsuleHash: capsule.capsule_hash,
+          })
+          contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
+          if (contextResult.success) {
+            setImmediate(() => { processOutboundQueue(db, _getOidcToken).catch(() => {}) })
+          }
+        } else {
+          // Coordination: context_sync handled inside setImmediate above, report optimistically
+          contextSyncStatus = 'sent'
         }
       }
 
