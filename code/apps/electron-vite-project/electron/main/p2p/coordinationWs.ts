@@ -18,6 +18,12 @@ import {
 } from '../ingestion/persistenceDb'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
+
+/**
+ * In-memory buffer for context_sync capsules that arrived before the accept was processed.
+ * Key = handshake_id, value = { capsule, id, ssoSession } to replay after accept.
+ */
+const pendingContextSyncBuffer = new Map<string, { capsule: unknown; id: string; ssoSession: SSOSession }>()
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -158,6 +164,16 @@ async function processCapsuleInternal(
         } else {
           console.warn('[Coordination] Initial context_sync skipped, reason=', contextResult.reason)
         }
+
+        // After accept succeeds: replay any context_sync that arrived early (before accept).
+        const buffered = pendingContextSyncBuffer.get(record.handshake_id)
+        if (buffered) {
+          console.log('[Coordination] Replaying buffered context_sync for handshake=', record.handshake_id)
+          pendingContextSyncBuffer.delete(record.handshake_id)
+          setImmediate(() => {
+            processCapsuleInternal(db, buffered.capsule, buffered.id, buffered.ssoSession, sendAckFn, getOidcToken, onHandshakeUpdated)
+          })
+        }
       }
 
       // Each side independently sends exactly one context_sync (seq=1) after accept.
@@ -166,10 +182,9 @@ async function processCapsuleInternal(
       console.log('[Coordination] Capsule processed: type=', capObjRebuilt?.capsule_type, 'seq=', capObjRebuilt?.seq, 'newState=', newState)
     } else {
       console.warn('[Coordination] Handshake rejected:', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
-      // For context_sync capsules rejected due to ordering issues (capsule arrived before
-      // the accept was processed — the acceptor is not yet persisted in the record), do NOT
-      // ACK the capsule. The relay will retry delivery, and by then the accept will have been
-      // processed and the context_sync will succeed.
+      // For context_sync capsules rejected due to ordering issues (arrived before the accept
+      // was processed — acceptor not yet in the record), buffer them locally and replay after
+      // the accept capsule succeeds. Also keep NOT ACKing so the relay retries as a fallback.
       const isTransientContextSyncRejection =
         capsuleType === 'context_sync' &&
         (handshakeResult.reason === 'HANDSHAKE_OWNERSHIP_VIOLATION' ||
@@ -177,8 +192,10 @@ async function processCapsuleInternal(
          handshakeResult.reason === 'INVALID_CHAIN' ||
          handshakeResult.reason === 'SIGNATURE_INVALID')
       if (isTransientContextSyncRejection) {
-        console.warn('[Coordination] Transient rejection for context_sync — NOT ACKing (relay will retry):', handshakeResult.reason)
-        return // Do not sendAckFn — let relay retry
+        console.warn('[Coordination] Buffering early context_sync for handshake=', handshakeId, '— will replay after accept')
+        // Store the latest version — if relay sends multiple retries before accept, keep only the freshest
+        pendingContextSyncBuffer.set(handshakeId, { capsule, id, ssoSession })
+        return // Do not sendAckFn — let relay retry too as a fallback
       }
     }
 
