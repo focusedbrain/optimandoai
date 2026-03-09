@@ -34,9 +34,6 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
   }, [])
 
   const handleSuccess = (result?: { handshake_id?: string }) => {
-    if (result?.handshake_id) {
-      window.handshakeView?.updateHandshakePolicies?.(result.handshake_id, policies)
-    }
     onSuccess?.()
     onClose()
   }
@@ -84,6 +81,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
           fromAccountId=""
           emailAccounts={[]}
           onSuccess={handleSuccess}
+          policySelections={policies}
         />
       </div>
     </div>

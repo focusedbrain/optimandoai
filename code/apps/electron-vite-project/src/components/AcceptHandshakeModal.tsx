@@ -15,6 +15,7 @@ import { acceptHandshake } from '@ext/handshake/handshakeRpc'
 import { computeBlockHashClient } from '../utils/contextBlockHash'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyCheckboxes, { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
+import type { ProfileContextItem, ContextBlockWithPolicy } from '../../../../packages/shared/src/handshake/types'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -45,7 +46,8 @@ export default function AcceptHandshakeModal({
   const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
+  const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: PolicySelection }>({ policy_mode: 'inherit' })
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false)
@@ -72,18 +74,48 @@ export default function AcceptHandshakeModal({
     return () => window.removeEventListener('vault-status-changed', handler)
   }, [])
 
-  const buildContextBlocks = async (): Promise<
-    Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
-  > => {
-    const blocks: Array<{
-      block_id: string
-      block_hash: string
-      type: string
-      content: string | Record<string, unknown>
-      scope_id?: string
-    }> = []
+  // Rehydration: restore draft from localStorage when modal opens
+  useEffect(() => {
+    try {
+      const key = `handshake-accept-draft-${record.handshake_id}`
+      const raw = localStorage.getItem(key)
+      if (raw) {
+        const draft = JSON.parse(raw) as {
+          selectedProfileItems?: ProfileContextItem[]
+          contextGraphText?: string
+          contextGraphType?: 'text' | 'json'
+          adhocBlockPolicy?: { policy_mode: 'inherit' | 'override'; policy?: PolicySelection }
+        }
+        if (draft.selectedProfileItems?.length) setSelectedProfileItems(draft.selectedProfileItems)
+        if (draft.contextGraphText != null) setContextGraphText(draft.contextGraphText)
+        if (draft.contextGraphType) setContextGraphType(draft.contextGraphType)
+        if (draft.adhocBlockPolicy) setAdhocBlockPolicy(draft.adhocBlockPolicy)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [record.handshake_id])
 
-    // Ad-hoc: normalize text/JSON to content, compute hash
+  // Persist draft to localStorage when context changes
+  useEffect(() => {
+    try {
+      const key = `handshake-accept-draft-${record.handshake_id}`
+      const draft = {
+        selectedProfileItems,
+        contextGraphText,
+        contextGraphType,
+        adhocBlockPolicy,
+      }
+      localStorage.setItem(key, JSON.stringify(draft))
+    } catch {
+      /* ignore */
+    }
+  }, [record.handshake_id, selectedProfileItems, contextGraphText, contextGraphType, adhocBlockPolicy])
+
+  const buildContextBlocks = async (): Promise<ContextBlockWithPolicy[]> => {
+    const blocks: ContextBlockWithPolicy[] = []
+
+    // Ad-hoc: normalize text/JSON to content, compute hash, include per-item policy
     const text = contextGraphText.trim()
     if (text) {
       let content: string | Record<string, unknown>
@@ -104,6 +136,8 @@ export default function AcceptHandshakeModal({
         type: 'plaintext',
         content,
         scope_id: 'acceptor',
+        policy_mode: adhocBlockPolicy.policy_mode,
+        policy: adhocBlockPolicy.policy,
       })
     }
 
@@ -119,23 +153,33 @@ export default function AcceptHandshakeModal({
     setAccepting(true)
     try {
       const context_blocks = await buildContextBlocks()
-      const contextOpts =
-        context_blocks.length > 0 || selectedProfileIds.length > 0
-          ? {
-              context_blocks: context_blocks.length > 0 ? context_blocks : undefined,
-              profile_ids: selectedProfileIds.length > 0 ? selectedProfileIds : undefined,
-            }
-          : undefined
+      const contextOpts: {
+        context_blocks?: ContextBlockWithPolicy[]
+        profile_ids?: string[]
+        profile_items?: ProfileContextItem[]
+        policy_selections?: { cloud_ai: boolean; internal_ai: boolean }
+      } = {
+        policy_selections: policies,
+      }
+      if (context_blocks.length > 0) contextOpts.context_blocks = context_blocks
+      if (selectedProfileItems.length > 0) {
+        contextOpts.profile_ids = selectedProfileItems.map((i) => i.profile_id)
+        contextOpts.profile_items = selectedProfileItems
+      }
 
       const result = await acceptHandshake(
         record.handshake_id,
         'reciprocal',
         '',
-        contextOpts as any,
+        contextOpts,
       )
 
       if (result?.success !== false) {
-        await window.handshakeView?.updateHandshakePolicies?.(record.handshake_id, policies)
+        try {
+          localStorage.removeItem(`handshake-accept-draft-${record.handshake_id}`)
+        } catch {
+          /* ignore */
+        }
         onSuccess()
         onClose()
       } else {
@@ -281,8 +325,9 @@ export default function AcceptHandshakeModal({
                   </div>
                   {canUseHsContextProfiles ? (
                     <HandshakeContextProfilePicker
-                      selectedIds={selectedProfileIds}
-                      onChange={setSelectedProfileIds}
+                      selectedItems={selectedProfileItems}
+                      onChange={setSelectedProfileItems}
+                      defaultPolicy={policies}
                       theme="standard"
                       disabled={accepting}
                     />
@@ -394,6 +439,69 @@ export default function AcceptHandshakeModal({
                       }}
                     />
                   </div>
+                  {contextGraphText.trim() && (
+                    <div style={{ padding: '8px 12px', background: 'rgba(139,92,246,0.06)', borderRadius: '8px', border: `1px solid ${borderColor}` }}>
+                      <div style={{ fontSize: '10px', fontWeight: 600, color: mutedColor, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Policy for this ad-hoc context
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'inherit' })}
+                          disabled={accepting}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11px',
+                            background: adhocBlockPolicy.policy_mode === 'inherit' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                            border: `1px solid ${adhocBlockPolicy.policy_mode === 'inherit' ? '#8b5cf6' : borderColor}`,
+                            borderRadius: '6px',
+                            color: adhocBlockPolicy.policy_mode === 'inherit' ? '#5b21b6' : mutedColor,
+                            cursor: accepting ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Use default
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...policies } })}
+                          disabled={accepting}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11px',
+                            background: adhocBlockPolicy.policy_mode === 'override' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                            border: `1px solid ${adhocBlockPolicy.policy_mode === 'override' ? '#8b5cf6' : borderColor}`,
+                            borderRadius: '6px',
+                            color: adhocBlockPolicy.policy_mode === 'override' ? '#5b21b6' : mutedColor,
+                            cursor: accepting ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Override
+                        </button>
+                      </div>
+                      {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: accepting ? 'default' : 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={adhocBlockPolicy.policy.cloud_ai ?? false}
+                              disabled={accepting}
+                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
+                            />
+                            <span style={{ color: '#374151' }}>Cloud AI Processing</span>
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: accepting ? 'default' : 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={adhocBlockPolicy.policy.internal_ai ?? false}
+                              disabled={accepting}
+                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
+                            />
+                            <span style={{ color: '#374151' }}>Internal AI Only</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

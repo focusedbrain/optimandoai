@@ -26,6 +26,7 @@ export function createHandshakeTestDb() {
   const quarantine: any[] = []
   const sandboxQueue: any[] = []
   const contextBlocks: any[] = []
+  const contextStore: any[] = []
   const contextBlockVersions = new Map<string, number>() // `${sender}:${blockId}` → version
   const migrations = new Set<number>()
   const ingestionMigrations = new Set<number>()
@@ -69,6 +70,16 @@ export function createHandshakeTestDb() {
             const existing = handshakes.get(handshakeId)
             if (existing) {
               handshakes.set(handshakeId, { ...existing, counterparty_public_key: pos[0] })
+              return { changes: 1 }
+            }
+            return { changes: 0 }
+          }
+          // Positional: UPDATE handshakes SET policy_selections = ? WHERE handshake_id = ?
+          if (/policy_selections.*WHERE handshake_id/i.test(sql) && pos.length >= 2) {
+            const handshakeId = pos[1]
+            const existing = handshakes.get(handshakeId)
+            if (existing) {
+              handshakes.set(handshakeId, { ...existing, policy_selections: pos[0] })
               return { changes: 1 }
             }
             return { changes: 0 }
@@ -133,6 +144,31 @@ export function createHandshakeTestDb() {
               payload: pos[11],
               embedding_status: 'pending',
               created_at: pos[12],
+            })
+            return { changes: 1 }
+          }
+          return { changes: 0 }
+        }
+
+        // INSERT OR IGNORE INTO context_store
+        if (/INSERT.*context_store/i.test(sql) && pos.length >= 13) {
+          const key = `${pos[2]}:${pos[0]}:${pos[1]}`
+          const exists = contextStore.some((e: any) => e.handshake_id === pos[2] && e.block_id === pos[0] && e.block_hash === pos[1])
+          if (!exists) {
+            contextStore.push({
+              block_id: pos[0],
+              block_hash: pos[1],
+              handshake_id: pos[2],
+              relationship_id: pos[3],
+              scope_id: pos[4],
+              publisher_id: pos[5],
+              type: pos[6],
+              content: pos[7],
+              status: pos[8],
+              valid_until: pos[9],
+              ingested_at: pos[10],
+              superseded: pos[11],
+              governance_json: pos[12],
             })
             return { changes: 1 }
           }
@@ -246,6 +282,15 @@ export function createHandshakeTestDb() {
             return [{ cnt: result.length }]
           }
           return result.map(b => ({ ...b, payload_ref: b.payload }))
+        }
+
+        // SELECT * FROM context_store
+        if (/FROM context_store/i.test(sql) && pos[0]) {
+          let result = contextStore.filter((e: any) => e.handshake_id === pos[0])
+          if (sql.includes('status = ?') && pos[1]) {
+            result = result.filter((e: any) => e.status === pos[1])
+          }
+          return result
         }
 
         return []

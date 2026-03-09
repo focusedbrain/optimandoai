@@ -14,3 +14,4 @@ export * from './vault/vaultCapabilities';
 
 // Handshake context governance (fine-grained policy model)
 export * from './handshake/contextGovernance';
+export * from './handshake/types';

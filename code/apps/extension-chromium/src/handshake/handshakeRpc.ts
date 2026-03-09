@@ -97,7 +97,10 @@ export async function initiateHandshake(
   options?: {
     skipVaultContext?: boolean
     message?: string
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    profile_ids?: string[]
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeInitiateResponse> {
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
@@ -107,6 +110,9 @@ export async function initiateHandshake(
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
     ...(options?.message ? { message: options.message } : {}),
     ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
+    ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
+    ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
+    ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
 }
 
@@ -116,7 +122,10 @@ export async function buildHandshakeForDownload(
   options?: {
     skipVaultContext?: boolean
     message?: string
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    profile_ids?: string[]
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
@@ -125,6 +134,9 @@ export async function buildHandshakeForDownload(
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
     ...(options?.message ? { message: options.message } : {}),
     ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
+    ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
+    ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
+    ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
 }
 
@@ -133,8 +145,10 @@ export async function acceptHandshake(
   sharingMode: 'receive-only' | 'reciprocal',
   fromAccountId: string,
   contextOpts?: {
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
     profile_ids?: string[]
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeAcceptResponse> {
   return sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
@@ -143,6 +157,8 @@ export async function acceptHandshake(
     fromAccountId,
     ...(contextOpts?.context_blocks?.length ? { context_blocks: contextOpts.context_blocks } : {}),
     ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
+    ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
+    ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
   })
 }
 

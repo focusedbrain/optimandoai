@@ -18,11 +18,12 @@ import { HandshakeState as HS, INPUT_LIMITS } from './types'
 import { buildDefaultReceiverPolicy } from './types'
 import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
-import { insertHandshakeRecord, insertSeenCapsuleHash, insertContextStoreEntry } from './db'
+import { insertHandshakeRecord, insertSeenCapsuleHash, insertContextStoreEntry, updateHandshakePolicySelections } from './db'
 import {
   createDefaultGovernance,
   createMessageGovernance,
   baselineFromHandshake,
+  baselineFromPolicySelections,
   type ContextItemGovernance,
 } from './contextGovernance'
 
@@ -41,6 +42,8 @@ export function persistInitiatorHandshakeRecord(
   session: SSOSession,
   localBlocks: ContextBlockForCommitment[],
   keypair: SigningKeypair,
+  policySelections?: { cloud_ai?: boolean; internal_ai?: boolean },
+  blockPolicyMap?: Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>,
 ): PersistInitiatorResult {
   try {
     const tierDecision = classifyHandshakeTier({
@@ -108,10 +111,18 @@ export function persistInitiatorHandshakeRecord(
 
     insertHandshakeRecord(db, record)
     insertSeenCapsuleHash(db, capsule.handshake_id, capsule.capsule_hash)
+    if (policySelections && (policySelections.cloud_ai !== undefined || policySelections.internal_ai !== undefined)) {
+      updateHandshakePolicySelections(db, capsule.handshake_id, {
+        cloud_ai: policySelections.cloud_ai ?? false,
+        internal_ai: policySelections.internal_ai ?? false,
+      })
+    }
     console.log('[HANDSHAKE] Initiator persist OK:', capsule.handshake_id, 'state=PENDING_ACCEPT')
 
     const relationshipId = capsule.relationship_id
-    const baseline = baselineFromHandshake(record)
+    const globalBaseline = (policySelections && (policySelections.cloud_ai !== undefined || policySelections.internal_ai !== undefined))
+      ? baselineFromPolicySelections(policySelections, record.effective_policy)
+      : baselineFromHandshake(record)
     const buildGov = (b: { block_id: string; type: string }): ContextItemGovernance => {
       const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
       if (isMsg) {
@@ -120,6 +131,11 @@ export function persistInitiatorHandshakeRecord(
           sender_wrdesk_user_id: session.wrdesk_user_id,
         })
       }
+      // Per-item policy: override wins over global (Phase 2)
+      const itemPolicy = blockPolicyMap?.get(b.block_id)
+      const baseline = itemPolicy
+        ? baselineFromPolicySelections(itemPolicy, record.effective_policy)
+        : globalBaseline
       return createDefaultGovernance({
         origin: 'local',
         usage_policy: { ...baseline },

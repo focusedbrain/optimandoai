@@ -23,6 +23,36 @@ export enum HandshakeState {
   REVOKED = 'REVOKED',
 }
 
+// ── Per-item policy (Phase 2 fine-grained governance) ──
+
+export type PolicySelection = { cloud_ai?: boolean; internal_ai?: boolean }
+
+export type PolicyMode = 'inherit' | 'override'
+
+/** Per-item policy: inherit global default or override with explicit policy */
+export interface ContextItemPolicy {
+  policy_mode: PolicyMode
+  policy?: PolicySelection
+}
+
+/** Vault profile item with per-item policy */
+export interface ProfileContextItem {
+  profile_id: string
+  policy_mode?: PolicyMode
+  policy?: PolicySelection
+}
+
+/** Context block with optional per-item policy (for ad-hoc blocks) */
+export interface ContextBlockWithPolicy {
+  block_id: string
+  block_hash: string
+  type: string
+  content: string | Record<string, unknown>
+  scope_id?: string
+  policy_mode?: PolicyMode
+  policy?: PolicySelection
+}
+
 // ── Extension → Main ──
 
 export type HandshakeIPCRequest =

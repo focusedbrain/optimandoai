@@ -34,6 +34,7 @@ import {
   createDefaultGovernance,
   createMessageGovernance,
   baselineFromHandshake,
+  baselineFromPolicySelections,
   filterBlocksForLocalAI,
   filterBlocksForCloudAI,
   filterBlocksForExport,
@@ -47,11 +48,12 @@ import {
   getContextStoreByHandshake,
   updateContextStoreStatus,
   updateContextStoreStatusBulk,
+  updateHandshakePolicySelections,
 } from './db'
 import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule } from './outboundQueue'
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
@@ -62,18 +64,42 @@ import { canonicalRebuild } from './canonicalRebuild'
 const MAX_MESSAGE_BYTES = 32 * 1024
 const MAX_BLOCKS_PER_CAPSULE = 64
 
+/** Raw block from client; may include per-item policy (Phase 2) */
+interface RawBlockWithPolicy extends ContextBlockForCommitment {
+  policy_mode?: 'inherit' | 'override'
+  policy?: { cloud_ai?: boolean; internal_ai?: boolean }
+}
+
+/** Result of building blocks with per-item policy map (block_id -> effective policy selections) */
+interface BuildBlocksResult {
+  blocks: ContextBlockForCommitment[]
+  blockPolicyMap: Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>
+}
+
 /**
  * Convert raw RPC params (pre-built context_blocks and/or a plain message string)
  * into a fully formed ContextBlockForCommitment array ready for the capsule builder.
  *
  * block_ids assigned here are provisional — the capsule builder will
  * reassign canonical IDs scoped to the handshake_id.
+ *
+ * Phase 2: When raw blocks have policy_mode=override and policy, those are collected
+ * in blockPolicyMap for per-item governance resolution.
  */
 function buildContextBlocksFromParams(
-  rawBlocks: ContextBlockForCommitment[] | undefined,
+  rawBlocks: RawBlockWithPolicy[] | ContextBlockForCommitment[] | undefined,
   rawMessage: string | undefined,
 ): ContextBlockForCommitment[] {
+  const result = buildContextBlocksFromParamsWithPolicy(rawBlocks, rawMessage)
+  return result.blocks
+}
+
+function buildContextBlocksFromParamsWithPolicy(
+  rawBlocks: RawBlockWithPolicy[] | ContextBlockForCommitment[] | undefined,
+  rawMessage: string | undefined,
+): BuildBlocksResult {
   const blocks: ContextBlockForCommitment[] = []
+  const blockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
 
   if (Array.isArray(rawBlocks)) {
     for (const b of rawBlocks) {
@@ -87,6 +113,10 @@ function buildContextBlocksFromParams(
         const recomputed = computeBlockHash(b.content)
         if (recomputed !== b.block_hash) continue
         blocks.push(b)
+        const withPolicy = b as RawBlockWithPolicy
+        if (withPolicy.policy_mode === 'override' && withPolicy.policy) {
+          blockPolicyMap.set(b.block_id, withPolicy.policy)
+        }
       }
     }
   }
@@ -104,7 +134,7 @@ function buildContextBlocksFromParams(
     }
   }
 
-  return blocks
+  return { blocks, blockPolicyMap }
 }
 
 /**
@@ -116,6 +146,7 @@ function resolveProfileIdsToContextBlocks(
   profileIds: string[],
   session: SSOSession,
   handshakeId: string,
+  scope: 'acceptor' | 'initiator' = 'acceptor',
 ): ContextBlockForCommitment[] {
   if (!profileIds?.length) return []
   const vs = (globalThis as any).__og_vault_service_ref as { resolveHsProfilesForHandshake?: (tier: string, ids: string[]) => any[] } | undefined
@@ -128,6 +159,7 @@ function resolveProfileIdsToContextBlocks(
     const resolved = vs.resolveHsProfilesForHandshake(tier, profileIds)
     const blocks: ContextBlockForCommitment[] = []
     const shortId = handshakeId.replace(/^hs-/, '').slice(0, 8)
+    const scopeLabel = scope === 'acceptor' ? 'acceptor' : 'initiator'
     for (let i = 0; i < resolved.length && blocks.length < MAX_BLOCKS_PER_CAPSULE; i++) {
       const { profile, documents } = resolved[i]
       const content = JSON.stringify({
@@ -136,11 +168,11 @@ function resolveProfileIdsToContextBlocks(
       })
       const blockHash = computeBlockHash(content)
       blocks.push({
-        block_id: `ctx-${shortId}-acceptor-${String(i + 1).padStart(3, '0')}`,
+        block_id: `ctx-${shortId}-${scopeLabel}-${String(i + 1).padStart(3, '0')}`,
         block_hash: blockHash,
         type: 'vault_profile',
         content,
-        scope_id: 'acceptor',
+        scope_id: scope,
       })
     }
     return blocks
@@ -339,15 +371,21 @@ export async function handleHandshakeRPC(
         skipVaultContext,
         context_blocks: rawBlocks,
         message: rawMessage,
+        profile_ids: initProfileIds,
+        profile_items: initProfileItems,
         p2p_endpoint: p2pEndpointParam,
+        policy_selections: initPolicySelections,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         fromAccountId: string
         skipVaultContext?: boolean
-        context_blocks?: ContextBlockForCommitment[]
+        context_blocks?: RawBlockWithPolicy[]
         message?: string
+        profile_ids?: string[]
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
+        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -359,7 +397,20 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      const contextBlocks = buildContextBlocksFromParams(rawBlocks, rawMessage)
+      const handshakeId = `hs-${randomUUID()}`
+      const { blocks: contextBlocks, blockPolicyMap: initBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(rawBlocks, rawMessage)
+      const profileIds = initProfileIds ?? (initProfileItems?.map((i) => i.profile_id) ?? [])
+      const profileBlocks = profileIds.length > 0
+        ? resolveProfileIdsToContextBlocks(profileIds, session, handshakeId, 'initiator')
+        : []
+      const allBlocks = [...contextBlocks, ...profileBlocks]
+      for (let i = 0; i < profileBlocks.length; i++) {
+        const profileId = profileIds[i]
+        const item = initProfileItems?.find((it) => it.profile_id === profileId)
+        if (item?.policy_mode === 'override' && item?.policy) {
+          initBlockPolicyMap.set(profileBlocks[i].block_id, item.policy)
+        }
+      }
       const p2pConfig = getP2PConfig(db)
       const localEndpoint = p2pConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
@@ -368,10 +419,17 @@ export async function handleHandshakeRPC(
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
         receiverEmail,
-        ...(contextBlocks.length > 0 ? { context_blocks: contextBlocks } : {}),
+        handshake_id: handshakeId,
+        ...(allBlocks.length > 0 ? { context_blocks: allBlocks } : {}),
         ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
       })
+
+      const canonicalBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
+      for (let i = 0; i < allBlocks.length && i < localBlocks.length; i++) {
+        const policy = initBlockPolicyMap.get(allBlocks[i].block_id)
+        if (policy) canonicalBlockPolicyMap.set(localBlocks[i].block_id, policy)
+      }
 
       const effectiveAccountId = fromAccountId || session.email || ''
 
@@ -384,7 +442,7 @@ export async function handleHandshakeRPC(
       if (db) {
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
-        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
+        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair, initPolicySelections, canonicalBlockPolicyMap)
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           setImmediate(async () => {
             const p2pConfig = getP2PConfig(db)
@@ -420,13 +478,19 @@ export async function handleHandshakeRPC(
         receiverEmail: dlReceiverEmail,
         context_blocks: dlRawBlocks,
         message: dlRawMessage,
+        profile_ids: dlProfileIds,
+        profile_items: dlProfileItems,
         p2p_endpoint: dlP2PEndpointParam,
+        policy_selections: dlPolicySelections,
       } = params as {
         receiverUserId: string
         receiverEmail: string
         skipVaultContext?: boolean
-        context_blocks?: ContextBlockForCommitment[]
+        context_blocks?: RawBlockWithPolicy[]
         message?: string
+        profile_ids?: string[]
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
         p2p_endpoint?: string | null
       }
 
@@ -439,7 +503,20 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      const dlContextBlocks = buildContextBlocksFromParams(dlRawBlocks, dlRawMessage)
+      const dlHandshakeId = `hs-${randomUUID()}`
+      const { blocks: dlContextBlocks, blockPolicyMap: dlBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(dlRawBlocks, dlRawMessage)
+      const dlProfileIdsList = dlProfileIds ?? (dlProfileItems?.map((i) => i.profile_id) ?? [])
+      const dlProfileBlocks = dlProfileIdsList.length > 0
+        ? resolveProfileIdsToContextBlocks(dlProfileIdsList, session, dlHandshakeId, 'initiator')
+        : []
+      const dlAllBlocks = [...dlContextBlocks, ...dlProfileBlocks]
+      for (let i = 0; i < dlProfileBlocks.length; i++) {
+        const profileId = dlProfileIdsList[i]
+        const item = dlProfileItems?.find((it) => it.profile_id === profileId)
+        if (item?.policy_mode === 'override' && item?.policy) {
+          dlBlockPolicyMap.set(dlProfileBlocks[i].block_id, item.policy)
+        }
+      }
       const dlP2PConfig = getP2PConfig(db)
       const dlLocalEndpoint = dlP2PConfig.local_p2p_endpoint ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
@@ -448,10 +525,17 @@ export async function handleHandshakeRPC(
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
-        ...(dlContextBlocks.length > 0 ? { context_blocks: dlContextBlocks } : {}),
+        handshake_id: dlHandshakeId,
+        ...(dlAllBlocks.length > 0 ? { context_blocks: dlAllBlocks } : {}),
         ...(dlP2PEndpoint ? { p2p_endpoint: dlP2PEndpoint } : {}),
         ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
       })
+
+      const dlCanonicalBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>()
+      for (let i = 0; i < dlAllBlocks.length && i < localBlocks.length; i++) {
+        const policy = dlBlockPolicyMap.get(dlAllBlocks[i].block_id)
+        if (policy) dlCanonicalBlockPolicyMap.set(localBlocks[i].block_id, policy)
+      }
 
       const localpart = dlReceiverEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
       const shortHash = capsule.capsule_hash.slice(0, 8)
@@ -471,7 +555,7 @@ export async function handleHandshakeRPC(
         }
       }
 
-      const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair)
+      const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair, dlPolicySelections, dlCanonicalBlockPolicyMap)
       if (!buildLocalResult.success) {
         return {
           type: 'handshake-build-result',
@@ -517,13 +601,15 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, p2p_endpoint: p2pEndpointParam } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
-        context_blocks?: ContextBlockForCommitment[]
+        context_blocks?: RawBlockWithPolicy[]
         profile_ids?: string[]
+        profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
+        policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -570,11 +656,23 @@ export async function handleHandshakeRPC(
       }
 
       // 2. Build receiver's blocks: ad-hoc from client + Vault Profiles (resolved server-side)
-      const receiverAdhocBlocks = buildContextBlocksFromParams(receiverRawBlocks, undefined)
-      const receiverProfileBlocks = resolveProfileIdsToContextBlocks(receiverProfileIds ?? [], session, handshake_id)
+      const profileIds = receiverProfileIds ?? receiverProfileItems?.map((i) => i.profile_id) ?? []
+      const { blocks: receiverAdhocBlocks, blockPolicyMap: adhocBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(receiverRawBlocks, undefined)
+      const receiverProfileBlocks = resolveProfileIdsToContextBlocks(profileIds, session, handshake_id)
       const receiverBlocks = [...receiverAdhocBlocks, ...receiverProfileBlocks]
       for (const b of receiverBlocks) {
         if (!b.scope_id) (b as any).scope_id = 'acceptor'
+      }
+
+      // Per-item policy map: adhoc blocks + profile blocks (profile_items zip with resolved blocks)
+      const receiverBlockPolicyMap = new Map<string, { cloud_ai?: boolean; internal_ai?: boolean }>(adhocBlockPolicyMap)
+      if (receiverProfileItems?.length && receiverProfileItems.length === receiverProfileBlocks.length) {
+        for (let i = 0; i < receiverProfileBlocks.length; i++) {
+          const item = receiverProfileItems[i]
+          if (item?.policy_mode === 'override' && item?.policy) {
+            receiverBlockPolicyMap.set(receiverProfileBlocks[i].block_id, item.policy)
+          }
+        }
       }
 
       // 3. Merge: initiator echoed + receiver's new blocks. Commitment covers all.
@@ -604,8 +702,16 @@ export async function handleHandshakeRPC(
       })
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
+      if (acceptPolicySelections && (acceptPolicySelections.cloud_ai !== undefined || acceptPolicySelections.internal_ai !== undefined)) {
+        updateHandshakePolicySelections(db, handshake_id, {
+          cloud_ai: acceptPolicySelections.cloud_ai ?? false,
+          internal_ai: acceptPolicySelections.internal_ai ?? false,
+        })
+      }
       const relationshipId = deriveRelationshipId(initiatorUserId, session.wrdesk_user_id)
-      const baseline = baselineFromHandshake(record)
+      const baseline = (acceptPolicySelections && (acceptPolicySelections.cloud_ai !== undefined || acceptPolicySelections.internal_ai !== undefined))
+        ? baselineFromPolicySelections(acceptPolicySelections, record.effective_policy)
+        : baselineFromHandshake(record)
 
       const buildGovernanceForInitiatorBlock = (b: { block_id: string; type: string; scope_id?: string | null }): ContextItemGovernance => {
         const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
@@ -630,9 +736,14 @@ export async function handleHandshakeRPC(
             sender_wrdesk_user_id: session.wrdesk_user_id,
           })
         }
+        // Per-item policy: override wins over global default (Phase 2)
+        const itemPolicy = receiverBlockPolicyMap.get(b.block_id)
+        const effectiveBaseline = itemPolicy
+          ? baselineFromPolicySelections(itemPolicy, record.effective_policy)
+          : baseline
         return createDefaultGovernance({
           origin: 'local',
-          usage_policy: { ...baseline },
+          usage_policy: { ...effectiveBaseline },
           provenance: { publisher_id: session.wrdesk_user_id, sender_wrdesk_user_id: session.wrdesk_user_id },
         })
       }

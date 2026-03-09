@@ -213,6 +213,37 @@ describe('initiateHandshake', () => {
     expect(call.params.receiverEmail).toBe('receiver@test.com')
     expect(call.params.fromAccountId).toBe('acct-1')
   })
+
+  it('initiate passes profile_items, context_blocks, policy_selections when provided', async () => {
+    mockRpcResponse({ handshake_id: 'hs-new', status: 'PENDING_ACCEPT' })
+
+    await initiateHandshake('u-receiver', 'receiver@test.com', 'acct-1', {
+      profile_items: [
+        { profile_id: 'prof-1', policy_mode: 'inherit' },
+        { profile_id: 'prof-2', policy_mode: 'override', policy: { cloud_ai: true, internal_ai: false } },
+      ],
+      context_blocks: [{
+        block_id: 'ctx-msg-pending',
+        block_hash: 'a'.repeat(64),
+        type: 'plaintext',
+        content: 'adhoc',
+        scope_id: 'initiator',
+        policy_mode: 'override',
+        policy: { cloud_ai: false, internal_ai: true },
+      }],
+      policy_selections: { cloud_ai: false, internal_ai: true },
+    })
+
+    const call = mockSendMessage.mock.calls[0][0]
+    expect(call.params.profile_items).toHaveLength(2)
+    expect(call.params.profile_items[0]).toEqual({ profile_id: 'prof-1', policy_mode: 'inherit' })
+    expect(call.params.profile_items[1].policy_mode).toBe('override')
+    expect(call.params.profile_items[1].policy).toEqual({ cloud_ai: true, internal_ai: false })
+    expect(call.params.context_blocks).toHaveLength(1)
+    expect(call.params.context_blocks[0].policy_mode).toBe('override')
+    expect(call.params.context_blocks[0].policy).toEqual({ cloud_ai: false, internal_ai: true })
+    expect(call.params.policy_selections).toEqual({ cloud_ai: false, internal_ai: true })
+  })
 })
 
 describe('revokeHandshake', () => {

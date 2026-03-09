@@ -17,9 +17,11 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
+import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
 import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
+import type { ProfileContextItem } from '@shared/handshake/types'
 
 export interface EmailAccount {
   id: string
@@ -96,8 +98,10 @@ export function HandshakeRequestForm({
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
 
-  // HS Context Profiles (publisher+ only)
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
+  // HS Context Profiles (publisher+ only) — structured for per-item policy
+  const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>({ policy_mode: 'inherit' })
+  const defaultPolicy = { cloud_ai: false, internal_ai: false }
 
   // Send state
   const [isSending, setIsSending] = useState(false)
@@ -127,15 +131,20 @@ export function HandshakeRequestForm({
     setIsSending(true)
 
     try {
-      const combinedContext = [message.trim(), contextGraphText.trim()].filter(Boolean).join('\n\n')
+      const opts = await buildInitiateContextOptions({
+        skipVaultContext: !contextualHandshakes,
+        policySelections: defaultPolicy,
+        selectedProfileItems,
+        messageText: message,
+        contextGraphText,
+        contextGraphType,
+        adhocBlockPolicy,
+      })
       await initiateHandshake(
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
-        {
-          skipVaultContext: !contextualHandshakes,
-          ...(combinedContext ? { message: combinedContext } : {}),
-        },
+        opts,
       )
 
       setSendSuccess(true)
@@ -427,8 +436,9 @@ export function HandshakeRequestForm({
                   </div>
                   {canUseHsContextProfiles ? (
                     <HandshakeContextProfilePicker
-                      selectedIds={selectedProfileIds}
-                      onChange={setSelectedProfileIds}
+                      selectedItems={selectedProfileItems}
+                      onChange={setSelectedProfileItems}
+                      defaultPolicy={defaultPolicy}
                       theme={theme}
                       disabled={isSending}
                     />
@@ -486,6 +496,69 @@ export function HandshakeRequestForm({
                       }}
                     />
                   </div>
+                  {(contextGraphText.trim() || message.trim()) && (
+                    <div style={{ padding: '8px 12px', background: isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)', borderRadius: '8px', border: `1px solid ${borderColor}` }}>
+                      <div style={{ fontSize: '10px', fontWeight: 600, color: mutedColor, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Policy for this ad-hoc context
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'inherit' })}
+                          disabled={isSending}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11px',
+                            background: adhocBlockPolicy.policy_mode === 'inherit' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                            border: `1px solid ${adhocBlockPolicy.policy_mode === 'inherit' ? '#8b5cf6' : borderColor}`,
+                            borderRadius: '6px',
+                            color: adhocBlockPolicy.policy_mode === 'inherit' ? (isStandard ? '#5b21b6' : '#c4b5fd') : mutedColor,
+                            cursor: isSending ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Use default
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...defaultPolicy } })}
+                          disabled={isSending}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11px',
+                            background: adhocBlockPolicy.policy_mode === 'override' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                            border: `1px solid ${adhocBlockPolicy.policy_mode === 'override' ? '#8b5cf6' : borderColor}`,
+                            borderRadius: '6px',
+                            color: adhocBlockPolicy.policy_mode === 'override' ? (isStandard ? '#5b21b6' : '#c4b5fd') : mutedColor,
+                            cursor: isSending ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Override
+                        </button>
+                      </div>
+                      {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSending ? 'default' : 'pointer', color: textColor }}>
+                            <input
+                              type="checkbox"
+                              checked={adhocBlockPolicy.policy.cloud_ai ?? false}
+                              disabled={isSending}
+                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
+                            />
+                            <span>Cloud AI Processing</span>
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSending ? 'default' : 'pointer', color: textColor }}>
+                            <input
+                              type="checkbox"
+                              checked={adhocBlockPolicy.policy.internal_ai ?? false}
+                              disabled={isSending}
+                              onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
+                            />
+                            <span>Internal AI Only</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

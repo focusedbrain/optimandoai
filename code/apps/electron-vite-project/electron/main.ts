@@ -2146,7 +2146,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[] }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -2166,6 +2166,8 @@ app.whenReady().then(async () => {
         const params: Record<string, unknown> = { handshake_id: id, sharing_mode: sharingMode, fromAccountId }
         if (contextOpts?.context_blocks?.length) params.context_blocks = contextOpts.context_blocks
         if (contextOpts?.profile_ids?.length) params.profile_ids = contextOpts.profile_ids
+        if (contextOpts?.profile_items?.length) params.profile_items = contextOpts.profile_items
+        if (contextOpts?.policy_selections) params.policy_selections = contextOpts.policy_selections
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {
           console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))
@@ -2314,7 +2316,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() — do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -2324,13 +2326,16 @@ app.whenReady().then(async () => {
           skipVaultContext: contextOpts?.skipVaultContext ?? false,
           ...(contextOpts?.message ? { message: contextOpts.message } : {}),
           ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+          ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
+          ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
+          ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Initiation failed.' }
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[] }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) {
@@ -2343,6 +2348,9 @@ app.whenReady().then(async () => {
           skipVaultContext: contextOpts?.skipVaultContext ?? true,
           ...(contextOpts?.message ? { message: contextOpts.message } : {}),
           ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+          ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
+          ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
+          ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Build failed.' }

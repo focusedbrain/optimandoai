@@ -95,6 +95,95 @@ describe('Handshake IPC — handshake.initiate', () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain('required')
   })
+
+  test('initiate with policy_selections persists policy and uses it for block governance', async () => {
+    const sender = senderSession()
+    setSSOSessionProvider(() => sender)
+
+    const result = await handleHandshakeRPC('handshake.initiate', {
+      receiverUserId: 'receiver-001',
+      receiverEmail: 'receiver@test.com',
+      fromAccountId: 'acct-1',
+      message: 'Hello',
+      policy_selections: { cloud_ai: true, internal_ai: true },
+    }, db)
+
+    expect(result.success).toBe(true)
+    expect(result.handshake_id).toBeTruthy()
+
+    const record = getHandshakeRecord(db, result.handshake_id)
+    expect(record).toBeDefined()
+    expect(record!.policy_selections).toEqual({ cloud_ai: true, internal_ai: true })
+  })
+
+  test('initiate without policy_selections uses fallback (no crash)', async () => {
+    const sender = senderSession()
+    setSSOSessionProvider(() => sender)
+
+    const result = await handleHandshakeRPC('handshake.initiate', {
+      receiverUserId: 'receiver-001',
+      receiverEmail: 'receiver@test.com',
+      fromAccountId: 'acct-1',
+    }, db)
+
+    expect(result.success).toBe(true)
+    expect(result.handshake_id).toBeTruthy()
+  })
+
+  test('initiate with context_blocks + per-item policy_mode override uses item policy for governance', async () => {
+    const sender = senderSession()
+    setSSOSessionProvider(() => sender)
+
+    const { computeBlockHash } = await import('../contextCommitment')
+    const content = 'adhoc-initiate-override-test'
+    const blockHash = computeBlockHash(content)
+
+    const result = await handleHandshakeRPC('handshake.initiate', {
+      receiverUserId: 'receiver-001',
+      receiverEmail: 'receiver@test.com',
+      fromAccountId: 'acct-1',
+      policy_selections: { cloud_ai: false, internal_ai: false },
+      context_blocks: [{
+        block_id: 'ctx-msg-pending',
+        block_hash: blockHash,
+        type: 'plaintext',
+        content,
+        scope_id: 'initiator',
+        policy_mode: 'override',
+        policy: { cloud_ai: true, internal_ai: true },
+      }],
+    }, db)
+
+    expect(result.success).toBe(true)
+    expect(result.handshake_id).toBeTruthy()
+
+    const { getContextStoreByHandshake } = await import('../db')
+    const pending = getContextStoreByHandshake(db, result.handshake_id, 'pending_delivery')
+    const adhocBlock = pending.find((b: any) => b.content === content)
+    expect(adhocBlock).toBeDefined()
+    expect(adhocBlock.governance_json).toBeTruthy()
+    const gov = JSON.parse(adhocBlock.governance_json)
+    expect(gov.usage_policy?.cloud_ai_allowed).toBe(true)
+    expect(gov.usage_policy?.local_ai_allowed).toBe(true)
+  })
+
+  test('initiate with only policy_selections (legacy, no per-item) remains stable', async () => {
+    const sender = senderSession()
+    setSSOSessionProvider(() => sender)
+
+    const result = await handleHandshakeRPC('handshake.initiate', {
+      receiverUserId: 'receiver-001',
+      receiverEmail: 'receiver@test.com',
+      fromAccountId: 'acct-1',
+      message: 'Legacy message',
+      policy_selections: { cloud_ai: true, internal_ai: false },
+    }, db)
+
+    expect(result.success).toBe(true)
+    expect(result.handshake_id).toBeTruthy()
+    const record = getHandshakeRecord(db, result.handshake_id)
+    expect(record?.policy_selections).toEqual({ cloud_ai: true, internal_ai: false })
+  })
 })
 
 describe('Handshake IPC — handshake.accept', () => {
@@ -155,6 +244,64 @@ describe('Handshake IPC — handshake.accept', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('not found')
+  })
+
+  test('accept with policy_selections persists policy for block governance', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+
+    const handshakeId = await createPendingHandshake()
+
+    const result = await handleHandshakeRPC('handshake.accept', {
+      handshake_id: handshakeId,
+      sharing_mode: 'receive-only',
+      fromAccountId: 'acct-1',
+      policy_selections: { cloud_ai: false, internal_ai: true },
+    }, db)
+
+    expect(result.success).toBe(true)
+
+    const record = getHandshakeRecord(db, handshakeId)
+    expect(record).toBeDefined()
+    expect(record!.policy_selections).toEqual({ cloud_ai: false, internal_ai: true })
+  })
+
+  test('accept with context_blocks + per-item policy_mode override uses item policy for governance', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+
+    const handshakeId = await createPendingHandshake()
+
+    const { computeBlockHash } = await import('../contextCommitment')
+    const content = 'adhoc-override-test'
+    const blockHash = computeBlockHash(content)
+
+    const result = await handleHandshakeRPC('handshake.accept', {
+      handshake_id: handshakeId,
+      sharing_mode: 'receive-only',
+      fromAccountId: 'acct-1',
+      policy_selections: { cloud_ai: false, internal_ai: false },
+      context_blocks: [{
+        block_id: 'blk-adhoc-1',
+        block_hash: blockHash,
+        type: 'plaintext',
+        content,
+        scope_id: 'acceptor',
+        policy_mode: 'override',
+        policy: { cloud_ai: true, internal_ai: true },
+      }],
+    }, db)
+
+    expect(result.success).toBe(true)
+
+    const { getContextStoreByHandshake } = await import('../db')
+    const pending = getContextStoreByHandshake(db, handshakeId, 'pending_delivery')
+    const adhocBlock = pending.find((b: any) => b.block_id === 'blk-adhoc-1')
+    expect(adhocBlock).toBeDefined()
+    expect(adhocBlock.governance_json).toBeTruthy()
+    const gov = JSON.parse(adhocBlock.governance_json)
+    expect(gov.usage_policy?.cloud_ai_allowed).toBe(true)
+    expect(gov.usage_policy?.local_ai_allowed).toBe(true)
   })
 })
 

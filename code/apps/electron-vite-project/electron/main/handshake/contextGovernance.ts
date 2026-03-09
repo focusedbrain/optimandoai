@@ -87,6 +87,24 @@ export function baselineFromHandshake(record: HandshakeRecord): HandshakeBaselin
   }
 }
 
+/**
+ * Build baseline from explicit policy_selections (e.g. from RPC request).
+ * Fallback: effective_policy when selections omit a field.
+ */
+export function baselineFromPolicySelections(
+  selections: { cloud_ai?: boolean; internal_ai?: boolean } | null | undefined,
+  effectivePolicy?: { allowsCloudEscalation?: boolean; allowsExport?: boolean } | null,
+): HandshakeBaselinePolicy {
+  return {
+    searchable: true,
+    local_ai_allowed: selections?.internal_ai ?? true,
+    cloud_ai_allowed: selections?.cloud_ai ?? effectivePolicy?.allowsCloudEscalation ?? false,
+    auto_reply_allowed: false,
+    export_allowed: effectivePolicy?.allowsExport ?? false,
+    transmit_to_peer_allowed: true,
+  }
+}
+
 // ── Parse governance JSON ──
 
 export function parseGovernanceJson(json: string | null | undefined): ContextItemGovernance | null {

@@ -32,6 +32,7 @@ export async function initiateHandshake(
     skipVaultContext?: boolean
     message?: string
     context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeInitiateResponse> {
   if (window.handshakeView?.initiateHandshake) {
@@ -51,6 +52,7 @@ export async function buildHandshakeForDownload(
     skipVaultContext?: boolean
     message?: string
     context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   if (window.handshakeView?.buildForDownload) {
@@ -67,8 +69,10 @@ export async function acceptHandshake(
   sharingMode: 'receive-only' | 'reciprocal',
   fromAccountId: string,
   contextOpts?: {
-    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
+    context_blocks?: Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
     profile_ids?: string[]
+    profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
+    policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeAcceptResponse> {
   if (window.handshakeView?.acceptHandshake) {

@@ -210,6 +210,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const safeOpts = opts ? {
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
@@ -276,6 +278,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
       ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
   },
@@ -286,6 +291,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
       ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)
   },

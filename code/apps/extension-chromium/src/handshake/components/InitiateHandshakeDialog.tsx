@@ -8,7 +8,9 @@
 
 import React, { useState } from 'react'
 import { initiateHandshake } from '../handshakeRpc'
+import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
+import type { ProfileContextItem } from '@shared/handshake/types'
 import {
   getThemeTokens,
   overlayStyle as themeOverlayStyle,
@@ -56,8 +58,10 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [contextGraphText, setContextGraphText] = useState('')
   const [contextGraphType, setContextGraphType] = useState<'text' | 'json'>('text')
 
-  // HS Context Profiles (publisher+ only)
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
+  // HS Context Profiles (publisher+ only) — structured for per-item policy
+  const [selectedProfileItems, setSelectedProfileItems] = useState<ProfileContextItem[]>([])
+  const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>({ policy_mode: 'inherit' })
+  const defaultPolicy = { cloud_ai: false, internal_ai: false }
 
   const t = getThemeTokens(theme)
 
@@ -78,15 +82,19 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
 
     try {
       const receiverUserId = recipientEmail.trim().toLowerCase()
-      const combinedContext = contextGraphText.trim()
+      const opts = await buildInitiateContextOptions({
+        skipVaultContext: !contextualHandshakes,
+        policySelections: defaultPolicy,
+        selectedProfileItems,
+        contextGraphText,
+        contextGraphType,
+        adhocBlockPolicy,
+      })
       const result = await initiateHandshake(
         receiverUserId,
         recipientEmail.trim(),
         fromAccountId,
-        {
-          skipVaultContext: !contextualHandshakes,
-          ...(combinedContext ? { message: combinedContext } : {}),
-        },
+        opts,
       )
       setSuccess(true)
       onInitiated?.(result.handshake_id)
@@ -280,8 +288,9 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                       </div>
                       {canUseHsContextProfiles ? (
                         <HandshakeContextProfilePicker
-                          selectedIds={selectedProfileIds}
-                          onChange={setSelectedProfileIds}
+                          selectedItems={selectedProfileItems}
+                          onChange={setSelectedProfileItems}
+                          defaultPolicy={defaultPolicy}
                           theme={theme === 'professional' ? 'standard' : 'dark'}
                           disabled={isSubmitting}
                         />
@@ -342,10 +351,73 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                         />
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                    {contextGraphText.trim() && (
+                      <div style={{ padding: '8px 12px', background: 'rgba(139,92,246,0.06)', borderRadius: '8px', border: `1px solid ${t.border}` }}>
+                        <div style={{ fontSize: '10px', fontWeight: 600, color: t.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Policy for this ad-hoc context
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'inherit' })}
+                            disabled={isSubmitting}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: '11px',
+                              background: adhocBlockPolicy.policy_mode === 'inherit' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                              border: `1px solid ${adhocBlockPolicy.policy_mode === 'inherit' ? '#8b5cf6' : t.border}`,
+                              borderRadius: '6px',
+                              color: adhocBlockPolicy.policy_mode === 'inherit' ? '#5b21b6' : t.textMuted,
+                              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            Use default
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdhocBlockPolicy({ policy_mode: 'override', policy: { ...defaultPolicy } })}
+                            disabled={isSubmitting}
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: '11px',
+                              background: adhocBlockPolicy.policy_mode === 'override' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                              border: `1px solid ${adhocBlockPolicy.policy_mode === 'override' ? '#8b5cf6' : t.border}`,
+                              borderRadius: '6px',
+                              color: adhocBlockPolicy.policy_mode === 'override' ? '#5b21b6' : t.textMuted,
+                              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            Override
+                          </button>
+                        </div>
+                        {adhocBlockPolicy.policy_mode === 'override' && adhocBlockPolicy.policy && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSubmitting ? 'default' : 'pointer', color: t.text }}>
+                              <input
+                                type="checkbox"
+                                checked={adhocBlockPolicy.policy.cloud_ai ?? false}
+                                disabled={isSubmitting}
+                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, cloud_ai: e.target.checked } })}
+                              />
+                              <span>Cloud AI Processing</span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: isSubmitting ? 'default' : 'pointer', color: t.text }}>
+                              <input
+                                type="checkbox"
+                                checked={adhocBlockPolicy.policy.internal_ai ?? false}
+                                disabled={isSubmitting}
+                                onChange={(e) => setAdhocBlockPolicy({ ...adhocBlockPolicy, policy: { ...adhocBlockPolicy.policy!, internal_ai: e.target.checked } })}
+                              />
+                              <span>Internal AI Only</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
               <button onClick={onClose} disabled={isSubmitting} style={secondaryButtonStyle(t, isSubmitting)}>
