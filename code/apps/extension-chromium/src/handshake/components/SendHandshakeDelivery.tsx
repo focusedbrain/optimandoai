@@ -51,6 +51,9 @@ export interface SendHandshakeDeliveryProps {
   policySelections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
   /** Called when vault is required for current action (e.g. vault profiles selected). */
   onRequiresVaultChange?: (requires: boolean) => void
+  /** Optional: vault unlock state provided by the host (Electron app). When provided,
+   *  the internal getVaultStatus fetch is skipped and this value is used directly. */
+  isVaultUnlocked?: boolean
 }
 
 // =============================================================================
@@ -213,19 +216,23 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   canUseHsContextProfiles = false,
   policySelections,
   onRequiresVaultChange,
+  isVaultUnlocked: isVaultUnlockedProp,
 }) => {
   const t = useThemeTokens(theme)
 
   // Include Vault Profiles — enabled by default when profiles available
   const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
 
-  // Vault lock status — used to gate profile picker
-  const [isVaultUnlocked, setIsVaultUnlocked] = useState<boolean | undefined>(undefined)
+  // Vault lock status — prefer prop from host (Electron app) over internal fetch
+  const [isVaultUnlockedInternal, setIsVaultUnlockedInternal] = useState<boolean | undefined>(undefined)
   useEffect(() => {
+    // Only fetch internally when the host doesn't supply the value
+    if (isVaultUnlockedProp !== undefined) return
     getVaultStatus()
-      .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
-      .catch(() => setIsVaultUnlocked(false))
-  }, [])
+      .then((s) => setIsVaultUnlockedInternal(s?.isUnlocked === true || s?.locked === false))
+      .catch(() => setIsVaultUnlockedInternal(false))
+  }, [isVaultUnlockedProp])
+  const isVaultUnlocked = isVaultUnlockedProp !== undefined ? isVaultUnlockedProp : isVaultUnlockedInternal
 
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)

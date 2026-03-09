@@ -85,6 +85,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
           onSuccess={handleSuccess}
           policySelections={policies}
           onRequiresVaultChange={setRequiresVault}
+          isVaultUnlocked={vaultStatus.isUnlocked}
           // TODO(feature-gate): Wire to actual plan/subscription check.
           // Context Profiles require Publisher or Enterprise plan.
           // Currently hardcoded to true — all users get access.
