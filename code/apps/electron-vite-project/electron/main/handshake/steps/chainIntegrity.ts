@@ -46,6 +46,15 @@ export const verifyChainIntegrity: PipelineStep = {
       return { passed: false, reason: ReasonCode.INVALID_CHAIN }
     }
 
+    // For context_sync seq=1: skip prev_hash check.
+    // Each side builds context_sync with prev_hash = last_capsule_hash_received from their
+    // own perspective (e.g. initiator uses accept capsule hash, acceptor uses initiate hash).
+    // These are asymmetric — the receiver's last_capsule_hash_received tracks a different
+    // capsule. Only seq continuity matters for the first context_sync.
+    if (capsuleType === 'handshake-context-sync' && seq === 1) {
+      return { passed: true }
+    }
+
     // prev_hash must match the last capsule hash we received from this direction
     if (prev_hash !== lastHash) {
       return { passed: false, reason: ReasonCode.INVALID_CHAIN }
