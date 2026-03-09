@@ -132,7 +132,12 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
     checkVault()
     const handler = () => checkVault()
     window.addEventListener('vault-status-changed', handler)
-    return () => window.removeEventListener('vault-status-changed', handler)
+    // Poll every 3s so stale locked-state is corrected without relying on the event alone
+    const poll = setInterval(checkVault, 3000)
+    return () => {
+      window.removeEventListener('vault-status-changed', handler)
+      clearInterval(poll)
+    }
   }, [])
 
   const selectedRecord = handshakes.find(h => h.handshake_id === selectedId) ?? null

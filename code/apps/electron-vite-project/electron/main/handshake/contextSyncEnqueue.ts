@@ -12,6 +12,7 @@ import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
 import { enqueueOutboundCapsule } from './outboundQueue'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
+import { vaultService } from '../vault/rpc'
 import {
   parseGovernanceJson,
   resolveEffectiveGovernance,
@@ -45,14 +46,16 @@ export function tryEnqueueContextSync(
 ): TryEnqueueContextSyncResult {
   const getVaultStatus = opts.getVaultStatus ?? (() => {
     try {
-      const { vaultService } = require('../vault/rpc')
-      return vaultService.getStatus()
-    } catch {
+      const status = vaultService.getStatus()
+      return status
+    } catch (err: any) {
+      console.error('[ContextSync] Failed to read vault status:', err?.message ?? err)
       return { isUnlocked: false }
     }
   })
 
   const status = getVaultStatus()
+  console.log('[ContextSync] Vault status for handshake', handshakeId, ':', JSON.stringify({ isUnlocked: status?.isUnlocked }))
   if (!status?.isUnlocked) {
     try {
       updateHandshakeContextSyncPending(db, handshakeId, true)

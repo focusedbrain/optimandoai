@@ -2381,6 +2381,7 @@ app.whenReady().then(async () => {
         }
         const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
         completePendingContextSyncs(db, getCurrentSession())
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -2398,6 +2399,7 @@ app.whenReady().then(async () => {
         await vaultService.unlock(password, vaultId || 'default')
         const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
         completePendingContextSyncs(db, getCurrentSession())
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
@@ -3153,6 +3155,7 @@ app.whenReady().then(async () => {
                       const { vaultService: vs } = await import('./main/vault/rpc')
                       const db = getLedgerDb() ?? vs.getDb?.() ?? null
                       completePendingContextSyncs(db, getCurrentSession())
+                      if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
                       try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
                       try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
                     } catch (e) { /* non-fatal */ }
@@ -5300,6 +5303,7 @@ app.whenReady().then(async () => {
         setImmediate(() => {
           const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
           completePendingContextSyncs(db, getCurrentSession())
+          if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
           try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
         })
       } catch (error: any) {
