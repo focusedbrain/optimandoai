@@ -233,6 +233,14 @@ export function processHandshakeCapsule(
 
   if (!pipelineResult.success) {
     // Log the actual error so it appears in the main process console
+    console.error('[HANDSHAKE] Pipeline rejected:', {
+      capsuleType: input.capsuleType,
+      handshake_id: input.handshake_id,
+      seq: input.seq,
+      failedStep: pipelineResult.failedStep,
+      reason: pipelineResult.reason,
+      error: (pipelineResult as any).error?.message ?? (pipelineResult as any).error,
+    })
     if ((pipelineResult as any).error) {
       console.error('[HANDSHAKE] Pipeline INTERNAL_ERROR at step:', pipelineResult.failedStep, (pipelineResult as any).error)
     }
@@ -296,7 +304,17 @@ export function processHandshakeCapsule(
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-context-sync') {
       // context-sync updates seq/hash like refresh; context_blocks ingested below
+      console.log('[HANDSHAKE] context_sync processing:', {
+        handshake_id: input.handshake_id,
+        incoming_seq: input.seq,
+        state_before: handshakeRecord?.state,
+        context_sync_pending: (handshakeRecord as any)?.context_sync_pending,
+        last_seq_received: handshakeRecord?.last_seq_received,
+        last_capsule_hash_received: handshakeRecord?.last_capsule_hash_received,
+        incoming_prev_hash: (capsuleObj as any)?.prev_hash,
+      })
       record = buildContextSyncRecord(handshakeRecord!, input)
+      console.log('[HANDSHAKE] context_sync result state:', record.state, 'ownSent=', !(handshakeRecord as any)?.context_sync_pending)
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-revoke') {
       record = buildRevokeRecord(handshakeRecord!, input)

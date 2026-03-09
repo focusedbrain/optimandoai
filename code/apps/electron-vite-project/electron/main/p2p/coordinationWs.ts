@@ -134,7 +134,7 @@ async function processCapsuleInternal(
 
     if (handshakeResult.success) {
       const newState = handshakeResult.handshakeRecord?.state ?? 'unknown'
-      console.log('[Coordination] processHandshakeCapsule result: success, newState=', newState)
+      console.log('[Coordination] processHandshakeCapsule result: success, newState=', newState, 'capsuleType=', capsuleType, 'seq=', (rebuildResult.capsule as any)?.seq)
       setP2PHealthCoordinationLastPush()
       onHandshakeUpdated?.()
 
@@ -144,6 +144,7 @@ async function processCapsuleInternal(
       // No targetEndpoint guard — coordination mode delivers via coordination_url, not p2p_endpoint.
       if (newState === 'ACCEPTED') {
         const lastHash = (rebuildResult.capsule as unknown as Record<string, unknown>)?.capsule_hash as string ?? ''
+        console.log('[Coordination] Triggering initial context_sync, lastHash=', lastHash?.slice(0,16))
         const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
           lastCapsuleHash: lastHash,
           lastSeqReceived: 0,
@@ -162,8 +163,10 @@ async function processCapsuleInternal(
       // After context_sync (seq 1): send reverse context_sync (or defer if vault locked).
       // No targetEndpoint guard — coordination mode delivers via coordination_url.
       const capObjRebuilt = rebuildResult.capsule as unknown as Record<string, unknown>
+      console.log('[Coordination] Capsule type check for reverse:', capObjRebuilt?.capsule_type, 'seq=', capObjRebuilt?.seq, 'newState=', newState)
       if (capObjRebuilt?.capsule_type === 'context_sync' && capObjRebuilt?.seq === 1) {
         setImmediate(() => {
+          console.log('[Coordination] Sending reverse context_sync, lastHash=', (capObjRebuilt.capsule_hash as string)?.slice(0,16))
           const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
             lastCapsuleHash: capObjRebuilt.capsule_hash as string,
             lastSeqReceived: 1,
@@ -180,7 +183,7 @@ async function processCapsuleInternal(
         })
       }
     } else {
-      console.warn('[Coordination] Handshake rejected:', handshakeResult.reason)
+      console.warn('[Coordination] Handshake rejected:', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
     }
 
     sendAckFn([id])

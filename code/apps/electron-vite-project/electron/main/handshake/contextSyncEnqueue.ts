@@ -69,9 +69,11 @@ export function tryEnqueueContextSync(
 
   const record = getHandshakeRecord(db, handshakeId)
   if (!record) {
+    console.warn('[ContextSync] HANDSHAKE_NOT_FOUND:', handshakeId)
     return { success: false, reason: 'HANDSHAKE_NOT_FOUND' }
   }
   if (record.state !== 'ACCEPTED') {
+    console.warn('[ContextSync] INVALID_STATE:', handshakeId, 'state=', record.state)
     return { success: false, reason: 'INVALID_STATE' }
   }
 
@@ -80,13 +82,14 @@ export function tryEnqueueContextSync(
   const p2pConfig = getP2PConfig(db)
   const targetEndpoint = record.p2p_endpoint?.trim() || getEffectiveRelayEndpoint(p2pConfig, null)
   if (!targetEndpoint) {
+    console.warn('[ContextSync] NO_P2P_ENDPOINT:', handshakeId)
     return { success: false, reason: 'NO_P2P_ENDPOINT' }
   }
 
   const localPub = record.local_public_key ?? ''
   const localPriv = record.local_private_key ?? ''
   if (!localPub || !localPriv) {
-    console.warn('[ContextSync] Skipping — handshake has no signing keys')
+    console.warn('[ContextSync] NO_SIGNING_KEYS:', handshakeId, 'pub=', !!localPub, 'priv=', !!localPriv)
     return { success: false, reason: 'NO_SIGNING_KEYS' }
   }
 
@@ -141,9 +144,19 @@ export function tryEnqueueContextSync(
       local_public_key: localPub,
       local_private_key: localPriv,
     })
+    const cap = contextSyncCapsule as unknown as Record<string, unknown>
+    console.log('[ContextSync] Building capsule:', {
+      handshake_id: handshakeId,
+      seq: cap?.seq,
+      prev_hash: cap?.prev_hash,
+      lastCapsuleHash: opts.lastCapsuleHash,
+      lastSeqReceived: lastSeq,
+      blockCount: contextBlocks.length,
+      targetEndpoint,
+    })
     enqueueOutboundCapsule(db, handshakeId, targetEndpoint, contextSyncCapsule)
     updateHandshakeContextSyncPending(db, handshakeId, false)
-    console.log('[ContextSync] Enqueued for handshake:', handshakeId)
+    console.log('[ContextSync] Enqueued successfully for handshake:', handshakeId, 'seq=', cap?.seq)
     return { success: true }
   } catch (err: any) {
     console.warn('[ContextSync] Enqueue failed:', err?.message)
