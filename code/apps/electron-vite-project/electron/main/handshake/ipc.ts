@@ -52,7 +52,7 @@ import {
 } from './db'
 import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
-import { enqueueOutboundCapsule } from './outboundQueue'
+import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
 import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
@@ -827,6 +827,10 @@ export async function handleHandshakeRPC(
           lastCapsuleHash: capsule.capsule_hash,
         })
         contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
+        // Flush the outbound queue immediately so the capsule is delivered without waiting for the 10s poller
+        if (contextResult.success) {
+          setImmediate(() => { processOutboundQueue(db, _getOidcToken).catch(() => {}) })
+        }
       }
 
       return {

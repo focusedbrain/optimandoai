@@ -274,7 +274,7 @@ export default function AcceptHandshakeModal({
               textAlign: 'left',
             }}
           >
-            <span>🧠 Attach context (optional)</span>
+            <span>🧠 Add a Context Graph</span>
             <span style={{ fontSize: '10px', opacity: 0.7 }}>
               {showContextGraph ? '▲ Collapse' : '▼ Expand'}
             </span>
@@ -321,7 +321,7 @@ export default function AcceptHandshakeModal({
                       marginBottom: '10px',
                     }}
                   >
-                    Select profiles to attach. Content syncs when the first BEAP-Capsule is exchanged.
+                    Attach your own context profiles to share with the initiator. The initiator's context (if any) will sync automatically once you accept.
                   </div>
                   {canUseHsContextProfiles ? (
                     <HandshakeContextProfilePicker
@@ -546,19 +546,20 @@ export default function AcceptHandshakeModal({
           </button>
           <button
             onClick={handleAccept}
-            disabled={accepting}
+            disabled={accepting || !isVaultUnlocked}
+            title={!isVaultUnlocked ? 'Unlock your Vault to accept' : undefined}
             style={{
               padding: '9px 18px',
-              background: accepting ? 'rgba(34,197,94,0.5)' : 'rgba(34,197,94,0.9)',
+              background: accepting || !isVaultUnlocked ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.9)',
               border: 'none',
               borderRadius: '8px',
               color: 'white',
               fontSize: '12px',
               fontWeight: 600,
-              cursor: accepting ? 'not-allowed' : 'pointer',
+              cursor: accepting || !isVaultUnlocked ? 'not-allowed' : 'pointer',
             }}
           >
-            {accepting ? 'Accepting…' : 'Accept'}
+            {accepting ? 'Accepting…' : !isVaultUnlocked ? '🔒 Unlock Vault to Accept' : 'Accept'}
           </button>
         </div>
       </div>

@@ -17,7 +17,7 @@ import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
-import { enqueueOutboundCapsule } from '../handshake/outboundQueue'
+import { enqueueOutboundCapsule, processOutboundQueue } from '../handshake/outboundQueue'
 import { getContextStoreByHandshake } from '../handshake/db'
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
@@ -277,6 +277,8 @@ function createP2PRequestHandler(
                       local_private_key: localPriv,
                     })
                     enqueueOutboundCapsule(db, rec.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                    // Flush immediately — don't wait for the 10s poller
+                    processOutboundQueue(db, async () => null).catch(() => {})
                   } catch (err: any) {
                     console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
                   }
