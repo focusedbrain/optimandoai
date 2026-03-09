@@ -27,7 +27,7 @@ import {
   insertIngestionAuditRecord,
 } from './persistenceDb'
 import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
-import { enqueueOutboundCapsule, processOutboundQueue } from '../handshake/outboundQueue'
+import { enqueueOutboundCapsule } from '../handshake/outboundQueue'
 import { getContextStoreByHandshake } from '../handshake/db'
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 
@@ -189,8 +189,6 @@ export async function handleIngestionRPC(
                         local_private_key: localPriv,
                       })
                       enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
-                      // Flush immediately — don't wait for the 10s poller
-                      processOutboundQueue(db, async () => null).catch(() => {})
                     }
                   } catch (err: any) {
                     console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)
@@ -376,8 +374,6 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
                           local_private_key: localPriv,
                         })
                         enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
-                        // Flush immediately — don't wait for the 10s poller
-                        processOutboundQueue(db, async () => null).catch(() => {})
                       }
                     } catch (err: any) {
                       console.warn('[P2P] Reverse context-sync enqueue failed:', err?.message)

@@ -11,6 +11,7 @@ import { getHandshakeRecord, updateHandshakeContextSyncPending } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
 import { enqueueOutboundCapsule } from './outboundQueue'
+import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import {
   parseGovernanceJson,
   resolveEffectiveGovernance,
@@ -71,7 +72,10 @@ export function tryEnqueueContextSync(
     return { success: false, reason: 'INVALID_STATE' }
   }
 
-  const targetEndpoint = record.p2p_endpoint?.trim()
+  // Resolve the target endpoint: use the stored p2p_endpoint (counterparty's direct address),
+  // or fall back to the coordination relay URL when use_coordination=true.
+  const p2pConfig = getP2PConfig(db)
+  const targetEndpoint = record.p2p_endpoint?.trim() || getEffectiveRelayEndpoint(p2pConfig, null)
   if (!targetEndpoint) {
     return { success: false, reason: 'NO_P2P_ENDPOINT' }
   }

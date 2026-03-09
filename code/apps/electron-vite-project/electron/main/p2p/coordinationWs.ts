@@ -17,6 +17,7 @@ import {
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
+import { processOutboundQueue } from '../handshake/outboundQueue'
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -52,6 +53,7 @@ async function processCapsuleInternal(
   db: any,
   ssoSession: SSOSession,
   sendAckFn: (ids: string[]) => void,
+  getOidcToken: () => Promise<string | null>,
   onHandshakeUpdated?: () => void,
 ): Promise<void> {
   const capObj = typeof capsule === 'object' && capsule !== null ? capsule as Record<string, unknown> : {}
@@ -137,10 +139,10 @@ async function processCapsuleInternal(
       onHandshakeUpdated?.()
 
       const record = handshakeResult.handshakeRecord!
-      const targetEndpoint = record.p2p_endpoint?.trim()
 
-      // After ACCEPT: send initial context_sync (or defer if vault locked)
-      if (newState === 'ACCEPTED' && targetEndpoint) {
+      // After ACCEPT: send initial context_sync (or defer if vault locked).
+      // No targetEndpoint guard — coordination mode delivers via coordination_url, not p2p_endpoint.
+      if (newState === 'ACCEPTED') {
         const lastHash = (rebuildResult.capsule as unknown as Record<string, unknown>)?.capsule_hash as string ?? ''
         const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
           lastCapsuleHash: lastHash,
@@ -148,14 +150,19 @@ async function processCapsuleInternal(
         })
         if (contextResult.success) {
           console.log('[Coordination] Initial context_sync enqueued for handshake=', record.handshake_id)
+          // Flush immediately with real token — don't wait for 10s poller
+          setImmediate(() => { processOutboundQueue(db, getOidcToken).catch(() => {}) })
         } else if (contextResult.reason === 'VAULT_LOCKED') {
           console.log('[Coordination] Context sync deferred for initiator — vault locked')
+        } else {
+          console.warn('[Coordination] Initial context_sync skipped, reason=', contextResult.reason)
         }
       }
 
-      // After context_sync (seq 1): send reverse context_sync (or defer if vault locked)
+      // After context_sync (seq 1): send reverse context_sync (or defer if vault locked).
+      // No targetEndpoint guard — coordination mode delivers via coordination_url.
       const capObjRebuilt = rebuildResult.capsule as unknown as Record<string, unknown>
-      if (capObjRebuilt?.capsule_type === 'context_sync' && capObjRebuilt?.seq === 1 && targetEndpoint) {
+      if (capObjRebuilt?.capsule_type === 'context_sync' && capObjRebuilt?.seq === 1) {
         setImmediate(() => {
           const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
             lastCapsuleHash: capObjRebuilt.capsule_hash as string,
@@ -163,8 +170,12 @@ async function processCapsuleInternal(
           })
           if (contextResult.success) {
             console.log('[Coordination] Reverse context_sync enqueued for handshake=', record.handshake_id)
+            // Flush immediately with real token
+            processOutboundQueue(db, getOidcToken).catch(() => {})
           } else if (contextResult.reason === 'VAULT_LOCKED') {
             console.log('[Coordination] Reverse context sync deferred — vault locked')
+          } else {
+            console.warn('[Coordination] Reverse context_sync skipped, reason=', contextResult.reason)
           }
         })
       }
@@ -292,7 +303,7 @@ export function createCoordinationWsClient(
                 sendAck([msg.id])
               })
             } else {
-              processCapsuleInternal(msg.id, msg.capsule ?? msg, db, ssoSession, sendAck, onHandshakeUpdated)
+              processCapsuleInternal(msg.id, msg.capsule ?? msg, db, ssoSession, sendAck, getOidcToken, onHandshakeUpdated)
                 .catch((err) => {
                   console.error('[Coordination] processCapsuleInternal threw:', err?.message ?? err)
                 })
