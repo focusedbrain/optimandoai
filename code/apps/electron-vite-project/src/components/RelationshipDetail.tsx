@@ -10,11 +10,15 @@
  */
 
 import { useEffect, useState } from 'react'
+import VaultStatusIndicator from './VaultStatusIndicator'
+import HandshakeContextSection from './HandshakeContextSection'
+import { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
+import type { VerifiedContextBlock } from './contextEscaping'
 
 interface HandshakeRecord {
   handshake_id: string
   relationship_id: string
-  state: 'PENDING_ACCEPT' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  state: 'PENDING_ACCEPT' | 'PENDING_REVIEW' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
   initiator: { email: string; wrdesk_user_id: string } | null
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
@@ -28,11 +32,19 @@ interface HandshakeRecord {
   acceptor_context_commitment: string | null
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
+  policy_selections?: PolicySelection
+}
+
+interface VaultStatus {
+  isUnlocked: boolean
+  name: string | null
 }
 
 interface Props {
   record: HandshakeRecord
   contextBlockCount: number
+  vaultStatus?: VaultStatus | null
+  vaultWarningEscalated?: boolean
   onRevoke?: () => void
   onDelete?: () => void
   onRequestUnlockVault?: () => void
@@ -43,6 +55,7 @@ function StateBadge({ state }: { state: string }) {
     ACTIVE: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.3)' },
     ACCEPTED: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6', border: 'rgba(59,130,246,0.3)' },
     PENDING_ACCEPT: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
+    PENDING_REVIEW: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
     REVOKED: { bg: 'rgba(239,68,68,0.12)', text: '#ef4444', border: 'rgba(239,68,68,0.3)' },
     EXPIRED: { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
   }
@@ -198,9 +211,37 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   return <MetaRow label="P2P" value="No queue entries" />
 }
 
-export default function RelationshipDetail({ record, contextBlockCount, onRevoke, onDelete, onRequestUnlockVault }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, vaultStatus, vaultWarningEscalated, onRevoke, onDelete, onRequestUnlockVault }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
+
+  const [contextBlocks, setContextBlocks] = useState<VerifiedContextBlock[]>([])
+  const [policies, setPolicies] = useState<PolicySelection>(record.policy_selections ?? DEFAULT_POLICIES)
+
+  const showVaultIndicator = ((record.state === 'PENDING_ACCEPT' || record.state === 'PENDING_REVIEW') && record.local_role === 'acceptor') || record.state === 'ACCEPTED'
+
+  useEffect(() => {
+    if ((record.state === 'ACCEPTED' || record.state === 'ACTIVE') && record.handshake_id) {
+      window.handshakeView?.queryContextBlocks?.(record.handshake_id).then((blocks) => {
+        setContextBlocks(blocks ?? [])
+      }).catch(() => setContextBlocks([]))
+    } else {
+      setContextBlocks([])
+    }
+  }, [record.handshake_id, record.state])
+
+  useEffect(() => {
+    setPolicies(record.policy_selections ?? DEFAULT_POLICIES)
+  }, [record.policy_selections])
+
+  const handlePolicyChange = (next: PolicySelection) => {
+    setPolicies(next)
+    window.handshakeView?.updateHandshakePolicies?.(record.handshake_id, next)
+  }
+
+  const handleAttachData = () => {
+    window.dispatchEvent(new CustomEvent('handshake:requestAttachContext', { detail: { handshakeId: record.handshake_id } }))
+  }
 
   return (
     <div style={{
@@ -253,33 +294,27 @@ export default function RelationshipDetail({ record, contextBlockCount, onRevoke
         </div>
       </div>
 
-      {/* ACCEPTED + vault locked: unlock guidance */}
-      {record.state === 'ACCEPTED' && record.context_sync_pending && (
-        <div style={{
-          marginBottom: '16px', padding: '14px 16px',
-          background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b', marginBottom: '6px' }}>
-            Vault unlock required
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5, marginBottom: '10px' }}>
-            Unlock your vault to securely complete this handshake. Signatures and sensitive data will be stored in your vault. The connection will be finalized automatically once unlocked.
-          </div>
-          {onRequestUnlockVault && (
-            <button
-              onClick={onRequestUnlockVault}
-              style={{
-                padding: '6px 12px', fontSize: '11px', fontWeight: 600,
-                background: 'rgba(245,158,11,0.2)', color: '#f59e0b',
-                border: '1px solid rgba(245,158,11,0.4)', borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Unlock Vault
-            </button>
-          )}
-        </div>
+      {/* Vault status indicator — PENDING_ACCEPT (acceptor) or ACCEPTED */}
+      {showVaultIndicator && (
+        <VaultStatusIndicator
+          vaultName={vaultStatus?.name ?? null}
+          isUnlocked={vaultStatus?.isUnlocked ?? false}
+          warningEscalated={vaultWarningEscalated ?? false}
+          onUnlockClick={onRequestUnlockVault}
+        />
+      )}
+
+      {/* Handshake context section — ACCEPTED or ACTIVE */}
+      {(record.state === 'ACCEPTED' || record.state === 'ACTIVE') && (
+        <HandshakeContextSection
+          record={record}
+          isVaultUnlocked={vaultStatus?.isUnlocked ?? false}
+          policies={policies}
+          onPolicyChange={handlePolicyChange}
+          onAttachData={handleAttachData}
+          contextBlocks={contextBlocks}
+          readOnly={record.state === 'ACTIVE'}
+        />
       )}
 
       {/* ACCEPTED + context sync sent: waiting for other party */}

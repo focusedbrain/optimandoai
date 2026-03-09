@@ -108,7 +108,7 @@ describe('BEAP E2E Round-Trip — Two-Party Flow', () => {
     // Bob receives the initiate capsule via email
     const bobInitResult = await submitCapsule(JSON.stringify(initiate), bobDb, bob)
     expect(bobInitResult.success).toBe(true)
-    expect(bobInitResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(bobInitResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
     expect(bobInitResult.handshake_result?.handshakeRecord?.local_role).toBe('acceptor')
 
     // ═══════════════════════════════════════════════════════════════════

@@ -17,7 +17,7 @@ import AcceptHandshakeModal from './AcceptHandshakeModal'
 interface HandshakeRecord {
   handshake_id: string
   relationship_id: string
-  state: 'PENDING_ACCEPT' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  state: 'PENDING_ACCEPT' | 'PENDING_REVIEW' | 'ACCEPTED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
   initiator: { email: string; wrdesk_user_id: string } | null
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
@@ -29,6 +29,8 @@ interface HandshakeRecord {
   last_capsule_hash_received: string
   p2p_endpoint?: string | null
   receiver_email?: string | null
+  context_sync_pending?: boolean
+  policy_selections?: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean }
 }
 
 import './handshakeViewTypes'
@@ -85,6 +87,8 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
+  const [vaultStatus, setVaultStatus] = useState<{ isUnlocked: boolean; name: string | null }>({ isUnlocked: false, name: null })
+  const [vaultWarningEscalated, setVaultWarningEscalated] = useState(false)
 
   const loadHandshakes = useCallback(async () => {
     setLoading(true)
@@ -112,6 +116,24 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
     window.addEventListener('handshake-list-refresh', onRefresh)
     return () => window.removeEventListener('handshake-list-refresh', onRefresh)
   }, [loadHandshakes])
+
+  useEffect(() => {
+    const checkVault = async () => {
+      try {
+        const status = await window.handshakeView?.getVaultStatus?.()
+        setVaultStatus({
+          isUnlocked: status?.isUnlocked ?? false,
+          name: status?.name ?? null,
+        })
+      } catch {
+        setVaultStatus({ isUnlocked: false, name: null })
+      }
+    }
+    checkVault()
+    const handler = () => checkVault()
+    window.addEventListener('vault-status-changed', handler)
+    return () => window.removeEventListener('vault-status-changed', handler)
+  }, [])
 
   const selectedRecord = handshakes.find(h => h.handshake_id === selectedId) ?? null
 
@@ -312,11 +334,14 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               <RelationshipDetail
                 record={selectedRecord}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
+                vaultStatus={vaultStatus}
+                vaultWarningEscalated={vaultWarningEscalated}
                 onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
-                onRequestUnlockVault={selectedRecord.state === 'ACCEPTED' && selectedRecord.context_sync_pending
+                onRequestUnlockVault={((selectedRecord.state === 'ACCEPTED' && selectedRecord.context_sync_pending) ||
+                  ((selectedRecord.state === 'PENDING_ACCEPT' || selectedRecord.state === 'PENDING_REVIEW') && selectedRecord.local_role === 'acceptor'))
                   ? () => {
-                      window.handshakeView?.requestUnlockVault?.().then(() => refreshList()).catch(() => {})
+                      window.handshakeView?.requestUnlockVault?.().then(() => loadHandshakes()).catch(() => {})
                       window.dispatchEvent(new CustomEvent('vault:requestUnlock'))
                     }
                   : undefined}
@@ -459,6 +484,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           onClose={() => setAcceptModalRecord(null)}
           onSuccess={() => { setAcceptModalRecord(null); loadHandshakes() }}
           canUseHsContextProfiles={false}
+          onRequestUnlockVault={() => window.dispatchEvent(new CustomEvent('vault:requestUnlock'))}
         />
       )}
     </div>

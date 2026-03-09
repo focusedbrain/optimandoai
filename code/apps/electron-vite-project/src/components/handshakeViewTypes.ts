@@ -16,6 +16,7 @@ declare global {
       deleteHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       requestUnlockVault: () => Promise<{ success?: boolean; reason?: string; needsUnlock?: boolean }>
       forceRevokeHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
+      updateHandshakePolicies?: (handshakeId: string, policies: Record<string, boolean>) => Promise<{ success?: boolean }>
       getContextBlockCount: (handshakeId: string) => Promise<number>
       queryContextBlocks?: (handshakeId: string) => Promise<VerifiedContextBlock[]>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>

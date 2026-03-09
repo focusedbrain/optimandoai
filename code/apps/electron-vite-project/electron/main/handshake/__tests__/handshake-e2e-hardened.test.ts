@@ -166,12 +166,12 @@ describe('Handshake E2E — Hardened', () => {
 
     const result = await submitCapsule(capsuleJson, bobDb, bob)
     expect(result.success).toBe(true)
-    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
 
     // Verify canonical rebuild was applied (the stored object is not the raw input)
     const stored = bobDb.getHandshake(capsule.handshake_id)
     expect(stored).toBeTruthy()
-    expect(stored.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(stored.state).toBe(HandshakeState.PENDING_REVIEW)
   })
 
   test('Upload .beap with denied field: rejected by Gate 2', async () => {
@@ -241,7 +241,7 @@ describe('Handshake E2E — Hardened', () => {
     // Step 2: Bob uploads the .beap file
     const uploadResult = await submitCapsule(capsuleJson, bobDb, bob)
     expect(uploadResult.success).toBe(true)
-    expect(uploadResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(uploadResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
 
     // Step 3: Bob accepts
     const parsed = JSON.parse(capsuleJson)

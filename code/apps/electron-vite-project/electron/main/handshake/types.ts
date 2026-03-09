@@ -359,6 +359,8 @@ export interface HandshakeRecord {
   receiver_email?: string | null;
   /** True when context_sync was deferred (vault locked); cleared on successful enqueue */
   context_sync_pending?: boolean;
+  /** Advanced policy selections (cloud_ai, internal_ai, min_diff) */
+  policy_selections?: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean };
 }
 
 // ── Context Block (persisted) ──

@@ -2126,7 +2126,7 @@ app.whenReady().then(async () => {
         }
         const result = await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
         if (result?.success) {
-          console.log('[IMPORT] Record created: PENDING_ACCEPT, handshake_id=', result?.handshake_id)
+          console.log('[IMPORT] Record created: PENDING_REVIEW, handshake_id=', result?.handshake_id)
         }
         return result
       } catch (err: any) {
@@ -2240,6 +2240,38 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { cloud_ai?: boolean; internal_ai?: boolean; min_diff?: boolean }) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
+        const { updateHandshakePolicySelections } = await import('./main/handshake/db')
+        updateHandshakePolicySelections(db, handshakeId, {
+          cloud_ai: !!policies.cloud_ai,
+          internal_ai: !!policies.internal_ai,
+          min_diff: !!policies.min_diff,
+        })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, reason: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('vault:getStatus', async () => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        const vaults = status.availableVaults ?? []
+        const currentId = status.currentVaultId
+        const name = currentId ? vaults.find((v: { id: string; name: string }) => v.id === currentId)?.name ?? 'Default Vault' : null
+        return {
+          isUnlocked: status.isUnlocked ?? !status.locked,
+          name: status.exists ? (name ?? 'Default Vault') : null,
+        }
+      } catch {
+        return { isUnlocked: false, name: null }
+      }
+    })
+
     ipcMain.handle('handshake:chatWithContext', async (_e, systemMessage: string, dataWrapper: string, userMessage: string) => {
       try {
         // Route to the LLM module if available, using the unidirectional prompt structure
@@ -2325,6 +2357,7 @@ app.whenReady().then(async () => {
         const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
         completePendingContextSyncs(db, getCurrentSession())
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
         return { success: true }
       } catch (err: any) {
         return { success: false, reason: err?.message ?? 'UNKNOWN' }
@@ -3079,6 +3112,7 @@ app.whenReady().then(async () => {
                       const db = getLedgerDb() ?? vs.getDb?.() ?? null
                       completePendingContextSyncs(db, getCurrentSession())
                       try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+                      try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
                     } catch (e) { /* non-fatal */ }
                   })
                 }

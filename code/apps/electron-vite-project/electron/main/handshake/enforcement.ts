@@ -521,7 +521,7 @@ function buildInitiateRecord(
   return {
     handshake_id: input.handshake_id,
     relationship_id: input.relationship_id,
-    state: HS.PENDING_ACCEPT,
+    state: HS.PENDING_REVIEW,
     initiator: {
       email: input.senderIdentity.email,
       wrdesk_user_id: input.sender_wrdesk_user_id,

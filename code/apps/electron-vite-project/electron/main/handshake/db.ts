@@ -382,6 +382,13 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN context_sync_pending INTEGER DEFAULT 0`,
     ],
   },
+  {
+    version: 18,
+    description: 'Schema v18: policy_selections for advanced policy storage',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN policy_selections TEXT DEFAULT '{}'`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -505,11 +512,35 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     counterparty_public_key: row.counterparty_public_key ?? null,
     receiver_email: row.receiver_email ?? null,
     context_sync_pending: !!(row.context_sync_pending),
+    policy_selections: parsePolicySelections(row.policy_selections),
+  }
+}
+
+function parsePolicySelections(json: string | null | undefined): { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean } | undefined {
+  if (!json || json === '{}') return undefined
+  try {
+    const p = JSON.parse(json) as Record<string, boolean>
+    return {
+      cloud_ai: !!p.cloud_ai,
+      internal_ai: !!p.internal_ai,
+      min_diff: !!p.min_diff,
+    }
+  } catch {
+    return undefined
   }
 }
 
 export function updateHandshakeContextSyncPending(db: any, handshakeId: string, pending: boolean): void {
   db.prepare('UPDATE handshakes SET context_sync_pending = ? WHERE handshake_id = ?').run(pending ? 1 : 0, handshakeId)
+}
+
+export function updateHandshakePolicySelections(db: any, handshakeId: string, policies: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean }): void {
+  const json = JSON.stringify(policies)
+  try {
+    db.prepare('UPDATE handshakes SET policy_selections = ? WHERE handshake_id = ?').run(json, handshakeId)
+  } catch (e: any) {
+    if (!e?.message?.includes('no such column')) throw e
+  }
 }
 
 export function updateHandshakeSigningKeys(

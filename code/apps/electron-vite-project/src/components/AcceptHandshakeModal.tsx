@@ -4,12 +4,17 @@
  * Mirrors the sender-side Context Graph: Vault Profiles + Ad-hoc tabs.
  * Receiver can attach context before accepting. Only hashes/commitments
  * travel in the handshake capsule; raw data syncs via first BEAP-Capsule.
+ *
+ * Vault gate: Accept is blocked until vault is unlocked. Policy checkboxes
+ * are always interactive (no vault needed).
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { HandshakeContextProfilePicker } from '@ext/handshake/components/HandshakeContextProfilePicker'
 import { acceptHandshake } from '@ext/handshake/handshakeRpc'
 import { computeBlockHashClient } from '../utils/contextBlockHash'
+import VaultStatusIndicator from './VaultStatusIndicator'
+import PolicyCheckboxes, { DEFAULT_POLICIES, type PolicySelection } from './PolicyCheckboxes'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -24,6 +29,7 @@ interface Props {
   onClose: () => void
   onSuccess: () => void
   canUseHsContextProfiles?: boolean
+  onRequestUnlockVault?: () => void
 }
 
 function generateBlockId(): string {
@@ -35,6 +41,7 @@ export default function AcceptHandshakeModal({
   onClose,
   onSuccess,
   canUseHsContextProfiles = false,
+  onRequestUnlockVault,
 }: Props) {
   const [showContextGraph, setShowContextGraph] = useState(false)
   const [contextGraphTab, setContextGraphTab] = useState<'vault' | 'adhoc'>('vault')
@@ -43,8 +50,46 @@ export default function AcceptHandshakeModal({
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([])
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false)
+  const [vaultName, setVaultName] = useState<string | null>(null)
+  const [vaultWarning, setVaultWarning] = useState(false)
+  const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_POLICIES)
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
+
+  useEffect(() => {
+    const checkVault = async () => {
+      try {
+        const status = await window.handshakeView?.getVaultStatus?.()
+        setIsVaultUnlocked(status?.isUnlocked ?? false)
+        setVaultName(status?.name ?? null)
+      } catch {
+        setIsVaultUnlocked(false)
+        setVaultName(null)
+      }
+    }
+    checkVault()
+    const handler = () => checkVault()
+    window.addEventListener('vault-status-changed', handler)
+    return () => window.removeEventListener('vault-status-changed', handler)
+  }, [])
+
+  const handleUnlockVault = async () => {
+    setVaultWarning(false)
+    try {
+      const result = await window.handshakeView?.requestUnlockVault?.()
+      if (result?.success) {
+        setIsVaultUnlocked(true)
+        setVaultWarning(false)
+      } else {
+        onRequestUnlockVault?.()
+        window.dispatchEvent(new CustomEvent('vault:requestUnlock'))
+      }
+    } catch {
+      onRequestUnlockVault?.()
+      window.dispatchEvent(new CustomEvent('vault:requestUnlock'))
+    }
+  }
 
   const buildContextBlocks = async (): Promise<
     Array<{ block_id: string; block_hash: string; type: string; content: string | Record<string, unknown>; scope_id?: string }>
@@ -86,6 +131,10 @@ export default function AcceptHandshakeModal({
 
   const handleAccept = async () => {
     setError(null)
+    if (!isVaultUnlocked) {
+      setVaultWarning(true)
+      return
+    }
     setAccepting(true)
     try {
       const context_blocks = await buildContextBlocks()
@@ -105,6 +154,7 @@ export default function AcceptHandshakeModal({
       )
 
       if (result?.success !== false) {
+        await window.handshakeView?.updateHandshakePolicies?.(record.handshake_id, policies)
         onSuccess()
         onClose()
       } else {
@@ -158,6 +208,17 @@ export default function AcceptHandshakeModal({
             From {counterpartyEmail}
           </div>
         </div>
+
+        {!isVaultUnlocked && (
+          <div style={{ margin: '0 16px 12px' }}>
+            <VaultStatusIndicator
+              vaultName={vaultName}
+              isUnlocked={false}
+              warningEscalated={vaultWarning}
+              onUnlockClick={handleUnlockVault}
+            />
+          </div>
+        )}
 
         {/* Context Graph — same pattern as SendHandshakeDelivery */}
         <div
@@ -355,6 +416,10 @@ export default function AcceptHandshakeModal({
               )}
             </div>
           )}
+        </div>
+
+        <div style={{ margin: '0 16px 12px' }}>
+          <PolicyCheckboxes policies={policies} onChange={setPolicies} readOnly={false} variant="light" />
         </div>
 
         {error && (

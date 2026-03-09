@@ -183,6 +183,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
 ipcRenderer.on('handshake-list-refresh', () => {
   window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
 })
+ipcRenderer.on('vault-status-changed', () => {
+  window.dispatchEvent(new CustomEvent('vault-status-changed'))
+})
 
 // ── Handshake View (Relationships + Capsule Import) ────────────────────────
 contextBridge.exposeInMainWorld('handshakeView', {
@@ -218,6 +221,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
   requestUnlockVault: () => {
     return ipcRenderer.invoke('vault:unlockForHandshake')
+  },
+  getVaultStatus: () => {
+    return ipcRenderer.invoke('vault:getStatus')
+  },
+  updateHandshakePolicies: (handshakeId: unknown, policies: unknown) => {
+    return ipcRenderer.invoke('handshake:updatePolicies', assertString(handshakeId, 'handshakeId'), policies)
   },
   forceRevokeHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:forceRevoke', assertString(id, 'id'))

@@ -1,9 +1,10 @@
 /**
- * Recipient Persist — Import .beap file as PENDING_ACCEPT
+ * Recipient Persist — Import .beap file as PENDING_REVIEW
  *
  * When the acceptor imports an initiate capsule from a file, we create a
- * local record with state PENDING_ACCEPT. Uses PENDING_ACCEPT (not PENDING_REVIEW)
- * for compatibility with databases that haven't run migration v16 yet.
+ * local record with state PENDING_REVIEW. The user needs to review and decide
+ * (accept or decline). PENDING_ACCEPT is the initiator's state (waiting for
+ * the other side); PENDING_REVIEW is the recipient's state (reviewing the request).
  *
  * Validation is done via processIncomingInput before this is called.
  */
@@ -77,7 +78,7 @@ export function persistRecipientHandshakeRecord(
     const record: HandshakeRecord = {
       handshake_id: c.handshake_id ?? '',
       relationship_id: c.relationship_id ?? '',
-      state: HS.PENDING_ACCEPT,
+      state: HS.PENDING_REVIEW,
       initiator: {
         email: senderIdentity.email ?? '',
         wrdesk_user_id: (senderIdentity.wrdesk_user_id ?? c.sender_wrdesk_user_id ?? c.sender_id ?? '') as string,
@@ -115,7 +116,7 @@ export function persistRecipientHandshakeRecord(
 
     insertHandshakeRecord(db, record)
     insertSeenCapsuleHash(db, record.handshake_id, record.last_capsule_hash_received)
-    console.log('[HANDSHAKE] Recipient import OK:', record.handshake_id, 'state=PENDING_ACCEPT')
+    console.log('[HANDSHAKE] Recipient import OK:', record.handshake_id, 'state=PENDING_REVIEW')
 
     return { success: true, handshake_id: record.handshake_id, handshakeRecord: record }
   } catch (err: any) {

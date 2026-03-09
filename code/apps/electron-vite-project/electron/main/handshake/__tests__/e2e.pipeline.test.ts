@@ -149,8 +149,8 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     }
   })
 
-  // ── P1: initiate → PENDING_ACCEPT ──
-  test('P1: buildInitiateCapsule → pipeline → HandshakeRecord PENDING_ACCEPT', async () => {
+  // ── P1: initiate → PENDING_REVIEW (recipient receives) ──
+  test('P1: buildInitiateCapsule → pipeline → HandshakeRecord PENDING_REVIEW', async () => {
     const sender = senderSession()
     const receiver = receiverSession()
 
@@ -176,7 +176,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     expect(result.success).toBe(true)
     const hs = result.handshake_result
     expect(hs).toBeDefined()
-    expect(hs.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(hs.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
     expect(hs.handshakeRecord?.handshake_id).toBe(capsule.handshake_id)
   })
 
@@ -193,7 +193,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     const initResult = await submitCapsule(initiate, db, receiver)
     expect(initResult.success).toBe(true)
-    expect(initResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(initResult.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
 
     const { capsule: accept } = buildAcceptCapsule(receiver, {
       handshake_id: initiate.handshake_id,
@@ -275,7 +275,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     // If migration didn't run the DB call would throw; success means tables existed
     expect(result.success).toBe(true)
-    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
   })
 
   // ── P10: submitCapsuleViaRpc connector ──
@@ -288,7 +288,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
 
     expect(result.success).toBe(true)
     expect(result.distribution_target).toBe('handshake_pipeline')
-    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_ACCEPT)
+    expect(result.handshake_result?.handshakeRecord?.state).toBe(HandshakeState.PENDING_REVIEW)
   })
 
   // ── P11: G11 — ownership check (same user → fail) ──
