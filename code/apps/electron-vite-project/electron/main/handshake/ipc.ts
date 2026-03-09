@@ -57,6 +57,7 @@ import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
+import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 
 // ── Context Block Helpers ──
@@ -825,6 +826,10 @@ export async function handleHandshakeRPC(
           })
           if (contextResult.success) {
             processOutboundQueue(db, _getOidcToken).catch(() => {})
+            // Replay any context_sync that arrived before the accept was processed (acceptor path).
+            // The initiator's context_sync may have been buffered because our record didn't have
+            // counterparty_public_key yet. Now that we've accepted, replay it immediately.
+            replayBufferedContextSync(handshake_id, db, session, _getOidcToken)
           } else if (contextResult.reason === 'VAULT_LOCKED') {
             // Already deferred — will be retried when vault is unlocked
           } else {

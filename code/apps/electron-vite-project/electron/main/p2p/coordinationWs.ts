@@ -18,12 +18,6 @@ import {
 } from '../ingestion/persistenceDb'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
-
-/**
- * In-memory buffer for context_sync capsules that arrived before the accept was processed.
- * Key = handshake_id, value = { capsule, id, ssoSession } to replay after accept.
- */
-const pendingContextSyncBuffer = new Map<string, { capsule: unknown; id: string; ssoSession: SSOSession }>()
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -31,6 +25,36 @@ import {
   setP2PHealthCoordinationLastPush,
   setP2PHealthCoordinationReconnectAttempts,
 } from './p2pHealth'
+
+/**
+ * In-memory buffer for context_sync capsules that arrived before the accept was processed.
+ * Key = handshake_id, value = { capsule, id, ssoSession } to replay after accept.
+ * Used by both the WS path (incoming accept) and the IPC accept path (acceptor machine).
+ */
+const pendingContextSyncBuffer = new Map<string, { capsule: unknown; id: string; ssoSession: SSOSession }>()
+
+/**
+ * Called after a handshake transitions to ACCEPTED (either by receiving an incoming accept
+ * capsule OR by the local accept IPC handler). Replays any buffered early context_sync.
+ */
+export function replayBufferedContextSync(
+  handshakeId: string,
+  db: any,
+  ssoSession: SSOSession,
+  getOidcToken: () => Promise<string | null>,
+): void {
+  const buffered = pendingContextSyncBuffer.get(handshakeId)
+  if (!buffered) return
+  console.log('[Coordination] Replaying buffered context_sync for handshake=', handshakeId)
+  pendingContextSyncBuffer.delete(handshakeId)
+  // sendAckFn is a no-op here — the capsule was already buffered without ACKing.
+  // If the replay succeeds the relay will eventually retry and get ACKed then, or
+  // the poller will handle it. The important thing is we process it locally.
+  const noopAck = (_ids: string[]) => {}
+  setImmediate(() => {
+    processCapsuleInternal(buffered.id, buffered.capsule, db, buffered.ssoSession, noopAck, getOidcToken, undefined)
+  })
+}
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]
 
@@ -173,8 +197,7 @@ async function processCapsuleInternal(
           setImmediate(() => {
             processCapsuleInternal(buffered.id, buffered.capsule, db, buffered.ssoSession, sendAckFn, getOidcToken, onHandshakeUpdated)
           })
-        }
-      }
+        }      }
 
       // Each side independently sends exactly one context_sync (seq=1) after accept.
       // Both sides reach ACTIVE when they receive the other's seq=1. No reverse is needed.
