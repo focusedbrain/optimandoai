@@ -160,28 +160,10 @@ async function processCapsuleInternal(
         }
       }
 
-      // After context_sync (seq 1): send reverse context_sync (or defer if vault locked).
-      // No targetEndpoint guard — coordination mode delivers via coordination_url.
+      // Each side independently sends exactly one context_sync (seq=1) after accept.
+      // Both sides reach ACTIVE when they receive the other's seq=1. No reverse is needed.
       const capObjRebuilt = rebuildResult.capsule as unknown as Record<string, unknown>
-      console.log('[Coordination] Capsule type check for reverse:', capObjRebuilt?.capsule_type, 'seq=', capObjRebuilt?.seq, 'newState=', newState)
-      if (capObjRebuilt?.capsule_type === 'context_sync' && capObjRebuilt?.seq === 1) {
-        setImmediate(() => {
-          console.log('[Coordination] Sending reverse context_sync, lastHash=', (capObjRebuilt.capsule_hash as string)?.slice(0,16))
-          const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
-            lastCapsuleHash: capObjRebuilt.capsule_hash as string,
-            lastSeqReceived: 1,
-          })
-          if (contextResult.success) {
-            console.log('[Coordination] Reverse context_sync enqueued for handshake=', record.handshake_id)
-            // Flush immediately with real token
-            processOutboundQueue(db, getOidcToken).catch(() => {})
-          } else if (contextResult.reason === 'VAULT_LOCKED') {
-            console.log('[Coordination] Reverse context sync deferred — vault locked')
-          } else {
-            console.warn('[Coordination] Reverse context_sync skipped, reason=', contextResult.reason)
-          }
-        })
-      }
+      console.log('[Coordination] Capsule processed: type=', capObjRebuilt?.capsule_type, 'seq=', capObjRebuilt?.seq, 'newState=', newState)
     } else {
       console.warn('[Coordination] Handshake rejected:', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
       // For context_sync capsules rejected due to ordering issues (capsule arrived before
