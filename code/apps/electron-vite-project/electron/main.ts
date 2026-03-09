@@ -2229,30 +2229,50 @@ app.whenReady().then(async () => {
         return 0
       }
     })
-    ipcMain.handle('handshake:queryContextBlocks', async (_e, handshakeId: string) => {
+    ipcMain.handle('handshake:queryContextBlocks', async (_e, handshakeId: string, purpose?: string) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return []
-        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
+        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [], purpose }, db)
         return result?.blocks ?? []
       } catch {
         return []
       }
     })
 
-    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { cloud_ai?: boolean; internal_ai?: boolean; min_diff?: boolean }) => {
+    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { cloud_ai?: boolean; internal_ai?: boolean }) => {
       try {
-        const db = await getLedgerDbOrOpen()
+        const db = await getHandshakeDb()
         if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
         const { updateHandshakePolicySelections } = await import('./main/handshake/db')
         updateHandshakePolicySelections(db, handshakeId, {
           cloud_ai: !!policies.cloud_ai,
           internal_ai: !!policies.internal_ai,
-          min_diff: !!policies.min_diff,
         })
         return { success: true }
       } catch (err: any) {
         return { success: false, reason: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:updateContextItemGovernance', async (
+      _e,
+      handshakeId: string,
+      blockId: string,
+      blockHash: string,
+      senderUserId: string,
+      governance: Record<string, unknown>,
+    ) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
+        const { updateContextBlockGovernance, updateContextStoreGovernance } = await import('./main/handshake/db')
+        const json = JSON.stringify(governance)
+        updateContextBlockGovernance(db, senderUserId, blockId, blockHash, json)
+        updateContextStoreGovernance(db, handshakeId, blockId, blockHash, json)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
       }
     })
 
@@ -2361,6 +2381,23 @@ app.whenReady().then(async () => {
         return { success: true }
       } catch (err: any) {
         return { success: false, reason: err?.message ?? 'UNKNOWN' }
+      }
+    })
+
+    ipcMain.handle('vault:unlockWithPassword', async (_e, password: string, vaultId?: string) => {
+      try {
+        if (typeof password !== 'string' || password.length === 0) {
+          return { success: false, error: 'Password is required' }
+        }
+        const { vaultService } = await import('./main/vault/rpc')
+        await vaultService.unlock(password, vaultId || 'default')
+        const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
+        completePendingContextSyncs(db, getCurrentSession())
+        try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Unlock failed' }
       }
     })
 

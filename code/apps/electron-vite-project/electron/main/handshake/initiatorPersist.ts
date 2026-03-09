@@ -19,6 +19,12 @@ import { buildDefaultReceiverPolicy } from './types'
 import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
 import { insertHandshakeRecord, insertSeenCapsuleHash, insertContextStoreEntry } from './db'
+import {
+  createDefaultGovernance,
+  createMessageGovernance,
+  baselineFromHandshake,
+  type ContextItemGovernance,
+} from './contextGovernance'
 
 export interface PersistInitiatorResult {
   success: boolean
@@ -105,6 +111,22 @@ export function persistInitiatorHandshakeRecord(
     console.log('[HANDSHAKE] Initiator persist OK:', capsule.handshake_id, 'state=PENDING_ACCEPT')
 
     const relationshipId = capsule.relationship_id
+    const baseline = baselineFromHandshake(record)
+    const buildGov = (b: { block_id: string; type: string }): ContextItemGovernance => {
+      const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
+      if (isMsg) {
+        return createMessageGovernance({
+          publisher_id: session.wrdesk_user_id,
+          sender_wrdesk_user_id: session.wrdesk_user_id,
+        })
+      }
+      return createDefaultGovernance({
+        origin: 'local',
+        usage_policy: { ...baseline },
+        provenance: { publisher_id: session.wrdesk_user_id, sender_wrdesk_user_id: session.wrdesk_user_id },
+      })
+    }
+
     for (const block of localBlocks) {
       try {
         insertContextStoreEntry(db, {
@@ -120,6 +142,7 @@ export function persistInitiatorHandshakeRecord(
           valid_until: null,
           ingested_at: null,
           superseded: 0,
+          governance_json: JSON.stringify(buildGov(block)),
         })
       } catch {
         /* non-fatal — context delivery can be retried */

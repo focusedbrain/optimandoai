@@ -10,14 +10,12 @@ interface VaultStatusIndicatorProps {
   vaultName: string | null
   isUnlocked: boolean
   warningEscalated: boolean
-  onUnlockClick?: () => void
 }
 
 export default function VaultStatusIndicator({
   vaultName,
   isUnlocked,
   warningEscalated,
-  onUnlockClick,
 }: VaultStatusIndicatorProps) {
   const displayName = vaultName ?? 'Default Vault'
 
@@ -74,23 +72,9 @@ export default function VaultStatusIndicator({
         <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
           Only one vault can be unlocked at a time. The active vault stores handshake data.
         </div>
-        {onUnlockClick && (
-          <button
-            onClick={onUnlockClick}
-            style={{
-              padding: '6px 12px',
-              fontSize: '11px',
-              fontWeight: 600,
-              background: 'rgba(239,68,68,0.2)',
-              color: '#ef4444',
-              border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-            }}
-          >
-            Unlock Vault
-          </button>
-        )}
+        <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
+          Unlock your vault manually to continue.
+        </div>
       </div>
     )
   }
@@ -120,23 +104,9 @@ export default function VaultStatusIndicator({
       <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
         Only one vault can be unlocked at a time. The active vault stores handshake data.
       </div>
-      {onUnlockClick && (
-        <button
-          onClick={onUnlockClick}
-          style={{
-            padding: '6px 12px',
-            fontSize: '11px',
-            fontWeight: 600,
-            background: 'rgba(59,130,246,0.2)',
-            color: '#3b82f6',
-            border: '1px solid rgba(59,130,246,0.4)',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          }}
-        >
-          Unlock Vault
-        </button>
-      )}
+      <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
+        Unlock your vault manually to continue.
+      </div>
     </div>
   )
 }

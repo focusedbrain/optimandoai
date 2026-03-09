@@ -13,7 +13,8 @@
  */
 
 import { verifyContextCommitment, computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
-import { upsertContextBlockVersion } from './db'
+import { upsertContextBlockVersion, getHandshakeRecord } from './db'
+import { inferGovernanceFromLegacy, type LegacyBlockInput } from './contextGovernance'
 
 export interface ContextIngestionInput {
   handshake_id: string
@@ -76,13 +77,15 @@ export function ingestContextBlocks(
   let deduplicated = 0
   let superseded = 0
 
+  const record = getHandshakeRecord(db, input.handshake_id)
+
   const insertStmt = db.prepare(
     `INSERT OR IGNORE INTO context_blocks (
       sender_wrdesk_user_id, block_id, block_hash,
       relationship_id, handshake_id, scope_id, type,
       data_classification, version, valid_until,
-      source, payload, embedding_status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, 'pending', ?)`
+      source, payload, embedding_status, created_at, governance_json, publisher_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, 'pending', ?, ?, ?)`
   )
 
   const checkExistingStmt = db.prepare(
@@ -119,6 +122,23 @@ export function ingestContextBlocks(
 
     const version = block.version ?? (existing ? existing.version + 1 : 1)
 
+    const legacy: LegacyBlockInput = {
+      block_id: block.block_id,
+      type: block.type,
+      data_classification: block.data_classification,
+      scope_id: block.scope_id,
+      sender_wrdesk_user_id: input.publisher_id,
+      publisher_id: input.publisher_id,
+      source: 'received',
+    }
+    const governance = record
+      ? inferGovernanceFromLegacy(legacy, record, input.relationship_id)
+      : inferGovernanceFromLegacy(legacy, {
+          effective_policy: { allowsCloudEscalation: false, allowsExport: false, allowedScopes: ['*'] } as any,
+          policy_selections: undefined,
+        } as any, input.relationship_id)
+    const governanceJson = JSON.stringify(governance)
+
     const result = insertStmt.run(
       input.publisher_id,
       block.block_id,
@@ -132,6 +152,8 @@ export function ingestContextBlocks(
       block.valid_until ?? null,
       serializedContent,
       now,
+      governanceJson,
+      input.publisher_id,
     )
 
     if (result.changes > 0) {

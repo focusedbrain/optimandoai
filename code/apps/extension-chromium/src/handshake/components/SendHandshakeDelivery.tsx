@@ -39,8 +39,8 @@ export interface SendHandshakeDeliveryProps {
   emailAccounts?: EmailAccount[]
   /** Callback when email account changes */
   onSelectEmailAccount?: (id: string) => void
-  /** Called on successful handshake creation */
-  onSuccess?: () => void
+  /** Called on successful handshake creation. May receive result with handshake_id (API send only). */
+  onSuccess?: (result?: { handshake_id?: string }) => void
   /** Whether the current user has Publisher/Enterprise tier. */
   canUseHsContextProfiles?: boolean
 }
@@ -277,7 +277,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       )
       if (result.handshake_id) {
         setActionDone('sent')
-        onSuccess?.()
+        onSuccess?.({ handshake_id: result.handshake_id })
       } else {
         setError((result as any).error || 'Failed to send handshake.')
       }

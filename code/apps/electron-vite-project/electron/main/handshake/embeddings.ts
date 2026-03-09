@@ -11,6 +11,14 @@ import {
   markEmbeddingComplete,
   markEmbeddingFailed,
 } from './contextBlocks'
+import {
+  parseGovernanceJson,
+  resolveEffectiveGovernance,
+  filterBlocksForSearch,
+  baselineFromHandshake,
+  type LegacyBlockInput,
+} from './contextGovernance'
+import { getHandshakeRecord } from './db'
 
 export interface LocalEmbeddingService {
   readonly modelId: string;
@@ -21,12 +29,39 @@ export async function processEmbeddingQueue(
   db: any,
   embeddingService: LocalEmbeddingService,
   batchSize: number = 50,
-): Promise<{ processed: number; failed: number }> {
+): Promise<{ processed: number; failed: number; skipped: number }> {
   const pending = getPendingEmbeddingBlocks(db, batchSize)
   let processed = 0
   let failed = 0
+  let skipped = 0
 
   for (const block of pending) {
+    const record = getHandshakeRecord(db, block.handshake_id)
+    if (!record) {
+      markEmbeddingFailed(db, block.sender_wrdesk_user_id, block.block_id, block.block_hash)
+      failed++
+      continue
+    }
+
+    const legacy: LegacyBlockInput = {
+      block_id: block.block_id,
+      type: block.type,
+      data_classification: block.data_classification,
+      scope_id: block.scope_id ?? undefined,
+      sender_wrdesk_user_id: block.sender_wrdesk_user_id,
+      publisher_id: block.publisher_id ?? block.sender_wrdesk_user_id,
+      source: block.source,
+    }
+    const itemGov = parseGovernanceJson(block.governance_json)
+    const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+    const baseline = baselineFromHandshake(record)
+    const searchable = filterBlocksForSearch([{ governance }], baseline)
+    if (searchable.length === 0) {
+      markEmbeddingComplete(db, block.sender_wrdesk_user_id, block.block_id, block.block_hash)
+      skipped++
+      continue
+    }
+
     try {
       const embedding = await embeddingService.generateEmbedding(block.payload)
 
@@ -50,7 +85,7 @@ export async function processEmbeddingQueue(
     }
   }
 
-  return { processed, failed }
+  return { processed, failed, skipped }
 }
 
 export async function semanticSearch(
@@ -62,7 +97,7 @@ export async function semanticSearch(
 ): Promise<ScoredContextBlock[]> {
   const queryEmbedding = await embeddingService.generateEmbedding(query)
 
-  let sql = `SELECT cb.*, ce.embedding
+  let sql = `SELECT cb.*, ce.embedding, cb.governance_json
     FROM context_blocks cb
     INNER JOIN context_embeddings ce ON
       cb.sender_wrdesk_user_id = ce.sender_wrdesk_user_id
@@ -82,8 +117,29 @@ export async function semanticSearch(
 
   const rows = db.prepare(sql).all(...params) as any[]
 
+  // Filter by searchable (item-level governance). Exclude blocks denied for search.
+  const recordCache = new Map<string, ReturnType<typeof getHandshakeRecord>>()
+  const searchableRows = rows.filter((row) => {
+    const record = recordCache.get(row.handshake_id) ?? getHandshakeRecord(db, row.handshake_id)
+    if (!record) return false
+    recordCache.set(row.handshake_id, record)
+    const legacy: LegacyBlockInput = {
+      block_id: row.block_id,
+      type: row.type,
+      data_classification: row.data_classification,
+      scope_id: row.scope_id ?? undefined,
+      sender_wrdesk_user_id: row.sender_wrdesk_user_id,
+      publisher_id: row.publisher_id ?? row.sender_wrdesk_user_id,
+      source: row.source,
+    }
+    const itemGov = parseGovernanceJson(row.governance_json)
+    const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+    const baseline = baselineFromHandshake(record)
+    return filterBlocksForSearch([{ governance }], baseline).length > 0
+  })
+
   // Compute cosine similarity in memory
-  const scored: ScoredContextBlock[] = rows.map(row => {
+  const scored: ScoredContextBlock[] = searchableRows.map(row => {
     const stored = new Float32Array(
       (row.embedding as Buffer).buffer,
       (row.embedding as Buffer).byteOffset,

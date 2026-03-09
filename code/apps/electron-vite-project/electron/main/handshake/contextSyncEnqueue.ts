@@ -11,6 +11,13 @@ import { getHandshakeRecord, updateHandshakeContextSyncPending } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
 import { enqueueOutboundCapsule } from './outboundQueue'
+import {
+  parseGovernanceJson,
+  resolveEffectiveGovernance,
+  filterBlocksForPeerTransmission,
+  baselineFromHandshake,
+  type LegacyBlockInput,
+} from './contextGovernance'
 
 export interface TryEnqueueContextSyncOpts {
   /** Accept capsule hash (seq 0) or last received capsule hash */
@@ -74,6 +81,28 @@ export function tryEnqueueContextSync(
     return { success: true }
   }
 
+  const baseline = baselineFromHandshake(record)
+  const allowed = filterBlocksForPeerTransmission(
+    pending.map((b) => {
+      const legacy: LegacyBlockInput = {
+        block_id: b.block_id,
+        type: b.type,
+        data_classification: undefined,
+        scope_id: b.scope_id ?? undefined,
+        sender_wrdesk_user_id: b.publisher_id,
+        publisher_id: b.publisher_id,
+        source: undefined,
+      }
+      const itemGov = parseGovernanceJson(b.governance_json)
+      const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+      return { ...b, governance }
+    }),
+    baseline,
+  )
+  if (allowed.length === 0) {
+    return { success: true }
+  }
+
   const localPub = record.local_public_key ?? ''
   const localPriv = record.local_private_key ?? ''
   if (!localPub || !localPriv) {
@@ -88,7 +117,7 @@ export function tryEnqueueContextSync(
     ? record.acceptor!.email
     : record.initiator.email
 
-  const contextBlocks: ContextBlockForCommitment[] = pending.map((b) => ({
+  const contextBlocks: ContextBlockForCommitment[] = allowed.map((b) => ({
     block_id: b.block_id,
     block_hash: b.block_hash,
     scope_id: b.scope_id ?? undefined,

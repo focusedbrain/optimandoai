@@ -389,6 +389,15 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN policy_selections TEXT DEFAULT '{}'`,
     ],
   },
+  {
+    version: 19,
+    description: 'Schema v19: fine-grained context governance (governance_json, default_policy)',
+    sql: [
+      `ALTER TABLE context_blocks ADD COLUMN governance_json TEXT`,
+      `ALTER TABLE context_store ADD COLUMN governance_json TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN default_policy_json TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -516,14 +525,13 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
   }
 }
 
-function parsePolicySelections(json: string | null | undefined): { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean } | undefined {
+function parsePolicySelections(json: string | null | undefined): { cloud_ai: boolean; internal_ai: boolean } | undefined {
   if (!json || json === '{}') return undefined
   try {
     const p = JSON.parse(json) as Record<string, boolean>
     return {
       cloud_ai: !!p.cloud_ai,
       internal_ai: !!p.internal_ai,
-      min_diff: !!p.min_diff,
     }
   } catch {
     return undefined
@@ -534,7 +542,7 @@ export function updateHandshakeContextSyncPending(db: any, handshakeId: string, 
   db.prepare('UPDATE handshakes SET context_sync_pending = ? WHERE handshake_id = ?').run(pending ? 1 : 0, handshakeId)
 }
 
-export function updateHandshakePolicySelections(db: any, handshakeId: string, policies: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean }): void {
+export function updateHandshakePolicySelections(db: any, handshakeId: string, policies: { cloud_ai: boolean; internal_ai: boolean }): void {
   const json = JSON.stringify(policies)
   try {
     db.prepare('UPDATE handshakes SET policy_selections = ? WHERE handshake_id = ?').run(json, handshakeId)
@@ -817,19 +825,44 @@ export interface ContextStoreEntry {
   valid_until: string | null
   ingested_at: string | null
   superseded: number
+  governance_json?: string | null
 }
 
 export function insertContextStoreEntry(db: any, entry: ContextStoreEntry): void {
   db.prepare(`INSERT OR IGNORE INTO context_store
     (block_id, block_hash, handshake_id, relationship_id, scope_id,
-     publisher_id, type, content, status, valid_until, ingested_at, superseded)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     publisher_id, type, content, status, valid_until, ingested_at, superseded, governance_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     entry.block_id, entry.block_hash, entry.handshake_id, entry.relationship_id,
     entry.scope_id, entry.publisher_id, entry.type,
     entry.content, entry.status, entry.valid_until, entry.ingested_at,
-    entry.superseded,
+    entry.superseded, entry.governance_json ?? null,
   )
+}
+
+export function updateContextStoreGovernance(
+  db: any,
+  handshakeId: string,
+  blockId: string,
+  blockHash: string,
+  governanceJson: string,
+): void {
+  db.prepare(
+    `UPDATE context_store SET governance_json = ? WHERE handshake_id = ? AND block_id = ? AND block_hash = ?`
+  ).run(governanceJson, handshakeId, blockId, blockHash)
+}
+
+export function updateContextBlockGovernance(
+  db: any,
+  senderUserId: string,
+  blockId: string,
+  blockHash: string,
+  governanceJson: string,
+): void {
+  db.prepare(
+    `UPDATE context_blocks SET governance_json = ? WHERE sender_wrdesk_user_id = ? AND block_id = ? AND block_hash = ?`
+  ).run(governanceJson, senderUserId, blockId, blockHash)
 }
 
 export function getContextStoreByHandshake(

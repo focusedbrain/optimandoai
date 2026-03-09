@@ -5,13 +5,11 @@
 export interface PolicySelection {
   cloud_ai: boolean
   internal_ai: boolean
-  min_diff: boolean
 }
 
 export const DEFAULT_POLICIES: PolicySelection = {
   cloud_ai: false,
   internal_ai: false,
-  min_diff: false,
 }
 
 const POLICY_OPTIONS = [
@@ -24,11 +22,6 @@ const POLICY_OPTIONS = [
     key: 'internal_ai' as const,
     label: 'Internal AI Only',
     description: 'Restrict AI processing to on-premise or organization-controlled systems',
-  },
-  {
-    key: 'min_diff' as const,
-    label: 'Minimal Data Disclosure',
-    description: 'Enforce minimum necessary data sharing between handshake parties',
   },
 ]
 
@@ -55,8 +48,11 @@ export default function PolicyCheckboxes({ policies, onChange, readOnly, variant
           letterSpacing: '0.5px',
         }}
       >
-        Advanced Policies
+        Default policy for newly attached context
       </h5>
+      <p style={{ margin: '0 0 8px', fontSize: '11px', color: descColor }}>
+        Starting template for new context items. Individual items can override.
+      </p>
       {POLICY_OPTIONS.map((opt) => (
         <label
           key={opt.key}

@@ -222,11 +222,32 @@ contextBridge.exposeInMainWorld('handshakeView', {
   requestUnlockVault: () => {
     return ipcRenderer.invoke('vault:unlockForHandshake')
   },
+  unlockVaultWithPassword: (password: unknown, vaultId?: unknown) => {
+    const pwd = typeof password === 'string' ? password : ''
+    const vid = typeof vaultId === 'string' ? vaultId : undefined
+    return ipcRenderer.invoke('vault:unlockWithPassword', pwd, vid)
+  },
   getVaultStatus: () => {
     return ipcRenderer.invoke('vault:getStatus')
   },
   updateHandshakePolicies: (handshakeId: unknown, policies: unknown) => {
     return ipcRenderer.invoke('handshake:updatePolicies', assertString(handshakeId, 'handshakeId'), policies)
+  },
+  updateContextItemGovernance: (
+    handshakeId: unknown,
+    blockId: unknown,
+    blockHash: unknown,
+    senderUserId: unknown,
+    governance: unknown,
+  ) => {
+    return ipcRenderer.invoke(
+      'handshake:updateContextItemGovernance',
+      assertString(handshakeId, 'handshakeId'),
+      assertString(blockId, 'blockId'),
+      assertString(blockHash, 'blockHash'),
+      assertString(senderUserId, 'senderUserId'),
+      governance && typeof governance === 'object' ? governance as Record<string, unknown> : {},
+    )
   },
   forceRevokeHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:forceRevoke', assertString(id, 'id'))
@@ -234,8 +255,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
   getContextBlockCount: (handshakeId: unknown) => {
     return ipcRenderer.invoke('handshake:contextBlockCount', assertString(handshakeId, 'handshakeId'))
   },
-  queryContextBlocks: (handshakeId: unknown) => {
-    return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'))
+  queryContextBlocks: (handshakeId: unknown, purpose?: string) => {
+    return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'), purpose)
   },
   chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
     if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {

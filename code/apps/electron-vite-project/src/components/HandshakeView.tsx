@@ -30,7 +30,7 @@ interface HandshakeRecord {
   p2p_endpoint?: string | null
   receiver_email?: string | null
   context_sync_pending?: boolean
-  policy_selections?: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean }
+  policy_selections?: { cloud_ai: boolean; internal_ai: boolean }
 }
 
 import './handshakeViewTypes'
@@ -338,13 +338,6 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 vaultWarningEscalated={vaultWarningEscalated}
                 onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
-                onRequestUnlockVault={((selectedRecord.state === 'ACCEPTED' && selectedRecord.context_sync_pending) ||
-                  ((selectedRecord.state === 'PENDING_ACCEPT' || selectedRecord.state === 'PENDING_REVIEW') && selectedRecord.local_role === 'acceptor'))
-                  ? () => {
-                      window.handshakeView?.requestUnlockVault?.().then(() => loadHandshakes()).catch(() => {})
-                      window.dispatchEvent(new CustomEvent('vault:requestUnlock'))
-                    }
-                  : undefined}
               />
             </div>
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -484,7 +477,6 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           onClose={() => setAcceptModalRecord(null)}
           onSuccess={() => { setAcceptModalRecord(null); loadHandshakes() }}
           canUseHsContextProfiles={false}
-          onRequestUnlockVault={() => window.dispatchEvent(new CustomEvent('vault:requestUnlock'))}
         />
       )}
     </div>

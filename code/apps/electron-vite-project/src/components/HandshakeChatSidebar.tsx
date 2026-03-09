@@ -16,6 +16,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   buildSystemMessage,
   buildDataWrapper,
+  filterBlocksForLocalAI,
   type VerifiedContextBlock,
 } from './contextEscaping'
 
@@ -57,7 +58,7 @@ export default function HandshakeChatSidebar({ handshakeId, contextBlockCount }:
 
     const loadBlocks = async () => {
       try {
-        const blocks = await window.handshakeView?.queryContextBlocks?.(handshakeId) ?? []
+        const blocks = await window.handshakeView?.queryContextBlocks?.(handshakeId, 'local_ai') ?? []
         setContextBlocks(blocks)
       } catch {
         setContextBlocks([])
@@ -82,7 +83,8 @@ export default function HandshakeChatSidebar({ handshakeId, contextBlockCount }:
 
     try {
       const systemMsg = buildSystemMessage()
-      const dataWrapper = buildDataWrapper(contextBlocks)
+      const blocksForAI = filterBlocksForLocalAI(contextBlocks)
+      const dataWrapper = buildDataWrapper(blocksForAI)
 
       const response = await window.handshakeView?.chatWithContext?.(
         systemMsg, dataWrapper, userMessage,

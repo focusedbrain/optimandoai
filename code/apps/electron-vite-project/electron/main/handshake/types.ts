@@ -359,8 +359,8 @@ export interface HandshakeRecord {
   receiver_email?: string | null;
   /** True when context_sync was deferred (vault locked); cleared on successful enqueue */
   context_sync_pending?: boolean;
-  /** Advanced policy selections (cloud_ai, internal_ai, min_diff) */
-  policy_selections?: { cloud_ai: boolean; internal_ai: boolean; min_diff: boolean };
+  /** Advanced policy selections (cloud_ai, internal_ai) */
+  policy_selections?: { cloud_ai: boolean; internal_ai: boolean };
 }
 
 // ── Context Block (persisted) ──
@@ -379,6 +379,8 @@ export interface ContextBlock {
   sender_wrdesk_user_id: string;
   embedding_status: 'pending' | 'complete' | 'failed';
   payload_ref: string;
+  /** Resolved governance (from governance_json or inferred from legacy). Present when queried with governance. */
+  governance?: import('./contextGovernance').ContextItemGovernance;
 }
 
 // ── Reason Codes ──

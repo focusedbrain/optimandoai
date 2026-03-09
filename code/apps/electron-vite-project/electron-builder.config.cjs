@@ -13,7 +13,7 @@ const path = require('path')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build80'
+    return 'C:\\build-output\\build01'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')

@@ -15,9 +15,24 @@
 
 // ── Types ──
 
+export interface ContextItemGovernance {
+  content_type?: string
+  sensitivity?: string
+  usage_policy?: {
+    searchable?: boolean
+    local_ai_allowed?: boolean
+    cloud_ai_allowed?: boolean
+    auto_reply_allowed?: boolean
+    export_allowed?: boolean
+    transmit_to_peer_allowed?: boolean
+  }
+  inferred?: boolean
+}
+
 export interface VerifiedContextBlock {
   block_id: string
-  handshake_id: string
+  block_hash?: string
+  handshake_id?: string
   type: string
   payload_ref: string
   source: 'received' | 'sent'
@@ -26,6 +41,7 @@ export interface VerifiedContextBlock {
   scope_id?: string
   data_classification: string
   version: number
+  governance?: ContextItemGovernance
 }
 
 // ── XML Escaping ──
@@ -63,6 +79,21 @@ export function escapeAttr(value: string): string {
  * Returns a single string ready for insertion into the data wrapper section
  * of the LLM prompt.
  */
+/**
+ * Filter blocks to only those allowed for local AI usage.
+ * Explicit deny: if governance says local_ai_allowed: false, exclude.
+ * Legacy/inferred: include for backward compatibility.
+ */
+export function filterBlocksForLocalAI(blocks: VerifiedContextBlock[]): VerifiedContextBlock[] {
+  return blocks.filter((b) => {
+    const policy = b.governance?.usage_policy
+    if (policy && 'local_ai_allowed' in policy) {
+      return policy.local_ai_allowed === true
+    }
+    return true
+  })
+}
+
 export function prepareContextForLLM(blocks: VerifiedContextBlock[]): string {
   const verifiedBlocks = blocks.filter(
     b => b.embedding_status === 'complete',

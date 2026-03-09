@@ -15,10 +15,13 @@ declare global {
       declineHandshake: (id: string) => Promise<any>
       deleteHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       requestUnlockVault: () => Promise<{ success?: boolean; reason?: string; needsUnlock?: boolean }>
+      unlockVaultWithPassword: (password: string, vaultId?: string) => Promise<{ success?: boolean; error?: string }>
+      getVaultStatus?: () => Promise<{ isUnlocked?: boolean; name?: string | null }>
       forceRevokeHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       updateHandshakePolicies?: (handshakeId: string, policies: Record<string, boolean>) => Promise<{ success?: boolean }>
+      updateContextItemGovernance?: (handshakeId: string, blockId: string, blockHash: string, senderUserId: string, governance: Record<string, unknown>) => Promise<{ success?: boolean; error?: string }>
       getContextBlockCount: (handshakeId: string) => Promise<number>
-      queryContextBlocks?: (handshakeId: string) => Promise<VerifiedContextBlock[]>
+      queryContextBlocks?: (handshakeId: string, purpose?: 'local_ai' | 'cloud_ai' | 'export' | 'search' | 'peer_transmission' | 'auto_reply') => Promise<VerifiedContextBlock[]>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
       initiateHandshake?: (receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       buildForDownload?: (receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>

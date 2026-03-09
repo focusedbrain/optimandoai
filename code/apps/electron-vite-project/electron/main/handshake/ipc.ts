@@ -15,7 +15,7 @@ import {
   deleteHandshakeRecord,
   updateHandshakeSigningKeys,
 } from './db'
-import { queryContextBlocks } from './contextBlocks'
+import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, isHandshakeActive } from './enforcement'
 import { revokeHandshake } from './revocation'
 import {
@@ -30,6 +30,18 @@ import { persistInitiatorHandshakeRecord } from './initiatorPersist'
 import { persistRecipientHandshakeRecord } from './recipientPersist'
 import { sendCapsuleViaEmail } from './emailTransport'
 import { computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
+import {
+  createDefaultGovernance,
+  createMessageGovernance,
+  baselineFromHandshake,
+  filterBlocksForLocalAI,
+  filterBlocksForCloudAI,
+  filterBlocksForExport,
+  filterBlocksForSearch,
+  filterBlocksForPeerTransmission,
+  filterBlocksForAutoReply,
+  type ContextItemGovernance,
+} from './contextGovernance'
 import {
   insertContextStoreEntry,
   getContextStoreByHandshake,
@@ -206,12 +218,27 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.requestContextBlocks': {
-      const { handshakeId, scopes } = params
+      const { handshakeId, scopes, purpose } = params
       const auth = authorizeAction(db, handshakeId, 'read-context', scopes ?? [], new Date())
       if (!auth.allowed) {
         return { type: 'context-blocks', blocks: [], reason: auth.reason }
       }
-      const blocks = queryContextBlocks(db, { handshake_id: handshakeId })
+      let blocks = queryContextBlocksWithGovernance(db, handshakeId)
+      const record = getHandshakeRecord(db, handshakeId)
+      const baseline = record ? baselineFromHandshake(record) : null
+      if (purpose === 'local_ai') {
+        blocks = filterBlocksForLocalAI(blocks, baseline)
+      } else if (purpose === 'cloud_ai') {
+        blocks = filterBlocksForCloudAI(blocks, baseline)
+      } else if (purpose === 'export') {
+        blocks = filterBlocksForExport(blocks, baseline)
+      } else if (purpose === 'search') {
+        blocks = filterBlocksForSearch(blocks, baseline)
+      } else if (purpose === 'peer_transmission') {
+        blocks = filterBlocksForPeerTransmission(blocks, baseline)
+      } else if (purpose === 'auto_reply') {
+        blocks = filterBlocksForAutoReply(blocks, baseline)
+      }
       return { type: 'context-blocks', blocks, reason: ReasonCode.OK }
     }
 
@@ -578,6 +605,38 @@ export async function handleHandshakeRPC(
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
       const relationshipId = deriveRelationshipId(initiatorUserId, session.wrdesk_user_id)
+      const baseline = baselineFromHandshake(record)
+
+      const buildGovernanceForInitiatorBlock = (b: { block_id: string; type: string; scope_id?: string | null }): ContextItemGovernance => {
+        const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
+        if (isMsg) {
+          return createMessageGovernance({
+            publisher_id: initiatorUserId,
+            sender_wrdesk_user_id: initiatorUserId,
+          })
+        }
+        return createDefaultGovernance({
+          origin: 'remote_peer',
+          usage_policy: { ...baseline },
+          provenance: { publisher_id: initiatorUserId, sender_wrdesk_user_id: initiatorUserId },
+        })
+      }
+
+      const buildGovernanceForReceiverBlock = (b: { block_id: string; type: string; scope_id?: string | null }): ContextItemGovernance => {
+        const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
+        if (isMsg) {
+          return createMessageGovernance({
+            publisher_id: session.wrdesk_user_id,
+            sender_wrdesk_user_id: session.wrdesk_user_id,
+          })
+        }
+        return createDefaultGovernance({
+          origin: 'local',
+          usage_policy: { ...baseline },
+          provenance: { publisher_id: session.wrdesk_user_id, sender_wrdesk_user_id: session.wrdesk_user_id },
+        })
+      }
+
       for (const block of initiatorBlocks) {
         insertContextStoreEntry(db, {
           block_id: block.block_id,
@@ -592,6 +651,7 @@ export async function handleHandshakeRPC(
           valid_until: null,
           ingested_at: null,
           superseded: 0,
+          governance_json: JSON.stringify(buildGovernanceForInitiatorBlock(block)),
         })
       }
       for (const block of receiverBlocks) {
@@ -609,6 +669,7 @@ export async function handleHandshakeRPC(
           valid_until: null,
           ingested_at: null,
           superseded: 0,
+          governance_json: JSON.stringify(buildGovernanceForReceiverBlock(block)),
         })
       }
 
@@ -890,7 +951,16 @@ export function registerHandshakeRoutes(app: any, getDb: () => any): void {
     try {
       const db = getDb()
       if (!db) return res.status(503).json({ error: 'vault_locked' })
-      const blocks = queryContextBlocks(db, { handshake_id: req.params.id })
+      const purpose = req.query.purpose as string | undefined
+      let blocks = queryContextBlocksWithGovernance(db, req.params.id)
+      const record = getHandshakeRecord(db, req.params.id)
+      const baseline = record ? baselineFromHandshake(record) : null
+      if (purpose === 'local_ai') blocks = filterBlocksForLocalAI(blocks, baseline)
+      else if (purpose === 'cloud_ai') blocks = filterBlocksForCloudAI(blocks, baseline)
+      else if (purpose === 'export') blocks = filterBlocksForExport(blocks, baseline)
+      else if (purpose === 'search') blocks = filterBlocksForSearch(blocks, baseline)
+      else if (purpose === 'peer_transmission') blocks = filterBlocksForPeerTransmission(blocks, baseline)
+      else if (purpose === 'auto_reply') blocks = filterBlocksForAutoReply(blocks, baseline)
       res.json({ blocks })
     } catch (err: any) {
       res.status(500).json({ error: err?.message })

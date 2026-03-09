@@ -47,7 +47,6 @@ interface Props {
   vaultWarningEscalated?: boolean
   onRevoke?: () => void
   onDelete?: () => void
-  onRequestUnlockVault?: () => void
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -211,7 +210,7 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   return <MetaRow label="P2P" value="No queue entries" />
 }
 
-export default function RelationshipDetail({ record, contextBlockCount, vaultStatus, vaultWarningEscalated, onRevoke, onDelete, onRequestUnlockVault }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, vaultStatus, vaultWarningEscalated, onRevoke, onDelete }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
@@ -219,6 +218,14 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   const [policies, setPolicies] = useState<PolicySelection>(record.policy_selections ?? DEFAULT_POLICIES)
 
   const showVaultIndicator = ((record.state === 'PENDING_ACCEPT' || record.state === 'PENDING_REVIEW') && record.local_role === 'acceptor') || record.state === 'ACCEPTED'
+
+  const refreshContextBlocks = () => {
+    if ((record.state === 'ACCEPTED' || record.state === 'ACTIVE') && record.handshake_id) {
+      window.handshakeView?.queryContextBlocks?.(record.handshake_id).then((blocks) => {
+        setContextBlocks(blocks ?? [])
+      }).catch(() => setContextBlocks([]))
+    }
+  }
 
   useEffect(() => {
     if ((record.state === 'ACCEPTED' || record.state === 'ACTIVE') && record.handshake_id) {
@@ -300,7 +307,6 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
           vaultName={vaultStatus?.name ?? null}
           isUnlocked={vaultStatus?.isUnlocked ?? false}
           warningEscalated={vaultWarningEscalated ?? false}
-          onUnlockClick={onRequestUnlockVault}
         />
       )}
 
@@ -314,6 +320,7 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
           onAttachData={handleAttachData}
           contextBlocks={contextBlocks}
           readOnly={record.state === 'ACTIVE'}
+          onContextBlocksRefresh={refreshContextBlocks}
         />
       )}
 
