@@ -171,7 +171,7 @@ async function processCapsuleInternal(
           console.log('[Coordination] Replaying buffered context_sync for handshake=', record.handshake_id)
           pendingContextSyncBuffer.delete(record.handshake_id)
           setImmediate(() => {
-            processCapsuleInternal(db, buffered.capsule, buffered.id, buffered.ssoSession, sendAckFn, getOidcToken, onHandshakeUpdated)
+            processCapsuleInternal(buffered.id, buffered.capsule, db, buffered.ssoSession, sendAckFn, getOidcToken, onHandshakeUpdated)
           })
         }
       }
