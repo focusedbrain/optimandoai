@@ -496,8 +496,7 @@ export function HandshakeRequestForm({
                       }}
                     />
                   </div>
-                  {(contextGraphText.trim() || message.trim()) && (
-                    <div style={{ padding: '8px 12px', background: isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)', borderRadius: '8px', border: `1px solid ${borderColor}` }}>
+                  <div style={{ padding: '8px 12px', background: isStandard ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.12)', borderRadius: '8px', border: `1px solid ${borderColor}` }}>
                       <div style={{ fontSize: '10px', fontWeight: 600, color: mutedColor, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Policy for this ad-hoc context
                       </div>
@@ -558,7 +557,6 @@ export function HandshakeRequestForm({
                         </div>
                       )}
                     </div>
-                  )}
                 </div>
               )}
             </div>

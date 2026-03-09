@@ -37,6 +37,7 @@ if (process.platform === 'win32') {
   buildDirs.push('C:\\build-output\\build100')
   buildDirs.push('C:\\build-output\\build01')
   buildDirs.push('C:\\build-output\\build02')
+  buildDirs.push('C:\\build-output\\build05')
 } else {
   buildDirs.push(path.join(appDir, 'dist', 'release'))
 }

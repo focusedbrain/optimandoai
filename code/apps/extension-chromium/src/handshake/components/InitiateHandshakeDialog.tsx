@@ -351,8 +351,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                         />
                       </div>
                     </div>
-                    {contextGraphText.trim() && (
-                      <div style={{ padding: '8px 12px', background: 'rgba(139,92,246,0.06)', borderRadius: '8px', border: `1px solid ${t.border}` }}>
+                    <div style={{ padding: '8px 12px', background: 'rgba(139,92,246,0.06)', borderRadius: '8px', border: `1px solid ${t.border}` }}>
                         <div style={{ fontSize: '10px', fontWeight: 600, color: t.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Policy for this ad-hoc context
                         </div>
@@ -413,7 +412,6 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                           </div>
                         )}
                       </div>
-                    )}
                   </div>
                 )}
               </div>

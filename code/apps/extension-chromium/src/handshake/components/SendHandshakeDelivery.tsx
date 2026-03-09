@@ -773,8 +773,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                         }}
                       />
                     </div>
-                    {(contextGraphText.trim() || (mode === 'api' && message.trim())) && (
-                      <div style={{ padding: '8px 12px', background: t.accentPrimaryLight, borderRadius: '8px', border: `1px solid ${t.border}` }}>
+                    <div style={{ padding: '8px 12px', background: t.accentPrimaryLight, borderRadius: '8px', border: `1px solid ${t.border}` }}>
                         <div style={{ fontSize: '10px', fontWeight: 600, color: t.muted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Policy for this ad-hoc context
                         </div>
@@ -835,7 +834,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                           </div>
                         )}
                       </div>
-                    )}
                   </div>
                 )}
               </div>
