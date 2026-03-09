@@ -106,10 +106,12 @@ async function processCapsuleInternal(
       headers: { 'content-type': 'application/vnd.beap+json' },
     }
 
+    console.log('[Coordination] Calling processIncomingInput for:', id, 'capsuleType=', capsuleType)
     const result = await processIncomingInput(rawInput, 'coordination_ws', {
       channel_id: 'coordination_ws',
       mime_type: 'application/vnd.beap+json',
     })
+    console.log('[Coordination] processIncomingInput returned: success=', result.success, 'reason=', (result as any).reason ?? 'n/a', 'target=', (result as any).distribution?.target ?? 'n/a')
 
     if (db) {
       try {
@@ -155,6 +157,7 @@ async function processCapsuleInternal(
       capsule: rebuildResult.capsule as any,
     }
 
+    console.log('[Coordination] Calling processHandshakeCapsule for:', id, 'capsuleType=', capsuleType)
     const handshakeResult = processHandshakeCapsule(
       db,
       canonicalValidated,
