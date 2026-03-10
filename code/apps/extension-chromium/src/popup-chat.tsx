@@ -1557,31 +1557,14 @@ function PopupChatApp() {
                   lineHeight: '1.5',
                 }}>
                   {platformOs === 'linux'
-                    ? 'Launch WR Desk using the button below, or start it from your application menu.'
-                    : <>Launch WR Desk using the button below, or open it from the Start menu.</>}
+                    ? 'Please start WR Desk from your application menu.'
+                    : <>Please start WR Desk from the Start menu.</>}
                 </p>
                 {launchTimedOut ? (
                   <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
                     Could not connect. Please make sure WR Desk is running and try again.
                   </p>
                 ) : null}
-                <button
-                  onClick={launchElectronApp}
-                  disabled={isLaunchingElectron}
-                  style={{
-                    marginTop: '4px',
-                    padding: '6px 16px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: 'none',
-                    cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                    background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
-                    color: theme === 'standard' ? '#fff' : '#0f172a',
-                  }}
-                >
-                  {isLaunchingElectron ? 'Connecting to WR Desk...' : 'Launch WR Desk'}
-                </button>
                 <button
                   onClick={handleSignIn}
                   style={{

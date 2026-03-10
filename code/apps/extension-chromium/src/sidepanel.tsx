@@ -3495,40 +3495,8 @@ function SidepanelOrchestrator() {
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
           
-          {!showManualLaunchInstructions ? (
-            <>
-              <p style={{ 
-                margin: '0 0 20px 0', 
-                fontSize: '13px', 
-                opacity: 0.9,
-                lineHeight: 1.5 
-              }}>
-                The desktop application is not running. Start it to enable full functionality including LLM processing, secure storage, and advanced features.
-              </p>
-              
-              <button
-                onClick={launchElectronApp}
-                disabled={isLaunchingElectron}
-                style={{
-                  width: '100%',
-                  padding: '12px 20px',
-                  background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: isLaunchingElectron ? 'white' : '#0b1e12',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                  marginBottom: '12px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {isLaunchingElectron ? '⏳ Connecting to WR Desk...' : '🚀 Launch WR Desk'}
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={{
+          <>
+            <div style={{
                 background: 'rgba(0,0,0,0.2)',
                 borderRadius: '8px',
                 padding: '16px',
@@ -3578,27 +3546,7 @@ function SidepanelOrchestrator() {
               >
                 {isLaunchingElectron ? '⏳ Checking...' : '🔄 Retry Connection'}
               </button>
-              
-              <button
-                onClick={() => {
-                  setShowManualLaunchInstructions(false)
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 16px',
-                  background: 'transparent',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  borderRadius: '6px',
-                  color: 'rgba(255,255,255,0.8)',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  marginBottom: '12px'
-                }}
-              >
-                ← Try Auto-Start Again
-              </button>
-            </>
-          )}
+          </>
           
           <button
             onClick={() => setShowElectronDialog(false)}
@@ -3810,31 +3758,14 @@ function SidepanelOrchestrator() {
                   lineHeight: '1.5',
                 }}>
                   {platformOs === 'linux'
-                    ? 'Launch WR Desk using the button below, or start it from your application menu.'
-                    : <>Launch WR Desk using the button below, or open it from the Start menu.</>}
+                    ? 'Please start WR Desk from your application menu.'
+                    : <>Please start WR Desk from the Start menu.</>}
                 </p>
                 {launchTimedOut ? (
                   <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
                     Could not connect. Please make sure WR Desk is running and try again.
                   </p>
                 ) : null}
-                <button
-                  onClick={launchElectronApp}
-                  disabled={isLaunchingElectron}
-                  style={{
-                    marginTop: '4px',
-                    padding: '6px 16px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: 'none',
-                    cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                    background: isLaunchingElectron ? (theme === 'standard' ? '#9ca3af' : '#6b7280') : (theme === 'standard' ? '#22c55e' : '#4ade80'),
-                    color: theme === 'standard' ? '#fff' : '#0f172a',
-                  }}
-                >
-                  {isLaunchingElectron ? 'Connecting to WR Desk...' : 'Launch WR Desk'}
-                </button>
                 <button
                   onClick={handleAuthSignIn}
                   style={{

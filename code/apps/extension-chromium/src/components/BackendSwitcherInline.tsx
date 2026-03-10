@@ -420,22 +420,6 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                 )}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
-                    onClick={launchElectronApp}
-                    disabled={isLaunchingElectron}
-                    style={{
-                      padding: '6px 12px',
-                      background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
-                      border: 'none',
-                      borderRadius: '6px',
-                      color: isLaunchingElectron ? 'rgba(255,255,255,0.8)' : '#fff',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                    }}
-                  >
-                    {isLaunchingElectron ? 'Connecting...' : 'Launch WR Desk'}
-                  </button>
-                  <button
                     onClick={() => { setElectronNotRunning(false); handleSignIn(); }}
                     style={{
                       padding: '6px 12px',
