@@ -256,6 +256,32 @@ export function createCoordinationWsClient(
   let capsuleHandler: ((msg: CoordinationCapsuleMessage) => Promise<void>) | null = null
   let pendingAcks: string[] = []
   let ackFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let lastActivityAt = 0
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+  // Watchdog: if WS appears open but no traffic for >90s, force-close and reconnect.
+  // This catches the case where the socket silently dies (no 'close' event fired).
+  const startHeartbeat = (): void => {
+    if (heartbeatTimer) return
+    lastActivityAt = Date.now()
+    heartbeatTimer = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      const staleSec = (Date.now() - lastActivityAt) / 1000
+      if (staleSec > 90) {
+        console.warn('[Coordination] WS stale for', Math.round(staleSec), 's — forcing reconnect')
+        ws.terminate?.()
+        ws = null
+        setP2PHealthCoordinationDisconnected()
+        scheduleReconnect()
+      }
+    }, 30_000)
+  }
+
+  const stopHeartbeat = (): void => {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+  }
+
+  const bumpActivity = (): void => { lastActivityAt = Date.now() }
 
   const flushAcks = (): void => {
     if (pendingAcks.length === 0 || !ws || ws.readyState !== WebSocket.OPEN) return
@@ -296,6 +322,7 @@ export function createCoordinationWsClient(
     const token = await getOidcToken()
     if (!token?.trim()) {
       setP2PHealthCoordinationError('No OIDC token — please log in')
+      scheduleReconnect()
       return
     }
 
@@ -316,11 +343,13 @@ export function createCoordinationWsClient(
         setP2PHealthCoordinationConnected()
         setP2PHealthCoordinationReconnectAttempts(0)
         flushAcks()
+        startHeartbeat()
         console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
         resolve()
       })
 
       ws.on('message', (data: Buffer | string) => {
+        bumpActivity()
         try {
           const text = typeof data === 'string' ? data : data.toString('utf8')
           const msg = JSON.parse(text) as { type?: string; id?: string; handshake_id?: string; capsule?: unknown }
@@ -366,6 +395,7 @@ export function createCoordinationWsClient(
 
       ws.on('close', () => {
         ws = null
+        stopHeartbeat()
         setP2PHealthCoordinationDisconnected()
         if (!config.use_coordination || !config.coordination_enabled) return
         scheduleReconnect()
@@ -376,6 +406,7 @@ export function createCoordinationWsClient(
       })
 
       ws.on('ping', () => {
+        bumpActivity()
         ws?.pong()
       })
     })
@@ -406,6 +437,7 @@ export function createCoordinationWsClient(
       ws.close()
       ws = null
     }
+    stopHeartbeat()
     setP2PHealthCoordinationDisconnected()
   }
 
