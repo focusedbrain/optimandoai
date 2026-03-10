@@ -375,7 +375,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
                     const result = await window.handshakeView?.getAvailableModels?.()
                     if (result?.success && Array.isArray(result.models)) {
                       setAvailableModels(result.models)
-                      setSelectedModel(prev => prev || result.models[0]?.id ?? '')
+                      setSelectedModel(prev => prev || (result.models[0]?.id ?? ''))
                     }
                   } catch { /* ignore */ }
                 }
