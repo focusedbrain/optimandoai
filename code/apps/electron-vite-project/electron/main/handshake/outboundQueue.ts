@@ -55,7 +55,7 @@ export async function processOutboundQueue(
       `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries
        FROM outbound_capsule_queue
        WHERE status = 'pending'
-       ORDER BY created_at ASC
+       ORDER BY created_at ASC, id ASC
        LIMIT 1`,
     ).get() as { id: number; handshake_id: string; target_endpoint: string; capsule_json: string; retry_count: number; max_retries: number } | undefined
 

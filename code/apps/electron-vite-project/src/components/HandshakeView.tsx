@@ -212,7 +212,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
             <div
               key={r.handshake_id}
               style={{
-                display: 'flex', alignItems: 'stretch',
+                display: 'flex', alignItems: 'stretch', minWidth: 0,
                 background: selectedId === r.handshake_id
                   ? 'var(--color-accent-bg, rgba(139,92,246,0.12))'
                   : 'transparent',
@@ -222,14 +222,14 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               <button
                 onClick={() => setSelectedId(r.handshake_id)}
                 style={{
-                  flex: 1, display: 'flex', flexDirection: 'column', gap: '3px',
-                  padding: '10px 12px', textAlign: 'left',
+                  flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px',
+                  padding: '10px 8px', textAlign: 'left',
                   border: 'none', background: 'transparent',
                   cursor: 'pointer', color: 'inherit',
                   transition: 'background 0.1s',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', minWidth: 0 }}>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {counterpartyEmail(r)}
                   </span>
@@ -237,36 +237,38 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                     <StateBadge state={r.state} />
                   </span>
                 </div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {shortId(r.handshake_id)} · {formatDate(r.created_at)}
-                  {count > 0 && ` · ${count} blocks`}
+                  {count > 0 && ` · ${count}`}
                 </div>
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setSelectedId(r.handshake_id) }}
-                title="View context blocks"
-                style={{
-                  padding: '6px 10px', border: 'none', background: 'transparent',
-                  color: hasContext ? 'var(--color-accent, #a78bfa)' : 'var(--color-text-muted, #94a3b8)',
-                  cursor: 'pointer', fontSize: '10px', fontWeight: 600,
-                  display: 'flex', alignItems: 'center', opacity: hasContext ? 1 : 0.7,
-                }}
-              >
-                View Context ({count})
-              </button>
-              {canDelete && (
+              <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center' }}>
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(r.handshake_id) }}
-                  title="Delete handshake"
+                  onClick={(e) => { e.stopPropagation(); setSelectedId(r.handshake_id) }}
+                  title="View context blocks"
                   style={{
-                    padding: '8px 12px', border: 'none', background: 'transparent',
-                    color: 'var(--color-text-muted, #94a3b8)', cursor: 'pointer',
-                    fontSize: '12px', display: 'flex', alignItems: 'center',
+                    padding: '6px 6px', border: 'none', background: 'transparent',
+                    color: hasContext ? 'var(--color-accent, #a78bfa)' : 'var(--color-text-muted, #94a3b8)',
+                    cursor: 'pointer', fontSize: '9px', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', opacity: hasContext ? 1 : 0.7,
                   }}
                 >
-                  Delete
+                  {count}
                 </button>
-              )}
+                {canDelete && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(r.handshake_id) }}
+                    title="Delete handshake"
+                    style={{
+                      padding: '6px 8px', border: 'none', background: 'transparent',
+                      color: 'var(--color-text-muted, #94a3b8)', cursor: 'pointer',
+                      fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center',
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}
@@ -315,7 +317,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {loading ? (
             <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)' }}>
               Loading…

@@ -235,12 +235,15 @@ async function processCapsuleInternal(
       // For context_sync capsules rejected due to ordering issues (arrived before the accept
       // was processed — acceptor not yet in the record), buffer them locally and replay after
       // the accept capsule succeeds. Also keep NOT ACKing so the relay retries as a fallback.
+      // INVALID_STATE_TRANSITION is included: context_sync may arrive while state is still
+      // PENDING_ACCEPT/PENDING_REVIEW (before user accepts) — replay after accept.
       const isTransientContextSyncRejection =
         capsuleType === 'context_sync' &&
         (handshakeResult.reason === 'HANDSHAKE_OWNERSHIP_VIOLATION' ||
          handshakeResult.reason === 'CHAIN_INTEGRITY_VIOLATION' ||
          handshakeResult.reason === 'INVALID_CHAIN' ||
-         handshakeResult.reason === 'SIGNATURE_INVALID')
+         handshakeResult.reason === 'SIGNATURE_INVALID' ||
+         handshakeResult.reason === 'INVALID_STATE_TRANSITION')
       if (isTransientContextSyncRejection) {
         console.warn('[Coordination] Buffering early context_sync for handshake=', handshakeId, '— will replay after accept')
         // Store the latest version — if relay sends multiple retries before accept, keep only the freshest
