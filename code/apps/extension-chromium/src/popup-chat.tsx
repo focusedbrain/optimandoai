@@ -1322,6 +1322,7 @@ function PopupChatApp() {
               emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
               onSelectEmailAccount={setSelectedEmailAccountId}
               onSuccess={() => setDockedSubmode('command')}
+              canUseHsContextProfiles={true}
             />
           </div>
         )
