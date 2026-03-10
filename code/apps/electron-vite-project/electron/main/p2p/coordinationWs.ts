@@ -89,7 +89,17 @@ async function processCapsuleInternal(
   const capObj = typeof capsule === 'object' && capsule !== null ? capsule as Record<string, unknown> : {}
   const capsuleType = (capObj?.capsule_type as string) ?? 'unknown'
   const handshakeId = (capObj?.handshake_id as string) ?? 'unknown'
+  const capsuleSenderId = (capObj?.sender_wrdesk_user_id as string) ?? ''
   console.log('[Coordination] Processing capsule:', id, 'type=', capsuleType, 'handshake=', handshakeId)
+
+  // Skip capsules we sent ourselves (relay echoes them back).
+  // For revoke/refresh/context_sync the sender is us — processing our own capsule would
+  // fail verify_handshake_ownership on the receiving side.
+  if (capsuleSenderId && ssoSession.wrdesk_user_id && capsuleSenderId === ssoSession.wrdesk_user_id) {
+    console.log('[Coordination] Skipping own capsule (sender=local user):', id, 'type=', capsuleType)
+    sendAckFn([id])
+    return
+  }
 
   if (!db) {
     console.error('[Coordination] DB check: FAILED — getHandshakeDb() returned null')

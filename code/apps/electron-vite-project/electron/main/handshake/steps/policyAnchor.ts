@@ -13,6 +13,12 @@ export const verifyWrdeskPolicyAnchor: PipelineStep = {
   name: 'verify_wrdesk_policy_anchor',
   execute(ctx) {
     const { input, receiverPolicy } = ctx
+
+    // Revoke capsules carry no policy hash by design — skip anchor check.
+    if (input.capsuleType === 'handshake-revoke') {
+      return { passed: true }
+    }
+
     const hashes = receiverPolicy.acceptedWrdeskPolicyHashes
 
     // Wildcard: accept any non-empty policy hash
