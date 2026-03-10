@@ -168,27 +168,56 @@ function ContextBlockCard({
         </div>
       )}
 
-      {/* Governance footer — compact, secondary info */}
+      {/* Hash + governance footer */}
       <div style={{
-        display: 'flex', gap: '6px', flexWrap: 'wrap',
         padding: '6px 12px',
         borderTop: '1px solid rgba(255,255,255,0.04)',
         background: 'rgba(0,0,0,0.15)',
       }}>
-        <PolicyPip label="AI" on={g?.usage_policy?.local_ai_allowed ?? false} />
-        <PolicyPip label="Cloud AI" on={g?.usage_policy?.cloud_ai_allowed ?? false} />
-        <PolicyPip label="Search" on={g?.usage_policy?.searchable ?? false} />
-        <PolicyPip label="Export" on={g?.usage_policy?.export_allowed ?? false} />
-        {block.embedding_status === 'complete' && (
-          <span style={{ fontSize: '9px', color: '#22c55e', marginLeft: 'auto', alignSelf: 'center' }}>
-            ✓ indexed
-          </span>
+        {/* Block hash — proof of data existence */}
+        {block.block_hash && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            marginBottom: '5px',
+          }}>
+            <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--color-text-muted, #6b7280)', textTransform: 'uppercase', flexShrink: 0 }}>
+              Hash
+            </span>
+            <span
+              title={`Click to copy full hash: ${block.block_hash}`}
+              onClick={() => { try { navigator.clipboard.writeText(block.block_hash!) } catch { /* ignore */ } }}
+              style={{
+                fontSize: '10px', fontFamily: 'monospace',
+                color: 'var(--color-text-muted, #94a3b8)',
+                cursor: 'pointer', userSelect: 'none',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                maxWidth: '260px',
+              }}
+            >
+              {block.block_hash.length > 24
+                ? `${block.block_hash.slice(0, 10)}…${block.block_hash.slice(-10)}`
+                : block.block_hash}
+            </span>
+            <span style={{ fontSize: '9px', color: '#4b5563', flexShrink: 0 }}>(click to copy)</span>
+          </div>
         )}
-        {block.embedding_status === 'pending' && (
-          <span style={{ fontSize: '9px', color: '#f59e0b', marginLeft: 'auto', alignSelf: 'center' }}>
-            ⏳ indexing…
-          </span>
-        )}
+        {/* Governance policy pips */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <PolicyPip label="AI" on={g?.usage_policy?.local_ai_allowed ?? false} />
+          <PolicyPip label="Cloud AI" on={g?.usage_policy?.cloud_ai_allowed ?? false} />
+          <PolicyPip label="Search" on={g?.usage_policy?.searchable ?? false} />
+          <PolicyPip label="Export" on={g?.usage_policy?.export_allowed ?? false} />
+          {block.embedding_status === 'complete' && (
+            <span style={{ fontSize: '9px', color: '#22c55e', marginLeft: 'auto' }}>
+              ✓ indexed
+            </span>
+          )}
+          {block.embedding_status === 'pending' && (
+            <span style={{ fontSize: '9px', color: '#f59e0b', marginLeft: 'auto' }}>
+              ⏳ indexing…
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )
