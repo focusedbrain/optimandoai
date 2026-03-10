@@ -6,7 +6,7 @@ import './handshakeViewTypes'
 
 type SearchMode = 'chat' | 'search'
 type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'all'
-type DashboardView = 'analysis' | 'handshakes' | 'beap' | 'handshake-request'
+type DashboardView = string
 
 interface SearchResult {
   id: string
