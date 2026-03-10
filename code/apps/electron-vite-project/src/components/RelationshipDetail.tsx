@@ -216,6 +216,7 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
   const [contextBlocks, setContextBlocks] = useState<VerifiedContextBlock[]>([])
+  const [showTechnical, setShowTechnical] = useState(false)
   const initialPolicy: PolicySelection = record.policy_selections
     ? { ai_processing_mode: parsePolicyToMode(record.policy_selections) }
     : DEFAULT_AI_POLICY
@@ -261,24 +262,27 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   return (
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column',
-      padding: '20px', overflowY: 'auto',
+      padding: '16px 20px', overflowY: 'auto',
     }}>
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: '20px', paddingBottom: '16px',
+        marginBottom: '16px', paddingBottom: '14px',
         borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        gap: '12px',
       }}>
-        <div>
-          <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text, #e2e8f0)', marginBottom: '4px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text, #e2e8f0)', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {counterpartyLabel}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
             You are the <strong>{record.local_role}</strong>
             {record.sharing_mode && ` · ${record.sharing_mode}`}
+            {` · ${formatDate(record.created_at)}`}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <StateBadge state={record.state} />
           {(record.state === 'ACTIVE' || record.state === 'ACCEPTED') && onRevoke && (
             <button
               onClick={onRevoke}
@@ -305,11 +309,10 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
               Delete
             </button>
           )}
-          <StateBadge state={record.state} />
         </div>
       </div>
 
-      {/* Vault status indicator — PENDING_ACCEPT (acceptor) or ACCEPTED */}
+      {/* ── Vault status indicator ── */}
       {showVaultIndicator && (
         <VaultStatusIndicator
           vaultName={vaultStatus?.name ?? null}
@@ -318,7 +321,101 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
         />
       )}
 
-      {/* Handshake context section — ACCEPTED or ACTIVE */}
+      {/* ── State notice for non-context states ── */}
+      {record.state === 'PENDING_ACCEPT' && (
+        <div style={{
+          padding: '14px 16px', marginBottom: '16px',
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b', marginBottom: '4px' }}>
+            Awaiting acceptance
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
+            The counterparty has not yet accepted this handshake request.
+          </div>
+        </div>
+      )}
+
+      {record.state === 'REVOKED' && (
+        <div style={{
+          padding: '14px 16px', marginBottom: '16px',
+          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', marginBottom: '4px' }}>
+            Handshake revoked
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: onDelete ? '12px' : 0 }}>
+            This relationship has been terminated. No further capsules can be exchanged.
+          </div>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                padding: '7px 14px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
+                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Delete handshake
+            </button>
+          )}
+        </div>
+      )}
+
+      {record.state === 'EXPIRED' && (
+        <div style={{
+          padding: '14px 16px', marginBottom: '16px',
+          background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)',
+          borderRadius: '8px',
+        }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>
+            Handshake expired
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: onDelete ? '12px' : 0 }}>
+            This relationship has expired. Start a new handshake to re-establish trust.
+          </div>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              style={{
+                padding: '7px 14px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
+                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              Delete handshake
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── ACCEPTED: context exchange in progress ── */}
+      {record.state === 'ACCEPTED' && !record.context_sync_pending && (
+        <div style={{
+          marginBottom: '12px', padding: '10px 14px',
+          background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: '8px', fontSize: '11px', color: '#94a3b8',
+        }}>
+          ⏳ Context exchange in progress — waiting for the other party to complete the roundtrip.
+        </div>
+      )}
+
+      {/* ── ACTIVE: delivery status banner (only when no blocks yet) ── */}
+      {record.state === 'ACTIVE' && contextBlockCount === 0 && !record.p2p_endpoint && (
+        <div style={{
+          padding: '10px 14px', marginBottom: '12px',
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: '8px', fontSize: '11px', color: '#f59e0b',
+        }}>
+          No P2P endpoint configured. Enable P2P in settings for automatic context exchange.
+        </div>
+      )}
+
+      {/* ── MAIN: Context blocks — shown prominently for ACCEPTED/ACTIVE ── */}
       {(record.state === 'ACCEPTED' || record.state === 'ACTIVE') && (
         <HandshakeContextSection
           record={record}
@@ -332,187 +429,87 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
         />
       )}
 
-      {/* ACCEPTED + context sync sent: waiting for other party */}
-      {record.state === 'ACCEPTED' && !record.context_sync_pending && (
-        <div style={{
-          marginBottom: '16px', padding: '10px 14px',
-          background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
-          borderRadius: '8px', fontSize: '11px', color: '#94a3b8',
-        }}>
-          Completing handshake… Context exchange in progress. Waiting for the other party.
-        </div>
-      )}
+      {/* ── Technical details (collapsed by default) ── */}
+      <div style={{ marginTop: '8px' }}>
+        <button
+          onClick={() => setShowTechnical(!showTechnical)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            width: '100%', padding: '8px 12px',
+            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: '6px', cursor: 'pointer',
+            color: 'var(--color-text-muted, #94a3b8)', fontSize: '11px', fontWeight: 600,
+            textAlign: 'left',
+          }}
+        >
+          <span style={{ fontSize: '10px' }}>{showTechnical ? '▾' : '▸'}</span>
+          Technical Details
+          <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 400 }}>
+            Chain metadata · delivery · commitments
+          </span>
+        </button>
 
-      {/* Chain Metadata */}
-      <div style={{
-        background: 'var(--color-surface, rgba(255,255,255,0.03))',
-        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        borderRadius: '8px', padding: '14px 16px', marginBottom: '16px',
-      }}>
-        <div style={{
-          fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)',
-          marginBottom: '8px',
-        }}>
-          Chain Metadata
-        </div>
-        <MetaRow label="Handshake ID" value={record.handshake_id} />
-        <MetaRow label="Relationship ID" value={record.relationship_id} />
-        <MetaRow label="Last seq received" value={String(record.last_seq_received)} />
-        <MetaRow label="Last capsule hash" value={shortHash(record.last_capsule_hash_received)} />
-        <RelayStatusHint />
-        <P2PDeliveryStatus handshakeId={record.handshake_id} p2pEndpoint={record.p2p_endpoint} />
+        {showTechnical && (
+          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+
+            {/* Delivery status */}
+            <div style={{
+              background: 'var(--color-surface, rgba(255,255,255,0.03))',
+              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+              borderRadius: '8px', padding: '12px 14px',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '6px' }}>
+                Delivery
+              </div>
+              <RelayStatusHint />
+              <P2PDeliveryStatus handshakeId={record.handshake_id} p2pEndpoint={record.p2p_endpoint} />
+            </div>
+
+            {/* Chain Metadata */}
+            <div style={{
+              background: 'var(--color-surface, rgba(255,255,255,0.03))',
+              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+              borderRadius: '8px', padding: '12px 14px',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '6px' }}>
+                Chain Metadata
+              </div>
+              <MetaRow label="Handshake ID" value={record.handshake_id} />
+              <MetaRow label="Relationship ID" value={record.relationship_id} />
+              <MetaRow label="Last seq received" value={String(record.last_seq_received)} />
+              <MetaRow label="Last capsule hash" value={shortHash(record.last_capsule_hash_received)} />
+            </div>
+
+            {/* Context Commitments */}
+            <div style={{
+              background: 'var(--color-surface, rgba(255,255,255,0.03))',
+              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+              borderRadius: '8px', padding: '12px 14px',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '6px' }}>
+                Context Commitments
+              </div>
+              <CopyableHash label="Sender" hash={record.initiator_context_commitment} />
+              <CopyableHash label="Receiver" hash={record.acceptor_context_commitment} />
+            </div>
+
+            {/* Timeline */}
+            <div style={{
+              background: 'var(--color-surface, rgba(255,255,255,0.03))',
+              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+              borderRadius: '8px', padding: '12px 14px',
+            }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '6px' }}>
+                Timeline
+              </div>
+              <MetaRow label="Created" value={formatDate(record.created_at)} />
+              <MetaRow label="Activated" value={formatDate(record.activated_at)} />
+              <MetaRow label="Expires" value={formatDate(record.expires_at)} />
+            </div>
+
+          </div>
+        )}
       </div>
-
-      {/* Context Commitments */}
-      <div style={{
-        background: 'var(--color-surface, rgba(255,255,255,0.03))',
-        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        borderRadius: '8px', padding: '14px 16px', marginBottom: '16px',
-      }}>
-        <div style={{
-          fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)',
-          marginBottom: '8px',
-        }}>
-          Context Commitments
-        </div>
-        <CopyableHash label="Sender Context" hash={record.initiator_context_commitment} />
-        <CopyableHash label="Receiver Context" hash={record.acceptor_context_commitment} />
-      </div>
-
-      {/* Timeline */}
-      <div style={{
-        background: 'var(--color-surface, rgba(255,255,255,0.03))',
-        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        borderRadius: '8px', padding: '14px 16px', marginBottom: '16px',
-      }}>
-        <div style={{
-          fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)',
-          marginBottom: '8px',
-        }}>
-          Timeline
-        </div>
-        <MetaRow label="Created" value={formatDate(record.created_at)} />
-        <MetaRow label="Activated" value={formatDate(record.activated_at)} />
-        <MetaRow label="Expires" value={formatDate(record.expires_at)} />
-      </div>
-
-      {/* Content Availability / State Notice */}
-      {record.state === 'REVOKED' ? (
-        <div style={{
-          padding: '14px 16px',
-          background: 'rgba(239,68,68,0.08)',
-          border: '1px solid rgba(239,68,68,0.2)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', marginBottom: '4px' }}>
-            Handshake revoked.
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '12px' }}>
-            This relationship has been terminated. No further capsules can be exchanged.
-          </div>
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              style={{
-                padding: '8px 14px', fontSize: '12px', fontWeight: 600,
-                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
-                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Delete handshake
-            </button>
-          )}
-        </div>
-      ) : record.state === 'EXPIRED' ? (
-        <div style={{
-          padding: '14px 16px',
-          background: 'rgba(107,114,128,0.08)',
-          border: '1px solid rgba(107,114,128,0.2)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>
-            Handshake expired.
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '12px' }}>
-            This relationship has expired. Start a new handshake to re-establish trust.
-          </div>
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              style={{
-                padding: '8px 14px', fontSize: '12px', fontWeight: 600,
-                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
-                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Delete handshake
-            </button>
-          )}
-        </div>
-      ) : record.state === 'PENDING_ACCEPT' ? (
-        <div style={{
-          padding: '14px 16px',
-          background: 'rgba(245,158,11,0.08)',
-          border: '1px solid rgba(245,158,11,0.2)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b', marginBottom: '4px' }}>
-            Awaiting acceptance.
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-            The counterparty has not yet accepted this handshake request.
-          </div>
-        </div>
-      ) : record.state === 'ACCEPTED' ? (
-        <div style={{
-          padding: '14px 16px',
-          background: 'rgba(59,130,246,0.08)',
-          border: '1px solid rgba(59,130,246,0.2)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#3b82f6', marginBottom: '4px' }}>
-            Accepted — awaiting context roundtrip.
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-            Handshake accepted. Context exchange in progress. Will become Active when roundtrip completes.
-          </div>
-        </div>
-      ) : (
-        <div style={{
-          padding: '14px 16px',
-          background: (contextBlockCount > 0 || record.last_seq_received >= 1) ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
-          border: `1px solid ${(contextBlockCount > 0 || record.last_seq_received >= 1) ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
-          borderRadius: '8px',
-        }}>
-          <div style={{
-            fontSize: '12px', fontWeight: 600,
-            color: (contextBlockCount > 0 || record.last_seq_received >= 1) ? '#22c55e' : '#f59e0b',
-            marginBottom: '4px',
-          }}>
-            {record.last_seq_received >= 1
-              ? 'Context synced. Ready for BEAP messaging.'
-              : contextBlockCount > 0
-                ? `${contextBlockCount} Context Block${contextBlockCount > 1 ? 's' : ''} — content available`
-                : record.p2p_endpoint
-                  ? 'Context sync in progress. P2P delivery may take a few seconds.'
-                  : 'P2P not configured. Enable P2P in settings to auto-sync context, or exchange context manually.'}
-          </div>
-          <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)' }}>
-            {record.last_seq_received >= 1
-              ? 'Context has been exchanged via P2P or BEAP capsules.'
-              : contextBlockCount > 0
-                ? 'Context data has been received via the BEAP-Capsule pipeline.'
-                : record.p2p_endpoint
-                  ? 'Waiting for counterparty context-sync delivery.'
-                  : 'Configure P2P before initiating a handshake for automatic context exchange.'}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

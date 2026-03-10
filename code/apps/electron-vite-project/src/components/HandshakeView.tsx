@@ -195,6 +195,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
 
   const renderGroup = (title: string, records: HandshakeRecord[]) => {
     if (records.length === 0) return null
+    const canRevoke = title === 'Active' || title === 'Accepted'
     const canDelete = title === 'Revoked' || title === 'Expired'
     return (
       <div style={{ marginBottom: '16px' }}>
@@ -207,7 +208,6 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
         </div>
         {records.map(r => {
           const count = contextBlockCounts[r.handshake_id] ?? 0
-          const hasContext = count > 0
           return (
             <div
               key={r.handshake_id}
@@ -223,13 +223,12 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                 onClick={() => setSelectedId(r.handshake_id)}
                 style={{
                   flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px',
-                  padding: '10px 8px', textAlign: 'left',
+                  padding: '10px 12px', textAlign: 'left',
                   border: 'none', background: 'transparent',
                   cursor: 'pointer', color: 'inherit',
-                  transition: 'background 0.1s',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {counterpartyEmail(r)}
                   </span>
@@ -238,34 +237,39 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                   </span>
                 </div>
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {shortId(r.handshake_id)} · {formatDate(r.created_at)}
-                  {count > 0 && ` · ${count}`}
+                  {formatDate(r.created_at)}
+                  {count > 0 && (
+                    <span style={{ marginLeft: '6px', color: 'var(--color-accent, #a78bfa)', fontWeight: 600 }}>
+                      {count} block{count !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
               </button>
-              <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center' }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setSelectedId(r.handshake_id) }}
-                  title="View context blocks"
-                  style={{
-                    padding: '6px 6px', border: 'none', background: 'transparent',
-                    color: hasContext ? 'var(--color-accent, #a78bfa)' : 'var(--color-text-muted, #94a3b8)',
-                    cursor: 'pointer', fontSize: '9px', fontWeight: 600,
-                    display: 'flex', alignItems: 'center', opacity: hasContext ? 1 : 0.7,
-                  }}
-                >
-                  {count}
-                </button>
+              <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', paddingRight: '4px', gap: '2px' }}>
+                {canRevoke && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRevoke(r.handshake_id) }}
+                    title="Revoke handshake"
+                    style={{
+                      padding: '4px 7px', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '4px',
+                      background: 'rgba(239,68,68,0.08)', color: '#ef4444',
+                      cursor: 'pointer', fontSize: '10px', fontWeight: 600,
+                    }}
+                  >
+                    Revoke
+                  </button>
+                )}
                 {canDelete && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDelete(r.handshake_id) }}
                     title="Delete handshake"
                     style={{
-                      padding: '6px 8px', border: 'none', background: 'transparent',
-                      color: 'var(--color-text-muted, #94a3b8)', cursor: 'pointer',
-                      fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center',
+                      padding: '4px 7px', border: '1px solid rgba(107,114,128,0.3)', borderRadius: '4px',
+                      background: 'rgba(107,114,128,0.1)', color: '#94a3b8',
+                      cursor: 'pointer', fontSize: '10px', fontWeight: 600,
                     }}
                   >
-                    ✕
+                    Delete
                   </button>
                 )}
               </div>

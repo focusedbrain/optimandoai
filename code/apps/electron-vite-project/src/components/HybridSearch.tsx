@@ -48,6 +48,23 @@ function defaultScope(view: DashboardView): SearchScope {
   return 'all'
 }
 
+// ── Helpers ──
+
+function friendlyTypeName(type: string | undefined): string {
+  if (!type) return 'Data'
+  const map: Record<string, string> = {
+    text: 'Text', document: 'Document', url: 'Link', email: 'Email',
+    json: 'Structured Data', image: 'Image', file: 'File', note: 'Note',
+    profile: 'Profile', contact: 'Contact',
+  }
+  return map[type.toLowerCase()] ?? type.charAt(0).toUpperCase() + type.slice(1)
+}
+
+function truncate(s: string, max = 220): string {
+  if (!s) return ''
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
+
 // ── Search backend (semantic search via handshake IPC) ──
 
 async function runSearch(query: string, scope: SearchScope): Promise<SearchResult[]> {
@@ -57,19 +74,28 @@ async function runSearch(query: string, scope: SearchScope): Promise<SearchResul
       if (result?.error === 'vault_locked') {
         return [{
           id: 'vault-locked',
-          title: 'Vault Locked',
+          title: '🔒 Vault Locked',
           snippet: 'Unlock your vault to search handshake context data.',
+          scope: 'context-graph',
+        }]
+      }
+      if (result?.error === 'no_embeddings') {
+        return [{
+          id: 'no-embeddings',
+          title: 'Search index not ready',
+          snippet: 'Context blocks are still being indexed. Try again in a moment.',
           scope: 'context-graph',
         }]
       }
       return []
     }
     const raw = result.results ?? []
-    return raw.map((r, i) => ({
-      id: r.block_id ?? `result-${i}`,
-      title: (r.type ?? 'block') as string,
-      snippet: r.snippet ?? (typeof r.payload_ref === 'string' ? r.payload_ref.substring(0, 200) : '') ?? '',
+    return raw.map((r: Record<string, unknown>, i: number) => ({
+      id: (r.block_id as string) ?? `result-${i}`,
+      title: friendlyTypeName(r.type as string | undefined),
+      snippet: truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : '')),
       scope: 'context-graph' as const,
+      timestamp: r.source === 'received' ? '↓ Received' : r.source === 'sent' ? '↑ Sent' : undefined,
     }))
   } catch (err) {
     console.error('Search failed:', err)
@@ -82,18 +108,23 @@ async function runChat(query: string, scope: SearchScope, _model: string): Promi
     const result = await window.handshakeView?.semanticSearch?.(query, scope, 5)
     if (!result?.success) {
       if (result?.error === 'vault_locked') {
-        return 'Your vault is locked. Please unlock it to search handshake data.'
+        return '🔒 Your vault is locked. Please unlock it to search handshake data.'
       }
-      return 'Search is not available right now.'
+      return 'Search is not available right now. Make sure your vault is unlocked and context blocks have been indexed.'
     }
     const raw = result.results ?? []
     if (raw.length === 0) {
-      return 'No matching context blocks found for your query.'
+      return 'No matching context blocks found for your query.\n\nTip: Make sure your vault is unlocked and context blocks have been exchanged and indexed.'
     }
-    const summary = raw
-      .map((r, i) => `${i + 1}. [${r.type ?? 'block'}] ${r.snippet ?? (typeof r.payload_ref === 'string' ? r.payload_ref.substring(0, 200) : '')}`)
-      .join('\n')
-    return `Found ${raw.length} relevant context blocks:\n\n${summary}`
+    const summary = (raw as Array<Record<string, unknown>>)
+      .map((r, i) => {
+        const label = friendlyTypeName(r.type as string | undefined)
+        const text = truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : ''), 300)
+        const direction = r.source === 'received' ? '↓ Received' : '↑ Sent'
+        return `${i + 1}. [${label} · ${direction}]\n   ${text}`
+      })
+      .join('\n\n')
+    return `Found ${raw.length} relevant context block${raw.length !== 1 ? 's' : ''}:\n\n${summary}`
   } catch (err) {
     console.error('Chat query failed:', err)
     return 'An error occurred while searching.'
@@ -400,11 +431,20 @@ function ResultRow({ result }: { result: SearchResult }) {
       }}
       title={result.title}
     >
-      <div className="hs-result-row__title">{result.title}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="hs-result-row__title">{result.title}</div>
+        {result.timestamp && (
+          <span style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: result.timestamp.startsWith('↓') ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.1)',
+            color: result.timestamp.startsWith('↓') ? '#a78bfa' : '#22c55e',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.timestamp}
+          </span>
+        )}
+      </div>
       <div className="hs-result-row__snippet">{result.snippet}</div>
-      {result.timestamp && (
-        <div className="hs-result-row__meta">{result.timestamp}</div>
-      )}
     </button>
   )
 }
