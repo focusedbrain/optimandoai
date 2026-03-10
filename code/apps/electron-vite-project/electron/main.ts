@@ -2213,7 +2213,7 @@ app.whenReady().then(async () => {
         console.log('[HANDSHAKE:FORCE_REVOKE] record found:', record ? `state=${record.state}` : 'null')
         if (!record) return { success: false, error: `Handshake ${id} not found in database` }
         const session = getCurrentSession()
-        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id, session ?? undefined, getOidcToken)
+        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id, session ?? undefined, async () => getAccessToken() ?? null)
         console.log('[HANDSHAKE:FORCE_REVOKE] revoke completed for id:', id)
         return { success: true }
       } catch (err: any) {
