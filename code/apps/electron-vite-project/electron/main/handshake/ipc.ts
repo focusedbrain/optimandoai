@@ -1078,7 +1078,40 @@ export async function handleHandshakeRPC(
       }
       try {
         const results = await semanticSearch(db, query ?? '', filter, limit ?? 20, embeddingService)
-        return { success: true, results }
+        const { parseGovernanceJson, resolveEffectiveGovernance } = await import('./contextGovernance')
+        const enriched = results.map((r) => {
+          const row = db.prepare('SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?').get(r.handshake_id, r.block_id, r.block_hash) as { governance_json?: string } | undefined
+          const record = getHandshakeRecord(db, r.handshake_id)
+          let governance: ContextItemGovernance | null = null
+          if (record) {
+            const itemGov = parseGovernanceJson(row?.governance_json)
+            const legacy = {
+              block_id: r.block_id,
+              type: r.type,
+              data_classification: r.data_classification,
+              scope_id: r.scope_id,
+              sender_wrdesk_user_id: r.sender_wrdesk_user_id,
+              publisher_id: r.sender_wrdesk_user_id,
+              source: r.source,
+            }
+            governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+          }
+          const policy = governance?.usage_policy
+          let governance_summary: string
+          if (!policy) {
+            governance_summary = 'No restrictions'
+          } else if (policy.local_ai_allowed === false) {
+            governance_summary = 'No AI'
+          } else if (policy.cloud_ai_allowed === true) {
+            governance_summary = 'Cloud AI allowed'
+          } else if (policy.local_ai_allowed === true) {
+            governance_summary = 'Local AI only'
+          } else {
+            governance_summary = 'No restrictions'
+          }
+          return { ...r, governance_summary }
+        })
+        return { success: true, results: enriched }
       } catch (err: any) {
         console.error('[IPC] semanticSearch error:', err?.message)
         return { success: false, error: err?.message ?? 'search_failed' }

@@ -14,32 +14,30 @@ interface SearchResult {
   snippet: string
   scope: 'context-graph' | 'capsules' | 'attachments'
   timestamp?: string
+  /** Handshake attribution */
+  handshake_id?: string
+  source?: 'received' | 'sent'
+  score?: number
+  data_classification?: string
+  /** Governance policy summary (e.g. "Local AI only", "Cloud AI allowed") */
+  governance_summary?: string
 }
 
 interface HybridSearchProps {
   activeView: DashboardView
 }
 
-// ── LLM Models ──
+// ── LLM Models (loaded from backend) ──
 
-const LOCAL_MODELS = [
-  { id: 'llama3', label: 'Llama 3' },
-  { id: 'mistral', label: 'Mistral 7B' },
-  { id: 'phi3', label: 'Phi-3' },
-]
+interface AvailableModel {
+  id: string
+  name: string
+  provider: string
+  type: 'local' | 'cloud'
+}
 
-const API_MODELS = [
-  { id: 'gpt-4o', label: 'GPT-4o' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-  { id: 'claude-3-haiku', label: 'Claude 3 Haiku' },
-  { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-]
-
-function getModelLabel(id: string): string {
-  return (
-    [...LOCAL_MODELS, ...API_MODELS].find(m => m.id === id)?.label ?? id
-  )
+function getModelLabel(id: string, models: AvailableModel[]): string {
+  return models.find(m => m.id === id)?.name ?? id
 }
 
 function defaultScope(view: DashboardView): SearchScope {
@@ -65,6 +63,16 @@ function truncate(s: string, max = 220): string {
   return s.length > max ? s.slice(0, max) + '…' : s
 }
 
+function shortId(id: string): string {
+  if (!id) return ''
+  return id.length > 16 ? `${id.slice(0, 3)}…${id.slice(-6)}` : id
+}
+
+const SPECIAL_RESULT_IDS = ['vault-locked', 'no-embeddings', 'embedding-unavailable'] as const
+function isSpecialResult(r: SearchResult): boolean {
+  return SPECIAL_RESULT_IDS.includes(r.id as typeof SPECIAL_RESULT_IDS[number])
+}
+
 // ── Search backend (semantic search via handshake IPC) ──
 
 async function runSearch(query: string, scope: SearchScope): Promise<SearchResult[]> {
@@ -87,15 +95,28 @@ async function runSearch(query: string, scope: SearchScope): Promise<SearchResul
           scope: 'context-graph',
         }]
       }
+      if (result?.error === 'embedding_unavailable') {
+        return [{
+          id: 'embedding-unavailable',
+          title: 'Search requires Ollama',
+          snippet: 'Search requires Ollama with an embedding model. Check Backend Configuration.',
+          scope: 'context-graph',
+        }]
+      }
       return []
     }
     const raw = result.results ?? []
     return raw.map((r: Record<string, unknown>, i: number) => ({
       id: (r.block_id as string) ?? `result-${i}`,
       title: friendlyTypeName(r.type as string | undefined),
-      snippet: truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : '')),
+      snippet: truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : ''), 200),
       scope: 'context-graph' as const,
       timestamp: r.source === 'received' ? '↓ Received' : r.source === 'sent' ? '↑ Sent' : undefined,
+      handshake_id: r.handshake_id as string | undefined,
+      source: r.source as 'received' | 'sent' | undefined,
+      score: typeof r.score === 'number' ? r.score : undefined,
+      data_classification: r.data_classification as string | undefined,
+      governance_summary: r.governance_summary as string | undefined,
     }))
   } catch (err) {
     console.error('Search failed:', err)
@@ -103,32 +124,11 @@ async function runSearch(query: string, scope: SearchScope): Promise<SearchResul
   }
 }
 
-async function runChat(query: string, scope: SearchScope, _model: string): Promise<string> {
-  try {
-    const result = await window.handshakeView?.semanticSearch?.(query, scope, 5)
-    if (!result?.success) {
-      if (result?.error === 'vault_locked') {
-        return '🔒 Your vault is locked. Please unlock it to search handshake data.'
-      }
-      return 'Search is not available right now. Make sure your vault is unlocked and context blocks have been indexed.'
-    }
-    const raw = result.results ?? []
-    if (raw.length === 0) {
-      return 'No matching context blocks found for your query.\n\nTip: Make sure your vault is unlocked and context blocks have been exchanged and indexed.'
-    }
-    const summary = (raw as Array<Record<string, unknown>>)
-      .map((r, i) => {
-        const label = friendlyTypeName(r.type as string | undefined)
-        const text = truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : ''), 300)
-        const direction = r.source === 'received' ? '↓ Received' : '↑ Sent'
-        return `${i + 1}. [${label} · ${direction}]\n   ${text}`
-      })
-      .join('\n\n')
-    return `Found ${raw.length} relevant context block${raw.length !== 1 ? 's' : ''}:\n\n${summary}`
-  } catch (err) {
-    console.error('Chat query failed:', err)
-    return 'An error occurred while searching.'
-  }
+interface ChatSource {
+  handshake_id: string
+  block_id: string
+  source: string
+  score: number
 }
 
 // ── Scope label helper ──
@@ -146,10 +146,14 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
-  const [selectedModel, setSelectedModel] = useState('gpt-4o')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [modelsLoading, setModelsLoading] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [results, setResults] = useState<SearchResult[]>([])
   const [response, setResponse] = useState<string | null>(null)
+  const [chatSources, setChatSources] = useState<ChatSource[]>([])
+  const [chatGovernanceNote, setChatGovernanceNote] = useState<string | null>(null)
   const [lastMode, setLastMode] = useState<SearchMode | null>(null)
   const [showPanel, setShowPanel] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
@@ -157,6 +161,24 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
+
+  // Load available models from backend
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const result = await window.handshakeView?.getAvailableModels?.()
+        if (result?.success && Array.isArray(result.models)) {
+          setAvailableModels(result.models)
+          setSelectedModel(prev => (prev || result.models[0]?.id) ?? '')
+        }
+      } catch (err) {
+        console.error('Failed to load models:', err)
+      } finally {
+        setModelsLoading(false)
+      }
+    }
+    loadModels()
+  }, [])
 
   // Sync scope when activeView changes
   useEffect(() => {
@@ -196,19 +218,52 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
     setShowPanel(true)
     setResults([])
     setResponse(null)
+    setChatSources([])
 
     try {
       if (mode === 'search') {
         const r = await runSearch(trimmed, scope)
         setResults(r)
       } else {
-        const r = await runChat(trimmed, scope, selectedModel)
-        setResponse(r)
+        const modelInfo = availableModels.find(m => m.id === selectedModel)
+        const result = await window.handshakeView?.chatWithContextRag?.({
+          query: trimmed,
+          scope,
+          model: selectedModel || 'llama3',
+          provider: modelInfo?.provider || 'ollama',
+        })
+
+        if (!result?.success) {
+          if (result?.error === 'vault_locked') {
+            setResponse('🔒 Unlock your vault to search handshake data.')
+          } else if (result?.error === 'embedding_unavailable') {
+            setResponse('Search requires Ollama with an embedding model. Check Backend Configuration.')
+          } else if (result?.error === 'no_api_key') {
+            setResponse(`No API key configured for ${result.provider ?? 'cloud provider'}. Add it in Extension Settings.`)
+          } else if (result?.error === 'ollama_unavailable') {
+            setResponse('Ollama is not running. Start Ollama to use local models.')
+          } else if (result?.error === 'api_call_failed') {
+            setResponse(result?.message ?? 'API call failed. Check your API key and network.')
+          } else {
+            setResponse(result?.message ?? 'Chat is not available right now.')
+          }
+          setChatSources([])
+          setChatGovernanceNote(null)
+        } else {
+          setResponse(result.answer ?? '')
+          setChatSources(result.sources ?? [])
+          setChatGovernanceNote(result.governanceNote ?? null)
+        }
       }
+    } catch (err: any) {
+      console.error('Chat failed:', err)
+      setResponse('An error occurred.')
+      setChatSources([])
+      setChatGovernanceNote(null)
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedModel, isLoading])
+  }, [query, mode, scope, selectedModel, availableModels, isLoading])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -222,13 +277,9 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
     }
   }, [handleSubmit])
 
-  const groupedResults = results.reduce<Record<string, SearchResult[]>>((acc, r) => {
-    if (!acc[r.scope]) acc[r.scope] = []
-    acc[r.scope].push(r)
-    return acc
-  }, {})
-
-  const scopeGroups = Object.entries(groupedResults) as [string, SearchResult[]][]
+  const handleViewHandshake = useCallback((handshakeId: string) => {
+    navigator.clipboard.writeText(handshakeId).then(() => {}).catch(() => {})
+  }, [])
 
   return (
     <div className="hs-root" ref={containerRef}>
@@ -296,7 +347,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
             disabled={!query.trim() || isLoading}
             title={
               mode === 'chat'
-                ? `Send to ${getModelLabel(selectedModel)} (Enter)`
+                ? `Send to ${getModelLabel(selectedModel, availableModels)} (Enter)`
                 : 'Run search (Enter)'
             }
           >
@@ -308,7 +359,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
               </span>
             )}
             {mode === 'chat' && !isLoading && (
-              <span className="hs-send-model">{getModelLabel(selectedModel)}</span>
+              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
             )}
           </button>
 
@@ -316,7 +367,19 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
           {mode === 'chat' && (
             <button
               className={`hs-model-caret${modelMenuOpen ? ' hs-model-caret--open' : ''}`}
-              onClick={() => setModelMenuOpen(o => !o)}
+              onClick={async () => {
+                const next = !modelMenuOpen
+                setModelMenuOpen(next)
+                if (next) {
+                  try {
+                    const result = await window.handshakeView?.getAvailableModels?.()
+                    if (result?.success && Array.isArray(result.models)) {
+                      setAvailableModels(result.models)
+                      setSelectedModel(prev => prev || result.models[0]?.id ?? '')
+                    }
+                  } catch { /* ignore */ }
+                }
+              }}
               aria-label="Select LLM model"
               title="Choose model"
               tabIndex={0}
@@ -327,30 +390,46 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
 
           {modelMenuOpen && mode === 'chat' && (
             <div className="hs-model-menu" role="menu">
-              <div className="hs-model-group-label">Local</div>
-              {LOCAL_MODELS.map(m => (
-                <button
-                  key={m.id}
-                  role="menuitem"
-                  className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
-                  onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
-                >
-                  {m.label}
-                  {selectedModel === m.id && <span className="hs-model-check">✓</span>}
-                </button>
-              ))}
-              <div className="hs-model-group-label">API</div>
-              {API_MODELS.map(m => (
-                <button
-                  key={m.id}
-                  role="menuitem"
-                  className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
-                  onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
-                >
-                  {m.label}
-                  {selectedModel === m.id && <span className="hs-model-check">✓</span>}
-                </button>
-              ))}
+              {modelsLoading ? (
+                <div className="hs-model-group-label">Loading models…</div>
+              ) : availableModels.length === 0 ? (
+                <div className="hs-model-group-label">No models configured — check Settings</div>
+              ) : (
+                <>
+                  {availableModels.some(m => m.type === 'local') && (
+                    <>
+                      <div className="hs-model-group-label">Local Models</div>
+                      {availableModels.filter(m => m.type === 'local').map(m => (
+                        <button
+                          key={m.id}
+                          role="menuitem"
+                          className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                        >
+                          {m.name}
+                          {selectedModel === m.id && <span className="hs-model-check">✓</span>}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {availableModels.some(m => m.type === 'cloud') && (
+                    <>
+                      <div className="hs-model-group-label">Cloud Models</div>
+                      {availableModels.filter(m => m.type === 'cloud').map(m => (
+                        <button
+                          key={m.id}
+                          role="menuitem"
+                          className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                        >
+                          {m.name}
+                          {selectedModel === m.id && <span className="hs-model-check">✓</span>}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -363,7 +442,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
             <span className="hs-panel-meta">
               {lastMode === 'search'
                 ? `Search · ${SCOPE_LABELS[scope]}`
-                : `Chat · ${getModelLabel(selectedModel)} · ${SCOPE_LABELS[scope]}`}
+                : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
             </span>
             <button
               className="hs-panel-close"
@@ -386,20 +465,21 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
           {!isLoading && lastMode === 'search' && (
             <>
               {results.length === 0 ? (
-                <div className="hs-panel-empty">No results found.</div>
-              ) : scope === 'all' && scopeGroups.length > 0 ? (
-                scopeGroups.map(([groupScope, groupResults]) => (
-                  <div key={groupScope} className="hs-result-group">
-                    <div className="hs-result-group-label">
-                      {SCOPE_LABELS[groupScope as SearchScope] ?? groupScope}
-                    </div>
-                    {groupResults.map(r => (
-                      <ResultRow key={r.id} result={r} />
-                    ))}
-                  </div>
-                ))
+                <div className="hs-panel-empty">
+                  No matching context found. Try a different query or check that context blocks have been indexed.
+                </div>
+              ) : results.length === 1 && isSpecialResult(results[0]) ? (
+                <div className="hs-panel-empty">
+                  <strong>{results[0].title}</strong>
+                  <br />
+                  {results[0].snippet}
+                </div>
               ) : (
-                results.map(r => <ResultRow key={r.id} result={r} />)
+                <div className="hs-result-group">
+                  {results.filter(r => !isSpecialResult(r)).map(r => (
+                    <ResultRow key={r.id} result={r} onViewHandshake={handleViewHandshake} />
+                  ))}
+                </div>
               )}
             </>
           )}
@@ -410,8 +490,38 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
               <div className="hs-response-text">{response}</div>
               <div className="hs-response-chips">
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
-                <span className="hs-chip">{getModelLabel(selectedModel)}</span>
+                <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
               </div>
+              {chatGovernanceNote && (
+                <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {chatGovernanceNote}
+                </div>
+              )}
+              {chatSources.length > 0 && (
+                <div className="hs-response-sources" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px' }}>Sources</div>
+                  {chatSources.map((s, i) => (
+                    <div key={`${s.handshake_id}-${s.block_id}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px', fontSize: '11px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        Source {i + 1}: Handshake {shortId(s.handshake_id)} · {s.source === 'received' ? 'Received' : 'Sent'} · Score: {(s.score * 100).toFixed(0)}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleViewHandshake(s.handshake_id)}
+                        title="Copy handshake ID"
+                        style={{
+                          fontSize: '10px', padding: '2px 6px',
+                          background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
+                          border: '1px solid rgba(147,51,234,0.2)', borderRadius: '4px',
+                          cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        View in handshake
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -422,17 +532,50 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
 
 // ── Result row ──
 
-function ResultRow({ result }: { result: SearchResult }) {
+function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHandshake: (id: string) => void }) {
+  const [copied, setCopied] = useState(false)
+  const scorePct = result.score != null ? Math.round(Math.min(1, Math.max(0, result.score)) * 100) : null
+  const attribution =
+    result.handshake_id && result.source
+      ? result.source === 'received'
+        ? `Received from handshake ${shortId(result.handshake_id)}`
+        : `Sent by you · handshake ${shortId(result.handshake_id)}`
+      : result.timestamp ?? ''
+
+  const handleCopyHandshake = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (result.handshake_id) {
+      onViewHandshake(result.handshake_id)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   return (
-    <button
+    <div
       className="hs-result-row"
-      onClick={() => {
-        console.log('[HybridSearch] result clicked:', result.id)
-      }}
       title={result.title}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <div className="hs-result-row__title">{result.title}</div>
+        {result.data_classification && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(107,114,128,0.15)', color: 'var(--text-muted)',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.data_classification}
+          </span>
+        )}
+        {result.governance_summary && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(139,92,246,0.12)', color: '#a78bfa',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.governance_summary}
+          </span>
+        )}
         {result.timestamp && (
           <span style={{
             fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
@@ -445,6 +588,41 @@ function ResultRow({ result }: { result: SearchResult }) {
         )}
       </div>
       <div className="hs-result-row__snippet">{result.snippet}</div>
-    </button>
+      {(attribution || scorePct != null) && (
+        <div className="hs-result-row__meta" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+          {scorePct != null && (
+            <span className="hs-result-score" title={`Relevance: ${scorePct}%`} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--text-muted)',
+            }}>
+              <span style={{
+                width: '24px', height: '4px', background: 'rgba(107,114,128,0.2)', borderRadius: 2, overflow: 'hidden',
+              }}>
+                <span style={{
+                  width: `${scorePct}%`, height: '100%', background: 'var(--purple-accent)', borderRadius: 2,
+                }} />
+              </span>
+              {scorePct}%
+            </span>
+          )}
+          {attribution && <span>{attribution}</span>}
+          {result.handshake_id && (
+            <button
+              type="button"
+              className="hs-result-view-handshake"
+              onClick={handleCopyHandshake}
+              title={copied ? 'Handshake ID copied' : 'Copy handshake ID'}
+              style={{
+                marginLeft: 'auto', fontSize: '10px', padding: '2px 6px',
+                background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
+                border: '1px solid rgba(147,51,234,0.2)', borderRadius: '4px',
+                cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              {copied ? 'Copied!' : 'View in handshake'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

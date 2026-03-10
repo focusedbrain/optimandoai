@@ -426,6 +426,15 @@ export class OCRRouter {
     return (Object.keys(VISION_PROVIDERS) as VisionProvider[])
       .filter(provider => this.isProviderAvailable(provider))
   }
+
+  /**
+   * Get API key for a provider (for LLM chat). Returns undefined if not configured.
+   */
+  getApiKey(provider: VisionProvider): string | undefined {
+    if (!this.cloudConfig?.apiKeys) return undefined
+    const key = this.cloudConfig.apiKeys[provider]
+    return key && typeof key === 'string' && key.trim() ? key.trim() : undefined
+  }
 }
 
 // Singleton instance

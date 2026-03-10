@@ -2253,6 +2253,81 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:getAvailableModels', async () => {
+      try {
+        const localModels: Array<{ id: string; name: string; provider: string; type: 'local' }> = []
+        const cloudModels: Array<{ id: string; name: string; provider: string; type: 'cloud' }> = []
+
+        // 1. Fetch local models from Ollama
+        try {
+          const res = await fetch('http://127.0.0.1:11434/api/tags')
+          if (res.ok) {
+            const data = await res.json()
+            const models = data?.models ?? []
+            for (const m of models) {
+              const name = (m?.name ?? m?.model ?? String(m)) || ''
+              if (!name) continue
+              localModels.push({
+                id: name,
+                name,
+                provider: 'ollama',
+                type: 'local',
+              })
+            }
+          }
+        } catch {
+          // Ollama not running
+        }
+
+        // 2. Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)
+        const { ocrRouter } = await import('./main/ocr/router')
+        const providers = ocrRouter.getAvailableProviders()
+        const CLOUD_MODEL_MAP: Record<string, { id: string; name: string; provider: string }> = {
+          OpenAI: { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
+          Claude: { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' },
+          Gemini: { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
+          Grok: { id: 'grok-1', name: 'Grok', provider: 'xai' },
+        }
+        for (const p of providers) {
+          const entry = CLOUD_MODEL_MAP[p]
+          if (entry) {
+            cloudModels.push({ ...entry, type: 'cloud' })
+          }
+        }
+
+        // 3. Fallback: orchestrator (optimando-api-keys — same key as extension localStorage)
+        if (cloudModels.length === 0) {
+          try {
+            const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+            const service = getOrchestratorService()
+            const keys = await service.get<Record<string, string>>('optimando-api-keys')
+            if (keys && typeof keys === 'object') {
+              const PROVIDER_ORDER = ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const
+              for (const p of PROVIDER_ORDER) {
+                const val = keys[p]
+                if (val && typeof val === 'string' && val.trim()) {
+                  const entry = CLOUD_MODEL_MAP[p]
+                  if (entry) {
+                    cloudModels.push({ ...entry, type: 'cloud' })
+                  }
+                }
+              }
+            }
+          } catch {
+            // Orchestrator not available or key not found
+          }
+        }
+
+        return {
+          success: true,
+          models: [...localModels, ...cloudModels],
+        }
+      } catch (err: any) {
+        console.error('[MAIN] handshake:getAvailableModels error:', err?.message)
+        return { success: false, error: err?.message ?? 'failed', models: [] }
+      }
+    })
+
     ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean }) => {
       try {
         const db = await getHandshakeDb()
@@ -2322,6 +2397,190 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:chatWithContextRag', async (_e, params: { query: string; scope?: string; model: string; provider: string }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'vault_locked' }
+        const vs = (globalThis as any).__og_vault_service_ref as { getEmbeddingService?: () => any } | undefined
+        const embeddingService = vs?.getEmbeddingService?.()
+        if (!embeddingService) return { success: false, error: 'embedding_unavailable' }
+
+        const { semanticSearch } = await import('./main/handshake/embeddings')
+        const { getHandshakeRecord } = await import('./main/handshake/db')
+        const {
+          parseGovernanceJson,
+          resolveEffectiveGovernance,
+          filterBlocksForCloudAI,
+        } = await import('./main/handshake/contextGovernance')
+
+        const filter: { relationship_id?: string; handshake_id?: string } = {}
+        const scope = params.scope ?? 'all'
+        if (typeof scope === 'string') {
+          if (scope.startsWith('hs-')) filter.handshake_id = scope
+          else if (scope.startsWith('rel-')) filter.relationship_id = scope
+        }
+
+        let searchResults = await semanticSearch(db, params.query ?? '', filter, 5, embeddingService)
+
+        const providerLower = (params.provider ?? 'ollama').toLowerCase()
+        const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
+
+        let governanceNote: string | null = null
+        if (isCloud && searchResults.length > 0) {
+          const blocksWithGov: Array<{ governance?: any; [k: string]: any }> = []
+          for (const b of searchResults) {
+            const row = db.prepare('SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?').get(b.handshake_id, b.block_id, b.block_hash) as { governance_json?: string } | undefined
+            const record = getHandshakeRecord(db, b.handshake_id)
+            if (!record) continue
+            const itemGov = parseGovernanceJson(row?.governance_json)
+            const legacy = {
+              block_id: b.block_id,
+              type: b.type,
+              data_classification: b.data_classification,
+              scope_id: b.scope_id,
+              sender_wrdesk_user_id: b.sender_wrdesk_user_id,
+              publisher_id: b.sender_wrdesk_user_id,
+              source: b.source,
+            }
+            const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+            blocksWithGov.push({ ...b, governance })
+          }
+          const originalCount = blocksWithGov.length
+          const filtered = filterBlocksForCloudAI(blocksWithGov, null)
+          searchResults = filtered
+          const filteredCount = originalCount - filtered.length
+          if (filteredCount > 0) {
+            governanceNote = `${filteredCount} context block(s) were excluded because their governance policy restricts cloud AI processing. Use a local model to access all results.`
+          }
+        }
+
+        const contextText = searchResults.map((r, i) => {
+          const content = r.payload_ref ?? (r as any).content ?? ''
+          return `[Source ${i + 1}: Handshake ${r.handshake_id}, ${r.source === 'received' ? 'received from counterparty' : 'sent by you'}]\n${content}`
+        }).join('\n\n---\n\n')
+
+        const systemPrompt = 'You are a helpful assistant answering questions based on handshake context data. Always cite which source number your information comes from using [Source N] notation. If the context does not contain enough information to answer, say so clearly.'
+        const userPrompt = contextText
+          ? `Based on the following context from handshake data:\n\n${contextText}\n\n---\n\nQuestion: ${params.query}`
+          : `Question: ${params.query}\n\n(No relevant context was found in handshake data.)`
+
+        let answer = ''
+        const sources = searchResults.map(r => ({ handshake_id: r.handshake_id, block_id: r.block_id, source: r.source, score: r.score }))
+
+        if (providerLower === 'ollama') {
+          try {
+            const res = await fetch('http://127.0.0.1:11434/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: params.model || 'llama3',
+                stream: false,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+              }),
+            })
+            if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
+            const data = await res.json()
+            answer = data.message?.content ?? 'No response from model.'
+          } catch (err: any) {
+            return { success: false, error: 'ollama_unavailable', message: err?.message ?? 'Ollama not available' }
+          }
+        } else if (providerLower === 'openai') {
+          const { ocrRouter } = await import('./main/ocr/router')
+          const apiKey = ocrRouter.getApiKey('OpenAI')
+          if (!apiKey) return { success: false, error: 'no_api_key', provider: 'openai' }
+          try {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({
+                model: params.model || 'gpt-4o',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+              }),
+            })
+            if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+          } catch (err: any) {
+            return { success: false, error: 'api_call_failed', provider: 'openai', message: err?.message ?? 'API call failed' }
+          }
+        } else if (providerLower === 'anthropic') {
+          const { ocrRouter } = await import('./main/ocr/router')
+          const apiKey = ocrRouter.getApiKey('Claude')
+          if (!apiKey) return { success: false, error: 'no_api_key', provider: 'anthropic' }
+          try {
+            const res = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+              body: JSON.stringify({
+                model: params.model || 'claude-sonnet-4-20250514',
+                max_tokens: 1024,
+                messages: [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }],
+              }),
+            })
+            if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            answer = data.content?.[0]?.text ?? 'No response from model.'
+          } catch (err: any) {
+            return { success: false, error: 'api_call_failed', provider: 'anthropic', message: err?.message ?? 'API call failed' }
+          }
+        } else if (providerLower === 'google') {
+          const { ocrRouter } = await import('./main/ocr/router')
+          const apiKey = ocrRouter.getApiKey('Gemini')
+          if (!apiKey) return { success: false, error: 'no_api_key', provider: 'google' }
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${params.model || 'gemini-pro'}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+                generationConfig: { maxOutputTokens: 1024 },
+              }),
+            })
+            if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            answer = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from model.'
+          } catch (err: any) {
+            return { success: false, error: 'api_call_failed', provider: 'google', message: err?.message ?? 'API call failed' }
+          }
+        } else if (providerLower === 'xai') {
+          const { ocrRouter } = await import('./main/ocr/router')
+          const apiKey = ocrRouter.getApiKey('Grok')
+          if (!apiKey) return { success: false, error: 'no_api_key', provider: 'xai' }
+          try {
+            const res = await fetch('https://api.x.ai/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({
+                model: params.model || 'grok-2-1212',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+              }),
+            })
+            if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+          } catch (err: any) {
+            return { success: false, error: 'api_call_failed', provider: 'xai', message: err?.message ?? 'API call failed' }
+          }
+        } else {
+          return { success: false, error: 'unsupported_provider', provider: params.provider }
+        }
+
+        return { success: true, answer, sources, governanceNote: governanceNote ?? undefined }
+      } catch (err: any) {
+        console.error('[MAIN] handshake:chatWithContextRag error:', err?.message)
+        return { success: false, error: err?.message ?? 'chat_failed', message: err?.message }
+      }
+    })
+
     // email:listAccounts is registered by registerEmailHandlers() — do not duplicate here
 
     ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
@@ -2385,12 +2644,13 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('vault:unlockForHandshake', async () => {
       try {
-        const { vaultService } = await import('./main/vault/rpc')
+        const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
         const status = vaultService.getStatus()
         if (!status?.isUnlocked) {
           return { success: false, reason: 'VAULT_LOCKED', needsUnlock: true }
         }
-        const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
         if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
@@ -2406,9 +2666,10 @@ app.whenReady().then(async () => {
         if (typeof password !== 'string' || password.length === 0) {
           return { success: false, error: 'Password is required' }
         }
-        const { vaultService } = await import('./main/vault/rpc')
+        const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
         await vaultService.unlock(password, vaultId || 'default')
-        const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
         completePendingContextSyncs(db, getCurrentSession())
         if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
         try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
@@ -5309,10 +5570,12 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
         const vaultService = await getVaultService()
+        const { setupEmbeddingServiceRef } = await import('./main/vault/rpc')
         await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
         res.json({ success: true, sessionToken: vaultService.getSessionToken() })
         setImmediate(() => {
-          const db = getLedgerDb() ?? vaultService.getDb?.() ?? null
           completePendingContextSyncs(db, getCurrentSession())
           if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
           try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
@@ -5327,6 +5590,8 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/lock', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/lock')
+        const { clearEmbeddingServiceRef } = await import('./main/vault/rpc')
+        clearEmbeddingServiceRef()
         const vaultService = await getVaultService()
         await vaultService.lock()
         res.json({ success: true })

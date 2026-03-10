@@ -263,6 +263,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
   semanticSearch: async (query: string, scope?: string, limit?: number) => {
     return ipcRenderer.invoke('handshake:semanticSearch', query, scope, limit)
   },
+  getAvailableModels: () => ipcRenderer.invoke('handshake:getAvailableModels'),
   chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
     if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {
       throw new Error('systemMessage: expected string (max 4KB)')
@@ -272,6 +273,17 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     const user = assertString(userMessage, 'userMessage')
     return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
+  },
+  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string }) => {
+    if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
+      throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
+    }
+    return ipcRenderer.invoke('handshake:chatWithContextRag', {
+      query: params.query,
+      scope: typeof params.scope === 'string' ? params.scope : undefined,
+      model: typeof params.model === 'string' ? params.model : 'llama3',
+      provider: typeof params.provider === 'string' ? params.provider : 'ollama',
+    })
   },
   initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
     const email = assertString(receiverEmail, 'receiverEmail')

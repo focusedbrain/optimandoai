@@ -40,6 +40,7 @@ import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDeliv
 import { useHandshakes } from './handshake/useHandshakes'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
+import { electronRpc } from './rpc/electronRpc'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -830,12 +831,11 @@ function SidepanelOrchestrator() {
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
   
-  // Function to refresh available models
+  // Function to refresh available models (uses electronRpc for auth — direct fetch gets 401)
   const refreshAvailableModels = async () => {
     try {
-      const baseUrl = 'http://127.0.0.1:51248'
-      const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
-      const statusResult = await statusResponse.json()
+      const result = await electronRpc('llm.status')
+      const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
       
       if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
         const models = statusResult.data.modelsInstalled
@@ -867,11 +867,8 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     const fetchFirstAvailableModel = async () => {
       try {
-        const baseUrl = 'http://127.0.0.1:51248'
-        
-        // Check status first
-        const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
-        const statusResult = await statusResponse.json()
+        const result = await electronRpc('llm.status')
+        const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
         
         if (!statusResult.ok || !statusResult.data) {
           setLlmError('LLM service not available')

@@ -9,6 +9,8 @@
 
 import { vaultService } from './service'
 import type { VaultTier } from './types'
+import { getOrCreateEmbeddingService, processEmbeddingQueue } from '../handshake/embeddings'
+import { migrateHandshakeTables } from '../handshake/db'
 
 // Export vaultService for HTTP API handlers
 export { vaultService }
@@ -73,6 +75,50 @@ function persistHAState(): void {
 }
 
 /**
+ * Set up embedding service ref and start processing the embedding queue.
+ * Called after vault unlock so semantic search and embedding indexing work.
+ * @param vs - VaultService instance
+ * @param handshakeDb - Optional handshake DB (ledger or vault). If provided, used for processEmbeddingQueue; otherwise uses vault DB.
+ */
+export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: any): void {
+  try {
+    const embeddingService = getOrCreateEmbeddingService()
+    const getDb = () => {
+      try {
+        return vs.getHsProfileDb?.() ?? null
+      } catch {
+        return null
+      }
+    }
+    ;(globalThis as any).__og_vault_service_ref = {
+      getDb,
+      getEmbeddingService: () => embeddingService,
+    }
+    const db = handshakeDb ?? getDb()
+    if (db) {
+      migrateHandshakeTables(db)
+      setImmediate(() => {
+        processEmbeddingQueue(db, embeddingService).then(
+          ({ processed, failed, skipped }) => {
+            if (processed > 0 || failed > 0 || skipped > 0) {
+              console.log('[Embedding] Queue processed:', { processed, failed, skipped })
+            }
+          },
+          (err) => console.error('[Embedding] Queue processing failed:', err?.message ?? err),
+        )
+      })
+    }
+  } catch (err: any) {
+    console.error('[VAULT RPC] setupEmbeddingServiceRef failed:', err?.message ?? err)
+  }
+}
+
+/** Clear embedding service ref when vault locks. */
+export function clearEmbeddingServiceRef(): void {
+  ;(globalThis as any).__og_vault_service_ref = null
+}
+
+/**
  * Handle vault RPC calls from WebSocket.
  *
  * @param method  RPC method name (e.g. 'vault.getItem')
@@ -104,10 +150,12 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       case 'vault.unlock': {
         const parsed = UnlockVaultRequestSchema.parse(params)
         const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
+        setupEmbeddingServiceRef(vaultService)
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
 
       case 'vault.lock': {
+        clearEmbeddingServiceRef()
         vaultService.lock()
         return { success: true, message: 'Vault locked' }
       }

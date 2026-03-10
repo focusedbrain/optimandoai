@@ -6,6 +6,74 @@
  */
 
 import type { ScoredContextBlock } from './types'
+
+export interface LocalEmbeddingService {
+  readonly modelId: string;
+  generateEmbedding(text: string): Promise<Float32Array>;
+}
+
+// ── Ollama Embedding Service ──
+
+const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
+
+/**
+ * LocalEmbeddingService implementation using Ollama's embedding API.
+ * Requires Ollama running with an embedding model (e.g. nomic-embed-text) installed.
+ */
+export class OllamaEmbeddingService implements LocalEmbeddingService {
+  readonly modelId: string
+  private baseUrl: string
+
+  constructor(modelId: string = DEFAULT_EMBED_MODEL, baseUrl: string = 'http://127.0.0.1:11434') {
+    this.modelId = modelId
+    this.baseUrl = baseUrl
+  }
+
+  async generateEmbedding(text: string): Promise<Float32Array> {
+    const url = `${this.baseUrl}/api/embed`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.modelId,
+        input: text || ' ',
+      }),
+    })
+    if (!response.ok) {
+      throw new Error(`Ollama embedding failed: ${response.status} ${response.statusText}`)
+    }
+    const data = (await response.json()) as { embedding?: number[]; embeddings?: Array<{ embedding?: number[] }> }
+    const raw = data.embedding ?? data.embeddings?.[0]?.embedding ?? data.embeddings?.[0]
+    if (!Array.isArray(raw)) {
+      throw new Error('Ollama embedding response missing embedding array')
+    }
+    return new Float32Array(raw)
+  }
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/tags`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+}
+
+let _embeddingServiceInstance: OllamaEmbeddingService | null = null
+
+/** Get or create the singleton embedding service instance. */
+export function getOrCreateEmbeddingService(): OllamaEmbeddingService {
+  if (!_embeddingServiceInstance) {
+    _embeddingServiceInstance = new OllamaEmbeddingService()
+  }
+  return _embeddingServiceInstance
+}
+
+// ── Semantic Search & Queue ──
 import {
   getPendingEmbeddingBlocks,
   markEmbeddingComplete,
@@ -19,11 +87,6 @@ import {
   type LegacyBlockInput,
 } from './contextGovernance'
 import { getHandshakeRecord } from './db'
-
-export interface LocalEmbeddingService {
-  readonly modelId: string;
-  generateEmbedding(text: string): Promise<Float32Array>;
-}
 
 export async function processEmbeddingQueue(
   db: any,
