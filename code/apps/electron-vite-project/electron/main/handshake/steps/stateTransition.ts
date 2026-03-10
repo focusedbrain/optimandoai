@@ -70,17 +70,18 @@ export const checkStateTransition: PipelineStep = {
     // blocks before any refresh/revoke. Any other type at seq 1 is rejected.
     if (currentState === HandshakeState.ACTIVE) {
       const lastSeq = handshakeRecord!.last_seq_received
+      // Revoke always wins — it's a termination event and must never be blocked.
+      if (capsuleType === 'handshake-revoke') return { passed: true }
       if (lastSeq === 0) {
         // First post-activation capsule: ONLY handshake-context-sync allowed
         if (capsuleType === 'handshake-context-sync') return { passed: true }
-        if (capsuleType === 'handshake-refresh' || capsuleType === 'handshake-revoke') {
+        if (capsuleType === 'handshake-refresh') {
           console.warn('[HANDSHAKE] CONTEXT_SYNC_REQUIRED', { handshake_id: input.handshake_id, capsule_hash: input.capsule_hash })
           return { passed: false, reason: ReasonCode.CONTEXT_SYNC_REQUIRED }
         }
       } else {
         // After context-sync (last_seq_received >= 1): allow refresh and revoke
         if (capsuleType === 'handshake-refresh') return { passed: true }
-        if (capsuleType === 'handshake-revoke') return { passed: true }
         if (capsuleType === 'handshake-context-sync') {
           // context-sync allowed only as first post-activation; subsequent is invalid
           return { passed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
