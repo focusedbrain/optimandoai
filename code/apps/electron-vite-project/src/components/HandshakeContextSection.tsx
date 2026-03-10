@@ -53,6 +53,63 @@ export default function HandshakeContextSection({
   onContextBlocksRefresh,
 }: HandshakeContextSectionProps) {
   const [editingBlock, setEditingBlock] = useState<VerifiedContextBlock | null>(null)
+  const [viewMode, setViewMode] = useState<'received' | 'sent' | 'all'>('received')
+
+  const receivedCount = contextBlocks.filter((b) => b.source === 'received').length
+  const sentCount = contextBlocks.filter((b) => b.source === 'sent').length
+  const filteredBlocks =
+    viewMode === 'all' ? contextBlocks : contextBlocks.filter((block) => block.source === viewMode)
+
+  const handleRequestUnlock = () => {
+    window.dispatchEvent(new CustomEvent('vault-status-changed'))
+    window.handshakeView?.requestUnlockVault?.().then((r) => {
+      if (r?.needsUnlock) {
+        window.dispatchEvent(new CustomEvent('vault-status-changed'))
+      }
+    })
+  }
+
+  if (!isVaultUnlocked) {
+    return (
+      <div
+        style={{
+          marginTop: '16px',
+          padding: '20px',
+          background: 'rgba(59,130,246,0.08)',
+          borderRadius: '8px',
+          border: '1px solid rgba(59,130,246,0.3)',
+          marginBottom: '16px',
+          textAlign: 'center',
+        }}
+      >
+        <div style={{ fontSize: '24px', marginBottom: '10px', opacity: 0.9 }}>🔒</div>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: '#3b82f6', marginBottom: '8px' }}>
+          Vault Locked
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5, marginBottom: '14px', maxWidth: '320px', marginLeft: 'auto', marginRight: 'auto' }}>
+          Unlock your vault to view handshake context data. This data is protected and requires vault access.
+        </div>
+        <button
+          onClick={handleRequestUnlock}
+          style={{
+            padding: '8px 16px',
+            fontSize: '11px',
+            fontWeight: 600,
+            background: 'rgba(59,130,246,0.2)',
+            color: '#3b82f6',
+            border: '1px solid rgba(59,130,246,0.4)',
+            borderRadius: '6px',
+            cursor: 'pointer',
+          }}
+        >
+          Unlock Vault
+        </button>
+        <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', marginTop: '10px' }}>
+          Open the Vault section to unlock, then return here.
+        </div>
+      </div>
+    )
+  }
 
   const handleSaveGovernance = async (block: VerifiedContextBlock, edit: ContextItemGovernanceEdit) => {
     const handshakeId = record.handshake_id
@@ -103,9 +160,45 @@ export default function HandshakeContextSection({
         Handshake Context
       </h4>
 
-      {contextBlocks.length > 0 ? (
+      {contextBlocks.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            marginBottom: '12px',
+          }}
+        >
+          {(['received', 'sent', 'all'] as const).map((mode) => {
+            const active = viewMode === mode
+            const count = mode === 'received' ? receivedCount : mode === 'sent' ? sentCount : contextBlocks.length
+            const label = mode === 'received' ? 'Received' : mode === 'sent' ? 'Sent' : 'All'
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                style={{
+                  flex: 1,
+                  padding: '8px 10px',
+                  fontSize: '11px',
+                  fontWeight: active ? 700 : 500,
+                  background: active ? 'rgba(59,130,246,0.12)' : 'transparent',
+                  border: 'none',
+                  borderBottom: active ? '2px solid #3b82f6' : '2px solid transparent',
+                  color: active ? '#3b82f6' : 'var(--color-text-muted, #94a3b8)',
+                  cursor: 'pointer',
+                }}
+              >
+                {label} ({count})
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {filteredBlocks.length > 0 ? (
         <div style={{ marginBottom: '12px' }}>
-          {contextBlocks.map((block) => {
+          {filteredBlocks.map((block) => {
             const g = block.governance
             const policy = g?.usage_policy
             return (
@@ -159,9 +252,17 @@ export default function HandshakeContextSection({
             )
           })}
         </div>
-      ) : (
+      ) : contextBlocks.length === 0 ? (
         <p style={{ fontSize: '12px', color: '#888', margin: '0 0 12px' }}>
           No context data attached yet.
+        </p>
+      ) : (
+        <p style={{ fontSize: '12px', color: '#888', margin: '0 0 12px' }}>
+          {viewMode === 'received'
+            ? 'No context blocks received from counterparty yet.'
+            : viewMode === 'sent'
+              ? 'No context blocks sent to counterparty yet.'
+              : 'No context blocks.'}
         </p>
       )}
 

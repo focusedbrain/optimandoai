@@ -59,6 +59,7 @@ import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
+import { semanticSearch } from './embeddings'
 
 // ── Context Block Helpers ──
 
@@ -1057,6 +1058,30 @@ export async function handleHandshakeRPC(
         success: rejected.length === 0,
         ingested: ingested.length,
         rejected,
+      }
+    }
+
+    case 'handshake.semanticSearch': {
+      const { query, scope, limit } = params ?? {}
+      if (!db) {
+        return { success: false, error: 'vault_locked' }
+      }
+      const vs = (globalThis as any).__og_vault_service_ref as { getEmbeddingService?: () => any } | undefined
+      const embeddingService = vs?.getEmbeddingService?.()
+      if (!embeddingService) {
+        return { success: false, error: 'embedding_unavailable' }
+      }
+      const filter: { relationship_id?: string; handshake_id?: string } = {}
+      if (typeof scope === 'string') {
+        if (scope.startsWith('hs-')) filter.handshake_id = scope
+        else if (scope.startsWith('rel-')) filter.relationship_id = scope
+      }
+      try {
+        const results = await semanticSearch(db, query ?? '', filter, limit ?? 20, embeddingService)
+        return { success: true, results }
+      } catch (err: any) {
+        console.error('[IPC] semanticSearch error:', err?.message)
+        return { success: false, error: err?.message ?? 'search_failed' }
       }
     }
 

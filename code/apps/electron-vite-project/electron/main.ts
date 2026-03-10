@@ -2242,6 +2242,16 @@ app.whenReady().then(async () => {
         return []
       }
     })
+    ipcMain.handle('handshake:semanticSearch', async (_e, query: string, scope?: string, limit?: number) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'vault_locked' }
+        return await handleHandshakeRPC('handshake.semanticSearch', { query, scope, limit }, db)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:semanticSearch error:', err?.message)
+        return { success: false, error: err?.message ?? 'search_failed' }
+      }
+    })
 
     ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean }) => {
       try {

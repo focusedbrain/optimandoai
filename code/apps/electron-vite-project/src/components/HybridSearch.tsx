@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import './HybridSearch.css'
+import './handshakeViewTypes'
 
 // ── Types ──
 
@@ -47,30 +48,56 @@ function defaultScope(view: DashboardView): SearchScope {
   return 'all'
 }
 
-// ── Stub backend calls ──
+// ── Search backend (semantic search via handshake IPC) ──
 
-async function stubSearch(query: string, scope: SearchScope): Promise<SearchResult[]> {
-  await new Promise(r => setTimeout(r, 400))
-
-  const scopes: Array<'context-graph' | 'capsules' | 'attachments'> =
-    scope === 'all'
-      ? ['context-graph', 'capsules', 'attachments']
-      : [scope as 'context-graph' | 'capsules' | 'attachments']
-
-  return scopes.flatMap((s, si) =>
-    [0, 1].map(i => ({
-      id: `${s}-${i}`,
-      title: `${s.replace('-', ' ')} result ${i + 1}`,
-      snippet: `Matching content for "${query}" found in ${s.replace('-', ' ')}.`,
-      scope: s,
-      timestamp: new Date(Date.now() - (si * 86400000 + i * 3600000)).toLocaleDateString(),
+async function runSearch(query: string, scope: SearchScope): Promise<SearchResult[]> {
+  try {
+    const result = await window.handshakeView?.semanticSearch?.(query, scope, 20)
+    if (!result?.success) {
+      if (result?.error === 'vault_locked') {
+        return [{
+          id: 'vault-locked',
+          title: 'Vault Locked',
+          snippet: 'Unlock your vault to search handshake context data.',
+          scope: 'context-graph',
+        }]
+      }
+      return []
+    }
+    const raw = result.results ?? []
+    return raw.map((r, i) => ({
+      id: r.block_id ?? `result-${i}`,
+      title: (r.type ?? 'block') as string,
+      snippet: r.snippet ?? (typeof r.payload_ref === 'string' ? r.payload_ref.substring(0, 200) : '') ?? '',
+      scope: 'context-graph' as const,
     }))
-  )
+  } catch (err) {
+    console.error('Search failed:', err)
+    return []
+  }
 }
 
-async function stubChat(query: string, scope: SearchScope, model: string): Promise<string> {
-  await new Promise(r => setTimeout(r, 800))
-  return `[${getModelLabel(model)} · ${scope}] This is a placeholder response for: "${query}". Connect this to a real LLM endpoint to receive actual answers.`
+async function runChat(query: string, scope: SearchScope, _model: string): Promise<string> {
+  try {
+    const result = await window.handshakeView?.semanticSearch?.(query, scope, 5)
+    if (!result?.success) {
+      if (result?.error === 'vault_locked') {
+        return 'Your vault is locked. Please unlock it to search handshake data.'
+      }
+      return 'Search is not available right now.'
+    }
+    const raw = result.results ?? []
+    if (raw.length === 0) {
+      return 'No matching context blocks found for your query.'
+    }
+    const summary = raw
+      .map((r, i) => `${i + 1}. [${r.type ?? 'block'}] ${r.snippet ?? (typeof r.payload_ref === 'string' ? r.payload_ref.substring(0, 200) : '')}`)
+      .join('\n')
+    return `Found ${raw.length} relevant context blocks:\n\n${summary}`
+  } catch (err) {
+    console.error('Chat query failed:', err)
+    return 'An error occurred while searching.'
+  }
 }
 
 // ── Scope label helper ──
@@ -141,10 +168,10 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
 
     try {
       if (mode === 'search') {
-        const r = await stubSearch(trimmed, scope)
+        const r = await runSearch(trimmed, scope)
         setResults(r)
       } else {
-        const r = await stubChat(trimmed, scope, selectedModel)
+        const r = await runChat(trimmed, scope, selectedModel)
         setResponse(r)
       }
     } finally {

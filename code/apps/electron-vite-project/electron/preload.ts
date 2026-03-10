@@ -260,6 +260,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
   queryContextBlocks: (handshakeId: unknown, purpose?: string) => {
     return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'), purpose)
   },
+  semanticSearch: async (query: string, scope?: string, limit?: number) => {
+    return ipcRenderer.invoke('handshake:semanticSearch', query, scope, limit)
+  },
   chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
     if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {
       throw new Error('systemMessage: expected string (max 4KB)')
