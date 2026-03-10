@@ -282,6 +282,7 @@ function PopupChatApp() {
   // MIRRORS docked sidepanel state exactly
   const [dockedWorkspace, setDockedWorkspace] = useState<DockedWorkspace>('wr-chat')
   const [dockedSubmode, setDockedSubmode] = useState<DockedSubmode>('command')
+  const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [beapSubmode, setBeapSubmode] = useState<BeapSubmode>('inbox')
   
   // Handle launchMode query parameter from Electron dashboard
@@ -1315,6 +1316,29 @@ function PopupChatApp() {
       case 'handshake':
         return (
           <div style={{ overflowY: 'auto', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
+            {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
+              <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Default policy for newly attached context
+              </h5>
+              <p style={{ margin: '0 0 8px', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>
+                Starting template for new context items. Individual items can override.
+              </p>
+              {(['none', 'local_only', 'internal_and_cloud'] as const).map((val) => {
+                const labels: Record<string, string> = { none: 'No AI processing', local_only: 'Internal AI only', internal_and_cloud: 'Allow Internal + Cloud AI' }
+                const descs: Record<string, string> = { none: 'Handshake data must not be processed by any AI system', local_only: 'Restrict AI processing to on-premise or organization-controlled systems', internal_and_cloud: 'Allow handshake data to be processed by internal AI systems and external cloud AI services' }
+                const active = hsPolicy.ai_processing_mode === val
+                return (
+                  <label key={val} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 10px', borderRadius: '6px', background: active ? 'rgba(139,92,246,0.08)' : 'transparent', border: `1px solid ${active ? 'rgba(139,92,246,0.3)' : 'transparent'}`, cursor: 'pointer', marginBottom: '4px' }}>
+                    <input type="radio" name="hs-policy-popup" checked={active} onChange={() => setHsPolicy({ ai_processing_mode: val })} style={{ marginTop: '3px', accentColor: '#8b5cf6' }} />
+                    <div>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: theme === 'standard' ? '#374151' : '#d0d0d0' }}>{labels[val]}</span>
+                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>{descs[val]}</p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
             <SendHandshakeDelivery
               theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
               onBack={() => setDockedSubmode('command')}
@@ -1323,6 +1347,7 @@ function PopupChatApp() {
               onSelectEmailAccount={setSelectedEmailAccountId}
               onSuccess={() => setDockedSubmode('command')}
               canUseHsContextProfiles={true}
+              policySelections={hsPolicy}
             />
           </div>
         )
