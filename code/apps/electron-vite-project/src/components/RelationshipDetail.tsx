@@ -28,7 +28,9 @@ interface HandshakeRecord {
   activated_at: string | null
   expires_at: string | null
   last_seq_received: number
+  last_seq_sent?: number
   last_capsule_hash_received: string
+  last_capsule_hash_sent?: string
   initiator_context_commitment: string | null
   acceptor_context_commitment: string | null
   p2p_endpoint?: string | null
@@ -216,6 +218,9 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
   const [contextBlocks, setContextBlocks] = useState<VerifiedContextBlock[]>([])
+  const [showProofChain, setShowProofChain] = useState(true)
+  const [showMyBlockHashes, setShowMyBlockHashes] = useState(false)
+  const [showTheirBlockHashes, setShowTheirBlockHashes] = useState(false)
   const [showTechnical, setShowTechnical] = useState(true)
   const initialPolicy: PolicySelection = record.policy_selections
     ? { ai_processing_mode: parsePolicyToMode(record.policy_selections) }
@@ -429,7 +434,242 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
         />
       )}
 
-      {/* ── Technical details (collapsed by default) ── */}
+      {/* ── Cryptographic Proof Chain ── */}
+      <div style={{ marginTop: '8px' }}>
+        <button
+          onClick={() => setShowProofChain(!showProofChain)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            width: '100%', padding: '8px 12px',
+            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: '6px', cursor: 'pointer',
+            color: 'var(--color-text-muted, #94a3b8)', fontSize: '11px', fontWeight: 600,
+            textAlign: 'left',
+          }}
+        >
+          <span style={{ fontSize: '10px' }}>{showProofChain ? '▾' : '▸'}</span>
+          Cryptographic Proof Chain
+          <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 400 }}>
+            Context commitments · capsule chain
+          </span>
+        </button>
+
+        {showProofChain && (
+          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '0' }}>
+            {(() => {
+              const myCommitment = record.local_role === 'initiator' ? record.initiator_context_commitment : record.acceptor_context_commitment
+              const counterpartyCommitment = record.local_role === 'initiator' ? record.acceptor_context_commitment : record.initiator_context_commitment
+              const myRoleLabel = record.local_role === 'initiator' ? '(Initiator)' : '(Acceptor)'
+              const counterpartyRoleLabel = record.local_role === 'initiator' ? '(Acceptor)' : '(Initiator)'
+              const lastSeqReceived = record.last_seq_received ?? 0
+              const lastSeqSent = record.last_seq_sent ?? 0
+              const latestCapsuleHash = lastSeqReceived >= lastSeqSent ? record.last_capsule_hash_received : (record.last_capsule_hash_sent ?? record.last_capsule_hash_received)
+              const latestSeq = Math.max(lastSeqReceived, lastSeqSent)
+              const bothCommitments = !!record.initiator_context_commitment && !!record.acceptor_context_commitment
+              const contextSyncPending = !!record.context_sync_pending
+
+              const copyHash = (hash: string | null) => {
+                if (!hash) return
+                try { navigator.clipboard.writeText(hash) } catch { /* ignore */ }
+              }
+
+              return (
+                <div style={{
+                  background: 'var(--color-surface, rgba(255,255,255,0.03))',
+                  border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                  borderRadius: '8px', padding: '12px 14px',
+                  borderLeft: '3px solid rgba(139,92,246,0.4)',
+                }}>
+                  {/* 1. Your Context Commitment */}
+                  <div style={{ marginBottom: '12px', paddingLeft: '4px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '4px' }}>
+                      Your Context Commitment {myRoleLabel}
+                    </div>
+                    {myCommitment ? (
+                      <span
+                        onClick={() => copyHash(myCommitment)}
+                        title={myCommitment}
+                        style={{
+                          fontSize: '12px', fontFamily: 'monospace',
+                          color: 'var(--color-text, #e2e8f0)',
+                          cursor: 'pointer', userSelect: 'none',
+                        }}
+                      >
+                        {shortHash(myCommitment)}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '12px', color: 'var(--color-text-muted, #6b7280)', fontStyle: 'italic' }}>
+                        Not yet generated
+                      </span>
+                    )}
+                    {(() => {
+                      const myBlocks = contextBlocks.filter((b) => b.source === 'sent' && b.block_hash)
+                      const count = myBlocks.length
+                      if (count === 0) {
+                        return (
+                          <div style={{ marginTop: '6px', paddingLeft: '12px', fontSize: '10px', color: 'var(--color-text-muted, #6b7280)' }}>
+                            No blocks
+                          </div>
+                        )
+                      }
+                      return (
+                        <div style={{ marginTop: '6px', paddingLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowMyBlockHashes(!showMyBlockHashes)}
+                            style={{
+                              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                              fontSize: '10px', color: 'var(--color-text-muted, #6b7280)',
+                              textAlign: 'left', fontFamily: 'inherit',
+                            }}
+                          >
+                            {showMyBlockHashes ? '▾' : '▸'} {count} block hash{count !== 1 ? 'es' : ''} included
+                          </button>
+                          {showMyBlockHashes && (
+                            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              {myBlocks.map((b, i) => {
+                                const isLast = i === myBlocks.length - 1
+                                const prefix = isLast ? '└── ' : '├── '
+                                const typeLabel = b.type || 'Plaintext'
+                                const classification = b.data_classification || 'PUBLIC'
+                                return (
+                                  <div key={b.block_id} style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--color-text-muted, #94a3b8)' }}>
+                                    <span
+                                      onClick={() => copyHash(b.block_hash ?? null)}
+                                      title={b.block_hash ?? undefined}
+                                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                      {prefix}{shortHash(b.block_hash ?? '')} ({typeLabel}, {classification})
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+
+                  {/* 2. Counterparty Context Commitment */}
+                  <div style={{ marginBottom: '12px', paddingLeft: '4px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '4px' }}>
+                      Counterparty Context Commitment {counterpartyRoleLabel}
+                    </div>
+                    {counterpartyCommitment ? (
+                      <span
+                        onClick={() => copyHash(counterpartyCommitment)}
+                        title={counterpartyCommitment}
+                        style={{
+                          fontSize: '12px', fontFamily: 'monospace',
+                          color: 'var(--color-text, #e2e8f0)',
+                          cursor: 'pointer', userSelect: 'none',
+                        }}
+                      >
+                        {shortHash(counterpartyCommitment)}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '12px', color: 'var(--color-text-muted, #6b7280)', fontStyle: 'italic' }}>
+                        Awaiting counterparty
+                      </span>
+                    )}
+                    {(() => {
+                      const theirBlocks = contextBlocks.filter((b) => b.source === 'received' && b.block_hash)
+                      const count = theirBlocks.length
+                      if (count === 0) {
+                        return (
+                          <div style={{ marginTop: '6px', paddingLeft: '12px', fontSize: '10px', color: 'var(--color-text-muted, #6b7280)' }}>
+                            No blocks
+                          </div>
+                        )
+                      }
+                      return (
+                        <div style={{ marginTop: '6px', paddingLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowTheirBlockHashes(!showTheirBlockHashes)}
+                            style={{
+                              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                              fontSize: '10px', color: 'var(--color-text-muted, #6b7280)',
+                              textAlign: 'left', fontFamily: 'inherit',
+                            }}
+                          >
+                            {showTheirBlockHashes ? '▾' : '▸'} {count} block hash{count !== 1 ? 'es' : ''} included
+                          </button>
+                          {showTheirBlockHashes && (
+                            <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              {theirBlocks.map((b, i) => {
+                                const isLast = i === theirBlocks.length - 1
+                                const prefix = isLast ? '└── ' : '├── '
+                                const typeLabel = b.type || 'Plaintext'
+                                const classification = b.data_classification || 'PUBLIC'
+                                return (
+                                  <div key={b.block_id} style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--color-text-muted, #94a3b8)' }}>
+                                    <span
+                                      onClick={() => copyHash(b.block_hash ?? null)}
+                                      title={b.block_hash ?? undefined}
+                                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                      {prefix}{shortHash(b.block_hash ?? '')} ({typeLabel}, {classification})
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+
+                  {/* 3. Capsule Chain Integrity */}
+                  <div style={{ marginBottom: '12px', paddingLeft: '4px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '4px' }}>
+                      Capsule Chain Integrity
+                    </div>
+                    <div style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--color-text, #e2e8f0)', marginBottom: '6px' }}>
+                      {latestCapsuleHash ? (
+                        <span
+                          onClick={() => copyHash(latestCapsuleHash)}
+                          title={latestCapsuleHash}
+                          style={{ cursor: 'pointer', userSelect: 'none' }}
+                        >
+                          {shortHash(latestCapsuleHash)}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted, #6b7280)', fontStyle: 'italic' }}>—</span>
+                      )}
+                      {' · seq '}
+                      {latestSeq}
+                    </div>
+                    <div style={{
+                      fontSize: '11px',
+                      color: contextSyncPending ? '#f59e0b' : bothCommitments ? '#22c55e' : '#f59e0b',
+                    }}>
+                      {contextSyncPending
+                        ? '⏳ Context delivery in progress'
+                        : bothCommitments
+                          ? '✓ Both context commitments are signed into the capsule chain'
+                          : '⏳ Awaiting counterparty commitment'}
+                    </div>
+                  </div>
+
+                  {/* 4. Explanatory note */}
+                  <div style={{
+                    fontSize: '10px', color: 'var(--color-text-muted, #6b7280)',
+                    lineHeight: 1.5, marginTop: '10px', paddingTop: '10px',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    Each context commitment is a SHA-256 hash derived from individual block hashes. The commitment is cryptographically signed into the capsule chain, binding context to the handshake.
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* ── Technical details ── */}
       <div style={{ marginTop: '8px' }}>
         <button
           onClick={() => setShowTechnical(!showTechnical)}

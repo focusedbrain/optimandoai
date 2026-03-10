@@ -176,29 +176,52 @@ function ContextBlockCard({
       }}>
         {/* Block hash — proof of data existence */}
         {block.block_hash && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            marginBottom: '5px',
-          }}>
-            <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--color-text-muted, #6b7280)', textTransform: 'uppercase', flexShrink: 0 }}>
-              Hash
-            </span>
-            <span
-              title={`Click to copy full hash: ${block.block_hash}`}
-              onClick={() => { try { navigator.clipboard.writeText(block.block_hash!) } catch { /* ignore */ } }}
-              style={{
-                fontSize: '10px', fontFamily: 'monospace',
-                color: 'var(--color-text-muted, #94a3b8)',
-                cursor: 'pointer', userSelect: 'none',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                maxWidth: '260px',
-              }}
-            >
-              {block.block_hash.length > 24
-                ? `${block.block_hash.slice(0, 10)}…${block.block_hash.slice(-10)}`
-                : block.block_hash}
-            </span>
-            <span style={{ fontSize: '9px', color: '#4b5563', flexShrink: 0 }}>(click to copy)</span>
+          <div style={{ marginBottom: '5px' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--color-text-muted, #6b7280)', textTransform: 'uppercase', flexShrink: 0 }}>
+                Hash
+              </span>
+              <span
+                title={`Click to copy full hash: ${block.block_hash}`}
+                onClick={() => { try { navigator.clipboard.writeText(block.block_hash!) } catch { /* ignore */ } }}
+                style={{
+                  fontSize: '10px', fontFamily: 'monospace',
+                  color: 'var(--color-text-muted, #94a3b8)',
+                  cursor: 'pointer', userSelect: 'none',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  maxWidth: '260px',
+                }}
+              >
+                {block.block_hash.length > 24
+                  ? `${block.block_hash.slice(0, 10)}…${block.block_hash.slice(-10)}`
+                  : block.block_hash}
+              </span>
+              <span style={{ fontSize: '9px', color: '#4b5563', flexShrink: 0 }}>(click to copy)</span>
+            </div>
+            {/* Proof chain indicator */}
+            <div style={{
+              fontSize: '10px', color: 'var(--color-text-muted, #6b7280)',
+              marginTop: '4px', lineHeight: 1.4,
+            }}>
+              {block.source === 'sent' ? (
+                '🔗 Included in your context commitment'
+              ) : (
+                <>
+                  <div>🔗 Included in counterparty&apos;s context commitment</div>
+                  {payload ? (
+                    <div style={{ color: '#22c55e', marginTop: '2px' }}>
+                      ✓ Content verified against commitment hash
+                    </div>
+                  ) : (
+                    <div style={{ color: '#f59e0b', marginTop: '2px' }}>
+                      ⏳ Hash committed — content awaiting delivery
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
         {/* Governance policy pips */}
