@@ -195,6 +195,13 @@ export function processHandshakeCapsule(
     handshakeRecord?.counterparty_public_key
   ) {
     if (senderPublicKey !== handshakeRecord.counterparty_public_key) {
+      console.error('[HANDSHAKE] SIGNATURE_INVALID key mismatch:', {
+        capsuleType: input.capsuleType,
+        handshake_id: input.handshake_id,
+        senderPublicKey_first16: senderPublicKey?.slice(0, 16),
+        storedCounterparty_first16: handshakeRecord.counterparty_public_key?.slice(0, 16),
+        match: senderPublicKey === handshakeRecord.counterparty_public_key,
+      })
       try {
         insertAuditLogEntry(db, buildDenialAuditEntry(input, ReasonCode.SIGNATURE_INVALID, 'signature_verification', 0))
       } catch { /* audit must not mask */ }
