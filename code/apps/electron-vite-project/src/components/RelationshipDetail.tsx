@@ -216,7 +216,7 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
   const [contextBlocks, setContextBlocks] = useState<VerifiedContextBlock[]>([])
-  const [showTechnical, setShowTechnical] = useState(false)
+  const [showTechnical, setShowTechnical] = useState(true)
   const initialPolicy: PolicySelection = record.policy_selections
     ? { ai_processing_mode: parsePolicyToMode(record.policy_selections) }
     : DEFAULT_AI_POLICY

@@ -243,15 +243,6 @@ export default function HandshakeContextSection({
   const filteredBlocks =
     viewMode === 'all' ? contextBlocks : contextBlocks.filter((b) => b.source === viewMode)
 
-  const handleRequestUnlock = () => {
-    window.dispatchEvent(new CustomEvent('vault-status-changed'))
-    window.handshakeView?.requestUnlockVault?.().then((r) => {
-      if (r?.needsUnlock) {
-        window.dispatchEvent(new CustomEvent('vault-status-changed'))
-      }
-    })
-  }
-
   const handleSaveGovernance = async (block: VerifiedContextBlock, edit: ContextItemGovernanceEdit) => {
     const handshakeId = record.handshake_id
     const blockHash = block.block_hash ?? ''
@@ -284,30 +275,21 @@ export default function HandshakeContextSection({
     return (
       <div style={{
         marginBottom: '16px',
-        padding: '28px 24px',
+        padding: '14px 16px',
         background: 'rgba(59,130,246,0.06)',
-        borderRadius: '10px',
+        borderRadius: '8px',
         border: '1px solid rgba(59,130,246,0.2)',
-        textAlign: 'center',
+        display: 'flex', alignItems: 'center', gap: '10px',
       }}>
-        <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔒</div>
-        <div style={{ fontSize: '14px', fontWeight: 700, color: '#3b82f6', marginBottom: '8px' }}>
-          Vault Locked
+        <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
+        <div>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#3b82f6', marginBottom: '2px' }}>
+            Vault Locked
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5 }}>
+            Unlock your vault to view shared context data.
+          </div>
         </div>
-        <div style={{ fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.6, marginBottom: '16px', maxWidth: '300px', margin: '0 auto 16px' }}>
-          Unlock your vault to view shared context data. This data is protected and requires vault access.
-        </div>
-        <button
-          onClick={handleRequestUnlock}
-          style={{
-            padding: '9px 20px', fontSize: '12px', fontWeight: 600,
-            background: 'rgba(59,130,246,0.2)', color: '#3b82f6',
-            border: '1px solid rgba(59,130,246,0.4)', borderRadius: '7px',
-            cursor: 'pointer',
-          }}
-        >
-          Unlock Vault
-        </button>
       </div>
     )
   }
