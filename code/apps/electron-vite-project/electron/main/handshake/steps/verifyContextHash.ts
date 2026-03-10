@@ -28,6 +28,9 @@ export const verifyContextHashStep: PipelineStep = {
   execute(ctx) {
     const { input } = ctx
 
+    // Revoke capsules intentionally omit wrdesk_policy_hash/version (set to '' in builder).
+    // The context_hash was computed without them — pass undefined here to match.
+    const isRevoke = input.capsuleType === 'handshake-revoke'
     const contextHashInput: ContextHashInput = {
       schema_version: input.schema_version,
       capsule_type: wireTypeToContextType(input.capsuleType),
@@ -41,8 +44,8 @@ export const verifyContextHashStep: PipelineStep = {
       timestamp: input.timestamp,
       nonce: input.nonce,
       seq: input.seq,
-      wrdesk_policy_hash: input.wrdesk_policy_hash,
-      wrdesk_policy_version: input.wrdesk_policy_version,
+      wrdesk_policy_hash: isRevoke ? undefined : input.wrdesk_policy_hash,
+      wrdesk_policy_version: isRevoke ? undefined : input.wrdesk_policy_version,
       sharing_mode: input.sharing_mode,
       prev_hash: input.prev_hash,
     }

@@ -186,6 +186,9 @@ async function processCapsuleInternal(
     if (handshakeResult.success) {
       const newState = handshakeResult.handshakeRecord?.state ?? 'unknown'
       console.log('[Coordination] processHandshakeCapsule result: success, newState=', newState, 'capsuleType=', capsuleType, 'seq=', (rebuildResult.capsule as any)?.seq)
+      if (capsuleType === 'revoke') {
+        console.log('[Coordination] REVOKE processed successfully — handshake', handshakeId, 'is now REVOKED locally')
+      }
       setP2PHealthCoordinationLastPush()
       onHandshakeUpdated?.()
 
@@ -226,6 +229,9 @@ async function processCapsuleInternal(
       console.log('[Coordination] Capsule processed: type=', capObjRebuilt?.capsule_type, 'seq=', capObjRebuilt?.seq, 'newState=', newState)
     } else {
       console.warn('[Coordination] Handshake rejected:', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
+      if (capsuleType === 'revoke') {
+        console.error('[Coordination] REVOKE capsule REJECTED — handshake', handshakeId, 'remains ACTIVE! reason=', handshakeResult.reason, 'failedStep=', handshakeResult.failedStep)
+      }
       // For context_sync capsules rejected due to ordering issues (arrived before the accept
       // was processed — acceptor not yet in the record), buffer them locally and replay after
       // the accept capsule succeeds. Also keep NOT ACKing so the relay retries as a fallback.
