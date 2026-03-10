@@ -479,6 +479,59 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_hs_expires ON handshakes(expires_at)`,
     ],
   },
+  {
+    version: 21,
+    description: 'Schema v21: capsule_blocks index for import-time embedding (query-time search only)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS capsule_blocks (
+        block_id TEXT NOT NULL,
+        capsule_id TEXT NOT NULL,
+        block_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        text TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        model_id TEXT NOT NULL,
+        handshake_id TEXT NOT NULL,
+        relationship_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('received','sent')),
+        block_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (capsule_id, block_id, block_hash)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_capsule ON capsule_blocks(capsule_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_handshake ON capsule_blocks(handshake_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_relationship ON capsule_blocks(relationship_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_type ON capsule_blocks(block_type)`,
+    ],
+  },
+  {
+    version: 22,
+    description: 'Schema v22: RAG query cache for frequently asked questions',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS rag_query_cache (
+        capsule_id TEXT NOT NULL,
+        normalized_query TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        sources_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (capsule_id, normalized_query)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_rag_cache_capsule ON rag_query_cache(capsule_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_rag_cache_created ON rag_query_cache(created_at)`,
+    ],
+  },
+  {
+    version: 23,
+    description: 'Schema v23: capsule_blocks source_path, chunk_index, parent_block_id for traceability',
+    sql: [
+      `ALTER TABLE capsule_blocks ADD COLUMN source_path TEXT`,
+      `ALTER TABLE capsule_blocks ADD COLUMN chunk_index INTEGER DEFAULT 0`,
+      `ALTER TABLE capsule_blocks ADD COLUMN parent_block_id TEXT`,
+      `UPDATE capsule_blocks SET parent_block_id = block_id, source_path = 'context_blocks.' || block_id, chunk_index = 0 WHERE parent_block_id IS NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_source_path ON capsule_blocks(source_path)`,
+      `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_parent ON capsule_blocks(handshake_id, parent_block_id)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -835,24 +888,38 @@ export function softDeleteExpiredBlocks(db: any, now: Date): number {
 }
 
 export function markContextBlocksInactiveByHandshake(db: any, handshakeId: string): number {
+  let changes = 0
   try {
     const result = db.prepare(
       `UPDATE context_blocks SET active = 0 WHERE handshake_id = ? AND active = 1`
     ).run(handshakeId)
-    return result.changes
+    changes = result.changes
   } catch {
     const result = db.prepare(
       `UPDATE context_blocks SET embedding_status = 'failed'
        WHERE handshake_id = ? AND embedding_status != 'failed'`
     ).run(handshakeId)
-    return result.changes
+    changes = result.changes
   }
+  if (changes > 0) {
+    try {
+      const { invalidateByHandshake } = require('./queryCache') as typeof import('./queryCache')
+      invalidateByHandshake(db, handshakeId)
+    } catch { /* cache may not exist */ }
+  }
+  return changes
 }
 
 export function deleteBlocksByHandshake(db: any, handshakeId: string): number {
   const result = db.prepare(
     'DELETE FROM context_blocks WHERE handshake_id = ?'
   ).run(handshakeId)
+  if (result.changes > 0) {
+    try {
+      const { invalidateByHandshake } = require('./queryCache') as typeof import('./queryCache')
+      invalidateByHandshake(db, handshakeId)
+    } catch { /* cache may not exist */ }
+  }
   return result.changes
 }
 

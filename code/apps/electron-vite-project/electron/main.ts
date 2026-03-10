@@ -2394,7 +2394,10 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:chatWithContextRag', async (_e, params: { query: string; scope?: string; model: string; provider: string }) => {
+    ipcMain.handle('handshake:chatWithContextRag', async (event, params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean }) => {
+      const totalStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart)
+
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'vault_locked' }
@@ -2402,13 +2405,15 @@ app.whenReady().then(async () => {
         const embeddingService = vs?.getEmbeddingService?.()
         if (!embeddingService) return { success: false, error: 'embedding_unavailable' }
 
-        const { semanticSearch } = await import('./main/handshake/embeddings')
+        const { hybridSearch } = await import('./main/handshake/hybridSearch')
+        const { scoredBlocksToRetrieved, buildRagPrompt } = await import('./main/handshake/blockRetrieval')
         const { getHandshakeRecord } = await import('./main/handshake/db')
         const {
           parseGovernanceJson,
           resolveEffectiveGovernance,
           filterBlocksForCloudAI,
         } = await import('./main/handshake/contextGovernance')
+        const { logCacheHitMetrics, logAIQueryMetrics, checkAILatency, buildLatencyDebugPayload } = await import('./main/handshake/latencyInstrumentation')
 
         const filter: { relationship_id?: string; handshake_id?: string } = {}
         const scope = params.scope ?? 'all'
@@ -2417,9 +2422,96 @@ app.whenReady().then(async () => {
           else if (scope.startsWith('rel-')) filter.relationship_id = scope
         }
 
-        let searchResults = await semanticSearch(db, params.query ?? '', filter, 5, embeddingService)
-
+        const hasHandshakeScope = !!filter.handshake_id
+        const debug = params.debug === true
         const providerLower = (params.provider ?? 'ollama').toLowerCase()
+
+        // ── Intent Detection & Domain Routing ─────────────────────────────────
+        const { classifyIntent } = await import('./main/handshake/intentClassifier')
+        const { routeByIntent } = await import('./main/handshake/intentRouter')
+        const { executeStructuredSearch } = await import('./main/handshake/intentExecution')
+
+        const intentResult = classifyIntent(params.query ?? '')
+        const routerResult = routeByIntent(intentResult.intent, hasHandshakeScope)
+
+        console.log('[INTENT] Detected:', intentResult.intent, '| Domain:', routerResult.domain, '| Confidence:', intentResult.confidence)
+
+        if (!routerResult.useRagPipeline && routerResult.forceSemanticSearch) {
+          const structResult = await executeStructuredSearch(db, params.query ?? '', filter, embeddingService, intentResult.intent)
+          const total_ms = elapsed()
+          console.log('[INTENT] Result:', structResult.domain, '| Items:', structResult.items.length, '| Latency:', structResult.latency_ms, 'ms')
+
+          const doStream = params.stream === true && event.sender
+          const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+
+          const summaryText = structResult.items.length > 0
+            ? structResult.title + '\n\n' + structResult.items.map((i, idx) => `${idx + 1}. ${i.title}: ${i.snippet}`).join('\n\n')
+            : 'No relevant context found in indexed BEAP data.'
+
+          if (doStream) {
+            send('handshake:chatStreamStart', { contextBlocks: structResult.items.map(i => i.block_id), sources: structResult.sources })
+            send('handshake:chatStreamToken', { token: summaryText })
+          }
+
+          return {
+            success: true,
+            answer: summaryText,
+            sources: structResult.sources,
+            streamed: doStream,
+            resultType: structResult.resultType,
+            structuredResult: { title: structResult.title, items: structResult.items },
+            intent: intentResult.intent,
+            domain: structResult.domain,
+            ...(debug && { latency: { query_ms_total: total_ms, intent: intentResult.intent, domain: structResult.domain } }),
+          }
+        }
+
+        // Cache lookup (only when scope is cacheable)
+        const { normalizeQuery, resolveCapsuleId, getCached, setCached } = await import('./main/handshake/queryCache')
+        const capsuleId = resolveCapsuleId(filter)
+        const normalizedQuery = normalizeQuery(params.query ?? '')
+        if (capsuleId && normalizedQuery) {
+          const cached = getCached(db, capsuleId, normalizedQuery)
+          if (cached) {
+            const total_ms = elapsed()
+            logCacheHitMetrics(total_ms)
+            return {
+              success: true,
+              answer: cached.answer,
+              sources: cached.sources,
+              cached: true,
+              ...(debug && { latency: buildLatencyDebugPayload({ query_ms_total: total_ms, cache_hit: true }) }),
+            }
+          }
+        }
+
+        // Hybrid search: structured lookup + semantic retrieval in parallel
+        const hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
+
+        const doStream = params.stream === true && event.sender
+        const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+
+        // Fast-path: structured result → return immediately (or stream context + answer)
+        if (hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value) {
+          const src = hybridResult.structured.source
+          const answer = hybridResult.structured.value
+          const sources = src
+            ? [{ handshake_id: src.handshake_id, capsule_id: src.handshake_id, block_id: src.block_id, source: src.source ?? '', score: 1 }]
+            : []
+          const total_ms = elapsed()
+          const m = hybridResult.metrics
+          if (doStream) {
+            send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
+            send('handshake:chatStreamToken', { token: answer })
+            if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+            return { success: true, sources, streamed: true, ...(debug && { latency: buildLatencyDebugPayload({ query_ms_total: total_ms, classification_ms: m?.classification_ms, structured_ms: m?.structured_ms, semantic_ms: m?.semantic_ms, cache_hit: false }) }) }
+          }
+          if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+          return { success: true, answer, sources, ...(debug && { latency: buildLatencyDebugPayload({ query_ms_total: total_ms, classification_ms: m?.classification_ms, structured_ms: m?.structured_ms, semantic_ms: m?.semantic_ms, cache_hit: false }) }) }
+        }
+
+        // Semantic path: apply governance, build prompt, call LLM
+        let searchResults = hybridResult.blocks ?? []
         const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
 
         let governanceNote: string | null = null
@@ -2451,58 +2543,92 @@ app.whenReady().then(async () => {
           }
         }
 
-        const contextText = searchResults.map((r, i) => {
-          const content = r.payload_ref ?? (r as any).content ?? ''
-          return `[Source ${i + 1}: Handshake ${r.handshake_id}, ${r.source === 'received' ? 'received from counterparty' : 'sent by you'}]\n${content}`
-        }).join('\n\n---\n\n')
+        const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
+        let { systemPrompt, userPrompt } = buildRagPrompt(retrievedBlocks, params.query ?? '')
 
-        const systemPrompt = 'You are a helpful assistant answering questions based on handshake context data. Always cite which source number your information comes from using [Source N] notation. If the context does not contain enough information to answer, say so clearly.'
-        const userPrompt = contextText
-          ? `Based on the following context from handshake data:\n\n${contextText}\n\n---\n\nQuestion: ${params.query}`
-          : `Question: ${params.query}\n\n(No relevant context was found in handshake data.)`
+        if (userPrompt.length > 8000) {
+          console.warn('Prompt too large, truncating')
+          userPrompt = userPrompt.slice(0, 8000)
+        }
+        console.log('Retrieved blocks:', retrievedBlocks.length)
+        console.log('LLM prompt size:', userPrompt.length)
+        console.log('Model:', params.model || 'llama3')
 
         let answer = ''
-        const sources = searchResults.map(r => ({ handshake_id: r.handshake_id, block_id: r.block_id, source: r.source, score: r.score }))
+        const sources = searchResults.map(r => ({ handshake_id: r.handshake_id, capsule_id: r.handshake_id, block_id: r.block_id, source: r.source, score: r.score }))
+        const contextBlocks = retrievedBlocks.map(b => b.block_id)
 
+        if (doStream) {
+          send('handshake:chatStreamStart', { contextBlocks, sources })
+        }
+
+        const llmStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
         if (providerLower === 'ollama') {
           try {
-            const res = await fetch('http://127.0.0.1:11434/api/chat', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: params.model || 'llama3',
-                stream: false,
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: userPrompt },
-                ],
-              }),
-            })
-            if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
-            const data = await res.json()
-            answer = data.message?.content ?? 'No response from model.'
+            const modelName = params.model || 'llama3'
+            const tagsRes = await fetch('http://127.0.0.1:11434/api/tags')
+            if (tagsRes.ok) {
+              const tagsData = await tagsRes.json()
+              const models = (tagsData.models ?? []).map((m: { name?: string }) => m.name)
+              const found = models.some((n: string) => n === modelName || n.startsWith(`${modelName}:`))
+              if (!found) {
+                return { success: false, error: 'model_not_available', message: 'Configured Ollama model not found' }
+              }
+            }
+            if (doStream) {
+              const { streamOllamaChat } = await import('./main/handshake/llmStream')
+              answer = await streamOllamaChat(modelName, systemPrompt, userPrompt, send)
+            } else {
+              const res = await fetch('http://127.0.0.1:11434/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model: modelName,
+                  stream: false,
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                }),
+              })
+              if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
+              const data = await res.json()
+              answer = data.message?.content ?? 'No response from model.'
+            }
           } catch (err: any) {
-            return { success: false, error: 'ollama_unavailable', message: err?.message ?? 'Ollama not available' }
+            const msg = err?.message ?? 'Unknown error'
+            const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch/i.test(msg)
+            console.error('LLM execution error:', err)
+            return {
+              success: false,
+              error: isUnavailable ? 'ollama_unavailable' : 'model_execution_failed',
+              message: msg,
+            }
           }
         } else if (providerLower === 'openai') {
           const { ocrRouter } = await import('./main/ocr/router')
           const apiKey = ocrRouter.getApiKey('OpenAI')
           if (!apiKey) return { success: false, error: 'no_api_key', provider: 'openai' }
           try {
-            const res = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-              body: JSON.stringify({
-                model: params.model || 'gpt-4o',
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: userPrompt },
-                ],
-              }),
-            })
-            if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
-            const data = await res.json()
-            answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+            if (doStream) {
+              const { streamOpenAIChat } = await import('./main/handshake/llmStream')
+              answer = await streamOpenAIChat(params.model || 'gpt-4o', systemPrompt, userPrompt, apiKey, send)
+            } else {
+              const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+                body: JSON.stringify({
+                  model: params.model || 'gpt-4o',
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                }),
+              })
+              if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
+              const data = await res.json()
+              answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+            }
           } catch (err: any) {
             return { success: false, error: 'api_call_failed', provider: 'openai', message: err?.message ?? 'API call failed' }
           }
@@ -2511,18 +2637,23 @@ app.whenReady().then(async () => {
           const apiKey = ocrRouter.getApiKey('Claude')
           if (!apiKey) return { success: false, error: 'no_api_key', provider: 'anthropic' }
           try {
-            const res = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({
-                model: params.model || 'claude-sonnet-4-20250514',
-                max_tokens: 1024,
-                messages: [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }],
-              }),
-            })
-            if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
-            const data = await res.json()
-            answer = data.content?.[0]?.text ?? 'No response from model.'
+            if (doStream) {
+              const { streamAnthropicChat } = await import('./main/handshake/llmStream')
+              answer = await streamAnthropicChat(params.model || 'claude-sonnet-4-20250514', systemPrompt, userPrompt, apiKey, send)
+            } else {
+              const res = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+                body: JSON.stringify({
+                  model: params.model || 'claude-sonnet-4-20250514',
+                  max_tokens: 1024,
+                  messages: [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }],
+                }),
+              })
+              if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
+              const data = await res.json()
+              answer = data.content?.[0]?.text ?? 'No response from model.'
+            }
           } catch (err: any) {
             return { success: false, error: 'api_call_failed', provider: 'anthropic', message: err?.message ?? 'API call failed' }
           }
@@ -2531,17 +2662,22 @@ app.whenReady().then(async () => {
           const apiKey = ocrRouter.getApiKey('Gemini')
           if (!apiKey) return { success: false, error: 'no_api_key', provider: 'google' }
           try {
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${params.model || 'gemini-pro'}:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-                generationConfig: { maxOutputTokens: 1024 },
-              }),
-            })
-            if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
-            const data = await res.json()
-            answer = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from model.'
+            if (doStream) {
+              const { streamGoogleChat } = await import('./main/handshake/llmStream')
+              answer = await streamGoogleChat(params.model || 'gemini-pro', systemPrompt, userPrompt, apiKey, send)
+            } else {
+              const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${params.model || 'gemini-pro'}:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+                  generationConfig: { maxOutputTokens: 1024 },
+                }),
+              })
+              if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
+              const data = await res.json()
+              answer = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from model.'
+            }
           } catch (err: any) {
             return { success: false, error: 'api_call_failed', provider: 'google', message: err?.message ?? 'API call failed' }
           }
@@ -2550,20 +2686,25 @@ app.whenReady().then(async () => {
           const apiKey = ocrRouter.getApiKey('Grok')
           if (!apiKey) return { success: false, error: 'no_api_key', provider: 'xai' }
           try {
-            const res = await fetch('https://api.x.ai/v1/chat/completions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-              body: JSON.stringify({
-                model: params.model || 'grok-2-1212',
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: userPrompt },
-                ],
-              }),
-            })
-            if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)
-            const data = await res.json()
-            answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+            if (doStream) {
+              const { streamXaiChat } = await import('./main/handshake/llmStream')
+              answer = await streamXaiChat(params.model || 'grok-2-1212', systemPrompt, userPrompt, apiKey, send)
+            } else {
+              const res = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+                body: JSON.stringify({
+                  model: params.model || 'grok-2-1212',
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                }),
+              })
+              if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)
+              const data = await res.json()
+              answer = data.choices?.[0]?.message?.content ?? 'No response from model.'
+            }
           } catch (err: any) {
             return { success: false, error: 'api_call_failed', provider: 'xai', message: err?.message ?? 'API call failed' }
           }
@@ -2571,10 +2712,46 @@ app.whenReady().then(async () => {
           return { success: false, error: 'unsupported_provider', provider: params.provider }
         }
 
-        return { success: true, answer, sources, governanceNote: governanceNote ?? undefined }
+        const llm_ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - llmStart)
+        const total_ms = elapsed()
+        const m = hybridResult.metrics
+        logAIQueryMetrics({
+          structured_ms: m?.structured_ms ?? 0,
+          semantic_ms: m?.semantic_ms ?? 0,
+          llm_ms,
+          total_ms,
+          provider: providerLower,
+          classification_ms: m?.classification_ms,
+        })
+        checkAILatency(total_ms)
+
+        if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+        return {
+          success: true,
+          answer: doStream ? undefined : answer,
+          sources,
+          governanceNote: governanceNote ?? undefined,
+          streamed: doStream,
+          ...(debug && {
+            latency: buildLatencyDebugPayload({
+              query_ms_total: total_ms,
+              classification_ms: m?.classification_ms,
+              structured_ms: m?.structured_ms,
+              semantic_ms: m?.semantic_ms,
+              block_retrieval_ms: m?.semantic_ms,
+              llm_ms,
+              cache_hit: false,
+              provider: providerLower,
+            }),
+          }),
+        }
       } catch (err: any) {
-        console.error('[MAIN] handshake:chatWithContextRag error:', err?.message)
-        return { success: false, error: err?.message ?? 'chat_failed', message: err?.message }
+        console.error('LLM execution error:', err)
+        return {
+          success: false,
+          error: 'model_execution_failed',
+          message: err?.message ?? 'Unknown error',
+        }
       }
     })
 

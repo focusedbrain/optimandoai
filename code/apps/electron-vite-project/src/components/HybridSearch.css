@@ -722,3 +722,8 @@
   color: rgba(255, 255, 255, 0.9);
   border-color: rgba(255, 255, 255, 0.2);
 }
+
+@keyframes hs-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}

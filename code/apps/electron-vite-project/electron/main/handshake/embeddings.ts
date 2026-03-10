@@ -151,6 +151,11 @@ export async function processEmbeddingQueue(
   return { processed, failed, skipped }
 }
 
+/**
+ * Semantic search: prefers capsule_blocks (import-time indexed).
+ * Falls back to context_blocks + context_embeddings when capsule_blocks is empty.
+ * At query time: only searches the index — no capsule parsing.
+ */
 export async function semanticSearch(
   db: any,
   query: string,
@@ -160,27 +165,57 @@ export async function semanticSearch(
 ): Promise<ScoredContextBlock[]> {
   const queryEmbedding = await embeddingService.generateEmbedding(query)
 
-  let sql = `SELECT cb.*, ce.embedding, cb.governance_json
-    FROM context_blocks cb
-    INNER JOIN context_embeddings ce ON
-      cb.sender_wrdesk_user_id = ce.sender_wrdesk_user_id
-      AND cb.block_id = ce.block_id
-      AND cb.block_hash = ce.block_hash
-    WHERE cb.embedding_status = 'complete'`
-  const params: any[] = []
-
+  // Prefer capsule_blocks (import-time indexed). Join with context_blocks for governance.
+  // For chunks, parent_block_id links to the originating context_block.
+  let sqlCapsule = `SELECT cpb.block_id, cpb.block_hash, cpb.handshake_id, cpb.relationship_id,
+      cpb.source, cpb.text, cpb.embedding, cpb.block_type, ctx.scope_id, ctx.type, ctx.data_classification,
+      ctx.version, ctx.valid_until, ctx.sender_wrdesk_user_id, ctx.publisher_id, ctx.governance_json
+    FROM capsule_blocks cpb
+    INNER JOIN context_blocks ctx ON
+      ctx.handshake_id = cpb.handshake_id
+      AND ctx.block_id = COALESCE(cpb.parent_block_id, cpb.block_id)
+    WHERE 1=1`
+  const paramsCapsule: any[] = []
   if (filter.relationship_id) {
-    sql += ' AND cb.relationship_id = ?'
-    params.push(filter.relationship_id)
+    sqlCapsule += ' AND cpb.relationship_id = ?'
+    paramsCapsule.push(filter.relationship_id)
   }
   if (filter.handshake_id) {
-    sql += ' AND cb.handshake_id = ?'
-    params.push(filter.handshake_id)
+    sqlCapsule += ' AND cpb.handshake_id = ?'
+    paramsCapsule.push(filter.handshake_id)
   }
 
-  const rows = db.prepare(sql).all(...params) as any[]
+  const capsuleRows = db.prepare(sqlCapsule).all(...paramsCapsule) as any[]
 
-  // Filter by searchable (item-level governance). Exclude blocks denied for search.
+  let rows: any[]
+  let useTextAsPayload: boolean
+
+  if (capsuleRows.length > 0) {
+    rows = capsuleRows
+    useTextAsPayload = true
+  } else {
+    // Fallback: context_blocks + context_embeddings (legacy path)
+    let sql = `SELECT cb.*, ce.embedding, cb.governance_json
+      FROM context_blocks cb
+      INNER JOIN context_embeddings ce ON
+        cb.sender_wrdesk_user_id = ce.sender_wrdesk_user_id
+        AND cb.block_id = ce.block_id
+        AND cb.block_hash = ce.block_hash
+      WHERE cb.embedding_status = 'complete'`
+    const params: any[] = []
+    if (filter.relationship_id) {
+      sql += ' AND cb.relationship_id = ?'
+      params.push(filter.relationship_id)
+    }
+    if (filter.handshake_id) {
+      sql += ' AND cb.handshake_id = ?'
+      params.push(filter.handshake_id)
+    }
+    rows = db.prepare(sql).all(...params) as any[]
+    useTextAsPayload = false
+  }
+
+  // Filter by searchable (item-level governance)
   const recordCache = new Map<string, ReturnType<typeof getHandshakeRecord>>()
   const searchableRows = rows.filter((row) => {
     const record = recordCache.get(row.handshake_id) ?? getHandshakeRecord(db, row.handshake_id)
@@ -201,7 +236,6 @@ export async function semanticSearch(
     return filterBlocksForSearch([{ governance }], baseline).length > 0
   })
 
-  // Compute cosine similarity in memory
   const scored: ScoredContextBlock[] = searchableRows.map(row => {
     const stored = new Float32Array(
       (row.embedding as Buffer).buffer,
@@ -209,6 +243,7 @@ export async function semanticSearch(
       (row.embedding as Buffer).byteLength / 4,
     )
     const score = cosineSimilarity(queryEmbedding, stored)
+    const payloadRef = useTextAsPayload ? row.text : row.payload
     return {
       block_id: row.block_id,
       block_hash: row.block_hash,
@@ -221,8 +256,8 @@ export async function semanticSearch(
       valid_until: row.valid_until ?? undefined,
       source: row.source,
       sender_wrdesk_user_id: row.sender_wrdesk_user_id,
-      embedding_status: row.embedding_status,
-      payload_ref: row.payload,
+      embedding_status: 'complete',
+      payload_ref: payloadRef,
       score,
     }
   })

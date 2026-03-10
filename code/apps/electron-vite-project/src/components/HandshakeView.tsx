@@ -82,9 +82,14 @@ function StateBadge({ state }: { state: string }) {
 
 // ── Main Component ──
 
-export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () => void }) {
+interface HandshakeViewProps {
+  onNewHandshake?: () => void
+  selectedHandshakeId: string | null
+  onHandshakeScopeChange: (id: string | null, email?: string) => void
+}
+
+export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onHandshakeScopeChange }: HandshakeViewProps) {
   const [handshakes, setHandshakes] = useState<HandshakeRecord[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
   const [vaultStatus, setVaultStatus] = useState<{ isUnlocked: boolean; name: string | null }>({ isUnlocked: false, name: null })
@@ -140,7 +145,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
     }
   }, [])
 
-  const selectedRecord = handshakes.find(h => h.handshake_id === selectedId) ?? null
+  const selectedRecord = handshakes.find(h => h.handshake_id === selectedHandshakeId) ?? null
 
   const active = handshakes.filter(h => h.state === 'ACTIVE')
   const accepted = handshakes.filter(h => h.state === 'ACCEPTED')
@@ -164,7 +169,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
       const res = await window.handshakeView?.forceRevokeHandshake(id)
       console.log('[Revoke] result:', res)
       if (res?.success !== false) {
-        if (selectedId === id) setSelectedId(null)
+        if (selectedHandshakeId === id) onHandshakeScopeChange(null)
         await loadHandshakes()
       } else {
         console.error('[Revoke] failed:', res?.error)
@@ -185,13 +190,21 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
     try {
       const res = await window.handshakeView?.deleteHandshake(id)
       if (res?.success !== false) {
-        if (selectedId === id) setSelectedId(null)
+        if (selectedHandshakeId === id) onHandshakeScopeChange(null)
         await loadHandshakes()
       }
     } catch { /* UI shows stale state until refresh */ }
   }
 
   const handleCapsuleSubmitted = () => { loadHandshakes() }
+
+  const handleHandshakeClick = (r: HandshakeRecord) => {
+    if (r.handshake_id === selectedHandshakeId) {
+      onHandshakeScopeChange(null)
+    } else {
+      onHandshakeScopeChange(r.handshake_id, counterpartyEmail(r))
+    }
+  }
 
   const renderGroup = (title: string, records: HandshakeRecord[]) => {
     if (records.length === 0) return null
@@ -213,14 +226,14 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
               key={r.handshake_id}
               style={{
                 display: 'flex', alignItems: 'stretch', minWidth: 0,
-                background: selectedId === r.handshake_id
+                background: selectedHandshakeId === r.handshake_id
                   ? 'var(--color-accent-bg, rgba(139,92,246,0.12))'
                   : 'transparent',
                 borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
               }}
             >
               <button
-                onClick={() => setSelectedId(r.handshake_id)}
+                onClick={() => handleHandshakeClick(r)}
                 style={{
                   flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px',
                   padding: '10px 12px', textAlign: 'left',
@@ -232,7 +245,10 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {counterpartyEmail(r)}
                   </span>
-                  <span style={{ flexShrink: 0 }}>
+                  <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {selectedHandshakeId === r.handshake_id && (
+                      <span style={{ fontSize: '16px', color: 'var(--color-accent, #a78bfa)', lineHeight: 1, marginLeft: '8px' }} title="Chat scoped to this handshake">🤝</span>
+                    )}
                     <StateBadge state={r.state} />
                   </span>
                 </div>
@@ -369,7 +385,7 @@ export default function HandshakeView({ onNewHandshake }: { onNewHandshake?: () 
             </div>
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <HandshakeChatSidebar
-                handshakeId={selectedId}
+                handshakeId={selectedHandshakeId}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
               />
             </div>

@@ -15,6 +15,7 @@
 import { verifyContextCommitment, computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
 import { upsertContextBlockVersion, getHandshakeRecord } from './db'
 import { inferGovernanceFromLegacy, type LegacyBlockInput } from './contextGovernance'
+import { invalidateByHandshake, invalidateByRelationship } from './queryCache'
 
 export interface ContextIngestionInput {
   handshake_id: string
@@ -162,6 +163,11 @@ export function ingestContextBlocks(
     } else {
       deduplicated++
     }
+  }
+
+  if (inserted > 0 || superseded > 0) {
+    invalidateByHandshake(db, input.handshake_id)
+    invalidateByRelationship(db, input.relationship_id)
   }
 
   return { inserted, deduplicated, superseded }

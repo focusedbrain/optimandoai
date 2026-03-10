@@ -25,6 +25,8 @@ interface SearchResult {
 
 interface HybridSearchProps {
   activeView: DashboardView
+  selectedHandshakeId?: string | null
+  selectedHandshakeEmail?: string | null
 }
 
 // ── LLM Models (loaded from backend) ──
@@ -75,7 +77,7 @@ function isSpecialResult(r: SearchResult): boolean {
 
 // ── Search backend (semantic search via handshake IPC) ──
 
-async function runSearch(query: string, scope: SearchScope): Promise<SearchResult[]> {
+async function runSearch(query: string, scope: SearchScope | string): Promise<SearchResult[]> {
   try {
     const result = await window.handshakeView?.semanticSearch?.(query, scope, 20)
     if (!result?.success) {
@@ -126,6 +128,7 @@ async function runSearch(query: string, scope: SearchScope): Promise<SearchResul
 
 interface ChatSource {
   handshake_id: string
+  capsule_id?: string
   block_id: string
   source: string
   score: number
@@ -142,7 +145,7 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
 
 // ── Component ──
 
-export default function HybridSearch({ activeView }: HybridSearchProps) {
+export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null }: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -152,8 +155,11 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [results, setResults] = useState<SearchResult[]>([])
   const [response, setResponse] = useState<string | null>(null)
+  const [contextBlocks, setContextBlocks] = useState<string[]>([])
   const [chatSources, setChatSources] = useState<ChatSource[]>([])
   const [chatGovernanceNote, setChatGovernanceNote] = useState<string | null>(null)
+  const [structuredResult, setStructuredResult] = useState<{ title: string; items: Array<{ id: string; title: string; snippet: string; handshake_id: string; block_id: string; source: string; score: number; type?: string }> } | null>(null)
+  const [resultType, setResultType] = useState<'document_card' | 'result_card' | 'context_answer' | null>(null)
   const [lastMode, setLastMode] = useState<SearchMode | null>(null)
   const [showPanel, setShowPanel] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
@@ -219,20 +225,40 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
     setShowPanel(true)
     setResults([])
     setResponse(null)
+    setContextBlocks([])
     setChatSources([])
+    setStructuredResult(null)
+    setResultType(null)
 
     try {
+      const effectiveScope = selectedHandshakeId ?? scope
       if (mode === 'search') {
-        const r = await runSearch(trimmed, scope)
+        const r = await runSearch(trimmed, effectiveScope)
         setResults(r)
       } else {
         const modelInfo = availableModels.find(m => m.id === selectedModel)
-        const result = await window.handshakeView?.chatWithContextRag?.({
-          query: trimmed,
-          scope,
-          model: selectedModel || 'llama3',
-          provider: modelInfo?.provider || 'ollama',
+        const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
+          setContextBlocks(data.contextBlocks ?? [])
+          setChatSources(data.sources ?? [])
+          setIsLoading(false)
         })
+        const unsubToken = window.handshakeView?.onChatStreamToken?.((data: { token: string }) => {
+          setResponse(prev => (prev ?? '') + (data.token ?? ''))
+        })
+
+        let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
+        try {
+          result = await window.handshakeView?.chatWithContextRag?.({
+            query: trimmed,
+            scope: effectiveScope,
+            model: selectedModel || 'llama3',
+            provider: modelInfo?.provider || 'ollama',
+            stream: true,
+          })
+        } finally {
+          unsubStart?.()
+          unsubToken?.()
+        }
 
         if (!result?.success) {
           if (result?.error === 'vault_locked') {
@@ -243,6 +269,10 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
             setResponse(`No API key configured for ${result.provider ?? 'cloud provider'}. Add it in Extension Settings.`)
           } else if (result?.error === 'ollama_unavailable') {
             setResponse('Ollama is not running. Start Ollama to use local models.')
+          } else if (result?.error === 'model_not_available') {
+            setResponse(result?.message ?? 'Configured Ollama model not found.')
+          } else if (result?.error === 'model_execution_failed') {
+            setResponse(result?.message ?? 'Model execution failed.')
           } else if (result?.error === 'api_call_failed') {
             setResponse(result?.message ?? 'API call failed. Check your API key and network.')
           } else {
@@ -251,20 +281,30 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
           setChatSources([])
           setChatGovernanceNote(null)
         } else {
-          setResponse(result.answer ?? '')
-          setChatSources(result.sources ?? [])
+          if (!result.streamed) {
+            setResponse(result.answer ?? '')
+            setChatSources(result.sources ?? [])
+          }
           setChatGovernanceNote(result.governanceNote ?? null)
+          if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
+          if (result.structuredResult) {
+            setStructuredResult(result.structuredResult)
+            setResultType((result.resultType as 'document_card' | 'result_card' | 'context_answer') ?? null)
+          }
         }
       }
     } catch (err: any) {
       console.error('Chat failed:', err)
-      setResponse('An error occurred.')
+      const msg = err?.message ?? 'Unknown error'
+      setResponse(msg)
       setChatSources([])
       setChatGovernanceNote(null)
+      setStructuredResult(null)
+      setResultType(null)
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedModel, availableModels, isLoading])
+  }, [query, mode, scope, selectedHandshakeId, selectedModel, availableModels, isLoading])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -284,6 +324,14 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
 
   return (
     <div className="hs-root" ref={containerRef}>
+      {selectedHandshakeId && selectedHandshakeEmail && (
+        <div style={{
+          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px',
+        }}>
+          Scope: Handshake → {selectedHandshakeEmail}
+        </div>
+      )}
       <div className="hs-bar">
 
         {/* ── Left: mode toggle + scope ── */}
@@ -326,11 +374,14 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
         </div>
 
         {/* ── Centre: main input ── */}
+        {selectedHandshakeId && (
+          <span style={{ marginRight: '8px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0 }} title="Chat scoped to selected handshake">👉</span>
+        )}
         <input
           ref={inputRef}
           className="hs-input"
           type="text"
-          placeholder="AI Assistant across the BEAP Ecosystem"
+          placeholder={selectedHandshakeId ? 'Ask a question about the context…' : 'AI Assistant across the BEAP Ecosystem'}
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -454,7 +505,7 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
             </button>
           </div>
 
-          {isLoading && (
+          {isLoading && !(lastMode === 'chat' && contextBlocks.length > 0) && (
             <div className="hs-panel-loading">
               <span className="hs-spinner" />
               <span>{lastMode === 'chat' ? 'Asking…' : 'Searching…'}</span>
@@ -485,9 +536,80 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
           )}
 
           {/* Chat response */}
-          {!isLoading && lastMode === 'chat' && response && (
+          {lastMode === 'chat' && (response || contextBlocks.length > 0 || structuredResult) && (
             <div className="hs-response">
-              <div className="hs-response-text">{response}</div>
+              {structuredResult && structuredResult.items.length > 0 && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    {structuredResult.title}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {structuredResult.items.map((item) => (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '12px',
+                          background: 'var(--purple-accent-muted, rgba(147,51,234,0.08))',
+                          border: '1px solid rgba(147,51,234,0.2)',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>{item.title}</div>
+                        <div style={{ color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.4 }}>{item.snippet}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          Source: capsule_id: {shortId(item.handshake_id)}, block: {item.block_id}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(item.handshake_id).then(() => {}).catch(() => {})}
+                          style={{
+                            marginTop: '6px',
+                            padding: '4px 8px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            background: 'var(--purple-accent)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Copy handshake ID
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {structuredResult && structuredResult.items.length === 0 && (
+                <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  No relevant context found in indexed BEAP data.
+                </div>
+              )}
+              {contextBlocks.length > 0 && (
+                <div className="hs-response-context" style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Context retrieved:</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {contextBlocks.join('\n')}
+                  </div>
+                </div>
+              )}
+              {(response != null || contextBlocks.length > 0) && !(structuredResult && structuredResult.items.length > 0) && (
+                <>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
+                  <div className="hs-response-text">
+                    {response ?? ''}
+                    {contextBlocks.length > 0 && response === '' && <span className="hs-stream-cursor" style={{ display: 'inline-block', width: '2px', height: '1em', background: 'var(--purple-accent)', marginLeft: '2px', animation: 'hs-blink 1s step-end infinite' }} />}
+                  </div>
+                </>
+              )}
+              {structuredResult && structuredResult.items.length === 0 && response && (
+                <>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
+                  <div className="hs-response-text">{response}</div>
+                </>
+              )}
               <div className="hs-response-chips">
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
                 <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
@@ -500,26 +622,36 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
               {chatSources.length > 0 && (
                 <div className="hs-response-sources" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px' }}>Sources</div>
-                  {chatSources.map((s, i) => (
-                    <div key={`${s.handshake_id}-${s.block_id}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px', fontSize: '11px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        Source {i + 1}: Handshake {shortId(s.handshake_id)} · {s.source === 'received' ? 'Received' : 'Sent'} · Score: {(s.score * 100).toFixed(0)}%
-                      </span>
+                  {chatSources.map((s, i) => {
+                    const capId = s.capsule_id ?? s.handshake_id
+                    const refText = `capsule_id: ${shortId(capId)}, block: ${s.block_id}`
+                    return (
                       <button
+                        key={`${s.handshake_id}-${s.block_id}-${i}`}
                         type="button"
-                        onClick={() => handleViewHandshake(s.handshake_id)}
-                        title="Copy handshake ID"
+                        onClick={() => {
+                          navigator.clipboard.writeText(s.handshake_id).then(() => {}).catch(() => {})
+                        }}
+                        title={`Copy handshake ID · ${refText}`}
                         style={{
-                          fontSize: '10px', padding: '2px 6px',
-                          background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
-                          border: '1px solid rgba(147,51,234,0.2)', borderRadius: '4px',
-                          cursor: 'pointer', fontWeight: 600,
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          marginBottom: '6px',
+                          fontSize: '11px',
+                          padding: '6px 8px',
+                          background: 'var(--purple-accent-muted)',
+                          color: 'var(--purple-accent)',
+                          border: '1px solid rgba(147,51,234,0.2)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontFamily: 'monospace',
                         }}
                       >
-                        View in handshake
+                        {refText}
                       </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

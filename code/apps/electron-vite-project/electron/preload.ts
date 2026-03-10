@@ -274,7 +274,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const user = assertString(userMessage, 'userMessage')
     return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
   },
-  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string }) => {
+  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean }) => {
     if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
       throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
     }
@@ -283,7 +283,19 @@ contextBridge.exposeInMainWorld('handshakeView', {
       scope: typeof params.scope === 'string' ? params.scope : undefined,
       model: typeof params.model === 'string' ? params.model : 'llama3',
       provider: typeof params.provider === 'string' ? params.provider : 'ollama',
+      stream: params.stream === true,
+      debug: params.debug === true,
     })
+  },
+  onChatStreamStart: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => {
+    const handler = (_: unknown, data: unknown) => callback(data as { contextBlocks: string[]; sources: unknown[] })
+    ipcRenderer.on('handshake:chatStreamStart', handler)
+    return () => ipcRenderer.removeListener('handshake:chatStreamStart', handler)
+  },
+  onChatStreamToken: (callback: (data: { token: string }) => void) => {
+    const handler = (_: unknown, data: unknown) => callback(data as { token: string })
+    ipcRenderer.on('handshake:chatStreamToken', handler)
+    return () => ipcRenderer.removeListener('handshake:chatStreamToken', handler)
   },
   initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
     const email = assertString(receiverEmail, 'receiverEmail')

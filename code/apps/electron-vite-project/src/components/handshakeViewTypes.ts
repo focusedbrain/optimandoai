@@ -25,7 +25,24 @@ declare global {
       semanticSearch?: (query: string, scope?: string, limit?: number) => Promise<{ success: boolean; error?: string; results?: Array<{ block_id: string; type?: string; snippet?: string; payload_ref?: string; score?: number }> }>
       getAvailableModels?: () => Promise<{ success: boolean; error?: string; models?: Array<{ id: string; name: string; provider: string; type: 'local' | 'cloud' }> }>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
-      chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string }) => Promise<{ success: boolean; error?: string; provider?: string; message?: string; answer?: string; sources?: Array<{ handshake_id: string; block_id: string; source: string; score: number }>; governanceNote?: string }>
+      chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean }) => Promise<{
+        success: boolean
+        error?: string
+        provider?: string
+        message?: string
+        answer?: string
+        sources?: Array<{ handshake_id: string; capsule_id?: string; block_id: string; source: string; score: number }>
+        governanceNote?: string
+        streamed?: boolean
+        cached?: boolean
+        resultType?: 'document_card' | 'result_card' | 'context_answer'
+        structuredResult?: { title: string; items: Array<{ id: string; title: string; snippet: string; handshake_id: string; block_id: string; source: string; score: number; type?: string }> }
+        intent?: string
+        domain?: string
+        latency?: { total_ms: number; classification_ms?: number; structured_ms?: number; semantic_ms?: number; block_retrieval_ms?: number; llm_ms?: number; cache_hit?: boolean; provider?: string; intent?: string; domain?: string }
+      }>
+      onChatStreamStart?: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => () => void
+      onChatStreamToken?: (callback: (data: { token: string }) => void) => () => void
       initiateHandshake?: (receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       buildForDownload?: (receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       downloadCapsule?: (capsuleJson: string, suggestedFilename: string) => Promise<any>

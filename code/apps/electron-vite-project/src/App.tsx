@@ -40,6 +40,8 @@ function App() {
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
   const [activeView, setActiveView] = useState<DashboardView>('analysis')
   const [showInitiateModal, setShowInitiateModal] = useState(false)
+  const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
+  const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -111,12 +113,23 @@ function App() {
             BEAP™ Inbox
           </button>
         </nav>
-        <HybridSearch activeView={activeView} />
+        <HybridSearch
+          activeView={activeView}
+          selectedHandshakeId={selectedHandshakeId}
+          selectedHandshakeEmail={selectedHandshakeEmail}
+        />
       </header>
 
       <main className="app-main">
         {activeView === 'handshakes' ? (
-          <HandshakeView onNewHandshake={() => setShowInitiateModal(true)} />
+          <HandshakeView
+            onNewHandshake={() => setShowInitiateModal(true)}
+            selectedHandshakeId={selectedHandshakeId}
+            onHandshakeScopeChange={(id, email) => {
+              setSelectedHandshakeId(id)
+              setSelectedHandshakeEmail(email ?? null)
+            }}
+          />
         ) : activeView === 'settings' ? (
           <SettingsView />
         ) : (

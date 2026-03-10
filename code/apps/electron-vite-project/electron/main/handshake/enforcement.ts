@@ -38,6 +38,7 @@ import {
   markContextBlocksInactiveByHandshake,
 } from './db'
 import { ingestContextBlocks } from './contextIngestion'
+import { indexCapsuleBlocks } from './capsuleBlockIndexer'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
@@ -414,6 +415,19 @@ export function processHandshakeCapsule(
 
   try {
     tx()
+    // Index blocks into capsule_blocks for query-time search (no parsing at query).
+    // Fire-and-forget: indexing runs after commit; failures are logged, not surfaced.
+    if (blocksStored > 0) {
+      const vs = (globalThis as any).__og_vault_service_ref as { getEmbeddingService?: () => any } | undefined
+      const embeddingService = vs?.getEmbeddingService?.()
+      if (embeddingService) {
+        indexCapsuleBlocks(db, input.handshake_id, input.relationship_id, embeddingService)
+          .then((r) => {
+            if (r.indexed > 0) console.log('[HANDSHAKE] capsule_blocks indexed:', r.indexed, 'handshake=', input.handshake_id)
+          })
+          .catch((err) => console.warn('[HANDSHAKE] capsule_blocks indexing failed:', err?.message ?? err))
+      }
+    }
   } catch (txErr: any) {
     const errMsg: string = txErr?.message ?? String(txErr)
     console.error('[HANDSHAKE] atomic_transaction error:', errMsg, txErr)
