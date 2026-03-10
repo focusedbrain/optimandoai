@@ -158,12 +158,20 @@ async function processCapsuleInternal(
     }
 
     console.log('[Coordination] Calling processHandshakeCapsule for:', id, 'capsuleType=', capsuleType)
-    const handshakeResult = processHandshakeCapsule(
-      db,
-      canonicalValidated,
-      buildDefaultReceiverPolicy(),
-      ssoSession,
-    )
+    let handshakeResult: ReturnType<typeof processHandshakeCapsule>
+    try {
+      handshakeResult = processHandshakeCapsule(
+        db,
+        canonicalValidated,
+        buildDefaultReceiverPolicy(),
+        ssoSession,
+      )
+    } catch (phcErr: any) {
+      console.error('[Coordination] processHandshakeCapsule THREW:', phcErr?.message ?? phcErr, 'stack=', phcErr?.stack?.slice(0, 300))
+      sendAckFn([id])
+      return
+    }
+    console.log('[Coordination] processHandshakeCapsule returned: success=', handshakeResult.success, 'reason=', (handshakeResult as any).reason ?? 'n/a')
 
     if (handshakeResult.success) {
       const newState = handshakeResult.handshakeRecord?.state ?? 'unknown'
