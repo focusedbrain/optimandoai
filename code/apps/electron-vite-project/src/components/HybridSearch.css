@@ -242,7 +242,7 @@
   align-items: stretch;
   flex-shrink: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 0 9px 9px 0;
 }
 
@@ -329,23 +329,37 @@
   to { transform: rotate(360deg); }
 }
 
-.hs-model-caret {
+/* Model selector: model name + caret, always clickable without typing */
+.hs-model-selector {
   padding: 0 8px;
   font-size: 11px;
   background: var(--purple-accent-hover);
   color: white;
   border: none;
   border-left: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 0;
+  border-radius: 0 9px 9px 0;
   cursor: pointer;
   transition: background 0.12s;
   display: flex;
   align-items: center;
+  gap: 2px;
 }
 
-.hs-model-caret:hover,
-.hs-model-caret--open {
+.hs-model-selector .hs-send-model {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hs-model-selector:hover,
+.hs-model-selector.hs-model-caret--open {
   background: #6d28d9;
+}
+
+.hs-model-selector .hs-model-caret {
+  font-size: 10px;
+  opacity: 0.9;
 }
 
 /* ── Model dropdown menu ── */

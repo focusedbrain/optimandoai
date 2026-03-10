@@ -3049,11 +3049,19 @@ function SidepanelOrchestrator() {
           </span>
         </button>
         
-        {/* Model dropdown toggle */}
+        {/* Model dropdown toggle — refresh models when opening, retry if empty */}
         <button
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation()
-            setShowModelDropdown(!showModelDropdown)
+            const next = !showModelDropdown
+            if (next) {
+              let ok = await refreshAvailableModels()
+              if (!ok && availableModels.length === 0) {
+                await new Promise(r => setTimeout(r, 2000))
+                await refreshAvailableModels()
+              }
+            }
+            setShowModelDropdown(next)
           }}
           disabled={isLlmLoading}
           style={{

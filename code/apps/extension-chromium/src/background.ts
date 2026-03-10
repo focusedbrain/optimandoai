@@ -2051,7 +2051,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ─────────────────────────────────────────────────────────────────────────
   if (msg && msg.type === 'ELECTRON_RPC') {
     ;(async () => {
-      await ensureLaunchSecret(5000)
+      await ensureLaunchSecret(10000)
       handleElectronRpc(
         msg as ElectronRpcRequest,
         sender,

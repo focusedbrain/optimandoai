@@ -34,6 +34,8 @@ if (process.platform === 'win32') {
 const buildDirs = []
 
 if (process.platform === 'win32') {
+  buildDirs.push('C:\\build-output\\build102')
+  buildDirs.push('C:\\build-output\\build101')
   buildDirs.push('C:\\build-output\\build100')
   buildDirs.push('C:\\build-output\\build01')
   buildDirs.push('C:\\build-output\\build02')

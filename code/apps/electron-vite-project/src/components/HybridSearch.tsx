@@ -359,15 +359,12 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
                 {mode === 'chat' ? 'Chat' : 'Search'}
               </span>
             )}
-            {mode === 'chat' && !isLoading && (
-              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
-            )}
           </button>
 
-          {/* Model picker — only shown in chat mode */}
+          {/* Model picker — always clickable without typing; shows model name + caret */}
           {mode === 'chat' && (
             <button
-              className={`hs-model-caret${modelMenuOpen ? ' hs-model-caret--open' : ''}`}
+              className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}`}
               onClick={async () => {
                 const next = !modelMenuOpen
                 setModelMenuOpen(next)
@@ -383,10 +380,11 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
                 }
               }}
               aria-label="Select LLM model"
-              title="Choose model"
+              title="Choose model (click to open)"
               tabIndex={0}
             >
-              ▾
+              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
+              <span className="hs-model-caret">▾</span>
             </button>
           )}
 

@@ -38,6 +38,7 @@ import {
 } from './handshake/handshakeService'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
+import { electronRpc } from './rpc/electronRpc'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -282,8 +283,21 @@ function PopupChatApp() {
   // MIRRORS docked sidepanel state exactly
   const [dockedWorkspace, setDockedWorkspace] = useState<DockedWorkspace>('wr-chat')
   const [dockedSubmode, setDockedSubmode] = useState<DockedSubmode>('command')
+
+  // Sync useUIStore so CommandChatView gets correct mode (commands = show model selector)
+  useEffect(() => {
+    if (dockedWorkspace === 'wr-chat' && dockedSubmode === 'command') {
+      useUIStore.getState().setWorkspace('wr-chat')
+      useUIStore.getState().setMode('commands')
+    }
+  }, [dockedWorkspace, dockedSubmode])
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [beapSubmode, setBeapSubmode] = useState<BeapSubmode>('inbox')
+
+  // Command Chat model state (popup — same as sidepanel)
+  const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
+  const [activeLlmModel, setActiveLlmModel] = useState<string>('')
+  const activeLlmModelRef = useRef<string>('')
   
   // Handle launchMode query parameter from Electron dashboard
   useEffect(() => {
@@ -339,6 +353,40 @@ function PopupChatApp() {
 
   // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
   const { handshakes } = useHandshakes('active')
+
+  // Command Chat: refresh models from backend (uses electronRpc)
+  const refreshPopupModels = async () => {
+    try {
+      const result = await electronRpc('llm.status')
+      const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
+      if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
+        const models = statusResult.data.modelsInstalled
+        setAvailableModels(models)
+        const currentModel = activeLlmModelRef.current || activeLlmModel
+        const modelStillExists = models.some((m: { name: string }) => m.name === currentModel)
+        if (!currentModel || !modelStillExists) {
+          const gemmaModel = models.find((m: { name: string }) => m.name.toLowerCase().includes('gemma'))
+          const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
+          setActiveLlmModel(selectedModel)
+          activeLlmModelRef.current = selectedModel
+        }
+        return true
+      }
+    } catch (e) { console.error('[Popup] Failed to refresh models:', e) }
+    return false
+  }
+
+  // Fetch models on mount, retry after delay if connection may not be ready
+  useEffect(() => {
+    const load = async () => {
+      let ok = await refreshPopupModels()
+      if (!ok) {
+        await new Promise(r => setTimeout(r, 3000))
+        await refreshPopupModels()
+      }
+    }
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
 
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
@@ -1306,7 +1354,15 @@ function PopupChatApp() {
     // WR Chat modes - respect submode
     switch (dockedSubmode) {
       case 'command':
-        return <CommandChatView theme={theme} />
+        return (
+          <CommandChatView
+            theme={theme}
+            availableModels={availableModels}
+            activeLlmModel={activeLlmModel}
+            onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
+            onRefreshModels={refreshPopupModels}
+          />
+        )
       case 'p2p-chat':
         return <P2PChatPlaceholder theme={toPlaceholderTheme(theme)} />
       case 'p2p-stream':
@@ -1352,7 +1408,15 @@ function PopupChatApp() {
           </div>
         )
       default:
-        return <CommandChatView theme={theme} />
+        return (
+          <CommandChatView
+            theme={theme}
+            availableModels={availableModels}
+            activeLlmModel={activeLlmModel}
+            onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
+            onRefreshModels={refreshPopupModels}
+          />
+        )
     }
   }
   
