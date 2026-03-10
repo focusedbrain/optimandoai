@@ -2044,15 +2044,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // server-side — never exposed to the caller.
   //
   // See: src/rpc/electronRpc.ts for the full registry + schemas.
+  //
+  // Waits for launch secret before dispatching — same as AUTH_LOGIN.
+  // Without this, the sidepanel/popup Command Chat can open before the
+  // WebSocket handshake completes, causing 401 and "No models available".
   // ─────────────────────────────────────────────────────────────────────────
   if (msg && msg.type === 'ELECTRON_RPC') {
-    return handleElectronRpc(
-      msg as ElectronRpcRequest,
-      sender,
-      sendResponse,
-      _launchSecret,
-      ELECTRON_BASE_URL,
-    )
+    ;(async () => {
+      await ensureLaunchSecret(5000)
+      handleElectronRpc(
+        msg as ElectronRpcRequest,
+        sender,
+        sendResponse,
+        _launchSecret,
+        ELECTRON_BASE_URL,
+      )
+    })()
+    return true
   }
 
   // ===== AUTH HANDLERS =====

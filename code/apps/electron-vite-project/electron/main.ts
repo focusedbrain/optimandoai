@@ -2258,25 +2258,22 @@ app.whenReady().then(async () => {
         const localModels: Array<{ id: string; name: string; provider: string; type: 'local' }> = []
         const cloudModels: Array<{ id: string; name: string; provider: string; type: 'cloud' }> = []
 
-        // 1. Fetch local models from Ollama
+        // 1. Fetch local models from Ollama (use OllamaManager — same path as Backend Config)
         try {
-          const res = await fetch('http://127.0.0.1:11434/api/tags')
-          if (res.ok) {
-            const data = await res.json()
-            const models = data?.models ?? []
-            for (const m of models) {
-              const name = (m?.name ?? m?.model ?? String(m)) || ''
-              if (!name) continue
-              localModels.push({
-                id: name,
-                name,
-                provider: 'ollama',
-                type: 'local',
-              })
-            }
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const installed = await ollamaManager.listModels()
+          for (const m of installed) {
+            const name = m?.name?.trim?.() || ''
+            if (!name) continue
+            localModels.push({
+              id: name,
+              name,
+              provider: 'ollama',
+              type: 'local',
+            })
           }
-        } catch {
-          // Ollama not running
+        } catch (err: any) {
+          console.warn('[MAIN] handshake:getAvailableModels Ollama:', err?.message ?? err)
         }
 
         // 2. Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)

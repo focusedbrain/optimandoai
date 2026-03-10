@@ -169,7 +169,8 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
         const result = await window.handshakeView?.getAvailableModels?.()
         if (result?.success && Array.isArray(result.models)) {
           setAvailableModels(result.models)
-          setSelectedModel(prev => (prev || result.models[0]?.id) ?? '')
+          const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
+          setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
         }
       } catch (err) {
         console.error('Failed to load models:', err)
@@ -375,7 +376,8 @@ export default function HybridSearch({ activeView }: HybridSearchProps) {
                     const result = await window.handshakeView?.getAvailableModels?.()
                     if (result?.success && Array.isArray(result.models)) {
                       setAvailableModels(result.models)
-                      setSelectedModel(prev => prev || (result.models[0]?.id ?? ''))
+                      const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
+                      setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
                     }
                   } catch { /* ignore */ }
                 }
