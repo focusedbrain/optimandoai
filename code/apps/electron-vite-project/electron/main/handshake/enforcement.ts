@@ -619,7 +619,11 @@ function buildAcceptRecord(
     acceptor_context_commitment: input.context_commitment ?? null,
     p2p_endpoint: existing.p2p_endpoint ?? p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken ?? existing.counterparty_p2p_token,
-    counterparty_public_key: senderPublicKey || existing.counterparty_public_key,
+    // counterparty_public_key must stay as the INITIATOR's key (set during initiate import).
+    // senderPublicKey here is the acceptor's own key (from the outbound accept capsule being
+    // processed via submitCapsuleViaRpc). Overwriting it with the acceptor's own key causes
+    // SIGNATURE_INVALID when the initiator's context_sync later arrives.
+    counterparty_public_key: existing.counterparty_public_key || senderPublicKey,
   }
 }
 
