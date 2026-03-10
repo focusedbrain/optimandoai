@@ -284,7 +284,11 @@ export async function handleHandshakeRPC(
     case 'handshake.initiateRevocation': {
       const { handshakeId } = params
       try {
-        await revokeHandshake(db, handshakeId, 'local-user')
+        let session: SSOSession
+        try { session = requireSession() } catch (err: any) {
+          return { type: 'revocation-result', success: false, reason: ReasonCode.UNAUTHENTICATED }
+        }
+        await revokeHandshake(db, handshakeId, 'local-user', session.wrdesk_user_id, session, _getOidcToken)
         return { type: 'revocation-result', success: true, reason: ReasonCode.OK }
       } catch {
         return { type: 'revocation-result', success: false, reason: ReasonCode.INTERNAL_ERROR }
@@ -1113,7 +1117,8 @@ export function registerHandshakeRoutes(app: any, getDb: () => any): void {
     try {
       const db = getDb()
       if (!db) return res.status(503).json({ error: 'vault_locked' })
-      await revokeHandshake(db, req.params.id, 'local-user')
+      const session = _getSession()
+      await revokeHandshake(db, req.params.id, 'local-user', session?.wrdesk_user_id, session ?? undefined, _getOidcToken)
       res.json({ success: true })
     } catch (err: any) {
       res.status(500).json({ error: err?.message })
