@@ -556,27 +556,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
                         }}
                       >
                         <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>{item.title}</div>
-                        <div style={{ color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.4 }}>{item.snippet}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                          Source: capsule_id: {shortId(item.handshake_id)}, block: {item.block_id}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => navigator.clipboard.writeText(item.handshake_id).then(() => {}).catch(() => {})}
-                          style={{
-                            marginTop: '6px',
-                            padding: '4px 8px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            background: 'var(--purple-accent)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Copy handshake ID
-                        </button>
+                        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item.snippet}</div>
                       </div>
                     ))}
                   </div>
@@ -585,14 +565,6 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
               {structuredResult && structuredResult.items.length === 0 && (
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
                   No relevant context found in indexed BEAP data.
-                </div>
-              )}
-              {contextBlocks.length > 0 && (
-                <div className="hs-response-context" style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Context retrieved:</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                    {contextBlocks.join('\n')}
-                  </div>
                 </div>
               )}
               {(response != null || contextBlocks.length > 0) && !(structuredResult && structuredResult.items.length > 0) && (
@@ -619,40 +591,105 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
                   {chatGovernanceNote}
                 </div>
               )}
-              {chatSources.length > 0 && (
-                <div className="hs-response-sources" style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px' }}>Sources</div>
-                  {chatSources.map((s, i) => {
-                    const capId = s.capsule_id ?? s.handshake_id
-                    const refText = `capsule_id: ${shortId(capId)}, block: ${s.block_id}`
-                    return (
-                      <button
-                        key={`${s.handshake_id}-${s.block_id}-${i}`}
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(s.handshake_id).then(() => {}).catch(() => {})
-                        }}
-                        title={`Copy handshake ID · ${refText}`}
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          textAlign: 'left',
-                          marginBottom: '6px',
-                          fontSize: '11px',
-                          padding: '6px 8px',
-                          background: 'var(--purple-accent-muted)',
-                          color: 'var(--purple-accent)',
-                          border: '1px solid rgba(147,51,234,0.2)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
+              {/* Collapsible Sources & Details dropdown */}
+              {(chatSources.length > 0 || contextBlocks.length > 0 || (structuredResult?.items?.length ?? 0) > 0) && (
+                <details className="hs-response-details" style={{
+                  marginTop: '12px',
+                  borderTop: '1px solid var(--border-light, var(--border, #e0e0e0))',
+                  paddingTop: '8px',
+                }}>
+                  <summary style={{
+                    fontSize: '11px',
+                    color: 'var(--text-muted, #888)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    fontWeight: 500,
+                    letterSpacing: '0.03em',
+                    listStyle: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}>
+                    <span className="hs-details-arrow" style={{
+                      display: 'inline-block',
+                      transition: 'transform 0.2s',
+                      fontSize: '9px',
+                    }}>&#9654;</span>
+                    Sources &amp; Details
+                  </summary>
+                  <div style={{
+                    paddingTop: '8px',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary, #666)',
+                  }}>
+                    {contextBlocks.length > 0 && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted, #888)',
+                          marginBottom: '4px',
+                        }}>
+                          Context Retrieved
+                        </div>
+                        <div style={{
                           fontFamily: 'monospace',
-                        }}
-                      >
-                        {refText}
-                      </button>
-                    )
-                  })}
-                </div>
+                          fontSize: '11px',
+                          whiteSpace: 'pre-wrap',
+                          color: 'var(--text-secondary, #666)',
+                        }}>
+                          {contextBlocks.join('\n')}
+                        </div>
+                      </div>
+                    )}
+                    {(chatSources.length > 0 || (structuredResult?.items?.length ?? 0) > 0) && (
+                      <div>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted, #888)',
+                          marginBottom: '4px',
+                        }}>
+                          Sources
+                        </div>
+                        {(chatSources.length > 0 ? chatSources : structuredResult?.items ?? []).map((s, i, arr) => {
+                          const handshakeId = (s as { handshake_id: string }).handshake_id
+                          const blockId = (s as { block_id: string }).block_id
+                          const displayLabel = selectedHandshakeId && handshakeId === selectedHandshakeId && selectedHandshakeEmail
+                            ? selectedHandshakeEmail
+                            : (handshakeId?.includes('@') ? handshakeId : shortId(handshakeId))
+                          return (
+                            <div key={`src-${handshakeId}-${blockId}-${i}`} style={{
+                              fontSize: '11px',
+                              padding: '4px 0',
+                              borderBottom: i < arr.length - 1 ? '1px solid var(--border-light, #eee)' : 'none',
+                            }}>
+                              <div style={{
+                                fontWeight: 600,
+                                fontSize: '12px',
+                                color: 'var(--text-primary, #333)',
+                                marginBottom: '2px',
+                              }}>
+                                {displayLabel}
+                              </div>
+                              <div style={{
+                                fontFamily: 'monospace',
+                                fontSize: '10px',
+                                color: 'var(--text-muted, #888)',
+                              }}>
+                                Block: {blockId}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </details>
               )}
             </div>
           )}

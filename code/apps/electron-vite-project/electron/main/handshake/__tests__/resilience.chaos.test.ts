@@ -11,22 +11,27 @@ import type { ScoredContextBlock } from '../types'
 
 // ── Test 1: Empty Retrieval ─────────────────────────────────────────────────
 describe('Test 1 — Empty Retrieval', () => {
-  test('buildRagPrompt with zero blocks produces explicit "no relevant context" message', () => {
+  test('buildRagPrompt with zero blocks produces explicit no-context message', () => {
     const { systemPrompt, userPrompt } = buildRagPrompt([], 'What is the CEO of ExampleTech?')
-    expect(systemPrompt).toContain('Do not make up information')
-    expect(systemPrompt).toContain('say so clearly')
-    expect(userPrompt).toContain('(No relevant context blocks were found.)')
+    expect(systemPrompt).toContain('context-grounded assistant')
+    expect(systemPrompt).toContain('Do not use external knowledge')
+    expect(systemPrompt).toContain('The provided context does not contain this information')
+    expect(userPrompt).toContain('Context blocks:')
     expect(userPrompt).toContain('User question:')
     expect(userPrompt).toContain('What is the CEO of ExampleTech?')
-    expect(userPrompt).not.toContain('Context blocks:')
     expect(userPrompt).not.toMatch(/\[block_id:/)
   })
 
-  test('model receives explicit no-context signal, not empty or fabricated context', () => {
-    const { userPrompt } = buildRagPrompt([], 'What is the CEO of ExampleTech?')
-    expect(userPrompt).toBe(
-      '(No relevant context blocks were found.)\n\nUser question:\nWhat is the CEO of ExampleTech?'
-    )
+  test('retrieval failed: model receives contextual search unavailable message', () => {
+    const { userPrompt } = buildRagPrompt([], 'What is the CEO?', { retrievalFailed: true })
+    expect(userPrompt).toContain('Contextual search is currently unavailable')
+    expect(userPrompt).toContain('User question:')
+  })
+
+  test('retrieval succeeded but no relevant blocks: model receives no-relevant-info message', () => {
+    const { userPrompt } = buildRagPrompt([], 'What is the CEO?', { retrievalFailed: false })
+    expect(userPrompt).toContain('did not contain information relevant to the question')
+    expect(userPrompt).toContain('User question:')
   })
 })
 

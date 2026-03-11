@@ -60,7 +60,8 @@ const PHRASE_TO_FIELD: Array<{ phrases: RegExp[]; fieldPath: string }> = [
   {
     phrases: [
       /company\s*name/i,
-      /(?:what(?:'s| is)\s*)?(?:the\s*)?(?:company\s*)?name/i,
+      /(?:what(?:'s| is|s)\s*)?(?:the\s*)?(?:company\s*)?name/i,
+      /whats?\s*(?:the\s*)?(?:company\s*)?name/i,
       /business\s*name/i,
     ],
     fieldPath: 'company.name',
@@ -136,6 +137,7 @@ function getAtPath(obj: unknown, path: string): unknown {
 
 /**
  * Formats a value for display. Handles primitives and simple objects.
+ * Objects are formatted as human-readable key-value pairs, not raw JSON.
  */
 function formatValue(value: unknown): string {
   if (value == null) return ''
@@ -145,7 +147,14 @@ function formatValue(value: unknown): string {
     return value.map(v => formatValue(v)).join(', ')
   }
   if (typeof value === 'object') {
-    return JSON.stringify(value, null, 2)
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => {
+        const label = k.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        const val = formatValue(v)
+        return val ? `${label}: ${val}` : ''
+      })
+      .filter(Boolean)
+      .join('\n')
   }
   return String(value)
 }
@@ -159,6 +168,7 @@ export interface StructuredLookupResult {
 /**
  * Looks up a structured field value from context blocks.
  * Parses payload_ref as JSON when possible and extracts the value at the given path.
+ * Supports context_graph format: tries fieldPath and context_graph.fieldPath.
  */
 export function structuredLookup(
   blocks: ScoredContextBlock[],
@@ -183,7 +193,31 @@ export function structuredLookup(
       continue
     }
 
-    const value = getAtPath(parsed, fieldPath)
+    // Try direct path first
+    let value = getAtPath(parsed, fieldPath)
+    // Try context_graph.fieldPath for context-graph blocks (e.g. ctx-*)
+    if ((value === undefined || value === null) && parsed && typeof parsed === 'object' && 'context_graph' in parsed) {
+      value = getAtPath(parsed, `context_graph.${fieldPath}`)
+    }
+    // Try nodes array in context_graph (some formats use nodes with id/data)
+    if ((value === undefined || value === null) && parsed && typeof parsed === 'object') {
+      const cg = (parsed as Record<string, unknown>).context_graph
+      if (cg && typeof cg === 'object' && Array.isArray((cg as Record<string, unknown>).nodes)) {
+        const nodes = (cg as { nodes?: Array<{ id?: string; data?: unknown }> }).nodes ?? []
+        const prefix = fieldPath.split('.')[0]
+        for (const node of nodes) {
+          if (node.id === prefix || node.id === fieldPath) {
+            const data = node.data
+            if (data != null) {
+              const subPath = fieldPath.includes('.') ? fieldPath.split('.').slice(1).join('.') : ''
+              value = subPath ? getAtPath(data, subPath) : data
+              if (value !== undefined && value !== null) break
+            }
+          }
+        }
+      }
+    }
+
     if (value !== undefined && value !== null) {
       const formatted = formatValue(value)
       if (formatted) {
@@ -208,7 +242,10 @@ export interface StructuredLookupFilter {
 /**
  * Fetches blocks from the DB that may contain a structured field.
  * Used for parallel structured lookup (no embedding needed).
- * block_id must match the field path prefix (e.g. "opening_hours" for "opening_hours.schedule").
+ * Includes:
+ * - Blocks whose block_id matches the field path (e.g. opening_hours.schedule)
+ * - Blocks whose block_id starts with the prefix (e.g. opening_hours%)
+ * - Context-graph blocks (ctx-*) whose payload may contain the field under context_graph
  */
 export function fetchBlocksForStructuredLookup(
   db: any,
@@ -220,7 +257,7 @@ export function fetchBlocksForStructuredLookup(
 
   let sql = `SELECT handshake_id, block_id, block_hash, relationship_id, source, payload
     FROM context_blocks
-    WHERE block_id = ? OR block_id LIKE ?`
+    WHERE block_id = ? OR block_id LIKE ? OR block_id LIKE 'ctx-%'`
   const params: any[] = [fieldPath, `${prefix}%`]
 
   if (filter.relationship_id) {

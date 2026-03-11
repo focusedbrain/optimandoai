@@ -727,3 +727,12 @@
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
 }
+
+/* Collapsible Sources & Details – arrow rotates when open */
+.hs-response-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.hs-response-details[open] > summary .hs-details-arrow {
+  transform: rotate(90deg);
+}

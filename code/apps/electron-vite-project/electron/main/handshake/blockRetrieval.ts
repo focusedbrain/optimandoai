@@ -130,20 +130,79 @@ export async function retrieveBlocks(
 
 // ── Prompt Builder ───────────────────────────────────────────────────────────
 
+/** System instruction for context-grounded answers. */
+const CONTEXT_GROUNDED_SYSTEM_PROMPT = `You are a context-grounded assistant.
+You must answer questions using ONLY the information provided in the context blocks.
+
+Rules:
+* ALWAYS respond in clear, natural language. NEVER output raw JSON, code, or data structures.
+* If the context contains structured data (like schedules, addresses, contact info), present it in a readable, well-formatted way.
+* If the answer exists in the context blocks, answer using only that information.
+* Do not use external knowledge.
+* If the context does not contain the answer, respond exactly with:
+  'The provided context does not contain this information.'
+* If no context blocks are provided, inform the user that contextual search is currently unavailable.
+* Do NOT include block_id references, source citations, or technical identifiers in your answer. Keep the answer clean and user-friendly.
+* Match the language of the user's question in your response (e.g. if the user asks in German, respond in German).`
+
+export interface BuildPromptOptions {
+  /** When true and contextBlocks is empty: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
+  retrievalFailed?: boolean
+}
+
 /**
- * Builds the LLM prompt using only retrieved blocks.
+ * Centralized prompt builder for context-grounded LLM requests.
+ * Handles both successful retrieval and retrieval failure (empty context).
+ *
+ * @param contextBlocks - Formatted context string (block_id + content per block). Use "" when retrieval failed.
+ * @param question - User question
+ * @param options - retrievalFailed: true when embedding/vector search failed; false when blocks were retrieved but filtered out
+ * @returns { system, user } - Ready for messages array
+ */
+export function buildPrompt(
+  contextBlocks: string,
+  question: string,
+  options?: BuildPromptOptions
+): { system: string; user: string } {
+  let contextSection: string
+  if (contextBlocks.trim()) {
+    contextSection = contextBlocks.trim()
+  } else if (options?.retrievalFailed) {
+    contextSection = '(No context blocks available. Contextual search is currently unavailable.)'
+  } else {
+    contextSection = '(The retrieved blocks did not contain information relevant to the question.)'
+  }
+
+  const user = `Context blocks:
+${contextSection}
+
+User question:
+${question}`
+
+  return {
+    system: CONTEXT_GROUNDED_SYSTEM_PROMPT,
+    user,
+  }
+}
+
+export interface BuildRagPromptOptions {
+  maxContextTokens?: number
+  /** When true and no blocks: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
+  retrievalFailed?: boolean
+}
+
+/**
+ * Builds the LLM prompt using retrieved blocks.
+ * Converts blocks to context string and delegates to buildPrompt.
  * Limits total context tokens. Never includes the full capsule.
  */
 export function buildRagPrompt(
   blocks: RetrievedBlock[],
   userQuestion: string,
-  maxContextTokens: number = MAX_CONTEXT_TOKENS
-): { systemPrompt: string; userPrompt: string } {
-  const systemPrompt = `You are a helpful assistant answering questions based on handshake context data.
-You will receive only the most relevant context blocks for the question.
-Each block is prefixed with [block_id: <id>]. Always cite which block your information comes from using that exact notation (e.g. [block_id: opening_hours.schedule]).
-If the provided context does not contain enough information to answer, say so clearly.
-Do not make up information.`
+  options: BuildRagPromptOptions | number = MAX_CONTEXT_TOKENS
+): { systemPrompt: string; userPrompt: string; contextBlocks: string } {
+  const opts = typeof options === 'number' ? { maxContextTokens: options } : (options ?? {})
+  const maxContextTokens = opts.maxContextTokens ?? MAX_CONTEXT_TOKENS
 
   const parts: string[] = []
   let totalChars = 0
@@ -158,11 +217,8 @@ Do not make up information.`
     totalChars += blockChars
   }
 
-  const contextSection = parts.length > 0
-    ? `Context blocks:\n${parts.join('\n\n')}`
-    : '(No relevant context blocks were found.)'
+  const contextBlocks = parts.length > 0 ? parts.join('\n\n') : ''
+  const { system, user } = buildPrompt(contextBlocks, userQuestion, { retrievalFailed: opts.retrievalFailed })
 
-  const userPrompt = `${contextSection}\n\nUser question:\n${userQuestion}`
-
-  return { systemPrompt, userPrompt }
+  return { systemPrompt: system, userPrompt: user, contextBlocks }
 }

@@ -236,6 +236,15 @@ export async function semanticSearch(
     return filterBlocksForSearch([{ governance }], baseline).length > 0
   })
 
+  // Embedding dimension must match: stored blocks use one model (e.g. Ollama nomic).
+  // If query uses different model (e.g. OpenAI), dimensions differ → return no results.
+  const storedDim = searchableRows.length > 0
+    ? (searchableRows[0].embedding as Buffer).byteLength / 4
+    : 0
+  if (storedDim > 0 && queryEmbedding.length !== storedDim) {
+    return []
+  }
+
   const scored: ScoredContextBlock[] = searchableRows.map(row => {
     const stored = new Float32Array(
       (row.embedding as Buffer).buffer,
