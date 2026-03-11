@@ -35,6 +35,9 @@ const buildDirs = []
 
 if (process.platform === 'win32') {
   buildDirs.push('C:\\build-output\\build50')
+  buildDirs.push('C:\\build-output\\build600')
+  buildDirs.push('C:\\build-output\\build700')
+  buildDirs.push('C:\\build-output\\build2000')
   buildDirs.push('C:\\build-output\\build1000')
   buildDirs.push('C:\\build-output\\build500')
   buildDirs.push('C:\\build-output\\build501')

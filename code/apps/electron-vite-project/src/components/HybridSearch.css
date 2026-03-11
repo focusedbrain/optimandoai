@@ -122,6 +122,18 @@
   background: #1f2937;
 }
 
+/* Actions mode active pill */
+.hs-mode-btn--actions-active {
+  background: #059669;
+  border-color: #059669;
+  color: white;
+  font-weight: 600;
+}
+
+.hs-mode-btn--actions-active:hover {
+  background: #047857;
+}
+
 [data-ui-theme="pro"] .hs-mode-btn {
   color: rgba(255, 255, 255, 0.6);
 }
@@ -196,6 +208,107 @@
 [data-ui-theme="dark"] .hs-scope option {
   background: var(--bg-elevated-dark);
   color: var(--text-primary-dark);
+}
+
+/* ── Info icon + popup ── */
+
+.hs-info-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.hs-info-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.hs-info-btn:hover {
+  color: var(--purple-accent);
+  border-color: var(--purple-accent);
+}
+
+[data-ui-theme="pro"] .hs-info-btn {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+[data-ui-theme="pro"] .hs-info-btn:hover {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+[data-ui-theme="dark"] .hs-info-btn {
+  border-color: var(--border-dark);
+  color: var(--text-muted-dark);
+}
+
+[data-ui-theme="dark"] .hs-info-btn:hover {
+  color: var(--purple-accent);
+  border-color: var(--purple-accent);
+}
+
+.hs-info-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+[data-ui-theme="pro"] .hs-info-popup {
+  background: rgba(30, 30, 40, 0.98);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-ui-theme="dark"] .hs-info-popup {
+  background: var(--bg-elevated-dark);
+  border-color: var(--border-dark);
+}
+
+.hs-info-popup-item {
+  padding: 4px 0;
+}
+
+.hs-info-popup-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-light, rgba(0,0,0,0.06));
+}
+
+[data-ui-theme="pro"] .hs-info-popup-item:not(:last-child),
+[data-ui-theme="dark"] .hs-info-popup-item:not(:last-child) {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.hs-info-popup-item strong {
+  color: var(--text-primary);
+}
+
+[data-ui-theme="pro"] .hs-info-popup-item strong,
+[data-ui-theme="dark"] .hs-info-popup-item strong {
+  color: var(--text-primary-dark, white);
 }
 
 /* ── Text input — dominant element ── */
@@ -290,6 +403,31 @@
   background: #374151;
 }
 
+/* Actions mode send button */
+.hs-send-btn--actions {
+  background: #059669;
+}
+
+.hs-send-btn--actions:hover:not(:disabled) {
+  background: #047857;
+}
+
+[data-ui-theme="pro"] .hs-send-btn--actions {
+  background: rgba(5, 150, 105, 0.6);
+}
+
+[data-ui-theme="pro"] .hs-send-btn--actions:hover:not(:disabled) {
+  background: rgba(5, 150, 105, 0.8);
+}
+
+[data-ui-theme="dark"] .hs-send-btn--actions {
+  background: #059669;
+}
+
+[data-ui-theme="dark"] .hs-send-btn--actions:hover:not(:disabled) {
+  background: #047857;
+}
+
 .hs-send-btn:hover:not(:disabled) {
   background: var(--purple-accent-hover);
 }
@@ -355,6 +493,35 @@
 .hs-model-selector:hover,
 .hs-model-selector.hs-model-caret--open {
   background: #6d28d9;
+}
+
+/* Actions mode: green accent to match the mode */
+.hs-model-selector--actions {
+  background: #047857;
+  border-left-color: rgba(255, 255, 255, 0.25);
+}
+
+.hs-model-selector--actions:hover,
+.hs-model-selector--actions.hs-model-caret--open {
+  background: #059669;
+}
+
+[data-ui-theme="pro"] .hs-model-selector--actions {
+  background: rgba(5, 150, 105, 0.7);
+}
+
+[data-ui-theme="pro"] .hs-model-selector--actions:hover,
+[data-ui-theme="pro"] .hs-model-selector--actions.hs-model-caret--open {
+  background: rgba(5, 150, 105, 0.9);
+}
+
+[data-ui-theme="dark"] .hs-model-selector--actions {
+  background: #047857;
+}
+
+[data-ui-theme="dark"] .hs-model-selector--actions:hover,
+[data-ui-theme="dark"] .hs-model-selector--actions.hs-model-caret--open {
+  background: #059669;
 }
 
 .hs-model-selector .hs-model-caret {

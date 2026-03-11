@@ -4,7 +4,7 @@ import './handshakeViewTypes'
 
 // ── Types ──
 
-type SearchMode = 'chat' | 'search'
+type SearchMode = 'chat' | 'search' | 'actions'
 type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'all'
 type DashboardView = string
 
@@ -163,8 +163,10 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
   const [lastMode, setLastMode] = useState<SearchMode | null>(null)
   const [showPanel, setShowPanel] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [infoPopupOpen, setInfoPopupOpen] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const infoPopupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
 
@@ -216,6 +218,25 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showPanel])
 
+  // Close info popup on outside click or Escape
+  useEffect(() => {
+    if (!infoPopupOpen) return
+    function handleClick(e: MouseEvent) {
+      if (infoPopupRef.current && !infoPopupRef.current.contains(e.target as Node)) {
+        setInfoPopupOpen(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setInfoPopupOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [infoPopupOpen])
+
   const handleSubmit = useCallback(async () => {
     const trimmed = query.trim()
     if (!trimmed || isLoading) return
@@ -235,6 +256,8 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
       if (mode === 'search') {
         const r = await runSearch(trimmed, effectiveScope)
         setResults(r)
+      } else if (mode === 'actions') {
+        setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
       } else {
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
@@ -306,6 +329,8 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     }
   }, [query, mode, scope, selectedHandshakeId, selectedModel, availableModels, isLoading])
 
+  const showModelSelector = mode === 'chat' || mode === 'actions'
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -314,6 +339,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     if (e.key === 'Escape') {
       setShowPanel(false)
       setModelMenuOpen(false)
+      setInfoPopupOpen(false)
       inputRef.current?.blur()
     }
   }, [handleSubmit])
@@ -353,6 +379,14 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
             >
               Search
             </button>
+            <button
+              className={`hs-mode-btn${mode === 'actions' ? ' hs-mode-btn--active hs-mode-btn--actions-active' : ''}`}
+              onClick={() => setMode('actions')}
+              title="Actions — draft, analyze, extract, or automate based on the selected handshake or message"
+              aria-pressed={mode === 'actions'}
+            >
+              Actions
+            </button>
           </div>
 
           {mode === 'search' && <div className="hs-bar-divider" />}
@@ -371,6 +405,24 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
               <option value="all">All (Global)</option>
             </select>
           )}
+          <div className="hs-info-wrap" ref={infoPopupRef}>
+            <button
+              type="button"
+              className="hs-info-btn"
+              onClick={() => setInfoPopupOpen(prev => !prev)}
+              aria-label="Mode help"
+              title="What do Chat, Search, and Actions do?"
+            >
+              i
+            </button>
+            {infoPopupOpen && (
+              <div className="hs-info-popup" role="dialog" aria-label="Mode help">
+                <div className="hs-info-popup-item"><strong>Chat:</strong> Chat with AI across the global BEAP Ecosystem when nothing is selected. When a handshake or BEAP Message is selected, the AI focuses on it while still using the related Context Graph and relationship context.</div>
+                <div className="hs-info-popup-item"><strong>Search:</strong> Search across the global BEAP Ecosystem, or narrow the search to the selected handshake or BEAP Message and its related context.</div>
+                <div className="hs-info-popup-item"><strong>Actions:</strong> Draft replies, analyze content, extract structured data into the Context Graph, or prepare automations based on the current selection.</div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Centre: main input ── */}
@@ -381,12 +433,16 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           ref={inputRef}
           className="hs-input"
           type="text"
-          placeholder={selectedHandshakeId ? 'Ask a question about the context…' : 'AI Assistant across the BEAP Ecosystem'}
+          placeholder={
+            mode === 'actions'
+              ? 'Describe an action to draft, analyze, or automate…'
+              : (selectedHandshakeId ? 'Ask a question about the context…' : 'AI Assistant across the BEAP Ecosystem')
+          }
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0 || response) setShowPanel(true) }}
-          aria-label={mode === 'chat' ? 'Ask a question' : 'Search'}
+          aria-label={mode === 'chat' ? 'Ask a question' : mode === 'search' ? 'Search' : 'Actions input'}
           autoComplete="off"
           spellCheck={false}
         />
@@ -394,28 +450,30 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
         {/* ── Right: action button ── */}
         <div className="hs-send-group" ref={modelMenuRef}>
           <button
-            className={`hs-send-btn hs-send-btn--${mode}`}
+            className={`hs-send-btn hs-send-btn--${mode === 'actions' ? 'actions' : mode}`}
             onClick={handleSubmit}
             disabled={!query.trim() || isLoading}
             title={
               mode === 'chat'
                 ? `Send to ${getModelLabel(selectedModel, availableModels)} (Enter)`
-                : 'Run search (Enter)'
+                : mode === 'search'
+                ? 'Run search (Enter)'
+                : `Run action with ${getModelLabel(selectedModel, availableModels)} (Enter)`
             }
           >
             {isLoading ? (
               <span className="hs-send-spinner" aria-label="Loading" />
             ) : (
               <span className="hs-send-label">
-                {mode === 'chat' ? 'Chat' : 'Search'}
+                {mode === 'chat' ? 'Chat' : mode === 'search' ? 'Search' : 'Actions'}
               </span>
             )}
           </button>
 
-          {/* Model picker — always clickable without typing; shows model name + caret */}
-          {mode === 'chat' && (
+          {/* Model picker — for Chat and Actions */}
+          {showModelSelector && (
             <button
-              className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}`}
+              className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
               onClick={async () => {
                 const next = !modelMenuOpen
                 setModelMenuOpen(next)
@@ -439,7 +497,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
             </button>
           )}
 
-          {modelMenuOpen && mode === 'chat' && (
+          {modelMenuOpen && showModelSelector && (
             <div className="hs-model-menu" role="menu">
               {modelsLoading ? (
                 <div className="hs-model-group-label">Loading models…</div>
@@ -493,6 +551,8 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
             <span className="hs-panel-meta">
               {lastMode === 'search'
                 ? `Search · ${SCOPE_LABELS[scope]}`
+                : lastMode === 'actions'
+                ? `Actions · ${getModelLabel(selectedModel, availableModels)}`
                 : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
             </span>
             <button
@@ -508,7 +568,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           {isLoading && !(lastMode === 'chat' && contextBlocks.length > 0) && (
             <div className="hs-panel-loading">
               <span className="hs-spinner" />
-              <span>{lastMode === 'chat' ? 'Asking…' : 'Searching…'}</span>
+              <span>{lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}</span>
             </div>
           )}
 
@@ -533,6 +593,14 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
                 </div>
               )}
             </>
+          )}
+
+          {/* Actions response */}
+          {lastMode === 'actions' && response && (
+            <div className="hs-response">
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Response:</div>
+              <div className="hs-response-text">{response}</div>
+            </div>
           )}
 
           {/* Chat response */}
