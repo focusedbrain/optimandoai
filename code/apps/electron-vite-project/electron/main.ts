@@ -2358,6 +2358,47 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:setBlockVisibility', async (_e, args: {
+      sender_wrdesk_user_id: string
+      block_id: string
+      block_hash: string
+      visibility: 'public' | 'private'
+    }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'no_db' }
+        const { isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+        const vaultUnlocked = isVaultCurrentlyUnlocked()
+        if (!vaultUnlocked) return { success: false, error: 'vault_locked' }
+        db.prepare(
+          `UPDATE context_blocks SET visibility = ?
+           WHERE sender_wrdesk_user_id = ? AND block_id = ? AND block_hash = ?`
+        ).run(args.visibility, args.sender_wrdesk_user_id, args.block_id, args.block_hash)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:setBulkBlockVisibility', async (_e, args: {
+      handshake_id: string
+      visibility: 'public' | 'private'
+    }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'no_db' }
+        const { isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+        const vaultUnlocked = isVaultCurrentlyUnlocked()
+        if (!vaultUnlocked) return { success: false, error: 'vault_locked' }
+        db.prepare(
+          `UPDATE context_blocks SET visibility = ? WHERE handshake_id = ?`
+        ).run(args.visibility, args.handshake_id)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
     ipcMain.handle('vault:getStatus', async () => {
       try {
         const { vaultService } = await import('./main/vault/rpc')
@@ -2500,6 +2541,7 @@ app.whenReady().then(async () => {
           resolveEffectiveGovernance,
           filterBlocksForCloudAI,
         } = await import('./main/handshake/contextGovernance')
+        const { visibilityWhereClause, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
         const { logCacheHitMetrics, logAIQueryMetrics, checkAILatency, buildLatencyDebugPayload } = await import('./main/handshake/latencyInstrumentation')
 
         const hasHandshakeScope = !!filter.handshake_id
@@ -2628,9 +2670,11 @@ app.whenReady().then(async () => {
 
         let governanceNote: string | null = null
         if (isCloud && searchResults.length > 0) {
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
           const blocksWithGov: Array<{ governance?: any; [k: string]: any }> = []
           for (const b of searchResults) {
-            const row = db.prepare('SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?').get(b.handshake_id, b.block_id, b.block_hash) as { governance_json?: string } | undefined
+            const row = db.prepare(`SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?${visSql}`).get(b.handshake_id, b.block_id, b.block_hash, ...visParams) as { governance_json?: string } | undefined
             const record = getHandshakeRecord(db, b.handshake_id)
             if (!record) continue
             const itemGov = parseGovernanceJson(row?.governance_json)

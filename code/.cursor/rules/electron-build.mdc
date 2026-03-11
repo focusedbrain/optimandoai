@@ -1,0 +1,27 @@
+---
+description: After changing electron-vite-project code, kill processes and rebuild
+globs: apps/electron-vite-project/**/*
+alwaysApply: false
+---
+
+# Electron Build Workflow
+
+After making changes to the electron-vite-project, always:
+
+1. **Kill old processes** — Stop any running WR Desk / Electron instances so the new build can replace files
+2. **Rebuild** — Run `npm run build` from `apps/electron-vite-project`
+
+## Commands
+
+```powershell
+# 1. Kill processes
+taskkill /F /IM "WR Desk*" /T 2>$null; Get-Process | Where-Object { $_.ProcessName -like "*electron*" -or $_.ProcessName -like "*WR*" } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+# 2. Rebuild
+cd apps/electron-vite-project; npm run build
+```
+
+## Rationale
+
+- Locked files prevent clean builds and deletions
+- Fresh build ensures changes are testable immediately

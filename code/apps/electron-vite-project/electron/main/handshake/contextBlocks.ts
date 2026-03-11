@@ -9,6 +9,7 @@
 import type { ContextBlockInput, ContextBlock, PersistResult } from './types'
 import { getHandshakeRecord } from './db'
 import { parseGovernanceJson, resolveEffectiveGovernance, type LegacyBlockInput } from './contextGovernance'
+import { visibilityWhereClause, isVaultCurrentlyUnlocked } from './visibilityFilter'
 
 export function persistContextBlocks(
   db: any,
@@ -25,13 +26,14 @@ export function persistContextBlocks(
       sender_wrdesk_user_id, block_id, block_hash,
       relationship_id, handshake_id, scope_id, type,
       data_classification, version, valid_until,
-      source, payload, embedding_status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+      source, payload, embedding_status, created_at, visibility
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   )
 
   const now = new Date().toISOString()
 
   for (const block of blocks) {
+    const visibility = block.visibility ?? 'public'
     const result = stmt.run(
       senderUserId,
       block.block_id,
@@ -46,6 +48,7 @@ export function persistContextBlocks(
       source,
       block.payload,
       now,
+      visibility,
     )
     if (result.changes > 0) {
       inserted++
@@ -66,12 +69,15 @@ export function queryContextBlocks(
     scope_id?: string;
   },
 ): ContextBlock[] {
+  const vaultUnlocked = isVaultCurrentlyUnlocked()
+  const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
+
   let sql = `SELECT
     sender_wrdesk_user_id, block_id, block_hash,
     relationship_id, handshake_id, scope_id, type,
     data_classification, version, valid_until,
     source, payload AS payload_ref, embedding_status,
-    governance_json, publisher_id
+    governance_json, publisher_id, visibility
   FROM context_blocks WHERE 1=1`
   const params: any[] = []
 
@@ -91,6 +97,9 @@ export function queryContextBlocks(
     sql += ' AND scope_id = ?'
     params.push(filter.scope_id)
   }
+
+  sql += visSql
+  params.push(...visParams)
 
   sql += ' ORDER BY version DESC'
 
@@ -135,9 +144,11 @@ export function queryContextBlocksWithGovernance(
 }
 
 export function getBlockCountForHandshake(db: any, handshakeId: string): number {
+  const vaultUnlocked = isVaultCurrentlyUnlocked()
+  const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
   const row = db.prepare(
-    'SELECT COUNT(*) as cnt FROM context_blocks WHERE handshake_id = ?'
-  ).get(handshakeId) as { cnt: number }
+    `SELECT COUNT(*) as cnt FROM context_blocks WHERE handshake_id = ?${visSql}`
+  ).get(handshakeId, ...visParams) as { cnt: number }
   return row.cnt
 }
 

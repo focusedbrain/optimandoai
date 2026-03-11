@@ -87,6 +87,7 @@ import {
   type LegacyBlockInput,
 } from './contextGovernance'
 import { getHandshakeRecord } from './db'
+import { visibilityWhereClause, isVaultCurrentlyUnlocked } from './visibilityFilter'
 
 export async function processEmbeddingQueue(
   db: any,
@@ -165,6 +166,10 @@ export async function semanticSearch(
 ): Promise<ScoredContextBlock[]> {
   const queryEmbedding = await embeddingService.generateEmbedding(query)
 
+  const vaultUnlocked = isVaultCurrentlyUnlocked()
+  const { sql: visSqlCtx, params: visParams } = visibilityWhereClause('ctx', vaultUnlocked)
+  const { sql: visSqlCb } = visibilityWhereClause('cb', vaultUnlocked)
+
   // Prefer capsule_blocks (import-time indexed). Join with context_blocks for governance.
   // For chunks, parent_block_id links to the originating context_block.
   let sqlCapsule = `SELECT cpb.block_id, cpb.block_hash, cpb.handshake_id, cpb.relationship_id,
@@ -184,6 +189,8 @@ export async function semanticSearch(
     sqlCapsule += ' AND cpb.handshake_id = ?'
     paramsCapsule.push(filter.handshake_id)
   }
+  sqlCapsule += visSqlCtx
+  paramsCapsule.push(...visParams)
 
   const capsuleRows = db.prepare(sqlCapsule).all(...paramsCapsule) as any[]
 
@@ -211,6 +218,8 @@ export async function semanticSearch(
       sql += ' AND cb.handshake_id = ?'
       params.push(filter.handshake_id)
     }
+    sql += visSqlCb
+    params.push(...visParams)
     rows = db.prepare(sql).all(...params) as any[]
     useTextAsPayload = false
   }

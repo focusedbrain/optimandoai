@@ -93,6 +93,7 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
     ;(globalThis as any).__og_vault_service_ref = {
       getDb,
       getEmbeddingService: () => embeddingService,
+      getStatus: () => vs.getStatus(),
     }
     const db = handshakeDb ?? getDb()
     if (db) {

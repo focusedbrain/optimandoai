@@ -253,6 +253,8 @@ export interface ContextBlockInput {
   version: number;
   valid_until?: string;
   payload: string;
+  /** public = visible when vault locked; private = only when vault unlocked */
+  visibility?: 'public' | 'private';
 }
 
 // ── Verified Capsule Input (Validator → Handshake Layer boundary) ──
@@ -379,6 +381,8 @@ export interface ContextBlock {
   sender_wrdesk_user_id: string;
   embedding_status: 'pending' | 'complete' | 'failed';
   payload_ref: string;
+  /** public = visible when vault locked; private = only when vault unlocked */
+  visibility?: 'public' | 'private';
   /** Resolved governance (from governance_json or inferred from legacy). Present when queried with governance. */
   governance?: import('./contextGovernance').ContextItemGovernance;
 }

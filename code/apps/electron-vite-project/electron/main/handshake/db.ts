@@ -532,6 +532,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_capsule_blocks_parent ON capsule_blocks(handshake_id, parent_block_id)`,
     ],
   },
+  {
+    version: 24,
+    description: 'Schema v24: context_blocks visibility (public/private) for vault-lock filtering',
+    sql: [
+      `ALTER TABLE context_blocks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private'))`,
+      `CREATE INDEX IF NOT EXISTS idx_blocks_visibility ON context_blocks(visibility)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

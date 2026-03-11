@@ -85,8 +85,8 @@ export function ingestContextBlocks(
       sender_wrdesk_user_id, block_id, block_hash,
       relationship_id, handshake_id, scope_id, type,
       data_classification, version, valid_until,
-      source, payload, embedding_status, created_at, governance_json, publisher_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, 'pending', ?, ?, ?)`
+      source, payload, embedding_status, created_at, governance_json, publisher_id, visibility
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, 'pending', ?, ?, ?, ?)`
   )
 
   const checkExistingStmt = db.prepare(
@@ -140,6 +140,7 @@ export function ingestContextBlocks(
         } as any, input.relationship_id)
     const governanceJson = JSON.stringify(governance)
 
+    const visibility = (block as { visibility?: 'public' | 'private' }).visibility ?? 'public'
     const result = insertStmt.run(
       input.publisher_id,
       block.block_id,
@@ -155,6 +156,7 @@ export function ingestContextBlocks(
       now,
       governanceJson,
       input.publisher_id,
+      visibility,
     )
 
     if (result.changes > 0) {

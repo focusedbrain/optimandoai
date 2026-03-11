@@ -50,6 +50,7 @@ interface Props {
   vaultWarningEscalated?: boolean
   onRevoke?: () => void
   onDelete?: () => void
+  onOpenQuickReview?: () => void
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -213,7 +214,7 @@ function P2PDeliveryStatus({ handshakeId, p2pEndpoint }: { handshakeId: string; 
   return <MetaRow label="P2P" value="No queue entries" />
 }
 
-export default function RelationshipDetail({ record, contextBlockCount, vaultStatus, vaultWarningEscalated, onRevoke, onDelete }: Props) {
+export default function RelationshipDetail({ record, contextBlockCount, vaultStatus, vaultWarningEscalated, onRevoke, onDelete, onOpenQuickReview }: Props) {
   const counterparty = record.local_role === 'initiator' ? record.acceptor : record.initiator
   const counterpartyLabel = counterparty?.email ?? '(pending acceptance)'
 
@@ -287,6 +288,19 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {(record.state === 'ACCEPTED' || record.state === 'ACTIVE') && onOpenQuickReview && (
+            <button
+              onClick={() => onOpenQuickReview()}
+              style={{
+                padding: '5px 12px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(139,92,246,0.15)', color: '#a78bfa',
+                border: '1px solid rgba(139,92,246,0.3)', borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              📋 Quick Review
+            </button>
+          )}
           <StateBadge state={record.state} />
           {(record.state === 'ACTIVE' || record.state === 'ACCEPTED') && onRevoke && (
             <button

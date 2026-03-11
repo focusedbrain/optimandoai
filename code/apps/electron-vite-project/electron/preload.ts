@@ -251,6 +251,14 @@ contextBridge.exposeInMainWorld('handshakeView', {
       governance && typeof governance === 'object' ? governance as Record<string, unknown> : {},
     )
   },
+  setBlockVisibility: (args: {
+    sender_wrdesk_user_id: string
+    block_id: string
+    block_hash: string
+    visibility: 'public' | 'private'
+  }) => ipcRenderer.invoke('handshake:setBlockVisibility', args),
+  setBulkBlockVisibility: (args: { handshake_id: string; visibility: 'public' | 'private' }) =>
+    ipcRenderer.invoke('handshake:setBulkBlockVisibility', args),
   forceRevokeHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:forceRevoke', assertString(id, 'id'))
   },

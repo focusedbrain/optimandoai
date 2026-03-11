@@ -8,8 +8,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import CapsuleUploadZone from './CapsuleUploadZone'
-import RelationshipDetail from './RelationshipDetail'
+import HandshakeWorkspace from './HandshakeWorkspace'
 import HandshakeChatSidebar from './HandshakeChatSidebar'
+import PendingSlideOut from './PendingSlideOut'
 import AcceptHandshakeModal from './AcceptHandshakeModal'
 
 // ── Types ──
@@ -26,11 +27,15 @@ interface HandshakeRecord {
   activated_at: string | null
   expires_at: string | null
   last_seq_received: number
+  last_seq_sent?: number
   last_capsule_hash_received: string
+  last_capsule_hash_sent?: string
+  initiator_context_commitment?: string | null
+  acceptor_context_commitment?: string | null
   p2p_endpoint?: string | null
   receiver_email?: string | null
   context_sync_pending?: boolean
-  policy_selections?: { cloud_ai: boolean; internal_ai: boolean }
+  policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
 }
 
 import './handshakeViewTypes'
@@ -157,6 +162,7 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
 
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptModalRecord, setAcceptModalRecord] = useState<HandshakeRecord | null>(null)
+  const [pendingOpen, setPendingOpen] = useState(false)
 
   const openAcceptModal = (record: HandshakeRecord) => {
     setAcceptError(null)
@@ -296,9 +302,11 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
     )
   }
 
+  const gridCols = selectedRecord ? '280px 1fr' : '280px 1fr 320px'
+
   return (
     <div style={{
-      display: 'grid', gridTemplateColumns: '280px 1fr 320px',
+      display: 'grid', gridTemplateColumns: gridCols,
       height: '100%', overflow: 'hidden',
       background: 'var(--color-bg, #0f172a)',
       color: 'var(--color-text, #e2e8f0)',
@@ -367,23 +375,28 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
         </div>
       </div>
 
-      {/* ── Center Panel: Detail + Chat ── */}
+      {/* ── Center: Workspace + Chat (when handshake selected) ── */}
       <div style={{
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', overflowY: 'auto', overflowX: 'hidden',
+        position: 'relative', minWidth: 320, minHeight: 0,
       }}>
         {selectedRecord ? (
           <>
-            <div style={{ flex: '0 0 auto', maxHeight: '55%', overflowY: 'auto' }}>
-              <RelationshipDetail
+            <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column' }}>
+              <HandshakeWorkspace
                 record={selectedRecord}
+                handshakeEmail={counterpartyEmail(selectedRecord)}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
                 vaultStatus={vaultStatus}
                 vaultWarningEscalated={vaultWarningEscalated}
+                pendingCount={pending.length}
                 onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
+                onPendingClick={() => setPendingOpen(true)}
+                onCapsuleSubmitted={handleCapsuleSubmitted}
               />
             </div>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: '0 0 100px', minHeight: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))' }}>
               <HandshakeChatSidebar
                 handshakeId={selectedHandshakeId}
                 contextBlockCount={contextBlockCounts[selectedRecord.handshake_id] ?? 0}
@@ -402,7 +415,8 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
         )}
       </div>
 
-      {/* ── Right Panel: Pending ── */}
+      {/* ── Right Panel: Pending (only when no handshake selected) ── */}
+      {!selectedRecord && (
       <div style={{
         borderLeft: '1px solid var(--color-border, rgba(255,255,255,0.08))',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -513,6 +527,22 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
         </div>
 
       </div>
+      )}
+
+      {/* ── Pending Slide-Out (when handshake selected) ── */}
+      <PendingSlideOut
+        open={pendingOpen && !!selectedRecord}
+        onClose={() => setPendingOpen(false)}
+        pendingOutgoing={pendingOutgoing}
+        pendingIncoming={pendingIncoming}
+        counterpartyEmail={counterpartyEmail}
+        onAccept={openAcceptModal}
+        onDecline={handleDecline}
+        onCancel={handleDelete}
+        acceptError={acceptError}
+        acceptModalRecord={acceptModalRecord}
+        onCapsuleSubmitted={handleCapsuleSubmitted}
+      />
 
       {acceptModalRecord && (
         <AcceptHandshakeModal

@@ -233,6 +233,8 @@ export function structuredLookup(
   return { found: false }
 }
 
+import { visibilityWhereClause, isVaultCurrentlyUnlocked } from './visibilityFilter'
+
 /** Filter for block fetch (relationship or handshake scope). */
 export interface StructuredLookupFilter {
   relationship_id?: string
@@ -255,9 +257,12 @@ export function fetchBlocksForStructuredLookup(
   const prefix = fieldPath.split('.')[0]
   if (!prefix) return []
 
+  const vaultUnlocked = isVaultCurrentlyUnlocked()
+  const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
+
   let sql = `SELECT handshake_id, block_id, block_hash, relationship_id, source, payload
     FROM context_blocks
-    WHERE block_id = ? OR block_id LIKE ? OR block_id LIKE 'ctx-%'`
+    WHERE (block_id = ? OR block_id LIKE ? OR block_id LIKE 'ctx-%')`
   const params: any[] = [fieldPath, `${prefix}%`]
 
   if (filter.relationship_id) {
@@ -268,6 +273,9 @@ export function fetchBlocksForStructuredLookup(
     sql += ' AND handshake_id = ?'
     params.push(filter.handshake_id)
   }
+
+  sql += visSql
+  params.push(...visParams)
 
   sql += ' ORDER BY handshake_id, block_id'
 
