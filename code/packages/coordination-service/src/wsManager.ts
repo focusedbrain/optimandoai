@@ -75,6 +75,29 @@ export function pushCapsule(recipientUserId: string, id: string, capsuleJson: st
   }
 }
 
+export function pushSystemEvent(
+  recipientUserId: string,
+  event: string,
+  payload: Record<string, unknown> = {},
+): boolean {
+  const client = resolveClient(recipientUserId)
+  if (!client) return false
+
+  try {
+    client.ws.send(JSON.stringify({
+      type: 'system_event',
+      event,
+      ...payload,
+      timestamp: new Date().toISOString(),
+    }))
+    console.log(`[Coordination] System event '${event}' pushed to user ${recipientUserId}`)
+    return true
+  } catch (err: any) {
+    console.warn(`[Coordination] Failed to push system event to ${recipientUserId}:`, err?.message)
+    return false
+  }
+}
+
 export function pushPendingCapsules(userId: string): void {
   const client = clients.get(userId)
   if (!client) return

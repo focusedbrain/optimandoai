@@ -2,63 +2,124 @@ import { ChromeStorageAdapter } from '@shared-extension/storage/ChromeStorageAda
 import type { StorageAdapter, BackendConfig } from '@shared/storage/StorageAdapter';
 import { OrchestratorSQLiteAdapter } from './OrchestratorSQLiteAdapter';
 
+const ORCHESTRATOR_STATUS_URL = 'http://127.0.0.1:51248/api/orchestrator/status';
+
+type ConnectionResult = { available: boolean; error?: string; corsOk?: boolean; status?: number };
+
 /**
- * Check if Electron backend is available
+ * Check if Electron backend is available. Returns diagnostic info for logging.
  */
-async function checkElectronAvailability(): Promise<boolean> {
+async function checkElectronAvailability(): Promise<ConnectionResult> {
   try {
-    const response = await fetch('http://127.0.0.1:51248/api/orchestrator/status', {
+    const response = await fetch(ORCHESTRATOR_STATUS_URL, {
       method: 'GET',
-      signal: AbortSignal.timeout(1000) // 1 second timeout
+      mode: 'cors',
+      signal: AbortSignal.timeout(1000),
     });
-    return response.ok;
-  } catch (error) {
-    return false;
+    const corsOk = response.type !== 'opaque';
+    return {
+      available: response.ok,
+      corsOk,
+      status: response.status,
+    };
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const isCorsOrPna = /cors|blocked|network|failed|refused/i.test(errMsg);
+    return {
+      available: false,
+      error: errMsg,
+      corsOk: !isCorsOrPna,
+    };
   }
+}
+
+function logConnectionDiagnostics(
+  origin: string,
+  result: ConnectionResult,
+  adapter: 'electron-backend' | 'postgres' | 'chrome-storage',
+  orchestratorExpected: boolean
+): void {
+  const payload = {
+    origin,
+    allowed: result.available,
+    corsOk: result.corsOk,
+    status: result.status,
+    error: result.error,
+    adapter,
+    orchestratorExpected,
+  };
+  console.log('[ORCHESTRATOR_CONNECTION]', JSON.stringify(payload));
 }
 
 /**
  * Get the active storage adapter based on configuration
  * Priority: Orchestrator SQLite (if Electron available) > PostgreSQL > Chrome Storage
+ *
+ * Fallback to Chrome Storage only when orchestrator is explicitly disabled.
+ * When orchestrator is expected but unreachable, logs a clear error.
  */
 export async function getActiveAdapter(): Promise<StorageAdapter> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.storage.local.get(['backendConfig', 'orchestratorConfig'], async (result) => {
       const config: BackendConfig | any = result.backendConfig || {};
       const orchestratorConfig: any = result.orchestratorConfig || {};
-      
-      // PRIORITY 1: Use SQLite if Electron is available (unless explicitly disabled)
+      const origin =
+        typeof chrome !== 'undefined' && chrome.runtime?.getURL
+          ? new URL(chrome.runtime.getURL('')).origin
+          : 'unknown';
+
       const sqliteExplicitlyDisabled = orchestratorConfig.sqliteEnabled === false;
-      
+
       if (!sqliteExplicitlyDisabled) {
-        const electronAvailable = await checkElectronAvailability();
-        
-        if (electronAvailable) {
-          console.log('[getActiveAdapter] Using Orchestrator SQLite adapter (Electron available)')
+        const connResult = await checkElectronAvailability();
+
+        if (connResult.available) {
+          logConnectionDiagnostics(origin, connResult, 'electron-backend', true);
+          console.log('[getActiveAdapter] Using Orchestrator SQLite adapter (Electron available)');
           const adapter = new OrchestratorSQLiteAdapter();
-          // Auto-connect in the background
-          adapter.connect().catch(err => {
-            console.error('[getActiveAdapter] Failed to connect to Orchestrator SQLite:', err)
+          adapter.connect().catch((err) => {
+            console.error('[getActiveAdapter] Failed to connect to Orchestrator SQLite:', err);
           });
           resolve(adapter);
           return;
-        } else {
-          console.log('[getActiveAdapter] Electron backend not available, checking alternatives')
         }
+
+        logConnectionDiagnostics(origin, connResult, 'electron-backend', true);
+        const errDetail = connResult.error ? connResult.error : `HTTP ${connResult.status}`;
+        console.error(
+          '[getActiveAdapter] Orchestrator backend expected but unreachable. ' +
+            'Tier detection and feature gating may be incorrect. ' +
+            'Ensure the WRDesk Electron app is running. ' +
+            errDetail
+        );
+
+        const postgresEnabled =
+          config.postgres?.enabled || config.active === 'postgres';
+        if (postgresEnabled) {
+          console.log('[getActiveAdapter] Using PostgreSQL proxy adapter');
+          resolve(createPostgresProxyAdapter());
+          return;
+        }
+
+        const err = new Error(
+          `Orchestrator backend expected but unreachable (${errDetail}). ` +
+            'Start the WRDesk Electron app for correct tier and feature gating.'
+        );
+        reject(err);
+        return;
       }
-      
-      // PRIORITY 2: Check if PostgreSQL is enabled (hybrid format)
-      const postgresEnabled = config.postgres?.enabled || 
-                             (config.active === 'postgres'); // Support old format
-      
+
+      const postgresEnabled =
+        config.postgres?.enabled || config.active === 'postgres';
       if (postgresEnabled) {
-        console.log('[getActiveAdapter] Using PostgreSQL proxy adapter')
+        logConnectionDiagnostics(origin, { available: false }, 'postgres', false);
+        console.log('[getActiveAdapter] Using PostgreSQL proxy adapter');
         resolve(createPostgresProxyAdapter());
         return;
       }
-      
-      // PRIORITY 3: Fallback to Chrome Storage adapter
-      console.log('[getActiveAdapter] Using Chrome Storage adapter (fallback)')
+
+      logConnectionDiagnostics(origin, { available: false }, 'chrome-storage', false);
+      console.log('[getActiveAdapter] Using Chrome Storage adapter (orchestrator explicitly disabled)');
       resolve(new ChromeStorageAdapter());
     });
   });

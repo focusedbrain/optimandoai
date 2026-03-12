@@ -35,9 +35,9 @@ describe('resolveTier', () => {
     expect(resolveTier(undefined, ['some_other_role'])).toBe('free')
   })
 
-  it('wrdesk_plan takes priority over roles', () => {
-    expect(resolveTier('free', ['enterprise'])).toBe('free')
-    expect(resolveTier('pro', ['enterprise'])).toBe('pro')
+  it('higher tier wins when plan and roles differ', () => {
+    expect(resolveTier('free', ['enterprise'])).toBe('enterprise')
+    expect(resolveTier('pro', ['enterprise'])).toBe('enterprise')
   })
 
   it('ignores invalid wrdesk_plan and falls back to roles', () => {

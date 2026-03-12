@@ -30,38 +30,25 @@ if (process.platform === 'win32') {
   } catch {}
 }
 
-// 2. Remove build output
-const buildDirs = []
-
+// 2. Remove build output — on Windows remove entire C:\build-output (all builds)
 if (process.platform === 'win32') {
-  buildDirs.push('C:\\build-output\\build50')
-  buildDirs.push('C:\\build-output\\build600')
-  buildDirs.push('C:\\build-output\\build700')
-  buildDirs.push('C:\\build-output\\build2000')
-  buildDirs.push('C:\\build-output\\build1000')
-  buildDirs.push('C:\\build-output\\build500')
-  buildDirs.push('C:\\build-output\\build501')
-  buildDirs.push('C:\\build-output\\build250')
-  buildDirs.push('C:\\build-output\\build102')
-  buildDirs.push('C:\\build-output\\build101')
-  buildDirs.push('C:\\build-output\\build100')
-  buildDirs.push('C:\\build-output\\build01')
-  buildDirs.push('C:\\build-output\\build02')
-  buildDirs.push('C:\\build-output\\build05')
-  buildDirs.push('C:\\build-output\\build06')
-  buildDirs.push('C:\\build-output\\build07')
-  buildDirs.push('C:\\build-output\\build10')
-} else {
-  buildDirs.push(path.join(appDir, 'dist', 'release'))
-}
-
-for (const dir of buildDirs) {
-  if (existsSync(dir)) {
+  const buildOutputRoot = 'C:\\build-output'
+  if (existsSync(buildOutputRoot)) {
     try {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
-      console.log('[clean] Removed:', dir)
+      rmSync(buildOutputRoot, { recursive: true, force: true, maxRetries: 3 })
+      console.log('[clean] Removed:', buildOutputRoot, '(all builds)')
     } catch (err) {
-      console.warn('[clean] Could not remove', dir, err.message)
+      console.warn('[clean] Could not remove', buildOutputRoot, err.message)
+    }
+  }
+} else {
+  const releaseDir = path.join(appDir, 'dist', 'release')
+  if (existsSync(releaseDir)) {
+    try {
+      rmSync(releaseDir, { recursive: true, force: true })
+      console.log('[clean] Removed:', releaseDir)
+    } catch (err) {
+      console.warn('[clean] Could not remove', releaseDir, err.message)
     }
   }
 }

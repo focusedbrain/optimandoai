@@ -20,8 +20,10 @@ export interface JwtClaims {
   iss: string;
   /** Subject (sub) */
   sub: string;
-  /** Subscription plan */
+  /** Subscription plan (legacy) */
   plan: 'free' | 'pro' | 'publisher' | 'enterprise';
+  /** Canonical tier — authoritative; prefer over plan */
+  canonical_tier?: 'free' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise';
   /** Session expiry (ISO 8601) */
   session_expires_at: string;
 }
@@ -59,6 +61,7 @@ export function sessionFromClaims(
     sub: claims.sub,
     email_verified: true,
     plan: claims.plan,
+    canonical_tier: claims.canonical_tier,
     currentHardwareAttestation: attestation.hardwareAttestation,
     currentDnsVerification: attestation.dnsVerification,
     currentWrStampStatus: attestation.wrStampStatus,

@@ -88,6 +88,8 @@ export interface SSOSession {
   sub: string;
   email_verified: true;
   plan: 'free' | 'pro' | 'publisher' | 'enterprise';
+  /** Canonical tier — authoritative; use this for HS Context and capability checks */
+  canonical_tier?: 'free' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise';
   currentHardwareAttestation: { verified: true; fresh: boolean; attestedAt: string } | null;
   currentDnsVerification: { verified: true; domain: string } | null;
   currentWrStampStatus: { verified: true; stampId: string } | null;

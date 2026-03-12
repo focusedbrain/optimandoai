@@ -20,6 +20,7 @@ import {
   handleConnection,
   pushCapsule,
   pushPendingCapsules,
+  pushSystemEvent,
   handleAck,
   getConnectedCount,
   startHeartbeat,
@@ -79,6 +80,39 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
         const payload = getHealthPayload(getConnectedCount())
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(payload))
+        return
+      }
+
+      /* ── POST /beap/system-event ──────────────────────────────── */
+      if (req.method === 'POST' && path === '/beap/system-event') {
+        const token = extractBearerToken(req.headers.authorization)
+        const identity = token
+          ? await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
+          : null
+        if (!identity) {
+          sendError(res, 401)
+          return
+        }
+        const { body, ok } = await readBody(req, 64 * 1024)
+        if (!ok) { sendError(res, 413); return }
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(body) as Record<string, unknown> }
+        catch { sendError(res, 400, { error: 'Invalid JSON' }); return }
+        const targetUserId = typeof parsed.target_user_id === 'string' ? parsed.target_user_id.trim() : ''
+        const event = typeof parsed.event === 'string' ? parsed.event.trim() : ''
+        if (!targetUserId || !event) {
+          sendError(res, 400, { error: 'Missing required fields: target_user_id, event' })
+          return
+        }
+        const { target_user_id: _, event: __, ...eventPayload } = parsed
+        const pushed = pushSystemEvent(targetUserId, event, eventPayload as Record<string, unknown>)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          delivered: pushed,
+          target_user_id: targetUserId,
+          event,
+          message: pushed ? 'Event delivered to connected client' : 'Client offline — event not delivered',
+        }))
         return
       }
 

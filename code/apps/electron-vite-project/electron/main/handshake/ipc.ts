@@ -153,8 +153,9 @@ function resolveProfileIdsToContextBlocks(
   if (!profileIds?.length) return []
   const vs = (globalThis as any).__og_vault_service_ref as { resolveHsProfilesForHandshake?: (tier: string, ids: string[]) => any[] } | undefined
   if (!vs?.resolveHsProfilesForHandshake) return []
-  const tier = (session.plan === 'enterprise' || session.plan === 'publisher' || session.plan === 'publisher_lifetime')
-    ? (session.plan as 'enterprise' | 'publisher' | 'publisher_lifetime')
+  const effectiveTier = session.canonical_tier ?? session.plan
+  const tier = (effectiveTier === 'enterprise' || effectiveTier === 'publisher' || effectiveTier === 'publisher_lifetime')
+    ? (effectiveTier as 'enterprise' | 'publisher' | 'publisher_lifetime')
     : 'free'
   if (tier === 'free') return []
   try {

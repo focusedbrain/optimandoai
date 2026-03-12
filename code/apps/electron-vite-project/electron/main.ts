@@ -108,10 +108,13 @@ async function resolveRequestTier(): Promise<Tier> {
     console.log('[TIER] resolveRequestTier: no session or userInfo — defaulting to', DEFAULT_TIER)
     return DEFAULT_TIER
   }
-  const plan = session.userInfo.wrdesk_plan
-  const roles = session.userInfo.roles || []
-  const tier = resolveTier(plan, roles)
-  console.log('[TIER] resolveRequestTier: wrdesk_plan=' + (plan || '(none)') + ', roleCount=' + roles.length + ', resolved=' + tier)
+  // Use canonical tier (computed once during session creation); fallback for legacy sessions
+  const tier = session.userInfo.canonical_tier ?? resolveTier(
+    session.userInfo.wrdesk_plan,
+    session.userInfo.roles || [],
+    session.userInfo.sso_tier,
+  )
+  console.log('[TIER] resolveRequestTier: canonical_tier=' + (tier || '(none)'))
   // Update the display cache so tray/status stay reasonably fresh
   currentTier = tier
   return tier
@@ -150,7 +153,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { execSync } from 'node:child_process'
-import { WebSocketServer } from 'ws'
+import WebSocket, { WebSocketServer } from 'ws'
 import express from 'express'
 import * as http from 'node:http'
 import * as net from 'net'
@@ -195,11 +198,13 @@ async function checkStartupSession(): Promise<boolean> {
       console.log('[AUTH] Session valid - user:', session.userInfo?.displayName || session.userInfo?.email || 'unknown')
       hasValidSession = true
       
-      // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
-      const roles = session.userInfo?.roles || []
-      const plan = session.userInfo?.wrdesk_plan
-      currentTier = resolveTier(plan, roles)
-      console.log('[AUTH] Tier set:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
+      // Use canonical tier from session
+      currentTier = session.userInfo?.canonical_tier ?? resolveTier(
+        session.userInfo?.wrdesk_plan,
+        session.userInfo?.roles || [],
+        session.userInfo?.sso_tier,
+      )
+      console.log('[AUTH] Tier set:', currentTier)
       
       return true
     } else {
@@ -287,12 +292,13 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     // Mark session as valid
     hasValidSession = true
     
-    // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
-    const roles = userInfo?.roles || []
-    const plan = userInfo?.wrdesk_plan
-    currentTier = resolveTier(plan, roles)
-    
-    console.log('[AUTH] Login successful - tier:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
+    // Use canonical tier from session
+    currentTier = userInfo?.canonical_tier ?? resolveTier(
+      userInfo?.wrdesk_plan,
+      userInfo?.roles || [],
+      userInfo?.sso_tier,
+    )
+    console.log('[AUTH] Login successful - tier:', currentTier)
     
     // Open the handshake ledger for this new session
     try {
@@ -404,6 +410,30 @@ function validateLaunchSecret(incoming: string): boolean {
     return false
   }
   return crypto.timingSafeEqual(LAUNCH_SECRET_BUF, inBuf)
+}
+
+// CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
+const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
+function isCorsAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false
+  if (CORS_ALLOWED_ORIGINS.has(origin)) return true
+  if (origin.startsWith('chrome-extension://')) return true
+  return false
+}
+
+function corsPnaHeaders(origin: string | undefined, requestPrivateNetwork: boolean): Record<string, string> {
+  const h: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Launch-Secret, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+  }
+  if (origin && isCorsAllowedOrigin(origin)) {
+    h['Access-Control-Allow-Origin'] = origin
+  }
+  if (requestPrivateNetwork || (origin && isCorsAllowedOrigin(origin))) {
+    h['Access-Control-Allow-Private-Network'] = 'true'
+  }
+  return h
 }
 
 /**
@@ -591,6 +621,17 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 // Cleared on lock / logout / session-expire via lockVaultIfLoaded().
 var wsVsbtBindings: Map<any, string> = (globalThis as any).__og_ws_vsbt__ || new Map();
 (globalThis as any).__og_ws_vsbt__ = wsVsbtBindings;
+
+export function broadcastToExtensions(message: Record<string, unknown>): void {
+  const json = JSON.stringify(message)
+  for (const socket of wsClients) {
+    try {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(json)
+      }
+    } catch { /* ignore */ }
+  }
+}
 
 // Current extension theme (synced from extension via WebSocket)
 // Values: 'pro' (purple), 'dark', 'standard' (white - default)
@@ -2067,6 +2108,7 @@ app.whenReady().then(async () => {
                   iss: userInfo.iss,
                   sub: userInfo.sub!,
                   plan: (userInfo.wrdesk_plan as any) || 'free',
+                  canonical_tier: userInfo.canonical_tier as any,
                   session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
                 })
                 console.log('[SUBMIT-CAPSULE] ssoSession built from refresh:', !!ssoSession)
@@ -3397,6 +3439,7 @@ app.whenReady().then(async () => {
             iss: userInfo.iss,
             sub: userInfo.sub,
             plan: (userInfo.wrdesk_plan as any) || 'free',
+            canonical_tier: userInfo.canonical_tier as any,
             session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
           })
         } catch { return undefined }
@@ -3471,8 +3514,32 @@ app.whenReady().then(async () => {
   // The full Express app is mounted on this server later (see startHttpServer).
   try {
     httpBridgeServer = http.createServer((req, res) => {
-      if (req.method === 'GET' && req.url?.split('?')[0] === '/api/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
+      const path = req.url?.split('?')[0] ?? ''
+      const origin = req.headers['origin'] as string | undefined
+      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
+
+      // OPTIONS: CORS + PNA preflight for all API routes
+      if (req.method === 'OPTIONS') {
+        if (!isCorsAllowedOrigin(origin)) {
+          res.writeHead(403)
+          res.end()
+          return
+        }
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...corsPnaHeaders(origin, requestPrivateNetwork),
+        }
+        res.writeHead(200, headers)
+        res.end()
+        return
+      }
+
+      if (req.method === 'GET' && path === '/api/health') {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...corsPnaHeaders(origin, true),
+        }
+        res.writeHead(200, headers)
         res.end(JSON.stringify({
           ok: true,
           timestamp: Date.now(),
@@ -3484,7 +3551,11 @@ app.whenReady().then(async () => {
         return
       }
       // All other routes: 503 until Express mounts
-      res.writeHead(503, { 'Content-Type': 'application/json' })
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...corsPnaHeaders(origin, true),
+      }
+      res.writeHead(503, headers)
       res.end(JSON.stringify({ ok: false, error: 'Initializing...' }))
     })
     httpBridgeServer.listen(HTTP_PORT, '127.0.0.1', () => {
@@ -3589,9 +3660,10 @@ app.whenReady().then(async () => {
                   }))
                   return
                 }
-                const rpcTier = resolveTier(
+                const rpcTier = rpcSession.userInfo?.canonical_tier ?? resolveTier(
                   rpcSession.userInfo?.wrdesk_plan,
                   rpcSession.userInfo?.roles || [],
+                  rpcSession.userInfo?.sso_tier,
                 )
 
                 // ── vault.bind handshake (auth required, binds VSBT to this connection) ──
@@ -4369,11 +4441,14 @@ app.whenReady().then(async () => {
                 // Update hasValidSession flag
                 hasValidSession = loggedIn
                 
-                // Re-resolve tier from fresh session claims
+                // Use canonical tier from session
                 if (loggedIn && session.userInfo) {
-                  currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+                  currentTier = session.userInfo.canonical_tier ?? resolveTier(
+                    session.userInfo.wrdesk_plan,
+                    session.userInfo.roles || [],
+                    session.userInfo.sso_tier,
+                  )
                 }
-                
                 console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
                 // Include user info and tier in response for UI display
                 const response: Record<string, unknown> = { 
@@ -4442,41 +4517,46 @@ app.whenReady().then(async () => {
     // (Removed: ipcMain.handle('security:getLaunchSecret', ...) )
 
     // ========================================================================
-    // SECURITY: Strict CORS — deny all cross-origin requests.
+    // SECURITY: CORS + Private Network Access (PNA) — allow WRDesk origins only.
     //
-    // Why NO Access-Control-Allow-Origin header at all:
-    //   - The Chrome extension background script uses fetch() from its service
-    //     worker context.  Service worker fetches are NOT subject to CORS
-    //     (they are same-origin by definition to their own extension origin).
-    //   - By NOT setting any CORS headers, the browser's same-origin policy
-    //     blocks every cross-origin request from web pages.
-    //   - A website at https://evil.com fetching http://127.0.0.1:51248
-    //     will receive a CORS error because the response has no
-    //     Access-Control-Allow-Origin header.
+    // Allowed origins:
+    //   - https://wrdesk.com
+    //   - chrome-extension://* (any WRDesk extension ID)
     //
-    // The only callers are:
-    //   1. Chrome extension background (service worker fetch — not CORS)
-    //   2. Electron renderer (IPC-based — not HTTP)
-    //   3. WebSocket clients (WS protocol — not HTTP CORS)
+    // Rejects all other origins. No wildcard "*" in production.
+    //
+    // PNA: Modern Chromium blocks requests from secure contexts to localhost
+    // unless the server responds with Access-Control-Allow-Private-Network: true.
+    // Required for extension → 127.0.0.1:51248.
     // ========================================================================
     httpApp.use((req, res, next) => {
-      // Block CORS preflight outright — no origin is trusted.
+      const origin = req.headers['origin'] as string | undefined
+      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
+
+      // OPTIONS: CORS preflight + PNA preflight — do not require auth
       if (req.method === 'OPTIONS') {
-        res.status(403).end()
+        if (!isCorsAllowedOrigin(origin)) {
+          res.status(403).end()
+          return
+        }
+        const headers = corsPnaHeaders(origin, requestPrivateNetwork)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+        res.status(200).end()
         return
       }
 
-      // Reject any request that carries an Origin header from a web page.
-      // Extension service workers do NOT send an Origin header on fetch().
-      // Electron renderer should use IPC, not HTTP.
-      const origin = req.headers['origin']
-      if (origin) {
-        // Allow chrome-extension:// origins (for popup/sidepanel fetch calls)
-        if (!origin.startsWith('chrome-extension://')) {
-          console.warn(`[SECURITY] Blocked request with web Origin: ${origin} → ${req.method} ${req.path}`)
-          res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
-          return
-        }
+      // Non-OPTIONS: reject disallowed origins
+      if (origin && !isCorsAllowedOrigin(origin)) {
+        console.warn(`[SECURITY] Blocked request with disallowed Origin: ${origin} → ${req.method} ${req.path}`)
+        res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
+        return
+      }
+
+      // Attach CORS headers to response for allowed origins (for actual requests)
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Type')
+      if (origin && isCorsAllowedOrigin(origin)) {
+        const headers = corsPnaHeaders(origin, true)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
       }
 
       next()
@@ -4496,7 +4576,8 @@ app.whenReady().then(async () => {
     // or IPC — never over HTTP, never persisted.
     // ========================================================================
     const AUTH_EXEMPT_PATHS = new Set([
-      '/api/health',       // Lightweight liveness probe, returns no sensitive data
+      '/api/health',               // Lightweight liveness probe, returns no sensitive data
+      '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
     ])
 
     httpApp.use((req, res, next) => {
@@ -4782,7 +4863,7 @@ app.whenReady().then(async () => {
         }
         const session = updateSess(tokens)
         hasValidSession = true
-        const tier = resolve(session?.wrdesk_plan, session?.roles ?? [])
+        const tier = session?.canonical_tier ?? resolve(session?.wrdesk_plan, session?.roles ?? [], session?.sso_tier)
         
         updateTrayMenu()
 
@@ -4853,11 +4934,14 @@ app.whenReady().then(async () => {
         // Update hasValidSession flag based on current session state
         hasValidSession = loggedIn
         
-        // Re-resolve tier from fresh session claims
+        // Use canonical tier from session
         if (loggedIn && session.userInfo) {
-          currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+          currentTier = session.userInfo.canonical_tier ?? resolveTier(
+            session.userInfo.wrdesk_plan,
+            session.userInfo.roles || [],
+            session.userInfo.sso_tier,
+          )
         }
-        
         // [CHECKPOINT B] Log HTTP status response (no secrets)
         console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
         // Include user info and tier for UI display
