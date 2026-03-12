@@ -32,7 +32,8 @@ function logoutFast(): void {
   hasValidSession = false
   currentTier = UNKNOWN_TIER
   lastKnownGoodTier = null
-  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false, lastKnownGoodTier cleared`)
+  lastEntitlementRefreshAt = null
+  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false, lastKnownGoodTier and lastEntitlementRefreshAt cleared`)
   
   // 3. Clear in-memory tokens (sync, fast)
   clearSession()
@@ -90,23 +91,73 @@ let hasValidSession = false  // Set after startup session check
 
 // Display-only cache — used for tray menus, IPC status, and auth responses.
 // NEVER use this for security-gated decisions (vault routes, capability checks).
-// Those MUST call resolveRequestTier() to get the authoritative tier per-request.
+// Those MUST call getEffectiveTier() to get the authoritative tier per-request.
 let currentTier: Tier = UNKNOWN_TIER
 
 // Last known good tier — used when session is temporarily missing (refresh failure, etc.).
 // Cleared on logout. Never use 'free' as error fallback.
 let lastKnownGoodTier: Tier | null = null
 
+// Timestamp of last successful entitlement refresh from Keycloak.
+// Used to decide when to force-refresh before /api/vault/status.
+let lastEntitlementRefreshAt: number | null = null
+
+const ENTITLEMENT_REFRESH_INTERVAL_MS = 60_000
+
 /**
- * Resolve the authoritative tier for the current request.
- *
- * Reads the LATEST JWT claims from the session module (refreshed automatically
- * when the token is near expiry), extracts `wrdesk_plan` / `roles`, and resolves
- * the tier via the canonical `resolveTier()` function.
- *
- * When session is missing: returns lastKnownGoodTier ?? 'unknown' (never 'free').
- * Must be called inside every security-gated route handler — never rely on
- * the module-level `currentTier` cache for access control.
+ * Refresh entitlements from Keycloak (single source of truth).
+ * Calls ensureSession(force), derives tier, updates currentTier, lastKnownGoodTier, lastEntitlementRefreshAt.
+ * On failure: returns lastKnownGoodTier ?? unknown (never 'free').
+ */
+async function refreshEntitlements(force = true, source = 'caller'): Promise<Tier> {
+  console.log(`[ENTITLEMENT_REFRESH] refresh begin (force=${force}, source=${source})`)
+  try {
+    const session = await ensureSession(force)
+    if (!session.accessToken || !session.userInfo) {
+      const fallback = lastKnownGoodTier ?? UNKNOWN_TIER
+      console.log(`[ENTITLEMENT_REFRESH] refresh failure: session missing — using ${lastKnownGoodTier != null ? 'lastKnownGoodTier' : 'unknown'}:`, fallback)
+      return fallback
+    }
+    const tier = session.userInfo.canonical_tier ?? resolveTier(
+      session.userInfo.wrdesk_plan,
+      session.userInfo.roles || [],
+      session.userInfo.sso_tier,
+    )
+    const isValidTier = tier != null && tier !== UNKNOWN_TIER
+    currentTier = tier
+    if (isValidTier) {
+      lastKnownGoodTier = tier
+      lastEntitlementRefreshAt = Date.now()
+      console.log(`[ENTITLEMENT_REFRESH] refresh success: tier=${tier}, lastKnownGoodTier updated, lastEntitlementRefreshAt set`)
+    } else {
+      lastEntitlementRefreshAt = Date.now()
+      console.log(`[ENTITLEMENT_REFRESH] refresh success: tier=${tier ?? 'unknown'}, lastKnownGoodTier unchanged`)
+    }
+    return tier
+  } catch (err: any) {
+    const fallback = lastKnownGoodTier ?? UNKNOWN_TIER
+    console.log(`[ENTITLEMENT_REFRESH] refresh failure:`, err?.message || err, `— using ${lastKnownGoodTier != null ? 'lastKnownGoodTier' : 'unknown'}:`, fallback)
+    return fallback
+  }
+}
+
+/**
+ * Single entry point for tier for all vault routes and status paths.
+ * When refreshIfStale is true and lastEntitlementRefreshAt is null or older than 60s,
+ * forces a Keycloak refresh first. Otherwise uses cached session/state.
+ */
+async function getEffectiveTier(options?: { refreshIfStale?: boolean; caller?: string }): Promise<Tier> {
+  const { refreshIfStale = false, caller = 'caller' } = options ?? {}
+  const stale = lastEntitlementRefreshAt == null || (Date.now() - lastEntitlementRefreshAt) > ENTITLEMENT_REFRESH_INTERVAL_MS
+  if (refreshIfStale && stale) {
+    return refreshEntitlements(true, caller)
+  }
+  return resolveRequestTier()
+}
+
+/**
+ * Resolve tier from session (no forced refresh).
+ * Used internally by getEffectiveTier when not stale.
  */
 async function resolveRequestTier(): Promise<Tier> {
   const session = await ensureSession()
@@ -3361,6 +3412,17 @@ app.whenReady().then(async () => {
   console.log('[AUTH] ===== AUTH-GATED STARTUP =====')
   const sessionValid = await checkStartupSession()
 
+  // Keycloak-only entitlement refresh: once at startup, then every 60s
+  refreshEntitlements(true, 'startup').then(tier => {
+    console.log('[ENTITLEMENT_REFRESH] startup refresh complete, tier=', tier)
+  }).catch(err => {
+    console.log('[ENTITLEMENT_REFRESH] startup refresh failed:', err?.message || err)
+  })
+  setInterval(() => {
+    refreshEntitlements(true, 'interval').catch(() => {})
+  }, ENTITLEMENT_REFRESH_INTERVAL_MS)
+  console.log('[ENTITLEMENT_REFRESH] 60s interval started')
+
   // Open the handshake ledger immediately if a session is already active.
   // This ensures handshake operations work before any vault interaction.
   if (sessionValid) {
@@ -3678,7 +3740,7 @@ app.whenReady().then(async () => {
             if (msg.method && msg.method.startsWith('vault.')) {
               console.log('[MAIN] Processing vault RPC:', msg.method)
               try {
-                // ── Auth gate: resolve tier from session (fail-closed) ──
+                // ── Auth gate: session required ──
                 const rpcSession = await ensureSession()
                 if (!rpcSession.accessToken) {
                   socket.send(JSON.stringify({
@@ -3688,11 +3750,10 @@ app.whenReady().then(async () => {
                   }))
                   return
                 }
-                const rpcTier = rpcSession.userInfo?.canonical_tier ?? resolveTier(
-                  rpcSession.userInfo?.wrdesk_plan,
-                  rpcSession.userInfo?.roles || [],
-                  rpcSession.userInfo?.sso_tier,
-                )
+                // ── Central entitlement reader (same path as HTTP vault routes) ──
+                const staleBefore = lastEntitlementRefreshAt == null || (Date.now() - lastEntitlementRefreshAt) > ENTITLEMENT_REFRESH_INTERVAL_MS
+                const rpcTier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-rpc' })
+                console.log('[ENTITLEMENT_ACCESS] vault-rpc caller, tier=', rpcTier, 'triggeredRefresh=', staleBefore)
 
                 // ── vault.bind handshake (auth required, binds VSBT to this connection) ──
                 if (msg.method === 'vault.bind') {
@@ -5850,7 +5911,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/status')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-status' })
         const vaultService = await getVaultService()
         console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
@@ -5935,7 +5996,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/items', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { canAccessCategory: canAccess } = await getVaultCapHelpers()
 
@@ -5970,7 +6031,7 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/create')
         console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
 
         // ── Capability gate (before any encryption/storage) ──
         const { canAccessCategory: canAccess } = await getVaultCapHelpers()
@@ -6012,7 +6073,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/get')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         // Tier is passed to getItem() so the capability check runs BEFORE
         // any KEK unwrap / DEK decrypt (fail-closed).
@@ -6029,7 +6090,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/update')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
 
         // Read category WITHOUT decrypting — no KEK/DEK touched
@@ -6053,7 +6114,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
 
         // Read category WITHOUT decrypting — no KEK/DEK touched
@@ -6081,7 +6142,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/meta/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/meta/get')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { id } = req.body
         if (!id) { res.status(400).json({ success: false, error: 'Missing item id' }); return }
@@ -6100,7 +6161,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/meta/set', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/meta/set')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { id, meta } = req.body
         if (!id || !meta) { res.status(400).json({ success: false, error: 'Missing id or meta' }); return }
@@ -6132,7 +6193,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.evaluateAttach(tier as any, itemId, target)
         res.json({ success: true, data: result })
       } catch (error: any) {
@@ -6149,7 +6210,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/documents', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/documents')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const docs = vaultService.listDocuments(tier as any)
         res.json({ success: true, data: docs })
@@ -6173,7 +6234,7 @@ app.whenReady().then(async () => {
 
         // Data arrives as base64-encoded string from the frontend
         const buffer = Buffer.from(data, 'base64')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.importDocument(tier as any, filename, buffer, notes || '')
 
         console.log('[HTTP-VAULT] ✅ Document imported:', result.document.id, result.deduplicated ? '(deduplicated)' : '')
@@ -6197,7 +6258,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.getDocument(tier as any, id)
 
         // SECURITY: Content is always returned as base64.
@@ -6229,7 +6290,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         vaultService.deleteDocument(tier as any, id)
         res.json({ success: true })
       } catch (error: any) {
@@ -6251,7 +6312,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const doc = vaultService.updateDocumentMeta(tier as any, id, updates || {})
         res.json({ success: true, data: doc })
       } catch (error: any) {
