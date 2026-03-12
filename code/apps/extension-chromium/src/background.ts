@@ -931,10 +931,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             } else if (data.type === 'ELECTRON_LOG') {
               console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
               try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
-            } else if (data.type === 'TIER_CHANGED') {
-              console.log('[Extension] Tier changed via push:', data.tier)
-              chrome.storage.local.set({ authTier: data.tier ?? 'free' })
-              try { chrome.runtime.sendMessage({ type: 'TIER_CHANGED', tier: data.tier }) } catch {}
             } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
               const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
               const dataUrl = data.dataUrl || data.url || null

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { resolveTier, mapRolesToTier, DEFAULT_TIER } from '../../../src/auth/capabilities'
+import { resolveTier, mapRolesToTier, UNKNOWN_TIER } from '../../../src/auth/capabilities'
 
 // ---------------------------------------------------------------------------
 // 1–3. resolveTier correctness
@@ -30,9 +30,9 @@ describe('resolveTier', () => {
     expect(resolveTier(undefined, ['enterprise'])).toBe('enterprise')
   })
 
-  it('returns free when no plan and no tier roles', () => {
-    expect(resolveTier(undefined, [])).toBe('free')
-    expect(resolveTier(undefined, ['some_other_role'])).toBe('free')
+  it('returns unknown when no plan and no tier roles (never free as error fallback)', () => {
+    expect(resolveTier(undefined, [])).toBe(UNKNOWN_TIER)
+    expect(resolveTier(undefined, ['some_other_role'])).toBe(UNKNOWN_TIER)
   })
 
   it('higher tier wins when plan and roles differ', () => {
@@ -42,17 +42,17 @@ describe('resolveTier', () => {
 
   it('ignores invalid wrdesk_plan and falls back to roles', () => {
     expect(resolveTier('invalid_plan', ['pro'])).toBe('pro')
-    expect(resolveTier('invalid_plan', [])).toBe('free')
+    expect(resolveTier('invalid_plan', [])).toBe(UNKNOWN_TIER)
   })
 })
 
 describe('mapRolesToTier priority', () => {
-  it('enterprise > publisher > pro > private > free', () => {
+  it('enterprise > publisher > pro > private; empty roles returns unknown', () => {
     expect(mapRolesToTier(['enterprise', 'publisher', 'pro'])).toBe('enterprise')
     expect(mapRolesToTier(['publisher', 'pro'])).toBe('publisher')
     expect(mapRolesToTier(['pro', 'private'])).toBe('pro')
     expect(mapRolesToTier(['private'])).toBe('private')
-    expect(mapRolesToTier([])).toBe('free')
+    expect(mapRolesToTier([])).toBe(UNKNOWN_TIER)
   })
 })
 
@@ -83,9 +83,9 @@ describe('Per-request tier resolution — downgrade/upgrade propagation', () => 
   })
 
   it('tier upgrade is reflected on next request', () => {
-    // Request 1: user is free
+    // Request 1: no plan/roles → unknown
     const session1 = { wrdesk_plan: undefined as string | undefined, roles: [] as string[] }
-    expect(simulateResolveRequestTier(session1)).toBe('free')
+    expect(simulateResolveRequestTier(session1)).toBe(UNKNOWN_TIER)
 
     // Backend upgrades user to publisher
     const session2 = { wrdesk_plan: 'publisher', roles: ['publisher'] }

@@ -51,6 +51,7 @@ export const VAULT_RECORD_TYPES: readonly VaultRecordType[] = [
 /**
  * Subscription tiers — aligned with auth/capabilities.ts Tier type.
  * Listed in ascending privilege order.
+ * 'unknown' = session missing or tier cannot be derived (most restrictive).
  */
 export type VaultTier =
   | 'free'
@@ -60,9 +61,11 @@ export type VaultTier =
   | 'publisher'
   | 'publisher_lifetime'
   | 'enterprise'
+  | 'unknown'
 
-/** Numeric privilege level per tier (higher = more access). */
+/** Numeric privilege level per tier (higher = more access). unknown = -1 (no premium access). */
 export const TIER_LEVEL: Record<VaultTier, number> = {
+  unknown: -1,
   free: 0,
   private: 1,
   private_lifetime: 2,
@@ -111,6 +114,7 @@ export type VaultAction = 'read' | 'write' | 'delete' | 'export' | 'share'
  * Export and share are gated to higher tiers.
  */
 export const TIER_ALLOWED_ACTIONS: Record<VaultTier, readonly VaultAction[]> = {
+  unknown: [],
   free: ['read', 'write', 'delete'],
   private: ['read', 'write', 'delete', 'export'],
   private_lifetime: ['read', 'write', 'delete', 'export'],
@@ -144,6 +148,9 @@ export function canAccessRecordType(
   recordType: VaultRecordType,
   action: VaultAction = 'read',
 ): boolean {
+  // unknown = no access (most restrictive)
+  if (tier === 'unknown') return false
+
   const userLevel = TIER_LEVEL[tier] ?? 0
   const requiredTier = RECORD_TYPE_MIN_TIER[recordType]
   const requiredLevel = TIER_LEVEL[requiredTier] ?? 0

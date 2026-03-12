@@ -78,6 +78,27 @@ describe('Free tier', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 1b. Unknown tier — no access (session missing or tier cannot be derived)
+// ---------------------------------------------------------------------------
+describe('Unknown tier', () => {
+  const tier: VaultTier = 'unknown'
+
+  it('CANNOT access any record type', () => {
+    expect(canAccessRecordType(tier, 'automation_secret')).toBe(false)
+    expect(canAccessRecordType(tier, 'human_credential')).toBe(false)
+    expect(canAccessRecordType(tier, 'handshake_context')).toBe(false)
+  })
+
+  it('getAccessibleRecordTypes returns empty array', () => {
+    expect(getAccessibleRecordTypes(tier)).toEqual([])
+  })
+
+  it('getCategoryOptionsForTier returns empty array', () => {
+    expect(getCategoryOptionsForTier(tier)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 2. Pro tier — automation_secret + human_credential + pii_record + document + custom
 // ---------------------------------------------------------------------------
 describe('Pro tier', () => {

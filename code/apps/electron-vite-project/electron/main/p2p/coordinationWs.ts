@@ -373,33 +373,9 @@ export function createCoordinationWsClient(
           const text = typeof data === 'string' ? data : data.toString('utf8')
           const msg = JSON.parse(text) as { type?: string; id?: string; handshake_id?: string; capsule?: unknown }
 
-          // ── System Events (tier_changed, etc.) ──
-          if (msg?.type === 'system_event' && typeof (msg as any).event === 'string') {
-            const systemEvent = msg as { type: string; event: string; tier?: string; [key: string]: unknown }
-            console.log('[Coordination] System event received:', systemEvent.event)
-
-            if (systemEvent.event === 'tier_changed') {
-              console.log('[Coordination] Tier changed — refreshing token immediately')
-              try {
-                const { ensureSession } = await import('../../../src/auth/session')
-                const result = await ensureSession(true)
-                if (result.accessToken) {
-                  console.log('[Coordination] Token refreshed after tier change')
-                  try {
-                    const { broadcastToExtensions } = await import('../../main')
-                    broadcastToExtensions({
-                      type: 'TIER_CHANGED',
-                      tier: systemEvent.tier ?? 'unknown',
-                      timestamp: new Date().toISOString(),
-                    })
-                  } catch (extErr: any) {
-                    console.warn('[Coordination] Could not notify extension:', extErr?.message)
-                  }
-                }
-              } catch (err: any) {
-                console.error('[Coordination] Token refresh failed:', err?.message)
-              }
-            }
+          // System events (e.g. tier_changed) are no longer processed — tier/entitlement
+          // updates come from /api/vault/status and auth status polling only.
+          if (msg?.type === 'system_event') {
             return
           }
 

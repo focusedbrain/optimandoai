@@ -4,7 +4,7 @@ import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
 import { 
   resolveTier,
-  DEFAULT_TIER,
+  UNKNOWN_TIER,
   type Tier
 } from '../src/auth/capabilities'
 
@@ -30,8 +30,9 @@ function logoutFast(): void {
 
   // 2. Set auth state to locked (blocks all privileged actions)
   hasValidSession = false
-  currentTier = DEFAULT_TIER
-  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false`)
+  currentTier = UNKNOWN_TIER
+  lastKnownGoodTier = null
+  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false, lastKnownGoodTier cleared`)
   
   // 3. Clear in-memory tokens (sync, fast)
   clearSession()
@@ -90,7 +91,11 @@ let hasValidSession = false  // Set after startup session check
 // Display-only cache — used for tray menus, IPC status, and auth responses.
 // NEVER use this for security-gated decisions (vault routes, capability checks).
 // Those MUST call resolveRequestTier() to get the authoritative tier per-request.
-let currentTier: Tier = 'free'
+let currentTier: Tier = UNKNOWN_TIER
+
+// Last known good tier — used when session is temporarily missing (refresh failure, etc.).
+// Cleared on logout. Never use 'free' as error fallback.
+let lastKnownGoodTier: Tier | null = null
 
 /**
  * Resolve the authoritative tier for the current request.
@@ -99,14 +104,19 @@ let currentTier: Tier = 'free'
  * when the token is near expiry), extracts `wrdesk_plan` / `roles`, and resolves
  * the tier via the canonical `resolveTier()` function.
  *
+ * When session is missing: returns lastKnownGoodTier ?? 'unknown' (never 'free').
  * Must be called inside every security-gated route handler — never rely on
  * the module-level `currentTier` cache for access control.
  */
 async function resolveRequestTier(): Promise<Tier> {
   const session = await ensureSession()
   if (!session.accessToken || !session.userInfo) {
-    console.log('[TIER] resolveRequestTier: no session or userInfo — defaulting to', DEFAULT_TIER)
-    return DEFAULT_TIER
+    if (lastKnownGoodTier != null) {
+      console.log('[ENTITLEMENT] resolveRequestTier: session missing — returning lastKnownGoodTier:', lastKnownGoodTier)
+      return lastKnownGoodTier
+    }
+    console.log('[ENTITLEMENT] resolveRequestTier: session missing, no lastKnownGoodTier — returning unknown')
+    return UNKNOWN_TIER
   }
   // Use canonical tier (computed once during session creation); fallback for legacy sessions
   const tier = session.userInfo.canonical_tier ?? resolveTier(
@@ -114,9 +124,15 @@ async function resolveRequestTier(): Promise<Tier> {
     session.userInfo.roles || [],
     session.userInfo.sso_tier,
   )
-  console.log('[TIER] resolveRequestTier: canonical_tier=' + (tier || '(none)'))
-  // Update the display cache so tray/status stay reasonably fresh
-  currentTier = tier
+  const isValidTier = tier != null && tier !== UNKNOWN_TIER
+  if (isValidTier) {
+    currentTier = tier
+    lastKnownGoodTier = tier
+    console.log('[ENTITLEMENT] Valid tier confirmed from session:', tier, '— updated currentTier and lastKnownGoodTier')
+  } else {
+    currentTier = tier
+    console.log('[TIER] resolveRequestTier: canonical_tier=' + (tier || '(none)'))
+  }
   return tier
 }
 
@@ -199,24 +215,30 @@ async function checkStartupSession(): Promise<boolean> {
       hasValidSession = true
       
       // Use canonical tier from session
-      currentTier = session.userInfo?.canonical_tier ?? resolveTier(
+      const tier = session.userInfo?.canonical_tier ?? resolveTier(
         session.userInfo?.wrdesk_plan,
         session.userInfo?.roles || [],
         session.userInfo?.sso_tier,
       )
-      console.log('[AUTH] Tier set:', currentTier)
+      currentTier = tier
+      if (tier != null && tier !== UNKNOWN_TIER) {
+        lastKnownGoodTier = tier
+        console.log('[ENTITLEMENT] Valid tier confirmed at startup:', tier, '— updated lastKnownGoodTier')
+      } else {
+        console.log('[AUTH] Tier set:', currentTier)
+      }
       
       return true
     } else {
       console.log('[AUTH] No valid session found')
       hasValidSession = false
-      currentTier = DEFAULT_TIER
+      currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
       return false
     }
   } catch (err) {
     console.error('[AUTH] Session check failed:', err instanceof Error ? err.message : String(err))
     hasValidSession = false
-    currentTier = DEFAULT_TIER
+    currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
     return false
   }
 }
@@ -293,12 +315,18 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     hasValidSession = true
     
     // Use canonical tier from session
-    currentTier = userInfo?.canonical_tier ?? resolveTier(
+    const tier = userInfo?.canonical_tier ?? resolveTier(
       userInfo?.wrdesk_plan,
       userInfo?.roles || [],
       userInfo?.sso_tier,
     )
-    console.log('[AUTH] Login successful - tier:', currentTier)
+    currentTier = tier
+    if (tier != null && tier !== UNKNOWN_TIER) {
+      lastKnownGoodTier = tier
+      console.log('[ENTITLEMENT] Valid tier confirmed at login:', tier, '— updated lastKnownGoodTier')
+    } else {
+      console.log('[AUTH] Login successful - tier:', currentTier)
+    }
     
     // Open the handshake ledger for this new session
     try {
@@ -328,7 +356,7 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[AUTH] Login failed:', message)
-    currentTier = DEFAULT_TIER
+    currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
     return { ok: false, error: message }
   }
 }

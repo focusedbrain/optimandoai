@@ -19,7 +19,7 @@
  * - 'publisher_lifetime': Publisher lifetime license
  * - 'enterprise': Full enterprise tier
  */
-export type Tier = 'free' | 'private' | 'private_lifetime' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise';
+export type Tier = 'free' | 'private' | 'private_lifetime' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise' | 'unknown';
 
 /**
  * Default tier for new logins (fail-closed)
@@ -27,10 +27,18 @@ export type Tier = 'free' | 'private' | 'private_lifetime' | 'pro' | 'publisher'
 export const DEFAULT_TIER: Tier = 'free';
 
 /**
+ * Tier used when session is missing or tier cannot be derived.
+ * Never use 'free' as an error fallback — use 'unknown' instead.
+ */
+export const UNKNOWN_TIER: Tier = 'unknown';
+
+/**
  * Numeric tier hierarchy for "higher tier wins" resolution.
  * Used when both plan and roles provide a tier — prevents downgrades from stale plan.
+ * 'unknown' has level -1 (most restrictive — no premium access).
  */
 export const TIER_LEVEL: Record<Tier, number> = {
+  unknown: -1,
   free: 0,
   private: 1,
   private_lifetime: 2,
@@ -136,7 +144,7 @@ export function resolveTier(
     ? (tierFromPlan ?? tierFromRoles)
     : tierFromRoles;
 
-  const result = canonicalTier ?? DEFAULT_TIER;
+  const result = canonicalTier ?? UNKNOWN_TIER;
 
   if (tierFromPlan && tierFromRoles && tierFromPlan !== tierFromRoles) {
     console.log('[TIER] Plan/roles mismatch — higher tier wins: plan=' + tierFromPlan + ', roles=' + tierFromRoles + ' → ' + result);
@@ -144,10 +152,10 @@ export function resolveTier(
     console.log('[TIER] Resolved from plan claim: ' + result);
   } else if (ssoTier) {
     console.log('[TIER] Resolved from SSO roles (plan missing): ' + result);
-  } else if (tierFromRoles !== DEFAULT_TIER) {
+  } else if (tierFromRoles !== DEFAULT_TIER && tierFromRoles !== UNKNOWN_TIER) {
     console.log('[TIER] Resolved from roles fallback: ' + result);
   } else {
-    console.log('[TIER] No plan or roles; defaulting to free');
+    console.log('[TIER] No plan or roles; returning unknown (not free)');
   }
 
   return result;
@@ -166,10 +174,10 @@ export function resolveTier(
  * @returns Tier based on role presence
  */
 export function mapRolesToTier(keycloakRoles: string[]): Tier {
-  // FAIL-CLOSED: If no roles provided, log diagnostic and return default
+  // FAIL-CLOSED: If no roles provided, return unknown (not free — never use free as error fallback)
   if (!hasRolesInToken(keycloakRoles)) {
-    console.log('[TIER] No wrdesk_plan and no roles in token; defaulting to free');
-    return DEFAULT_TIER;
+    console.log('[TIER] No wrdesk_plan and no roles in token; returning unknown');
+    return UNKNOWN_TIER;
   }
 
   // Check for exact tier name matches only (case-insensitive)
@@ -205,6 +213,6 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'private';
   }
   
-  // No tier role found - default to free (not an error, just no premium role)
-  return DEFAULT_TIER;
+  // No tier role found - return unknown (not free — never use free as error fallback)
+  return UNKNOWN_TIER;
 }
