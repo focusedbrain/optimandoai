@@ -30171,16 +30171,11 @@ ${pageText}
       })
     }
 
-    safeAppendToBody(overlay)
-
-    // Initialize vault UI (pure TypeScript, no React)
-    import('./vault/vault-ui-typescript').then(({ openVaultLightbox: initVaultUI }) => {
-      // Remove the placeholder and re-init with the full UI
-      overlay.remove()
-      initVaultUI()
+    // Import first, then open — avoids placeholder flash (never append placeholder to DOM)
+    import('./vault/vault-ui-typescript').then(({ openVaultLightbox }) => {
+      openVaultLightbox()
     }).catch((error) => {
       console.error('[VAULT] Error loading vault UI:', error)
-      reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: ${csTheme().muted};">Error loading vault UI. Please check console.</div>'
     })
 
   }

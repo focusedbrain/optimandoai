@@ -363,7 +363,7 @@ export function openVaultLightbox() {
   // Initialize vault UI
   initVaultUI(mainContent)
 
-  console.log('[VAULT] ✅ WRVault lightbox opened with TypeScript UI')
+  console.log('[VAULT_UI_MOUNT] WRVault overlay mounted')
 }
 
 // Initialize Vault UI - Pure TypeScript implementation
@@ -399,6 +399,7 @@ async function initVaultUI(container: HTMLElement) {
     } else {
       renderCreateVaultScreen(container)
     }
+    console.log('[VAULT_UI_MOUNT] first stable render')
   } catch (err: any) {
     console.error('[VAULT UI] Init error:', err)
     console.error('[VAULT UI] Error stack:', err.stack)
