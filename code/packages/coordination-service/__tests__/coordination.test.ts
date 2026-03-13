@@ -2,25 +2,28 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import http from 'http'
+import https from 'https'
 import WebSocket from 'ws'
 import type { CoordinationConfig } from '../src/config.js'
-import { initStore, closeStore, getDb, cleanupExpired } from '../src/store.js'
 import { createServer } from '../src/server.js'
-import { resetRateLimitsForTests } from '../src/rateLimiter.js'
-import { registerHandshake } from '../src/handshakeRegistry.js'
 
 process.env.COORD_TEST_MODE = '1'
 
-function validBeapCapsule(handshakeId: string): string {
+/** Relay-acceptable capsule (accept type). Initiate must be delivered out-of-band. */
+function validBeapCapsule(handshakeId: string, senderId = 'user-1'): string {
   return JSON.stringify({
     schema_version: 1,
-    capsule_type: 'initiate',
+    capsule_type: 'accept',
     handshake_id: handshakeId,
-    sender_id: 'user-1',
+    sender_id: senderId,
     capsule_hash: 'a'.repeat(64),
     timestamp: new Date().toISOString(),
+    sharing_mode: 'reciprocal',
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
+    sender_public_key: 'a'.repeat(64),
+    sender_signature: 'b'.repeat(128),
+    countersigned_hash: 'c'.repeat(128),
   })
 }
 
@@ -37,6 +40,8 @@ function makeConfig(overrides: Partial<CoordinationConfig>): CoordinationConfig 
     capsule_retention_days: 7,
     ws_heartbeat_interval: 60_000,
     max_connections: 10000,
+    session_ttl_seconds: 86400,
+    handshake_ttl_seconds: 604800,
   }
   return { ...base, ...overrides }
 }
@@ -90,11 +95,13 @@ describe('coordination-service', () => {
   let server: http.Server | https.Server
   let port: number
   let config: CoordinationConfig
+  let relay: Awaited<ReturnType<typeof createServer>>['relay'] | undefined
 
   beforeAll(async () => {
     config = makeConfig({})
-    initStore(config)
-    server = createServer(config)
+    const result = await createServer(config)
+    server = result.server
+    relay = result.relay
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address()
@@ -106,12 +113,13 @@ describe('coordination-service', () => {
 
   afterAll(() => {
     if (server) server.close()
-    closeStore()
+    if (relay) relay.store.close()
   })
 
   beforeEach(() => {
-    resetRateLimitsForTests()
-    const d = getDb()
+    if (!relay) return
+    relay.rateLimiter.resetForTests()
+    const d = relay.store.getDb()
     if (d) {
       d.exec('DELETE FROM coordination_capsules; DELETE FROM coordination_handshake_registry; DELETE FROM coordination_token_cache;')
     }
@@ -358,6 +366,9 @@ describe('coordination-service', () => {
         sharing_mode: 'reciprocal',
         wrdesk_policy_hash: 'd'.repeat(64),
         seq: 1,
+        sender_public_key: 'a'.repeat(64),
+        sender_signature: 'b'.repeat(128),
+        countersigned_hash: 'c'.repeat(128),
       }),
       auth: 'test-acc10-pro',
       contentType: 'application/json',
@@ -429,7 +440,7 @@ describe('coordination-service', () => {
       contentType: 'application/json',
     })
 
-    const db = getDb()
+    const db = relay!.store.getDb()
     expect(db).toBeTruthy()
     if (db) {
       db.prepare(
@@ -440,7 +451,7 @@ describe('coordination-service', () => {
     const before = db?.prepare(`SELECT COUNT(*) as c FROM coordination_capsules WHERE handshake_id = ?`).get(hsId) as { c: number }
     expect(before?.c ?? 0).toBeGreaterThanOrEqual(1)
 
-    cleanupExpired()
+    relay!.store.cleanupExpired()
 
     const after = db?.prepare(`SELECT COUNT(*) as c FROM coordination_capsules WHERE handshake_id = ?`).get(hsId) as { c: number }
     expect(after?.c ?? 0).toBe(0)
@@ -526,7 +537,7 @@ describe('coordination-service', () => {
     attackerWs.close()
   })
 
-  test('health: GET /health → 200 with status', async () => {
+  test('health: GET /health → 200 with status when healthy', async () => {
     const r = await request(port, 'GET', '/health')
     expect(r.status).toBe(200)
     const body = JSON.parse(r.body)
@@ -534,5 +545,64 @@ describe('coordination-service', () => {
     expect(typeof body.uptime).toBe('number')
     expect(typeof body.connected_clients).toBe('number')
     expect(typeof body.pending_capsules).toBe('number')
+  })
+
+  test('CS_17_session_ttl: Stale handshake cleaned after TTL', async () => {
+    const hsId = 'hs-cs17'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sender17',
+        acceptor_user_id: 'recipient17',
+      }),
+      auth: 'test-sender17-pro',
+      contentType: 'application/json',
+    })
+
+    const db = relay!.store.getDb()
+    const oldDate = new Date(Date.now() - (config.handshake_ttl_seconds + 1) * 1000).toISOString()
+    db.prepare(`UPDATE coordination_handshake_registry SET created_at = ? WHERE handshake_id = ?`).run(oldDate, hsId)
+
+    const before = db.prepare(`SELECT COUNT(*) as c FROM coordination_handshake_registry WHERE handshake_id = ?`).get(hsId) as { c: number }
+    expect(before?.c ?? 0).toBe(1)
+
+    relay!.store.cleanupStaleHandshakes(config.handshake_ttl_seconds)
+
+    const after = db.prepare(`SELECT COUNT(*) as c FROM coordination_handshake_registry WHERE handshake_id = ?`).get(hsId) as { c: number }
+    expect(after?.c ?? 0).toBe(0)
+  })
+})
+
+describe('coordination-service fail-close', () => {
+  let server: http.Server | https.Server
+  let port: number
+  let relay: Awaited<ReturnType<typeof createServer>>['relay'] | undefined
+
+  beforeAll(async () => {
+    const config = makeConfig({})
+    const result = await createServer(config)
+    server = result.server
+    relay = result.relay
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address()
+        port = typeof addr === 'object' && addr ? addr.port : 0
+        resolve()
+      })
+    })
+  })
+
+  afterAll(() => {
+    if (server) server.close()
+    if (relay) relay.store.close()
+  })
+
+  test('health returns 503 when storage unavailable', async () => {
+    if (!relay) return
+    relay.store.close()
+    const r = await request(port, 'GET', '/health')
+    expect(r.status).toBe(503)
+    const body = JSON.parse(r.body)
+    expect(body.status).toBe('degraded')
   })
 })

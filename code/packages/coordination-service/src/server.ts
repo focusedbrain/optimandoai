@@ -1,33 +1,21 @@
 /**
  * Coordination Service — HTTP + WebSocket server
+ * Stateless relay: authoritative state in storage. Fail-close on auth/storage failure.
  */
 
 import http from 'http'
 import https from 'https'
-import { readFileSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'crypto'
 import { validateInput } from '@repo/ingestion-core'
 import type { CoordinationConfig } from './config.js'
-import {
-  storeCapsule,
-  countPendingForRecipient,
-} from './store.js'
-import { extractBearerToken, validateOidcToken } from './auth.js'
-import { checkRateLimit, recordCapsuleSent } from './rateLimiter.js'
-import { registerHandshake, getRecipientForSender, isSenderAuthorized } from './handshakeRegistry.js'
-import {
-  handleConnection,
-  pushCapsule,
-  pushPendingCapsules,
-  pushSystemEvent,
-  handleAck,
-  getConnectedCount,
-  startHeartbeat,
-  onPong,
-  getUserIdForWs,
-} from './wsManager.js'
-import { getHealthPayload } from './health.js'
+import { createStore } from './store.js'
+import { createAuth } from './auth.js'
+import { createRateLimiter } from './rateLimiter.js'
+import { createHandshakeRegistry } from './handshakeRegistry.js'
+import { createWsManager } from './wsManager.js'
+import { createHealth } from './health.js'
 
 const MAX_BODY_BYTES = 15 * 1024 * 1024
 
@@ -41,6 +29,7 @@ const STATUS_MESSAGES: Record<number, string> = {
   422: 'Capsule rejected',
   429: 'Too many requests',
   500: 'Internal server error',
+  503: 'Service unavailable',
 }
 
 function getClientIp(req: http.IncomingMessage): string {
@@ -70,25 +59,37 @@ async function readBody(req: http.IncomingMessage, maxBytes: number): Promise<{ 
   return { body: Buffer.concat(chunks).toString('utf8'), ok: true }
 }
 
-function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMessage, res: http.ServerResponse) => void {
+export interface RelayInstance {
+  store: ReturnType<typeof createStore>
+  auth: ReturnType<typeof createAuth>
+  handshakeRegistry: ReturnType<typeof createHandshakeRegistry>
+  rateLimiter: ReturnType<typeof createRateLimiter>
+  wsManager: ReturnType<typeof createWsManager>
+  health: ReturnType<typeof createHealth>
+}
+
+function createRequestHandler(
+  config: CoordinationConfig,
+  relay: RelayInstance,
+): (req: http.IncomingMessage, res: http.ServerResponse) => void {
+  const { store, auth, handshakeRegistry, rateLimiter, wsManager, health } = relay
+
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
     void (async () => {
       const url = req.url ?? ''
       const [path] = url.split('?')
 
       if (req.method === 'GET' && path === '/health') {
-        const payload = getHealthPayload(getConnectedCount())
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(payload))
+        const result = await health.check()
+        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(result.payload))
         return
       }
 
       /* ── POST /beap/system-event ──────────────────────────────── */
       if (req.method === 'POST' && path === '/beap/system-event') {
-        const token = extractBearerToken(req.headers.authorization)
-        const identity = token
-          ? await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
-          : null
+        const token = auth.extractBearerToken(req.headers.authorization)
+        const identity = token ? await auth.validateOidcToken(token) : null
         if (!identity) {
           sendError(res, 401)
           return
@@ -105,7 +106,7 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
           return
         }
         const { target_user_id: _, event: __, ...eventPayload } = parsed
-        const pushed = pushSystemEvent(targetUserId, event, eventPayload as Record<string, unknown>)
+        const pushed = wsManager.pushSystemEvent(targetUserId, event, eventPayload as Record<string, unknown>)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
           delivered: pushed,
@@ -116,10 +117,8 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
         return
       }
 
-      const token = extractBearerToken(req.headers.authorization)
-      const identity = token
-        ? await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
-        : null
+      const token = auth.extractBearerToken(req.headers.authorization)
+      const identity = token ? await auth.validateOidcToken(token) : null
 
       if (req.method === 'POST' && path === '/beap/register-handshake') {
         if (!identity) {
@@ -155,7 +154,12 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
           sendError(res, 400)
           return
         }
-        registerHandshake(handshakeId, initiatorUserId, acceptorUserId, initiatorEmail, acceptorEmail)
+        try {
+          handshakeRegistry.registerHandshake(handshakeId, initiatorUserId, acceptorUserId, initiatorEmail, acceptorEmail)
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ registered: true }))
         return
@@ -190,7 +194,7 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
         }
         handshakeId = handshakeId.trim()
 
-        if (!isSenderAuthorized(handshakeId, identity.userId)) {
+        if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
           sendError(res, 403)
           return
         }
@@ -212,14 +216,20 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
           return
         }
 
-        const recipientUserId = getRecipientForSender(handshakeId, identity.userId)
+        const recipientUserId = handshakeRegistry.getRecipientForSender(handshakeId, identity.userId)
         if (!recipientUserId) {
           sendError(res, 403)
           return
         }
 
-        const recipientPending = countPendingForRecipient(recipientUserId)
-        const rateCheck = checkRateLimit(identity.userId, identity, recipientPending)
+        let recipientPending: number
+        try {
+          recipientPending = store.countPendingForRecipient(recipientUserId)
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        const rateCheck = rateLimiter.checkRateLimit(identity.userId, identity, recipientPending)
         if (!rateCheck.ok) {
           sendError(res, 429, {
             error: 'Rate limit exceeded',
@@ -244,17 +254,22 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
         }
 
         const id = randomUUID()
-        storeCapsule(
-          id,
-          handshakeId,
-          identity.userId,
-          recipientUserId,
-          body,
-          config.capsule_retention_days,
-        )
-        recordCapsuleSent(identity.userId)
+        try {
+          store.storeCapsule(
+            id,
+            handshakeId,
+            identity.userId,
+            recipientUserId,
+            body,
+            config.capsule_retention_days,
+          )
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        rateLimiter.recordCapsuleSent(identity.userId)
 
-        const pushed = pushCapsule(recipientUserId, id, body)
+        const pushed = wsManager.pushCapsule(recipientUserId, id, body)
         if (pushed) {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ status: 'Capsule delivered' }))
@@ -270,18 +285,42 @@ function createRequestHandler(config: CoordinationConfig): (req: http.IncomingMe
   }
 }
 
-export function createServer(config: CoordinationConfig): http.Server | https.Server {
-  const handler = createRequestHandler(config)
+export async function createServer(config: CoordinationConfig): Promise<{
+  server: http.Server | https.Server
+  relay: RelayInstance
+}> {
+  const store = createStore(config)
+  store.init()
+
+  const auth = createAuth(store, {
+    oidc_issuer: config.oidc_issuer,
+    oidc_jwks_url: config.oidc_jwks_url,
+    oidc_audience: config.oidc_audience,
+  })
+
+  const handshakeRegistry = createHandshakeRegistry(store)
+  const rateLimiter = createRateLimiter()
+  const wsManager = createWsManager(store)
+  const health = createHealth(store, auth, wsManager)
+
+  const relay: RelayInstance = {
+    store,
+    auth,
+    handshakeRegistry,
+    rateLimiter,
+    wsManager,
+    health,
+  }
+
+  const handler = createRequestHandler(config, relay)
 
   let server: http.Server | https.Server
   if (config.tls_cert_path && config.tls_key_path) {
-    server = https.createServer(
-      {
-        cert: readFileSync(config.tls_cert_path),
-        key: readFileSync(config.tls_key_path),
-      },
-      handler,
-    )
+    const [cert, key] = await Promise.all([
+      readFile(config.tls_cert_path),
+      readFile(config.tls_key_path),
+    ])
+    server = https.createServer({ cert, key }, handler)
   } else {
     server = http.createServer(handler)
   }
@@ -292,28 +331,31 @@ export function createServer(config: CoordinationConfig): http.Server | https.Se
     const url = new URL(req.url ?? '', `http://${req.headers.host ?? 'localhost'}`)
     const tokenFromUrl = url.searchParams.get('token') ?? url.searchParams.get('access_token')
     const authHeader = req.headers.authorization
-    const token = tokenFromUrl ?? extractBearerToken(authHeader)
+    const token = tokenFromUrl ?? auth.extractBearerToken(authHeader)
 
     if (!token) {
       ws.close(4001, 'Unauthorized')
       return
     }
 
-    const identity = await validateOidcToken(token, config.oidc_issuer, config.oidc_jwks_url, config.oidc_audience)
+    const identity = await auth.validateOidcToken(token)
     if (!identity) {
       ws.close(4001, 'Unauthorized')
       return
     }
 
-    if (getConnectedCount() >= config.max_connections) {
-      console.warn('[Coordination] WS_MAX_CONNECTIONS_REACHED', { current: getConnectedCount(), limit: config.max_connections })
+    if (wsManager.getConnectedCount() >= config.max_connections) {
+      console.warn('[Coordination] WS_MAX_CONNECTIONS_REACHED', {
+        current: wsManager.getConnectedCount(),
+        limit: config.max_connections,
+      })
       ws.close(1013, 'Try Again Later')
       return
     }
 
-    ws.on('pong', () => onPong(ws))
+    ws.on('pong', () => wsManager.onPong(ws))
 
-    handleConnection(ws, identity)
+    wsManager.handleConnection(ws, identity)
 
     ws.on('message', (data: Buffer | string) => {
       try {
@@ -321,8 +363,8 @@ export function createServer(config: CoordinationConfig): http.Server | https.Se
         const msg = JSON.parse(text) as { type?: string; ids?: unknown }
         if (msg?.type === 'ack' && Array.isArray(msg.ids)) {
           const ids = msg.ids.filter((x): x is string => typeof x === 'string')
-          const userId = getUserIdForWs(ws)
-          if (userId) handleAck(userId, ids)
+          const userId = wsManager.getUserIdForWs(ws)
+          if (userId) wsManager.handleAck(userId, ids)
         }
       } catch {
         // ignore malformed
@@ -330,7 +372,21 @@ export function createServer(config: CoordinationConfig): http.Server | https.Se
     })
   })
 
-  startHeartbeat(config.ws_heartbeat_interval)
+  wsManager.startHeartbeat(config.ws_heartbeat_interval)
 
-  return server
+  return { server, relay }
+}
+
+// Run when executed directly: node dist/server.js
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+const __filename = resolve(fileURLToPath(import.meta.url))
+const entry = process.argv[1] ? resolve(process.argv[1]) : ''
+if (entry === __filename) {
+  import('./index.js').then((m) =>
+    m.main().catch((err: Error) => {
+      console.error(err)
+      process.exit(1)
+    }),
+  )
 }

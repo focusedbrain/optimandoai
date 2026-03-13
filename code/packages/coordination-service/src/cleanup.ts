@@ -1,16 +1,30 @@
 /**
- * Coordination Service — Expired and acknowledged capsule cleanup
+ * Coordination Service — Self-healing session cleanup
+ * Purges: expired capsules, acknowledged capsules, stale handshake state.
  */
 
-import { cleanupExpired, cleanupAcknowledged } from './store.js'
+import type { StoreAdapter } from './store.js'
+import type { CoordinationConfig } from './config.js'
 
-export function runCleanup(): { expired: number; acknowledged: number } {
-  const expired = cleanupExpired()
-  const acknowledged = cleanupAcknowledged()
-  return { expired, acknowledged }
+export interface CleanupAdapter {
+  run(): { expired: number; acknowledged: number; staleHandshakes: number }
+  startInterval(): ReturnType<typeof setInterval>
 }
 
-export function startCleanupInterval(intervalMs: number = 60 * 60 * 1000): ReturnType<typeof setInterval> {
-  runCleanup()
-  return setInterval(runCleanup, intervalMs)
+export function createCleanup(store: StoreAdapter, config: CoordinationConfig): CleanupAdapter {
+  const intervalMs = 60 * 60 * 1000 // 1 hour
+
+  return {
+    run(): { expired: number; acknowledged: number; staleHandshakes: number } {
+      const expired = store.cleanupExpired()
+      const acknowledged = store.cleanupAcknowledged()
+      const staleHandshakes = store.cleanupStaleHandshakes(config.handshake_ttl_seconds)
+      return { expired, acknowledged, staleHandshakes }
+    },
+
+    startInterval(): ReturnType<typeof setInterval> {
+      this.run()
+      return setInterval(() => this.run(), intervalMs)
+    },
+  }
 }

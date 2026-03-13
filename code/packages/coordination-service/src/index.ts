@@ -4,11 +4,10 @@
  */
 
 import { loadConfig } from './config.js'
-import { initStore, closeStore } from './store.js'
 import { createServer } from './server.js'
-import { startCleanupInterval } from './cleanup.js'
+import { createCleanup } from './cleanup.js'
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const config = loadConfig()
   if (!config.oidc_audience?.trim()) {
     if (process.env.NODE_ENV === 'production') {
@@ -17,9 +16,10 @@ async function main(): Promise<void> {
     }
     console.warn('[Coordination] COORD_OIDC_AUDIENCE not set — audience check skipped. Consider setting for production.')
   }
-  initStore(config)
-  const server = createServer(config)
-  startCleanupInterval()
+
+  const { server, relay } = await createServer(config)
+  const cleanup = createCleanup(relay.store, config)
+  cleanup.startInterval()
 
   server.listen(config.port, config.host, () => {
     const proto = config.tls_cert_path ? 'https' : 'http'
@@ -28,13 +28,13 @@ async function main(): Promise<void> {
 
   server.on('error', (err: Error) => {
     console.error('[Coordination] Server error:', err.message)
-    closeStore()
+    relay.store.close()
     process.exit(1)
   })
 
   const shutdown = () => {
     server.close(() => {
-      closeStore()
+      relay.store.close()
       process.exit(0)
     })
   }
