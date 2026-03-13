@@ -142,5 +142,21 @@ describe('buildInitiateContextOptions', () => {
     expect(opts.profile_items).toBeUndefined()
     expect(opts.context_blocks).toBeUndefined()
   })
+
+  it('regression: ad-hoc context included when skipVaultContext is true (Pro-tier)', async () => {
+    const opts = await buildInitiateContextOptions({
+      skipVaultContext: true,
+      selectedProfileItems: [],
+      contextGraphText: 'Pro user ad-hoc context',
+      contextGraphType: 'text',
+      adhocBlockPolicy: { policy_mode: 'inherit' },
+    })
+    expect(opts.skipVaultContext).toBe(true)
+    expect(opts.profile_ids).toBeUndefined()
+    expect(opts.profile_items).toBeUndefined()
+    expect(opts.context_blocks).toBeDefined()
+    expect((opts.context_blocks as any[]).length).toBe(1)
+    expect((opts.context_blocks as any[])[0].content).toBe('Pro user ad-hoc context')
+  })
 })
 

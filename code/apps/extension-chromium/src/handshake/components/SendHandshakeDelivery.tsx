@@ -673,8 +673,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         )}
 
         {/* ---- Context Graph — collapsible, tabbed: Vault Profiles + Ad-hoc ---- */}
-        {includeVaultProfiles && canUseHsContextProfiles && (
-          <div style={{
+        {/* Always visible for all users. Ad-hoc tab available to all; Vault tab gated by canUseHsContextProfiles. */}
+        <div style={{
             border: `1px solid ${showContextGraph ? t.accentPrimaryBorder : t.border}`,
             borderRadius: '10px',
             overflow: 'hidden',
@@ -862,7 +862,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               </div>
             )}
           </div>
-        )}
 
         {/* ---- No email account warning ---- */}
         {noEmailAccount && (

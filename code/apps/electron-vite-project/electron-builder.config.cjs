@@ -1,7 +1,7 @@
 /**
  * Electron Builder config with cross-platform output paths.
  * Auto-detects the OS at build time:
- *   - Windows: C:\build-output\build7000
+ *   - Windows: C:\build-output\build5000
  *   - Linux / macOS: dist/release (relative, avoids path errors)
  *
  * This file is the single source of truth for the output directory.
@@ -13,7 +13,7 @@ const path = require('path')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build200'
+    return 'C:\\build-output\\build5000'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')
