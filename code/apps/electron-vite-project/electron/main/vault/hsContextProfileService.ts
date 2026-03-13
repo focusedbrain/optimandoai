@@ -10,11 +10,11 @@
  * already-encrypted SQLCipher database — no additional envelope needed.
  */
 
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { canAccessRecordType } from './types'
 import type { VaultTier } from './types'
-import { sealRecord, openRecord } from './envelope'
-import { runExtractionJob } from './hsContextOcrJob'
+import { sealRecord, openRecord, decryptRecord, unwrapRecordDEK } from './envelope'
+import { runExtractionJob, markDocumentExtractionFailed, runExtractionJobWithVision } from './hsContextOcrJob'
 import type { HsContextProfile, ProfileFields, CustomField, ProfileDocumentSummary } from './hsContextNormalize'
 import { validateDocumentLabel, validateDocumentType } from '../../../../../packages/shared/src/handshake/hsContextFieldValidation'
 
@@ -50,6 +50,7 @@ export interface HsContextProfileDocumentRow {
   extracted_at: number | null
   extractor_name: string | null
   error_message: string | null
+  error_code?: string | null
   sensitive?: number
   label?: string | null
   document_type?: string | null
@@ -128,6 +129,7 @@ function rowToDetail(
     extraction_status: d.extraction_status,
     extracted_text: d.extracted_text,
     error_message: d.error_message,
+    error_code: d.error_code ?? null,
     sensitive: !!(d.sensitive ?? 0),
   }))
 
@@ -312,6 +314,15 @@ function isPdfBuffer(buf: Buffer): boolean {
   return buf.length >= 4 && buf.subarray(0, 4).equals(PDF_MAGIC)
 }
 
+// FIX 5: Maximum PDF size enforced server-side (mirrors the client-side 50 MB limit).
+// A direct RPC call can bypass the UI check — this guard closes that gap.
+const MAX_PDF_BYTES = 50 * 1024 * 1024 // 50 MB
+
+// FIX 4: Maximum time (ms) allowed for the async extraction job.
+// OCR on a large scanned document can take many minutes. Without a timeout the
+// document stays stuck at 'pending' forever if the job hangs.
+const EXTRACTION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+
 /**
  * Upload a PDF document to a profile.
  * Stores the encrypted content and kicks off async text extraction.
@@ -341,6 +352,13 @@ export async function uploadProfileDocument(
 ): Promise<HsContextProfileDocumentRow> {
   requireHsContextAccess(tier, 'write')
 
+  // FIX 5: Server-side size guard
+  if (content.length > MAX_PDF_BYTES) {
+    throw new Error(
+      `PDF size ${(content.length / (1024 * 1024)).toFixed(1)} MB exceeds the maximum allowed size of 50 MB.`
+    )
+  }
+
   if (!isPdfBuffer(content)) {
     throw new Error('Invalid PDF: file must start with PDF magic bytes (%PDF)')
   }
@@ -350,26 +368,45 @@ export async function uploadProfileDocument(
     .get(profileId)
   if (!profileRow) throw new Error(`Profile not found: ${profileId}`)
 
+  // FIX 7: Compute SHA-256 of the raw bytes for integrity and duplicate detection.
+  const sha256 = createHash('sha256').update(content).digest('hex')
+
+  // FIX 7: Duplicate check within the same profile — reject re-uploads of the same file.
+  const existingDoc = db.prepare(`
+    SELECT d.id FROM hs_context_profile_documents d
+    INNER JOIN vault_documents v ON v.id = d.storage_key
+    WHERE d.profile_id = ? AND v.sha256 = ? AND v.sha256 != ''
+  `).get(profileId, sha256) as { id: string } | undefined
+
+  if (existingDoc) {
+    throw new Error('This document has already been uploaded to this profile. Remove the existing copy first if you want to replace it.')
+  }
+
   const docId = `hsd_${randomUUID().replace(/-/g, '')}`
   const storageKey = `hs_doc_${docId}`
   const now = Date.now()
 
   // Encrypt and store the raw PDF bytes using the same pattern as documentService.
-  // sealRecord expects a string payload — we base64-encode the binary content.
+  // sealRecord expects a string payload that survives JSON.parse on the read path
+  // (openRecord calls JSON.parse on the decrypted bytes). We must JSON-encode the
+  // base64 string so that JSON.parse("\"JVBER...\"") correctly returns the string.
+  // Storing the raw base64 without JSON encoding causes JSON.parse to throw
+  // "Unexpected token 'J'" because a bare base64 string is not valid JSON.
   const aad = Buffer.from(`hsdoc:${docId}`)
   const pdfBase64 = content.toString('base64')
-  const { wrappedDEK, ciphertext } = await sealRecord(pdfBase64, kek, aad)
+  const { wrappedDEK, ciphertext } = await sealRecord(JSON.stringify(pdfBase64), kek, aad)
 
-  // Reuse vault_documents table for encrypted storage
+  // Reuse vault_documents table for encrypted storage (sha256 now stored)
   db.prepare(`
     INSERT OR REPLACE INTO vault_documents
       (id, filename, mime_type, size_bytes, sha256, wrapped_dek, ciphertext, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, '', ?, ?, '', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)
   `).run(
     storageKey,
     filename,
     mimeType,
     content.length,
+    sha256,
     wrappedDEK,
     ciphertext,
     now,
@@ -385,11 +422,45 @@ export async function uploadProfileDocument(
   // Bump profile updated_at
   db.prepare('UPDATE hs_context_profiles SET updated_at = ? WHERE id = ?').run(now, profileId)
 
-  // Kick off extraction asynchronously (fire-and-forget)
+  // FIX 4: Kick off extraction asynchronously (fire-and-forget) with a timeout guard.
+  // If extraction hangs (e.g. a huge scanned PDF overwhelming Tesseract), the timeout
+  // fires and marks the document 'failed' with a clear message rather than leaving it
+  // stuck at 'pending' indefinitely. The UI stops polling after ~6 min anyway, but
+  // without this the DB row would never resolve.
   setImmediate(() => {
-    runExtractionJob(db, docId, content).catch((err) => {
-      console.error(`[HS PROFILE] Extraction job failed for doc ${docId}:`, err?.message)
-    })
+    let settled = false
+
+    const timeoutHandle = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        console.error(`[HS PROFILE] Extraction timed out for document ${docId}`)
+        try {
+          markDocumentExtractionFailed(
+            db,
+            docId,
+            'Text extraction timed out (5 min). The document may be too large for OCR. Try a PDF with a text layer or split it into smaller files.',
+            'EXTRACTION_TIMEOUT',
+          )
+        } catch (markErr: any) {
+          console.error(`[HS PROFILE] Failed to mark timeout for doc ${docId}:`, markErr?.message)
+        }
+      }
+    }, EXTRACTION_TIMEOUT_MS)
+
+    runExtractionJob(db, docId, content)
+      .then(() => { settled = true })
+      .catch((err: any) => {
+        if (!settled) {
+          settled = true
+          console.error(`[HS PROFILE] Extraction job error for doc ${docId}:`, err?.message)
+          try {
+            markDocumentExtractionFailed(db, docId, err?.message || 'Extraction failed unexpectedly')
+          } catch (markErr: any) {
+            console.error(`[HS PROFILE] Failed to mark error for doc ${docId}:`, markErr?.message)
+          }
+        }
+      })
+      .finally(() => clearTimeout(timeoutHandle))
   })
 
   return db
@@ -422,11 +493,28 @@ export async function getProfileDocumentContent(
   const wrappedDEK = Buffer.from(storageRow.wrapped_dek)
   const ciphertext = Buffer.from(storageRow.ciphertext)
 
-  // openRecord returns JSON.parse result — we stored a base64 string, JSON.parse gives string
-  const decryptedResult = await openRecord(wrappedDEK, ciphertext, kek, aad)
-  const pdfBase64 = typeof decryptedResult === 'string'
-    ? decryptedResult
-    : Array.isArray(decryptedResult) ? decryptedResult[0] : String(decryptedResult)
+  // openRecord decrypts and JSON.parse-s the stored payload.
+  // New records: stored as JSON.stringify(base64string) → JSON.parse returns a string.
+  // Legacy records (stored as bare base64 without JSON encoding): JSON.parse throws,
+  // so we fall back to reading the raw decrypted bytes directly via decryptRecord.
+  let pdfBase64: string
+  try {
+    const decryptedResult = await openRecord(wrappedDEK, ciphertext, kek, aad)
+    // JSON.parse of a JSON-encoded string returns the string itself.
+    // JSON.parse of a JSON-encoded array returns the array (legacy format not used here).
+    if (typeof decryptedResult === 'string') {
+      pdfBase64 = decryptedResult
+    } else if (Array.isArray(decryptedResult) && typeof decryptedResult[0] === 'string') {
+      pdfBase64 = decryptedResult[0]
+    } else {
+      pdfBase64 = String(decryptedResult)
+    }
+  } catch (_parseErr) {
+    // Legacy records were stored as raw base64 (not JSON-encoded). openRecord's
+    // JSON.parse throws on them. Fall back to decryptRecord to get the raw string.
+    const recordDEK = unwrapRecordDEK(wrappedDEK, kek, aad)
+    pdfBase64 = await decryptRecord(ciphertext, recordDEK, aad)
+  }
   const content = Buffer.from(pdfBase64, 'base64')
 
   return { content, filename: docRow.filename, mimeType: docRow.mime_type }
@@ -520,4 +608,35 @@ export function resolveProfilesForHandshake(
       }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
+}
+
+/**
+ * Retry text extraction for an existing document using Anthropic Vision API.
+ *
+ * Retrieves the encrypted PDF blob from vault_documents, decrypts it, and
+ * kicks off `runExtractionJobWithVision` as a fire-and-forget job. The caller
+ * should poll document status (extraction_status will go pending → success/failed).
+ */
+export async function retryDocumentWithVision(
+  db: any,
+  tier: VaultTier,
+  kek: Buffer,
+  documentId: string,
+  anthropicApiKey: string,
+): Promise<void> {
+  requireHsContextAccess(tier, 'write')
+
+  // Retrieve and decrypt the existing PDF blob
+  const docContent = await getProfileDocumentContent(db, tier, kek, documentId)
+
+  // Fire-and-forget — return quickly so the RPC caller gets an immediate response
+  setImmediate(() => {
+    runExtractionJobWithVision(db, documentId, docContent.content, anthropicApiKey)
+      .catch((err: any) => {
+        console.error(`[HS PROFILE] Vision retry failed for doc ${documentId}:`, err?.message)
+        try {
+          markDocumentExtractionFailed(db, documentId, err?.message || 'Vision extraction failed unexpectedly')
+        } catch { /* best-effort */ }
+      })
+  })
 }

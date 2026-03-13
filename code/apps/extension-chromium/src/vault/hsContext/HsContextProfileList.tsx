@@ -18,9 +18,13 @@ import { HsContextProfileEditor } from './HsContextProfileEditor'
 
 interface Props {
   theme?: 'dark' | 'standard'
+  /** When 'create', opens directly in create mode (for "New HS Context" from WRVault lightbox). */
+  initialView?: 'list' | 'create'
+  /** When provided, shows a "← Back" button to return to vault dashboard (for full-container replace flows). */
+  onBackToDashboard?: () => void
 }
 
-export const HsContextProfileList: React.FC<Props> = ({ theme = 'dark' }) => {
+export const HsContextProfileList: React.FC<Props> = ({ theme = 'dark', initialView = 'list', onBackToDashboard }) => {
   const isDark = theme === 'dark'
   const textColor = isDark ? '#fff' : '#1f2937'
   const mutedColor = isDark ? 'rgba(255,255,255,0.55)' : '#6b7280'
@@ -31,7 +35,7 @@ export const HsContextProfileList: React.FC<Props> = ({ theme = 'dark' }) => {
   const [profiles, setProfiles] = useState<HsContextProfileSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<'list' | 'create' | 'edit'>('list')
+  const [view, setView] = useState<'list' | 'create' | 'edit'>(initialView)
   const [editingId, setEditingId] = useState<string | undefined>()
 
   const loadProfiles = useCallback(async () => {
@@ -100,12 +104,32 @@ export const HsContextProfileList: React.FC<Props> = ({ theme = 'dark' }) => {
       {/* Header */}
       <div style={{
         padding: '12px 16px', borderBottom: `1px solid ${borderColor}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
       }}>
-        <div>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>HS Context Profiles</div>
-          <div style={{ fontSize: '11px', color: mutedColor, marginTop: '2px' }}>
-            Structured context attached to Handshake Requests
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          {onBackToDashboard && (
+            <button
+              onClick={onBackToDashboard}
+              style={{
+                padding: '6px 12px',
+                background: 'rgba(255,255,255,0.06)',
+                border: `1px solid ${borderColor}`,
+                borderRadius: '6px',
+                color: mutedColor,
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              ← Back
+            </button>
+          )}
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>HS Context Profiles</div>
+            <div style={{ fontSize: '11px', color: mutedColor, marginTop: '2px' }}>
+              Structured context attached to Handshake Requests
+            </div>
           </div>
         </div>
         <button

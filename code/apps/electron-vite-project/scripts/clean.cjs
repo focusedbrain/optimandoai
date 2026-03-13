@@ -123,3 +123,4 @@ if (existsSync(distBuild)) {
 }
 
 console.log('[clean] Done. Run npm run build or npm run build:clean for a fresh build.')
+console.log('[clean] Note: Extension (apps/extension-chromium) has its own build. Run "cd apps/extension-chromium && npm run build" if needed.')

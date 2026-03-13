@@ -3,17 +3,19 @@
  *
  * Edits a single HS Context Profile. Includes:
  *  - Profile metadata (name, description, scope, tags)
- *  - Default field sections: Business Identity, Tax & Identifiers,
- *    Contacts, Opening Hours, Billing, Logistics / Operations
- *  - Unlimited custom fields (label + multi-line value)
- *  - PDF document upload (delegates to HsContextDocumentUpload)
+ *  - Default field sections: Business Documents, Company / Organization,
+ *    Links / Online Presence, Tax & Identifiers, Contacts, Opening Hours,
+ *    Billing, Logistics / Operations — each with per-section custom fields
+ *  - Legacy catch-all "Other Custom Fields" section (backward compat)
+ *  - Extraction status polling — auto-refreshes until all uploads resolve
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   getHsProfile,
   updateHsProfile,
   createHsProfile,
+  deleteHsProfile,
 } from '../hsContextProfilesRpc'
 import type {
   HsContextProfileDetail,
@@ -32,6 +34,7 @@ import {
   validatePlainText,
   validateOpeningHoursEntry,
 } from '@shared/handshake/hsContextFieldValidation'
+import { shouldDeleteDraftOnCancel, resolveNameAfterDraftCreation } from './hsContextDraftLogic'
 
 interface Props {
   profileId?: string
@@ -42,6 +45,90 @@ interface Props {
 
 const EMPTY_FIELDS: ProfileFields = {}
 const EMPTY_CUSTOMS: CustomField[] = []
+
+/** Shared promise to prevent duplicate draft creation on React Strict Mode double-mount */
+let _draftCreationPromise: Promise<{ id: string }> | null = null
+
+/** Document icon — stroke-based, matches product style */
+const DocumentIcon = ({ color, size = 18 }: { color: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+  </svg>
+)
+
+// ── Per-section custom field rows ────────────────────────────────────────────
+
+interface SectionCustomFieldsProps {
+  fields: Array<{ _idx: number; label: string; value: string }>
+  onAdd: () => void
+  onUpdate: (globalIdx: number, patch: { label?: string; value?: string }) => void
+  onRemove: (globalIdx: number) => void
+  inputStyle: React.CSSProperties
+  isDark: boolean
+  mutedColor: string
+  borderColor: string
+  textColor: string
+}
+
+const SectionCustomFields: React.FC<SectionCustomFieldsProps> = ({
+  fields, onAdd, onUpdate, onRemove,
+  inputStyle, isDark, mutedColor, borderColor, textColor,
+}) => {
+  const rowStyle: React.CSSProperties = {
+    display: 'flex', gap: '6px', alignItems: 'center',
+    background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+    borderRadius: '6px', padding: '5px 6px',
+  }
+  const miniInput: React.CSSProperties = {
+    ...inputStyle,
+    fontSize: '11px', padding: '4px 7px',
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '4px' }}>
+      {fields.map(({ _idx, label, value }) => (
+        <div key={_idx} style={rowStyle}>
+          <input
+            value={label}
+            onChange={(e) => onUpdate(_idx, { label: e.target.value })}
+            placeholder="Field name"
+            style={{ ...miniInput, flex: '0 0 120px' }}
+          />
+          <input
+            value={value}
+            onChange={(e) => onUpdate(_idx, { value: e.target.value })}
+            placeholder="Value"
+            style={{ ...miniInput, flex: 1 }}
+          />
+          <button
+            onClick={() => onRemove(_idx)}
+            style={{
+              fontSize: '12px', color: '#ef4444', background: 'transparent',
+              border: 'none', cursor: 'pointer', padding: '2px 4px', flexShrink: 0,
+              lineHeight: 1,
+            }}
+          >✕</button>
+        </div>
+      ))}
+      <button
+        onClick={onAdd}
+        style={{
+          alignSelf: 'flex-start', fontSize: '10px', fontWeight: 600,
+          padding: '3px 9px',
+          background: 'rgba(139,92,246,0.08)', border: '1px dashed rgba(139,92,246,0.3)',
+          borderRadius: '5px', color: isDark ? 'rgba(196,181,253,0.75)' : '#7c3aed',
+          cursor: 'pointer',
+        }}
+      >
+        + custom field
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const HsContextProfileEditor: React.FC<Props> = ({
   profileId,
@@ -71,75 +158,184 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   const [fields, setFields] = useState<ProfileFields>(EMPTY_FIELDS)
   const [customFields, setCustomFields] = useState<CustomField[]>(EMPTY_CUSTOMS)
   const [currentProfileId, setCurrentProfileId] = useState<string | undefined>(profileId)
+  const [draftCreating, setDraftCreating] = useState(!profileId)
+  const [retryCount, setRetryCount] = useState(0)
+
+  const mountedRef = useRef(true)
+  const hasUploadedRef = useRef(false)
+  const currentProfileIdRef = useRef<string | undefined>(profileId)
 
   useEffect(() => {
-    if (!profileId) return
-    setLoading(true)
-    getHsProfile(profileId)
-      .then((detail: HsContextProfileDetail) => {
-        setName(detail.name)
-        setDescription(detail.description ?? '')
-        setScope(detail.scope)
-        setTagsInput(detail.tags.join(', '))
-        setFields(detail.fields ?? {})
-        setCustomFields(detail.custom_fields ?? [])
-        setDocuments(detail.documents ?? [])
-      })
-      .catch((err: any) => setError(err?.message ?? 'Failed to load profile'))
-      .finally(() => setLoading(false))
-  }, [profileId])
+    currentProfileIdRef.current = currentProfileId
+  }, [currentProfileId])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  // ── Load / draft creation ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (profileId) {
+      setLoading(true)
+      getHsProfile(profileId)
+        .then((detail: HsContextProfileDetail) => {
+          setName(detail.name)
+          setDescription(detail.description ?? '')
+          setScope(detail.scope)
+          setTagsInput(detail.tags.join(', '))
+          setFields(detail.fields ?? {})
+          setCustomFields(detail.custom_fields ?? [])
+          setDocuments(detail.documents ?? [])
+        })
+        .catch((err: any) => setError(err?.message ?? 'Failed to load profile'))
+        .finally(() => setLoading(false))
+    } else {
+      const applyDraft = (created: { id: string }) => {
+        if (!mountedRef.current) return
+        setCurrentProfileId(created.id)
+        setDescription('')
+        setDraftCreating(false)
+        setName((prev) => resolveNameAfterDraftCreation(prev))
+      }
+      if (_draftCreationPromise) {
+        _draftCreationPromise
+          .then(applyDraft)
+          .catch((err: any) => {
+            _draftCreationPromise = null
+            if (!mountedRef.current) return
+            setError(err?.message ?? 'Failed to prepare editor')
+            setDraftCreating(false)
+          })
+      } else {
+        // Helper: is this a vault session binding error that may be transient?
+        const isBindingError = (msg: string) =>
+          /vault session not bound|vault.*bind|session not bound/i.test(msg)
+
+        const attemptDraftCreation = (attemptsLeft: number) => {
+          _draftCreationPromise = createHsProfile({
+            name: 'Untitled',
+            description: '',
+            scope: 'non_confidential',
+            tags: [],
+            fields: {},
+            custom_fields: [],
+          })
+            .then((created) => {
+              applyDraft(created)
+              _draftCreationPromise = null
+              return created
+            })
+            .catch((err: any) => {
+              _draftCreationPromise = null
+              if (!mountedRef.current) return
+              // Auto-retry once after a short delay for transient vault binding errors.
+              // The background service worker's VSBT recovery from chrome.storage.session
+              // is async — the vault may be unlocked but the token not yet restored.
+              if (attemptsLeft > 0 && isBindingError(err?.message ?? '')) {
+                setTimeout(() => {
+                  if (!mountedRef.current) return
+                  attemptDraftCreation(attemptsLeft - 1)
+                }, 800)
+                return
+              }
+              setError(err?.message ?? 'Failed to prepare editor')
+              setDraftCreating(false)
+            })
+        }
+        attemptDraftCreation(3) // up to 3 auto-retries (~2.4 s total)
+      }
+    }
+  }, [profileId, retryCount])
+
+  // ── Document reload (stable, used by polling & upload callback) ───────────
+
+  const reloadDocuments = useCallback(async () => {
+    const pid = currentProfileIdRef.current
+    if (!pid) return
+    try {
+      const detail = await getHsProfile(pid)
+      if (!mountedRef.current) return
+      setDocuments(detail.documents ?? [])
+    } catch {}
+  }, [])
+
+  const handleDocumentsChanged = useCallback(() => {
+    hasUploadedRef.current = true
+    reloadDocuments()
+  }, [reloadDocuments])
+
+  // ── Field helpers ─────────────────────────────────────────────────────────
 
   const setField = <K extends keyof ProfileFields>(key: K, value: ProfileFields[K]) => {
     setFields((prev) => ({ ...prev, [key]: value }))
   }
 
-  const addCustomField = () => {
+  // Section-scoped custom field helpers (uses `section` tag on CustomField)
+  const getSectionFields = (section: string) =>
+    customFields
+      .map((cf, i) => ({ ...cf, _idx: i }))
+      .filter((cf) => cf.section === section)
+
+  const addSectionField = (section: string) => {
+    setCustomFields((prev) => [...prev, { label: '', value: '', section }])
+  }
+
+  const updateSectionField = (globalIdx: number, patch: { label?: string; value?: string }) => {
+    setCustomFields((prev) => prev.map((cf, i) => i === globalIdx ? { ...cf, ...patch } : cf))
+  }
+
+  const removeSectionField = (globalIdx: number) => {
+    setCustomFields((prev) => prev.filter((_, i) => i !== globalIdx))
+  }
+
+  // Legacy catch-all custom fields (no section assigned — backward compat)
+  const legacyCustomFields = customFields
+    .map((cf, i) => ({ ...cf, _idx: i }))
+    .filter((cf) => !cf.section)
+
+  const addLegacyField = () => {
     setCustomFields((prev) => [...prev, { label: '', value: '' }])
   }
 
-  const updateCustomField = (index: number, patch: Partial<CustomField>) => {
-    setCustomFields((prev) => prev.map((cf, i) => i === index ? { ...cf, ...patch } : cf))
-  }
-
-  const removeCustomField = (index: number) => {
-    setCustomFields((prev) => prev.filter((_, i) => i !== index))
-  }
+  // ── Contact persons ───────────────────────────────────────────────────────
 
   const addContact = () => {
     setField('contacts', [...(fields.contacts ?? []), {}])
   }
-
   const updateContact = (index: number, patch: any) => {
     const contacts = [...(fields.contacts ?? [])]
     contacts[index] = { ...contacts[index], ...patch }
     setField('contacts', contacts)
   }
-
   const removeContact = (index: number) => {
     setField('contacts', (fields.contacts ?? []).filter((_, i) => i !== index))
   }
 
+  // ── Opening hours ─────────────────────────────────────────────────────────
+
   const addOpeningHours = () => {
     setField('openingHours', [...(fields.openingHours ?? []), { days: '', from: '', to: '' }])
   }
-
   const updateOpeningHours = (index: number, patch: any) => {
     const hours = [...(fields.openingHours ?? [])]
     hours[index] = { ...hours[index], ...patch }
     setField('openingHours', hours)
   }
-
   const removeOpeningHours = (index: number) => {
     setField('openingHours', (fields.openingHours ?? []).filter((_, i) => i !== index))
   }
 
+  // ── Save ──────────────────────────────────────────────────────────────────
+
   const handleSave = async () => {
+    if (!currentProfileId) { setError('Editor not ready'); return }
     if (!name.trim()) { setError('Profile name is required'); return }
 
     setSaving(true)
     setError(null)
 
-    // Strict validation for provided fields (all optional, but validated when filled)
     const validatedFields = { ...fields }
     const urlFields: Array<keyof ProfileFields> = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
     for (const k of urlFields) {
@@ -222,14 +418,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     }
 
     try {
-      if (currentProfileId) {
-        await updateHsProfile(currentProfileId, input as UpdateProfileInput)
-        onSaved(currentProfileId)
-      } else {
-        const created = await createHsProfile(input as CreateProfileInput)
-        setCurrentProfileId(created.id)
-        onSaved(created.id)
-      }
+      await updateHsProfile(currentProfileId!, input as UpdateProfileInput)
+      onSaved(currentProfileId!)
     } catch (err: any) {
       setError(err?.message ?? 'Save failed')
     } finally {
@@ -237,13 +427,16 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     }
   }
 
-  const reloadDocuments = async () => {
-    if (!currentProfileId) return
-    try {
-      const detail = await getHsProfile(currentProfileId)
-      setDocuments(detail.documents ?? [])
-    } catch {}
+  // ── Cancel ────────────────────────────────────────────────────────────────
+
+  const handleCancel = async () => {
+    if (shouldDeleteDraftOnCancel(profileId, currentProfileId, name, hasUploadedRef.current)) {
+      try { await deleteHsProfile(currentProfileId!) } catch {}
+    }
+    onCancel()
   }
+
+  // ── Shared styles ─────────────────────────────────────────────────────────
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '8px 10px',
@@ -268,8 +461,35 @@ export const HsContextProfileEditor: React.FC<Props> = ({
 
   const sectionHeadingStyle: React.CSSProperties = {
     fontSize: '11px', fontWeight: 700, color: isDark ? 'rgba(139,92,246,0.9)' : '#7c3aed',
-    textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '4px',
+    textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '2px',
   }
+
+  const dividerStyle: React.CSSProperties = {
+    borderTop: `1px dashed ${isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.12)'}`,
+    margin: '2px 0',
+  }
+
+  const addBtnStyle: React.CSSProperties = {
+    fontSize: '11px', fontWeight: 600, padding: '4px 10px',
+    background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+    borderRadius: '6px', color: isDark ? '#c4b5fd' : '#7c3aed', cursor: 'pointer',
+  }
+
+  const primaryBtnStyle: React.CSSProperties = {
+    padding: '6px 14px',
+    background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)',
+    border: 'none', borderRadius: '7px',
+    color: '#ffffff', fontSize: '12px', fontWeight: 600,
+    cursor: 'pointer',
+  }
+
+  const primaryBtnDisabledStyle: React.CSSProperties = {
+    ...primaryBtnStyle,
+    background: 'rgba(139,92,246,0.45)',
+    cursor: 'not-allowed',
+  }
+
+  // ── Loading state ─────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -281,17 +501,19 @@ export const HsContextProfileEditor: React.FC<Props> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div style={{
         padding: '12px 16px', borderBottom: `1px solid ${borderColor}`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexShrink: 0,
       }}>
         <span style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>
           {currentProfileId ? 'Edit Profile' : 'New Profile'}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             style={{
               padding: '6px 14px', background: 'transparent',
               border: `1px solid ${borderColor}`, borderRadius: '7px',
@@ -302,22 +524,17 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: '6px 14px',
-              background: saving ? 'rgba(139,92,246,0.5)' : 'linear-gradient(135deg,#8b5cf6,#7c3aed)',
-              border: 'none', borderRadius: '7px',
-              color: 'white', fontSize: '12px', fontWeight: 600,
-              cursor: saving ? 'not-allowed' : 'pointer',
-            }}
+            disabled={saving || !currentProfileId}
+            style={saving || !currentProfileId ? primaryBtnDisabledStyle : primaryBtnStyle}
           >
             {saving ? 'Saving…' : 'Save Profile'}
           </button>
         </div>
       </div>
 
-      {/* Scrollable body */}
+      {/* ── Scrollable body ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
         {error && (
           <div style={{
             padding: '10px 12px', background: 'rgba(239,68,68,0.1)',
@@ -328,7 +545,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Profile Metadata */}
+        {/* ── Profile Info ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Profile Info</div>
           <div>
@@ -359,30 +576,100 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Company / Organization */}
+        {/* ── Business Documents ── */}
+        <div style={{
+          ...sectionStyle,
+          padding: '20px',
+          border: `1px solid ${isDark ? 'rgba(139,92,246,0.25)' : 'rgba(139,92,246,0.2)'}`,
+          background: isDark ? 'rgba(139,92,246,0.04)' : 'rgba(139,92,246,0.03)',
+        }}>
+          <div style={{
+            fontSize: '13px', fontWeight: 700,
+            color: isDark ? '#c4b5fd' : '#7c3aed',
+            marginBottom: '6px',
+            display: 'flex', alignItems: 'center', gap: '8px',
+          }}>
+            <DocumentIcon color={isDark ? '#c4b5fd' : '#7c3aed'} size={18} />
+            Business Documents
+          </div>
+          <div style={{ fontSize: '12px', color: mutedColor, lineHeight: 1.5, marginBottom: '14px' }}>
+            Upload PDFs now — they parse immediately into safe handshake context. Review suggested labels and types, then use in handshakes. Originals stay protected.
+          </div>
+          <div style={{ fontSize: '11px', color: mutedColor, marginBottom: '12px' }}>
+            Examples: contracts, user manuals, pricing lists, brochures, certificates, custom PDFs.
+          </div>
+          {draftCreating ? (
+            <div style={{
+              padding: '20px', textAlign: 'center',
+              border: `2px dashed ${isDark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)'}`,
+              borderRadius: '12px',
+              background: isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.04)',
+              fontSize: '12px', color: mutedColor,
+            }}>
+              Preparing document upload…
+            </div>
+          ) : currentProfileId ? (
+            <HsContextDocumentUpload
+              profileId={currentProfileId}
+              documents={documents}
+              onDocumentsChanged={handleDocumentsChanged}
+              theme={theme}
+            />
+          ) : (
+            <div style={{
+              padding: '20px', textAlign: 'center',
+              border: `2px dashed ${isDark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)'}`,
+              borderRadius: '12px',
+              background: isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.04)',
+              fontSize: '12px', color: mutedColor,
+            }}>
+              <div style={{ marginBottom: '12px' }}>Unable to prepare upload. {error || 'Please unlock the vault and try again.'}</div>
+              <button
+                onClick={() => { setError(null); setDraftCreating(true); _draftCreationPromise = null; setRetryCount((c) => c + 1) }}
+                style={primaryBtnStyle}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Company / Organization ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Company / Organization</div>
-          {[
+          {([
             ['legalCompanyName', 'Legal Company Name'],
             ['tradeName', 'Display Name (if distinct)'],
             ['address', 'Address'],
             ['country', 'Country'],
-          ].map(([key, label]) => (
-            <div key={key}>
+          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
+            <div key={key as string}>
               <label style={labelStyle}>{label}</label>
               <input
                 value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key as any, e.target.value)}
+                onChange={(e) => setField(key, e.target.value as any)}
                 style={inputStyle}
               />
             </div>
           ))}
+          <hr style={dividerStyle} />
+          <SectionCustomFields
+            fields={getSectionFields('company')}
+            onAdd={() => addSectionField('company')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Links / Online Presence */}
+        {/* ── Links / Online Presence ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Links / Online Presence</div>
-          {[
+          {([
             ['website', 'Website'],
             ['linkedin', 'LinkedIn'],
             ['twitter', 'Twitter / X'],
@@ -391,44 +678,71 @@ export const HsContextProfileEditor: React.FC<Props> = ({
             ['youtube', 'YouTube'],
             ['officialLink', 'Official Link'],
             ['supportUrl', 'Support URL'],
-          ].map(([key, label]) => (
-            <div key={key}>
+          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
+            <div key={key as string}>
               <label style={labelStyle}>{label}</label>
               <input
                 value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key as any, e.target.value)}
+                onChange={(e) => setField(key, e.target.value as any)}
                 style={inputStyle}
-                placeholder="https://..."
+                placeholder="https://…"
               />
             </div>
           ))}
+          <hr style={dividerStyle} />
+          <SectionCustomFields
+            fields={getSectionFields('links')}
+            onAdd={() => addSectionField('links')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Tax & Identifiers */}
+        {/* ── Tax & Identifiers ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Tax & Identifiers</div>
-          {[
+          {([
             ['vatNumber', 'VAT Number'],
             ['companyRegistrationNumber', 'Company Registration Number'],
             ['supplierNumber', 'Supplier Number'],
             ['customerNumber', 'Customer Number'],
-          ].map(([key, label]) => (
-            <div key={key}>
+          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
+            <div key={key as string}>
               <label style={labelStyle}>{label}</label>
               <input
                 value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key as any, e.target.value)}
+                onChange={(e) => setField(key, e.target.value as any)}
                 style={inputStyle}
               />
             </div>
           ))}
+          <hr style={dividerStyle} />
+          <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
+            Add country-specific identifiers here: EORI, DUNS, chamber numbers, regional tax codes, etc.
+          </div>
+          <SectionCustomFields
+            fields={getSectionFields('tax')}
+            onAdd={() => addSectionField('tax')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Contacts */}
+        {/* ── Contacts ── */}
         <div style={sectionStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={sectionHeadingStyle}>Contacts</div>
-          </div>
+          <div style={sectionHeadingStyle}>Contacts</div>
+
+          {/* General contact channels */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div>
               <label style={labelStyle}>General Phone</label>
@@ -443,18 +757,27 @@ export const HsContextProfileEditor: React.FC<Props> = ({
               <input type="email" value={fields.supportEmail ?? ''} onChange={(e) => setField('supportEmail', e.target.value)} style={inputStyle} />
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+
+          <hr style={dividerStyle} />
+          <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
+            Add extra channels here: escalation hotline, fax, regional office, procurement desk, etc.
+          </div>
+          <SectionCustomFields
+            fields={getSectionFields('contacts')}
+            onAdd={() => addSectionField('contacts')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
+
+          {/* Contact persons */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
             <div style={sectionHeadingStyle}>Contact Persons</div>
-            <button
-              onClick={addContact}
-              style={{
-                fontSize: '11px', fontWeight: 600, padding: '4px 10px',
-                background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-                borderRadius: '6px', color: isDark ? '#c4b5fd' : '#7c3aed', cursor: 'pointer',
-              }}
-            >
-              + Add Contact
-            </button>
+            <button onClick={addContact} style={addBtnStyle}>+ Add Contact</button>
           </div>
           {(fields.contacts ?? []).map((contact, idx) => (
             <div key={idx} style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -492,20 +815,11 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           ))}
         </div>
 
-        {/* Opening Hours */}
+        {/* ── Opening Hours / Operations ── */}
         <div style={sectionStyle}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={sectionHeadingStyle}>Opening Hours</div>
-            <button
-              onClick={addOpeningHours}
-              style={{
-                fontSize: '11px', fontWeight: 600, padding: '4px 10px',
-                background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-                borderRadius: '6px', color: isDark ? '#c4b5fd' : '#7c3aed', cursor: 'pointer',
-              }}
-            >
-              + Add Hours
-            </button>
+            <button onClick={addOpeningHours} style={addBtnStyle}>+ Add Hours</button>
           </div>
           {(fields.openingHours ?? []).map((h, idx) => (
             <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
@@ -534,79 +848,117 @@ export const HsContextProfileEditor: React.FC<Props> = ({
               <input value={fields.holidayNotes ?? ''} onChange={(e) => setField('holidayNotes', e.target.value)} style={inputStyle} placeholder="Closed Bank Holidays" />
             </div>
           </div>
+          <hr style={dividerStyle} />
+          <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
+            Add operation-specific fields: dispatch cut-off, warehouse code, holiday handling, etc.
+          </div>
+          <SectionCustomFields
+            fields={getSectionFields('hours')}
+            onAdd={() => addSectionField('hours')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Billing */}
+        {/* ── Billing ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Billing</div>
-          {[
+          {([
             ['billingEmail', 'Billing Email'],
             ['paymentTerms', 'Payment Terms'],
             ['bankDetails', 'Bank Details (confidential)'],
-          ].map(([key, label]) => (
-            <div key={key}>
+          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
+            <div key={key as string}>
               <label style={labelStyle}>{label}</label>
               <input
                 value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key as any, e.target.value)}
+                onChange={(e) => setField(key, e.target.value as any)}
                 style={inputStyle}
               />
             </div>
           ))}
+          <hr style={dividerStyle} />
+          <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
+            Add country-specific billing references: IBAN, procurement portal ID, cost center, etc.
+          </div>
+          <SectionCustomFields
+            fields={getSectionFields('billing')}
+            onAdd={() => addSectionField('billing')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Logistics / Operations */}
+        {/* ── Logistics & Operations ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Logistics & Operations</div>
-          {[
+          {([
             ['receivingHours', 'Receiving Hours'],
             ['deliveryInstructions', 'Delivery Instructions'],
             ['supportHours', 'Support Hours'],
             ['escalationContact', 'Escalation Contact'],
-          ].map(([key, label]) => (
-            <div key={key}>
+          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
+            <div key={key as string}>
               <label style={labelStyle}>{label}</label>
               <input
                 value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key as any, e.target.value)}
+                onChange={(e) => setField(key, e.target.value as any)}
                 style={inputStyle}
               />
             </div>
           ))}
+          <hr style={dividerStyle} />
+          <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
+            Add logistics-specific fields: warehouse codes, carrier accounts, SLA references, etc.
+          </div>
+          <SectionCustomFields
+            fields={getSectionFields('logistics')}
+            onAdd={() => addSectionField('logistics')}
+            onUpdate={updateSectionField}
+            onRemove={removeSectionField}
+            inputStyle={inputStyle}
+            isDark={isDark}
+            mutedColor={mutedColor}
+            borderColor={borderColor}
+            textColor={textColor}
+          />
         </div>
 
-        {/* Custom Fields */}
+        {/* ── Other / Legacy Custom Fields (backward compat) ── */}
         <div style={sectionStyle}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={sectionHeadingStyle}>Custom Fields</div>
-            <button
-              onClick={addCustomField}
-              style={{
-                fontSize: '11px', fontWeight: 600, padding: '4px 10px',
-                background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-                borderRadius: '6px', color: isDark ? '#c4b5fd' : '#7c3aed', cursor: 'pointer',
-              }}
-            >
-              + Add Field
-            </button>
+            <div style={sectionHeadingStyle}>Other Custom Fields</div>
+            <button onClick={addLegacyField} style={addBtnStyle}>+ Add Field</button>
           </div>
-          {customFields.length === 0 && (
-            <div style={{ fontSize: '12px', color: mutedColor }}>No custom fields. Click "+ Add Field" to add unlimited label/value pairs.</div>
+          {legacyCustomFields.length === 0 && (
+            <div style={{ fontSize: '12px', color: mutedColor }}>
+              Any field that doesn't fit above. Click "+ Add Field" for free-form label/value pairs.
+            </div>
           )}
-          {customFields.map((cf, idx) => (
-            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderRadius: '8px', padding: '10px' }}>
+          {legacyCustomFields.map(({ _idx, label, value }) => (
+            <div key={_idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)', borderRadius: '8px', padding: '10px' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Label</label>
                   <input
-                    value={cf.label}
-                    onChange={(e) => updateCustomField(idx, { label: e.target.value })}
+                    value={label}
+                    onChange={(e) => updateSectionField(_idx, { label: e.target.value })}
                     style={inputStyle}
                     placeholder="Field label"
                   />
                 </div>
                 <button
-                  onClick={() => removeCustomField(idx)}
+                  onClick={() => removeSectionField(_idx)}
                   style={{ marginTop: '18px', fontSize: '14px', color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer' }}
                 >
                   ✕
@@ -615,8 +967,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
               <div>
                 <label style={labelStyle}>Value</label>
                 <textarea
-                  value={cf.value}
-                  onChange={(e) => updateCustomField(idx, { value: e.target.value })}
+                  value={value}
+                  onChange={(e) => updateSectionField(_idx, { value: e.target.value })}
                   style={{ ...inputStyle, minHeight: '56px', resize: 'vertical', lineHeight: 1.5 }}
                   placeholder="Field value (multi-line supported)"
                 />
@@ -625,22 +977,6 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           ))}
         </div>
 
-        {/* Documents */}
-        <div style={sectionStyle}>
-          <div style={sectionHeadingStyle}>Attached Documents</div>
-          {currentProfileId ? (
-            <HsContextDocumentUpload
-              profileId={currentProfileId}
-              documents={documents}
-              onDocumentsChanged={reloadDocuments}
-              theme={theme}
-            />
-          ) : (
-            <div style={{ fontSize: '12px', color: mutedColor }}>
-              Save the profile first, then you can attach PDF documents.
-            </div>
-          )}
-        </div>
       </div>
     </div>
   )

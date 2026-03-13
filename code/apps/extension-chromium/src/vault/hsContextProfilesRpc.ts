@@ -109,6 +109,9 @@ export interface ProfileFields {
 export interface CustomField {
   label: string
   value: string
+  /** Section key this field belongs to ('company', 'tax', 'contacts', 'hours',
+   *  'billing', 'logistics', 'links'). Undefined = legacy catch-all bucket. */
+  section?: string
 }
 
 export interface ProfileDocumentSummary {
@@ -121,6 +124,8 @@ export interface ProfileDocumentSummary {
   extraction_status: 'pending' | 'success' | 'failed'
   extracted_text?: string | null
   error_message?: string | null
+  /** Structured error code for the BYOK failure card logic. */
+  error_code?: string | null
   sensitive?: boolean
   created_at: number
 }
@@ -203,6 +208,22 @@ export async function duplicateHsProfile(profileId: string): Promise<HsContextPr
 }
 
 /**
+ * Convert ArrayBuffer to base64 without blowing the call stack.
+ * String.fromCharCode(...bytes) fails with "Maximum call stack size exceeded"
+ * for large files because spreading millions of args exceeds engine limits.
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const CHUNK = 8192
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK, bytes.length))
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+  }
+  return btoa(binary)
+}
+
+/**
  * Upload a PDF document to a profile.
  * Converts the File to base64 before sending over RPC.
  * @param sensitive If true, marks the document as sensitive (restricts cloud AI and search).
@@ -217,7 +238,7 @@ export async function uploadHsProfileDocument(
   documentType?: string | null,
 ): Promise<ProfileDocumentSummary> {
   const buffer = await file.arrayBuffer()
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+  const base64 = arrayBufferToBase64(buffer)
   const res = await sendVaultRpc<{ document: ProfileDocumentSummary }>(
     'vault.hsProfiles.uploadDocument',
     {
@@ -253,6 +274,25 @@ export async function deleteHsProfileDocument(documentId: string): Promise<void>
 }
 
 /**
+ * Owner-direct document download. The vault owner requires no consent warning
+ * because they hold the vault and uploaded the file themselves.
+ * Returns base64-encoded PDF content ready for client-side download.
+ */
+export async function getHsOwnerDocumentContent(
+  documentId: string,
+): Promise<{ success: true; contentBase64: string; filename: string; mimeType: string } | { success: false; error: string }> {
+  const res = await sendVaultRpc<{ success: boolean; contentBase64?: string; filename?: string; mimeType?: string; error?: string }>(
+    'vault.hsProfiles.getOwnerDocumentContent',
+    { documentId },
+    30_000,
+  )
+  if (res.success && res.contentBase64 && res.filename && res.mimeType) {
+    return { success: true, contentBase64: res.contentBase64, filename: res.filename, mimeType: res.mimeType }
+  }
+  return { success: false, error: (res as any).error ?? 'Failed to retrieve document' }
+}
+
+/**
  * Request original document content (whitelist-gated). Requires acknowledgedWarning.
  * Returns base64 content for download, or error if not approved.
  */
@@ -283,4 +323,48 @@ export async function requestLinkOpenApproval(
     { linkEntityId, acknowledgedWarning, handshakeId: handshakeId ?? null, actorUserId: actorUserId ?? '' },
   )
   return res
+}
+
+// ── BYOK API Key management ──────────────────────────────────────────────────
+
+/**
+ * Validate and save the Anthropic API key, encrypted in the vault.
+ * Throws with a user-friendly message if the key is invalid.
+ */
+export async function saveAnthropicApiKey(apiKey: string): Promise<void> {
+  await sendVaultRpc('vault.settings.saveAnthropicApiKey', { apiKey }, 30_000)
+}
+
+/**
+ * Check whether an Anthropic API key is stored (does not return the key value).
+ */
+export async function hasAnthropicApiKey(): Promise<{ hasKey: boolean }> {
+  const res = await sendVaultRpc<{ success: boolean; hasKey: boolean }>(
+    'vault.settings.hasAnthropicApiKey',
+    {},
+  )
+  return { hasKey: !!(res as any).hasKey }
+}
+
+/**
+ * Delete the stored Anthropic API key.
+ */
+export async function removeAnthropicApiKey(): Promise<void> {
+  await sendVaultRpc('vault.settings.removeAnthropicApiKey', {})
+}
+
+/**
+ * Retry text extraction for a document using Anthropic Vision API.
+ * The server uses the stored API key — no key is sent in this RPC call.
+ * Returns immediately with status='pending'; poll document status to see result.
+ */
+export async function retryExtractionWithVision(
+  documentId: string,
+): Promise<{ status: string }> {
+  const res = await sendVaultRpc<{ success: boolean; status?: string }>(
+    'vault.hsProfiles.retryExtractionWithVision',
+    { documentId },
+    15_000,
+  )
+  return { status: (res as any).status ?? 'pending' }
 }

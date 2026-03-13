@@ -95,6 +95,12 @@ export interface ProfileDocumentSummary {
   extraction_status: 'pending' | 'success' | 'failed'
   extracted_text?: string | null
   error_message?: string | null
+  /** Structured error code — used by the UI to pick the right failure card.
+   *  e.g. 'NO_TEXT_EXTRACTED' → BYOK Vision card
+   *       'PASSWORD_PROTECTED' → password message
+   *       'EXTRACTION_TIMEOUT' → timeout message
+   */
+  error_code?: string | null
   sensitive?: boolean
 }
 

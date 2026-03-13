@@ -421,7 +421,24 @@ describe('canAttachContext', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 9. Handshake context mapping integrity
+// 9. WRVault HS Context editor eligibility (structured vs legacy)
+// ---------------------------------------------------------------------------
+describe('WRVault HS Context editor eligibility', () => {
+  it('Publisher+ tiers get structured HS Context editor (canAccessRecordType share)', () => {
+    expect(canAccessRecordType('publisher', 'handshake_context', 'share')).toBe(true)
+    expect(canAccessRecordType('publisher_lifetime', 'handshake_context', 'share')).toBe(true)
+    expect(canAccessRecordType('enterprise', 'handshake_context', 'share')).toBe(true)
+  })
+
+  it('Pro and lower tiers do NOT get structured HS Context editor', () => {
+    expect(canAccessRecordType('pro', 'handshake_context', 'share')).toBe(false)
+    expect(canAccessRecordType('free', 'handshake_context', 'share')).toBe(false)
+    expect(canAccessRecordType('private', 'handshake_context', 'share')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 10. Handshake context mapping integrity
 // ---------------------------------------------------------------------------
 describe('Handshake context mapping', () => {
   it('handshake_context is in LEGACY_CATEGORY_TO_RECORD_TYPE', () => {

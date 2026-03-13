@@ -607,6 +607,31 @@ export function migrateHsContextProfileTables(db: any): void {
   } catch (e: any) {
     console.warn('[VAULT DB] ⚠️ Could not create hs_context_access_audit:', e?.message)
   }
+
+  // ── vault_settings: encrypted BYOK API key storage ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS vault_settings (
+        key TEXT PRIMARY KEY,
+        value_encrypted BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ vault_settings table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create vault_settings table:', e?.message)
+  }
+
+  // ── Additive migration: error_code for structured failure handling ──
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN error_code TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.error_code column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add error_code column:', e?.message)
+    }
+  }
 }
 
 /**

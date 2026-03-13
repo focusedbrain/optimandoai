@@ -1,8 +1,10 @@
 /**
- * Pure TypeScript Vault UI - No React dependencies
+ * Pure TypeScript Vault UI - Minimal React bridge for HS Context Profiles
  * Professional black design for WRVault password manager
  */
 
+import React from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import * as vaultAPI from './api'
 import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult, LegacyItemCategory } from './types'
 import {
@@ -12,14 +14,80 @@ import {
   CATEGORY_UI_MAP, RECORD_TYPE_DISPLAY, RECORD_TYPE_MIN_TIER,
   DEFAULT_BINDING_POLICY,
   canAccessCategory, getCategoryOptionsForTier, ALL_ITEM_CATEGORIES,
-  canAttachContext,
+  canAttachContext, canAccessRecordType,
 } from './types'
+// HsContextProfileList is lazy-loaded on first navigation to HS Context.
+// This keeps the initial WRVault chunk lean — the full editor + document upload
+// code is only fetched when the user actually opens the HS Context section.
 
 // ---------------------------------------------------------------------------
 // Module-level tier state — set once during vault init, used everywhere.
 // Defaults to 'free' (fail-closed).
 // ---------------------------------------------------------------------------
 let currentVaultTier: VaultTier = 'free'
+
+// ---------------------------------------------------------------------------
+// HS Context Profiles — React bridge for Publisher+ structured editor
+// ---------------------------------------------------------------------------
+let hsContextProfileListRoot: Root | null = null
+
+/** Publisher+ users get the structured HS Context editor; lower tiers use legacy. */
+function canUseHsContextProfiles(): boolean {
+  return canAccessRecordType(currentVaultTier, 'handshake_context', 'share')
+}
+
+function unmountHsContextProfileList(): void {
+  if (hsContextProfileListRoot) {
+    try {
+      hsContextProfileListRoot.unmount()
+    } catch { /* ignore */ }
+    hsContextProfileListRoot = null
+  }
+}
+
+/** Mount HsContextProfileList in the vault items area. Replaces list content; sidebar stays. */
+async function mountHsContextProfileListInListArea(container: HTMLElement, options?: { initialView?: 'list' | 'create' }): Promise<void> {
+  unmountHsContextProfileList()
+  const listDiv = container.querySelector('#vault-items-list') as HTMLElement
+  if (!listDiv) return
+  listDiv.innerHTML = '<div style="padding:32px;text-align:center;color:var(--wrv-text-3);font-size:13px;">Loading…</div>'
+  const mountPoint = document.createElement('div')
+  mountPoint.style.cssText = 'height:100%;display:flex;flex-direction:column;overflow:hidden;'
+  const { HsContextProfileList } = await import('./hsContext/HsContextProfileList')
+  listDiv.innerHTML = ''
+  listDiv.appendChild(mountPoint)
+  hsContextProfileListRoot = createRoot(mountPoint)
+  hsContextProfileListRoot.render(
+    React.createElement(HsContextProfileList, {
+      theme: detectVaultTheme() === 'dark' ? 'dark' : 'standard',
+      initialView: options?.initialView ?? 'list',
+    }),
+  )
+}
+
+/** Mount HsContextProfileList replacing the full container (for add flow). Includes Back button. */
+async function mountHsContextProfileListFullReplace(container: HTMLElement, savedContent: string, initialView: 'list' | 'create'): Promise<void> {
+  unmountHsContextProfileList()
+  container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--wrv-text-3);font-size:13px;">Loading…</div>'
+  const mountPoint = document.createElement('div')
+  mountPoint.style.cssText = 'height:100%;overflow-y:auto;padding:24px;color:var(--wrv-text);'
+  const { HsContextProfileList } = await import('./hsContext/HsContextProfileList')
+  container.innerHTML = ''
+  container.appendChild(mountPoint)
+  const restore = () => {
+    unmountHsContextProfileList()
+    container.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(container)
+  }
+  hsContextProfileListRoot = createRoot(mountPoint)
+  hsContextProfileListRoot.render(
+    React.createElement(HsContextProfileList, {
+      theme: detectVaultTheme() === 'dark' ? 'dark' : 'standard',
+      initialView,
+      onBackToDashboard: restore,
+    }),
+  )
+}
 
 // =============================================================================
 // Theme-aware vault styling
@@ -1207,7 +1275,12 @@ function renderVaultDashboard(container: HTMLElement) {
     } else if (action === 'view-handshake-context') {
       loadHandshakeContextList(container)
     } else if (action === 'add-handshake-context') {
-      renderHandshakeContextDialog(container)
+      if (canUseHsContextProfiles()) {
+        const savedContent = container.innerHTML
+        mountHsContextProfileListFullReplace(container, savedContent, 'create')
+      } else {
+        renderHandshakeContextDialog(container)
+      }
     } else if (action === 'add-secret') {
       renderAddDataDialog(container, 'automation_secret')
     } else if (action === 'add-password') {
@@ -1273,6 +1346,7 @@ function renderVaultDashboard(container: HTMLElement) {
 }
 
 async function loadVaultItemsByContainer(container: HTMLElement, containerType: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1312,6 +1386,7 @@ async function renderItemsList(listDiv: HTMLElement, items: any[]) {
 }
 
 async function loadVaultItems(container: HTMLElement, category: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1437,6 +1512,7 @@ function formatBytes(bytes: number): string {
 
 /** Load and render the document list in the main content area. */
 async function loadDocumentsList(parentContainer: HTMLElement) {
+  unmountHsContextProfileList()
   const listDiv = parentContainer.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1798,8 +1874,14 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
 
 /**
  * Load and render the list of handshake_context items.
+ * Publisher+ users get the structured HS Context Profiles editor; lower tiers get legacy vault items list.
  */
 async function loadHandshakeContextList(parentContainer: HTMLElement) {
+  if (canUseHsContextProfiles()) {
+    await mountHsContextProfileListInListArea(parentContainer, { initialView: 'list' })
+    return
+  }
+  unmountHsContextProfileList()
   const listDiv = parentContainer.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -2347,6 +2429,7 @@ async function loadContainersIntoTree(container: HTMLElement) {
 
 // Load items for a specific container
 async function loadContainerItems(container: HTMLElement, containerId: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
   
@@ -2996,9 +3079,14 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     renderDocumentUploadDialog(container)
     return
   }
-  // Handshake context uses its own dialog with binding policy fields.
+  // Handshake context: Publisher+ get structured editor; lower tiers get legacy dialog.
   if (preselectedCategory === 'handshake_context') {
-    renderHandshakeContextDialog(container)
+    if (canUseHsContextProfiles()) {
+      const savedContent = container.innerHTML
+      mountHsContextProfileListFullReplace(container, savedContent, 'create')
+    } else {
+      renderHandshakeContextDialog(container)
+    }
     return
   }
   // Render the Add Data form inline inside the vault's main content area.
@@ -3804,7 +3892,11 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       return
     }
     if (selectedCategory === 'handshake_context') {
-      renderHandshakeContextDialog(container)
+      if (canUseHsContextProfiles()) {
+        mountHsContextProfileListFullReplace(container, savedContent, 'create')
+      } else {
+        renderHandshakeContextDialog(container)
+      }
       return
     }
     if (selectedCategory) {

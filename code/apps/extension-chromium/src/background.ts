@@ -2345,36 +2345,73 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
     console.log('[BG] Received VAULT_RPC:', msg.method)
-    
+
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.error('[BG] WebSocket not connected for vault RPC')
       sendResponse({ success: false, error: 'Not connected to Electron app' })
       return true
     }
-    
-    // Forward the RPC call to Electron via WebSocket
-    try {
-      const rpcMessage = {
-        id: msg.id,
-        method: msg.method,
-        params: msg.params || {}
+
+    const VSBT_EXEMPT_RPC = new Set(['vault.create', 'vault.unlock', 'vault.getStatus'])
+    const needsBinding = !VSBT_EXEMPT_RPC.has(msg.method)
+
+    ;(async () => {
+      try {
+        // If the in-memory VSBT is missing (MV3 service worker restarted since unlock),
+        // eagerly recover it from chrome.storage.session before deciding whether to bind.
+        // The startup restore at module level is fire-and-forget; this ensures we don't
+        // skip binding just because the async restore hasn't resolved yet.
+        if (needsBinding && !_cachedVsbt && typeof chrome !== 'undefined' && chrome.storage?.session) {
+          try {
+            const stored = await chrome.storage.session.get(['_vsbt', '_vsbtAt'])
+            if (stored?._vsbt) {
+              const age = typeof stored._vsbtAt === 'number' ? Date.now() - stored._vsbtAt : Infinity
+              if (age < VSBT_MAX_AGE_MS) {
+                _cachedVsbt = stored._vsbt
+                _vsbtCachedAt = stored._vsbtAt
+                console.log('[BG] VAULT_RPC: recovered VSBT from session storage for bind')
+              }
+            }
+          } catch { /* storage unavailable — fall through, bind will be skipped */ }
+        }
+
+        // If this RPC requires a bound session and we have a cached VSBT (from HTTP unlock),
+        // bind the WebSocket connection first. The WebSocket is separate from HTTP, so
+        // unlock via VAULT_HTTP_API does not auto-bind the WS connection.
+        if (needsBinding && _cachedVsbt) {
+          const bindId = `vault-bind-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const bindPromise = new Promise<void>((resolve, reject) => {
+            if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
+            globalThis.vaultRpcCallbacks.set(bindId, (r: any) => {
+              if (r?.success) resolve()
+              else reject(new Error(r?.error || 'vault.bind failed'))
+            })
+          })
+          ws.send(JSON.stringify({
+            id: bindId,
+            method: 'vault.bind',
+            params: { vsbt: _cachedVsbt }
+          }))
+          await bindPromise
+          console.log('[BG] WebSocket vault session bound via vault.bind')
+        }
+
+        const rpcMessage = {
+          id: msg.id,
+          method: msg.method,
+          params: msg.params || {}
+        }
+        console.log('[BG] Forwarding to WebSocket:', rpcMessage)
+        ws.send(JSON.stringify(rpcMessage))
+
+        if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
+        globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
+      } catch (error: any) {
+        console.error('[BG] Error in vault RPC flow:', error)
+        sendResponse({ success: false, error: error.message })
       }
-      
-      console.log('[BG] Forwarding to WebSocket:', rpcMessage)
-      ws.send(JSON.stringify(rpcMessage))
-      
-      // Store the sendResponse callback to call it when response arrives
-      if (!globalThis.vaultRpcCallbacks) {
-        globalThis.vaultRpcCallbacks = new Map()
-      }
-      globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
-      
-      return true // Keep channel open for async response
-    } catch (error: any) {
-      console.error('[BG] Error sending vault RPC:', error)
-      sendResponse({ success: false, error: error.message })
-      return true
-    }
+    })()
+    return true
   }
   
   if (!msg || !msg.type) return true;

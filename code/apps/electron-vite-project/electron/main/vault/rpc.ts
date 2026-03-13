@@ -387,6 +387,23 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         return { success: true }
       }
 
+      case 'vault.hsProfiles.getOwnerDocumentContent': {
+        // Owner-direct download — no consent warning required (they hold the vault).
+        const { documentId: ownerDocId } = params as { documentId: string }
+        if (!ownerDocId) return { success: false, error: 'documentId is required' }
+        try {
+          const result = await vaultService.getOwnerDocumentContent(tier, ownerDocId)
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        } catch (e: any) {
+          return { success: false, error: e?.message ?? 'Failed to retrieve document' }
+        }
+      }
+
       case 'vault.hsProfiles.requestOriginalDocument': {
         const { documentId, acknowledgedWarning, handshakeId, actorUserId } = params as {
           documentId: string
@@ -427,6 +444,36 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
           handshakeId: handshakeId ?? null,
         })
         return result.approved ? { success: true, approved: true } : { success: false, error: result.error, approved: false }
+      }
+
+      // ── BYOK API Key management ─────────────────────────────────────────────
+
+      case 'vault.settings.saveAnthropicApiKey': {
+        const { apiKey } = params as { apiKey: string }
+        if (!apiKey || typeof apiKey !== 'string') {
+          return { success: false, error: 'apiKey is required' }
+        }
+        // Validates the key against Anthropic before storing; throws with
+        // a user-friendly message if the key is invalid.
+        await vaultService.saveAnthropicApiKey(tier, apiKey)
+        return { success: true }
+      }
+
+      case 'vault.settings.hasAnthropicApiKey': {
+        const hasKey = vaultService.hasAnthropicApiKey(tier)
+        return { success: true, hasKey }
+      }
+
+      case 'vault.settings.removeAnthropicApiKey': {
+        vaultService.removeAnthropicApiKey(tier)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.retryExtractionWithVision': {
+        const { documentId: visionDocId } = params as { documentId: string }
+        if (!visionDocId) return { success: false, error: 'documentId is required' }
+        const visionResult = await vaultService.retryDocumentWithVision(tier, visionDocId)
+        return { success: true, status: visionResult.status }
       }
 
       default:

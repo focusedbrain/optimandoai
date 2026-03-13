@@ -4,8 +4,10 @@
  */
 
 /**
- * Supported OCR languages
- * Based on Tesseract language codes
+ * Supported OCR languages — individual Tesseract language codes.
+ * Tesseract also accepts combined strings like 'spa+eng+deu' to run multiple
+ * language models simultaneously; those are typed as `string` at call sites
+ * that need them (see OCROptions.language below).
  */
 export type OCRLanguage = 
   | 'eng'  // English
@@ -22,6 +24,7 @@ export type OCRLanguage =
   | 'chi_tra'  // Chinese Traditional
   | 'kor'  // Korean
   | 'ara'  // Arabic
+  | string  // Combined language strings, e.g. 'spa+eng+deu'
 
 /**
  * OCR processing method

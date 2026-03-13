@@ -1,10 +1,30 @@
 /**
  * OCR Service
  * Provides local OCR capabilities using tesseract.js
+ *
+ * Packaged-app path resolution
+ * ─────────────────────────────
+ * In a packaged Electron app the node_modules directory lives inside the ASAR
+ * archive. Node's worker_threads module cannot spawn a worker from inside ASAR
+ * so we must point Tesseract to pre-extracted copies under process.resourcesPath.
+ *
+ * electron-builder.config.cjs copies the following via extraResources:
+ *   tesseract-worker/worker.min.js          ← tesseract.js/dist/worker.min.js
+ *   tesseract-worker/tesseract-core-simd-lstm.wasm.js
+ *                                           ← tesseract.js-core/tesseract-core-simd-lstm.wasm.js
+ *   tesseract-lang/eng.traineddata          ← tesseract-lang/eng.traineddata (optional)
+ *
+ * If tesseract-lang/eng.traineddata is not bundled the worker falls back to the
+ * projectnaptha CDN — this requires internet access. To make the app offline-capable
+ * download the file (~12 MB for the LSTM best model) and place it at:
+ *   apps/electron-vite-project/tesseract-lang/eng.traineddata
+ * Source: https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata
  */
 
 import { Worker, createWorker } from 'tesseract.js'
 import fs from 'fs'
+import path from 'path'
+import { app } from 'electron'
 import {
   OCRLanguage,
   OCROptions,
@@ -25,6 +45,14 @@ export class OCRService {
   private initPromise: Promise<void> | null = null
   private lastError: string | null = null
 
+  /**
+   * Becomes true after a successful worker initialization.
+   * processImage checks this flag before attempting recognition so that a
+   * misconfigured worker fails fast with a clear error instead of hanging or
+   * silently returning empty strings.
+   */
+  private ocrAvailable = false
+
   constructor() {
     // Worker will be initialized lazily on first use
   }
@@ -44,7 +72,7 @@ export class OCRService {
 
     this.isInitializing = true
     this.initPromise = this.doInitialize(language)
-    
+
     try {
       await this.initPromise
     } finally {
@@ -59,12 +87,47 @@ export class OCRService {
       if (this.worker) {
         await this.worker.terminate()
         this.worker = null
+        this.ocrAvailable = false
       }
 
       console.log(`[OCR] Initializing Tesseract worker with language: ${language}`)
-      
-      // Create worker with language
+
+      // ── Resolve paths for packaged vs. dev mode ───────────────────────────
+      const workerOptions: Record<string, string> = {}
+
+      if (app.isPackaged) {
+        const resourcesPath = process.resourcesPath
+
+        // Worker script and WASM core are always bundled via extraResources
+        workerOptions.workerPath = path.join(resourcesPath, 'tesseract-worker', 'worker.min.js')
+        workerOptions.corePath = path.join(resourcesPath, 'tesseract-worker', 'tesseract-core-simd-lstm.wasm.js')
+
+        // Language data: use bundled file if present (offline-capable),
+        // otherwise fall back to CDN (requires internet access).
+        // For combined language strings like 'spa+eng+deu', check if ALL
+        // component languages are present locally. If any is missing we let
+        // Tesseract fetch from CDN (it handles mixed local+CDN gracefully).
+        const localLangDir = path.join(resourcesPath, 'tesseract-lang')
+        const langCodes = language.split('+')
+        const allBundled = langCodes.every(code =>
+          fs.existsSync(path.join(localLangDir, `${code}.traineddata`))
+        )
+
+        if (allBundled) {
+          workerOptions.langPath = `file:///${localLangDir.replace(/\\/g, '/')}`
+          console.log(`[OCR] Using bundled language data for: ${language}`)
+        } else {
+          const missing = langCodes.filter(
+            code => !fs.existsSync(path.join(localLangDir, `${code}.traineddata`))
+          )
+          console.log(`[OCR] Language data not bundled for [${missing.join(', ')}] — using CDN (internet required)`)
+        }
+      }
+      // In dev mode: all three options are omitted → Tesseract uses its built-in
+      // defaults (CDN for lang data, package-local worker and core paths).
+
       this.worker = await createWorker(language, 1, {
+        ...workerOptions,
         logger: (m) => {
           if (m.status === 'recognizing text') {
             console.log(`[OCR] Progress: ${Math.round(m.progress * 100)}%`)
@@ -72,15 +135,18 @@ export class OCRService {
         },
         errorHandler: (err) => {
           console.error('[OCR] Worker error:', err)
-          this.lastError = err.message || String(err)
-        }
+          this.lastError = (err as any).message || String(err)
+        },
       })
 
       this.currentLanguage = language
       this.lastError = null
+      this.ocrAvailable = true
       console.log(`[OCR] Worker initialized successfully`)
     } catch (error: any) {
+      this.ocrAvailable = false
       console.error('[OCR] Failed to initialize worker:', error)
+      console.error('[OCR] Worker initialization failed — OCR will not be available for scanned documents.')
       this.lastError = error.message || String(error)
       throw error
     }
@@ -102,8 +168,12 @@ export class OCRService {
     // Ensure worker is initialized with correct language
     await this.initialize(language)
 
-    if (!this.worker) {
-      throw new Error('OCR worker not initialized')
+    // Fast-fail if the worker did not initialise properly rather than
+    // silently returning empty strings (which is the previous behaviour).
+    if (!this.ocrAvailable || !this.worker) {
+      throw new Error(
+        `OCR engine is not available${this.lastError ? `: ${this.lastError}` : '. Check Tesseract worker configuration.'}`
+      )
     }
 
     onProgress?.({ status: 'loading', progress: 10, message: 'Loading image...' })
@@ -180,7 +250,7 @@ export class OCRService {
   ): Promise<OCRResult> {
     // Remove data URL prefix if present
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '')
-    
+
     return this.processImage(
       { type: 'base64', data: cleanBase64 },
       options,
@@ -193,16 +263,16 @@ export class OCRService {
    */
   getStatus(): OCRStatus {
     return {
-      localAvailable: true, // tesseract.js is always available
+      localAvailable: this.ocrAvailable,
       cloudAvailable: false, // Will be determined by router
       availableProviders: [],
       loadedLanguages: this.worker ? [this.currentLanguage] : [],
-      workerStatus: this.isInitializing 
-        ? 'initializing' 
-        : this.worker 
-          ? 'idle' 
-          : this.lastError 
-            ? 'error' 
+      workerStatus: this.isInitializing
+        ? 'initializing'
+        : this.worker
+          ? 'idle'
+          : this.lastError
+            ? 'error'
             : 'idle',
       lastError: this.lastError || undefined
     }
@@ -238,6 +308,7 @@ export class OCRService {
       console.log('[OCR] Terminating worker...')
       await this.worker.terminate()
       this.worker = null
+      this.ocrAvailable = false
       console.log('[OCR] Worker terminated')
     }
   }
@@ -260,13 +331,14 @@ export class OCRService {
       case 'base64':
         return Buffer.from(input.data, 'base64')
 
-      case 'dataUrl':
+      case 'dataUrl': {
         // Extract base64 from data URL
         const match = input.dataUrl.match(/^data:image\/\w+;base64,(.+)$/)
         if (!match) {
           throw new Error('Invalid data URL format')
         }
         return Buffer.from(match[1], 'base64')
+      }
 
       default:
         throw new Error('Unsupported input type')
@@ -291,4 +363,3 @@ export class OCRService {
 
 // Singleton instance
 export const ocrService = new OCRService()
-

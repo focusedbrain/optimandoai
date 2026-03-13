@@ -52,6 +52,7 @@ import {
 import {
   quickSelectOpen,
   quickSelectClose,
+  quickSelectIsOpen,
   showTriggerIcon,
   registerShortcut,
   unregisterShortcut,
@@ -743,7 +744,6 @@ function handleQuickSelectShortcut(): void {
   if (tag !== 'input' && tag !== 'textarea' && !activeEl.isContentEditable) return
 
   // Don't open if already open
-  const { quickSelectIsOpen } = require('./quickSelect') as typeof import('./quickSelect')
   if (quickSelectIsOpen()) return
 
   openQuickSelectForElement(activeEl)
