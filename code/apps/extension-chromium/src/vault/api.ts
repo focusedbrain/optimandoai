@@ -14,7 +14,9 @@ import type {
   HandshakeBindingPolicy,
   HandshakeTarget,
   AttachEvalResult,
+  VaultTier,
 } from './types'
+import { canAccessRecordType } from './types'
 
 const API_TIMEOUT = 30000 // 30 seconds
 
@@ -199,7 +201,18 @@ export async function lockVault(): Promise<void> {
 }
 
 export async function getVaultStatus(): Promise<VaultStatus> {
-  return await apiCall('/status')
+  const status: VaultStatus = await apiCall('/status')
+  // Compute canUseHsContextProfiles from tier so all callers get it without
+  // needing to re-derive it. The Electron side returns `tier` but does not
+  // set this flag — we derive it here, once, at the source.
+  if (status.tier) {
+    status.canUseHsContextProfiles = canAccessRecordType(
+      status.tier as VaultTier,
+      'handshake_context',
+      'share',
+    )
+  }
+  return status
 }
 
 // ==========================================================================

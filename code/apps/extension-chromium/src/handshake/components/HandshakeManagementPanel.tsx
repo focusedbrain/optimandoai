@@ -5,13 +5,14 @@
  * Reads from useHandshakes() hook (backend-backed).
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
 import { useHandshakes } from '../useHandshakes'
 import { deleteHandshake } from '../handshakeRpc'
 import { HandshakeDetailsPanel } from './HandshakeDetailsPanel'
 import { HandshakeAcceptModal } from './HandshakeAcceptModal'
 import { InitiateHandshakeDialog } from './InitiateHandshakeDialog'
+import { getVaultStatus } from '../../vault/api'
 
 interface HandshakeManagementPanelProps {
   fromAccountId: string
@@ -38,6 +39,13 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
   const [acceptingHandshake, setAcceptingHandshake] = useState<HandshakeRecord | null>(null)
   const [showInitiate, setShowInitiate] = useState(false)
   const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  useEffect(() => {
+    getVaultStatus()
+      .then((s) => setCanUseHsContextProfiles(s?.canUseHsContextProfiles ?? false))
+      .catch(() => setCanUseHsContextProfiles(false))
+  }, [])
 
   const isProfessional = theme === 'professional'
 
@@ -242,6 +250,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
           handshake={acceptingHandshake}
           fromAccountId={fromAccountId}
           theme={theme}
+          canUseHsContextProfiles={canUseHsContextProfiles}
           onAccepted={() => { setAcceptingHandshake(null); refresh() }}
           onDeclined={() => { setAcceptingHandshake(null); refresh() }}
           onClose={() => setAcceptingHandshake(null)}
@@ -253,6 +262,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
         <InitiateHandshakeDialog
           fromAccountId={fromAccountId}
           theme={theme}
+          canUseHsContextProfiles={canUseHsContextProfiles}
           onInitiated={() => { setShowInitiate(false); refresh() }}
           onClose={() => setShowInitiate(false)}
         />
