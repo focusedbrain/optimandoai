@@ -23,6 +23,18 @@ export interface ProfileFields {
   address?: string
   country?: string
   website?: string
+  // Links / Online Presence (normalized field names for authoring + display)
+  linkedin?: string
+  twitter?: string
+  facebook?: string
+  instagram?: string
+  youtube?: string
+  officialLink?: string
+  supportUrl?: string
+  // General contact (when no contact persons)
+  generalPhone?: string
+  generalEmail?: string
+  supportEmail?: string
   // Tax & Identifiers
   vatNumber?: string
   companyRegistrationNumber?: string
@@ -74,10 +86,16 @@ export interface HsContextProfile {
 }
 
 export interface ProfileDocumentSummary {
+  id?: string
   filename: string
+  /** User-defined label/title (optional). Falls back to filename when empty. */
+  label?: string | null
+  /** Optional document type: manual, contract, custom, etc. */
+  document_type?: string | null
   extraction_status: 'pending' | 'success' | 'failed'
   extracted_text?: string | null
   error_message?: string | null
+  sensitive?: boolean
 }
 
 // ── Internal helpers ──
@@ -181,13 +199,30 @@ export function normalizeProfileToText(
     ['Trade Name', f.tradeName],
     ['Address', f.address],
     ['Country', f.country],
-    ['Website', f.website],
   ]
   const bizLines = bizFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)
   if (bizLines.length) {
     lines.push('')
     lines.push('Business Identity')
     bizLines.forEach((l) => lines.push(`  ${l}`))
+  }
+
+  // Links / Online Presence (normalized field names)
+  const linkFields: Array<[string, string | undefined]> = [
+    ['Website', f.website],
+    ['LinkedIn', f.linkedin],
+    ['Twitter', f.twitter],
+    ['Facebook', f.facebook],
+    ['Instagram', f.instagram],
+    ['YouTube', f.youtube],
+    ['Official Link', f.officialLink],
+    ['Support URL', f.supportUrl],
+  ]
+  const linkLines = linkFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)
+  if (linkLines.length) {
+    lines.push('')
+    lines.push('Links & Online Presence')
+    linkLines.forEach((l) => lines.push(`  ${l}`))
   }
 
   // Tax & Identifiers
@@ -204,10 +239,18 @@ export function normalizeProfileToText(
     taxLines.forEach((l) => lines.push(`  ${l}`))
   }
 
-  // Contacts
+  // Contacts (general + contact persons)
+  const hasGeneralContact = f.generalPhone || f.generalEmail || f.supportEmail
+  if (hasGeneralContact) {
+    lines.push('')
+    lines.push('General Contact')
+    if (f.generalPhone) lines.push(`  Phone: ${f.generalPhone}`)
+    if (f.generalEmail) lines.push(`  Email: ${f.generalEmail}`)
+    if (f.supportEmail) lines.push(`  Support Email: ${f.supportEmail}`)
+  }
   if (f.contacts && f.contacts.length > 0) {
     lines.push('')
-    lines.push('Contacts')
+    lines.push('Contact Persons')
     const rendered = renderContacts(f.contacts)
     rendered.split('\n').forEach((l) => lines.push(`  ${l}`))
   }
@@ -271,7 +314,8 @@ export function normalizeProfileToText(
     for (const doc of documents) {
       if (doc.extraction_status === 'success' && doc.extracted_text) {
         lines.push('')
-        lines.push(`[Document: ${doc.filename}]`)
+        const docLabel = doc.label?.trim() || doc.filename
+        lines.push(`[Document: ${docLabel}${doc.document_type ? ` (${doc.document_type})` : ''}]`)
         lines.push(trimLines(doc.extracted_text))
       } else if (doc.extraction_status === 'pending') {
         lines.push(`[Document extraction pending: ${doc.filename}]`)

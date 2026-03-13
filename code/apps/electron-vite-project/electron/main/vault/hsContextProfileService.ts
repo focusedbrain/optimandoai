@@ -16,6 +16,7 @@ import type { VaultTier } from './types'
 import { sealRecord, openRecord } from './envelope'
 import { runExtractionJob } from './hsContextOcrJob'
 import type { HsContextProfile, ProfileFields, CustomField, ProfileDocumentSummary } from './hsContextNormalize'
+import { validateDocumentLabel, validateDocumentType } from '../../../../../packages/shared/src/handshake/hsContextFieldValidation'
 
 
 // ── Re-export types consumers need ──
@@ -49,6 +50,9 @@ export interface HsContextProfileDocumentRow {
   extracted_at: number | null
   extractor_name: string | null
   error_message: string | null
+  sensitive?: number
+  label?: string | null
+  document_type?: string | null
   created_at: number
 }
 
@@ -117,10 +121,14 @@ function rowToDetail(
   docRows: HsContextProfileDocumentRow[],
 ): HsContextProfileDetail {
   const documents: ProfileDocumentSummary[] = docRows.map((d) => ({
+    id: d.id,
     filename: d.filename,
+    label: d.label ?? undefined,
+    document_type: d.document_type ?? undefined,
     extraction_status: d.extraction_status,
     extracted_text: d.extracted_text,
     error_message: d.error_message,
+    sensitive: !!(d.sensitive ?? 0),
   }))
 
   return {
@@ -297,17 +305,27 @@ export function duplicateProfile(
 
 // ── Document CRUD ──
 
+/** PDF magic bytes: %PDF */
+const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46])
+
+function isPdfBuffer(buf: Buffer): boolean {
+  return buf.length >= 4 && buf.subarray(0, 4).equals(PDF_MAGIC)
+}
+
 /**
  * Upload a PDF document to a profile.
  * Stores the encrypted content and kicks off async text extraction.
  *
- * @param db         Open vault DB.
- * @param tier       Current user tier.
- * @param kek        Key-encryption key for sealing the document.
- * @param profileId  Target profile ID.
- * @param filename   Original filename.
- * @param mimeType   MIME type (should be application/pdf).
- * @param content    Raw PDF bytes.
+ * @param db            Open vault DB.
+ * @param tier          Current user tier.
+ * @param kek           Key-encryption key for sealing the document.
+ * @param profileId     Target profile ID.
+ * @param filename      Original filename.
+ * @param mimeType      MIME type (should be application/pdf).
+ * @param content       Raw PDF bytes.
+ * @param sensitive     Optional: mark document as sensitive (restricts cloud AI and search).
+ * @param label         Optional: user-defined label/title for the document.
+ * @param documentType  Optional: document type (manual, contract, custom, etc.).
  */
 export async function uploadProfileDocument(
   db: any,
@@ -317,8 +335,15 @@ export async function uploadProfileDocument(
   filename: string,
   mimeType: string,
   content: Buffer,
+  sensitive = false,
+  label?: string | null,
+  documentType?: string | null,
 ): Promise<HsContextProfileDocumentRow> {
   requireHsContextAccess(tier, 'write')
+
+  if (!isPdfBuffer(content)) {
+    throw new Error('Invalid PDF: file must start with PDF magic bytes (%PDF)')
+  }
 
   const profileRow: HsContextProfileRow | undefined = db
     .prepare('SELECT id FROM hs_context_profiles WHERE id = ?')
@@ -353,9 +378,9 @@ export async function uploadProfileDocument(
 
   db.prepare(`
     INSERT INTO hs_context_profile_documents
-      (id, profile_id, filename, mime_type, storage_key, scope, extraction_status, created_at)
-    VALUES (?, ?, ?, ?, ?, 'confidential', 'pending', ?)
-  `).run(docId, profileId, filename, mimeType, storageKey, now)
+      (id, profile_id, filename, mime_type, storage_key, scope, extraction_status, sensitive, label, document_type, created_at)
+    VALUES (?, ?, ?, ?, ?, 'confidential', 'pending', ?, ?, ?, ?)
+  `).run(docId, profileId, filename, mimeType, storageKey, sensitive ? 1 : 0, label?.trim() || null, documentType?.trim() || null, now)
 
   // Bump profile updated_at
   db.prepare('UPDATE hs_context_profiles SET updated_at = ? WHERE id = ?').run(now, profileId)
@@ -421,6 +446,48 @@ export function deleteProfileDocument(db: any, tier: VaultTier, documentId: stri
   db.prepare('DELETE FROM hs_context_profile_documents WHERE id = ?').run(documentId)
 
   // Bump profile updated_at
+  db.prepare('UPDATE hs_context_profiles SET updated_at = ? WHERE id = ?')
+    .run(Date.now(), docRow.profile_id)
+}
+
+/**
+ * Update document metadata (label, document_type).
+ * Additive; only updates provided fields.
+ * Validates label and document_type (aligns with upload path validation).
+ */
+export function updateProfileDocumentMeta(
+  db: any,
+  tier: VaultTier,
+  documentId: string,
+  updates: { label?: string | null; document_type?: string | null },
+): void {
+  requireHsContextAccess(tier, 'write')
+
+  const docRow: HsContextProfileDocumentRow | undefined = db
+    .prepare('SELECT * FROM hs_context_profile_documents WHERE id = ?')
+    .get(documentId)
+  if (!docRow) throw new Error(`Document not found: ${documentId}`)
+
+  const setClauses: string[] = []
+  const values: unknown[] = []
+
+  if (updates.label !== undefined) {
+    const r = validateDocumentLabel(updates.label)
+    if (!r.ok) throw new Error(r.error)
+    setClauses.push('label = ?')
+    values.push(r.value || null)
+  }
+  if (updates.document_type !== undefined) {
+    const r = validateDocumentType(updates.document_type)
+    if (!r.ok) throw new Error(r.error)
+    setClauses.push('document_type = ?')
+    values.push(r.value || null)
+  }
+  if (setClauses.length === 0) return
+
+  values.push(documentId)
+  db.prepare(`UPDATE hs_context_profile_documents SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+
   db.prepare('UPDATE hs_context_profiles SET updated_at = ? WHERE id = ?')
     .run(Date.now(), docRow.profile_id)
 }

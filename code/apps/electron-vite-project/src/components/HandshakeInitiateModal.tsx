@@ -16,6 +16,7 @@ interface Props {
 
 export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
   const [vaultStatus, setVaultStatus] = useState<{ isUnlocked: boolean; name: string | null }>({ isUnlocked: false, name: null })
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
   const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_AI_POLICY)
   const [requiresVault, setRequiresVault] = useState(false)
 
@@ -24,8 +25,10 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
       try {
         const s = await window.handshakeView?.getVaultStatus?.()
         setVaultStatus({ isUnlocked: s?.isUnlocked ?? false, name: s?.name ?? null })
+        setCanUseHsContextProfiles(s?.canUseHsContextProfiles ?? false)
       } catch {
         setVaultStatus({ isUnlocked: false, name: null })
+        setCanUseHsContextProfiles(false)
       }
     }
     check()
@@ -86,10 +89,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess }: Props) {
           policySelections={policies}
           onRequiresVaultChange={setRequiresVault}
           isVaultUnlocked={vaultStatus.isUnlocked}
-          // TODO(feature-gate): Wire to actual plan/subscription check.
-          // Context Profiles require Publisher or Enterprise plan.
-          // Currently hardcoded to true — all users get access.
-          canUseHsContextProfiles={true}
+          canUseHsContextProfiles={canUseHsContextProfiles}
         />
       </div>
     </div>

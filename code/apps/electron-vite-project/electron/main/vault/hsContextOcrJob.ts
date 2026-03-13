@@ -21,6 +21,11 @@ const require = createRequire(import.meta.url)
 // Pages with fewer characters will fall back to OCR.
 const MIN_TEXT_CHARS_PER_PAGE = 30
 
+// Extracted text validation limits
+const EXTRACTED_TEXT_MAX_LENGTH = 2_000_000 // ~2MB of plain text
+const CONTROL_CHAR_REGEX = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+const HTML_TAG_REGEX = /<[^>]+>/g
+
 // ── Types ──
 
 export interface OcrJobResult {
@@ -169,6 +174,36 @@ export async function extractTextFromPdf(pdfBuffer: Buffer): Promise<OcrJobResul
   }
 }
 
+// ── Extracted text validation ──
+
+/**
+ * Validate and sanitize extracted document text before persistence.
+ * Rejects clearly unsafe or unusable outputs. Returns null if validation fails.
+ */
+export function validateExtractedText(text: string | null | undefined): { ok: true; sanitized: string } | { ok: false; reason: string } {
+  if (text == null || typeof text !== 'string') {
+    return { ok: false, reason: 'Extracted text is missing or not a string' }
+  }
+  if (text.length > EXTRACTED_TEXT_MAX_LENGTH) {
+    return { ok: false, reason: `Extracted text exceeds maximum length (${EXTRACTED_TEXT_MAX_LENGTH} chars)` }
+  }
+  // Strip control characters
+  const withoutControl = text.replace(CONTROL_CHAR_REGEX, '')
+  // Reject if HTML/markup present (conservative: any tag-like content)
+  if (HTML_TAG_REGEX.test(withoutControl)) {
+    return { ok: false, reason: 'Extracted text contains HTML or markup' }
+  }
+  // Normalize to plain text: collapse excessive newlines, trim
+  const normalized = withoutControl
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (!normalized) {
+    return { ok: false, reason: 'Extracted text is empty after sanitization' }
+  }
+  return { ok: true, sanitized: normalized }
+}
+
 // ── DB update helpers ──
 
 export function markDocumentExtractionPending(db: any, documentId: string): void {
@@ -229,13 +264,19 @@ export async function runExtractionJob(
   const result = await extractTextFromPdf(pdfBuffer)
 
   if (result.success && result.extracted_text !== undefined) {
-    markDocumentExtractionSuccess(
-      db,
-      documentId,
-      result.extracted_text,
-      result.extractor_name ?? 'unknown',
-    )
-    console.log(`[HS OCR] Extraction succeeded (${result.extractor_name}) for document: ${documentId}`)
+    const validation = validateExtractedText(result.extracted_text)
+    if (validation.ok) {
+      markDocumentExtractionSuccess(
+        db,
+        documentId,
+        validation.sanitized,
+        result.extractor_name ?? 'unknown',
+      )
+      console.log(`[HS OCR] Extraction succeeded (${result.extractor_name}) for document: ${documentId}`)
+    } else {
+      markDocumentExtractionFailed(db, documentId, `Validation failed: ${validation.reason}`)
+      console.warn(`[HS OCR] Extracted text validation failed for document ${documentId}:`, validation.reason)
+    }
   } else {
     markDocumentExtractionFailed(db, documentId, result.error_message ?? 'Extraction failed')
     console.error(`[HS OCR] Extraction failed for document ${documentId}:`, result.error_message)

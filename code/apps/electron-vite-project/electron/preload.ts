@@ -268,6 +268,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
   queryContextBlocks: (handshakeId: unknown, purpose?: string) => {
     return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'), purpose)
   },
+  requestOriginalDocument: (documentId: unknown, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+    return ipcRenderer.invoke('handshake:requestOriginalDocument', assertString(documentId, 'documentId'), acknowledgedWarning, handshakeId ?? null)
+  },
+  requestLinkOpenApproval: (linkEntityId: unknown, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+    return ipcRenderer.invoke('handshake:requestLinkOpenApproval', assertString(linkEntityId, 'linkEntityId'), acknowledgedWarning, handshakeId ?? null)
+  },
   semanticSearch: async (query: string, scope?: string, limit?: number) => {
     return ipcRenderer.invoke('handshake:semanticSearch', query, scope, limit)
   },

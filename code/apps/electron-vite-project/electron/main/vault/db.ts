@@ -522,6 +522,7 @@ export function migrateHsContextProfileTables(db: any): void {
         extracted_at INTEGER,
         extractor_name TEXT,
         error_message TEXT,
+        sensitive INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )
     `).run()
@@ -530,11 +531,81 @@ export function migrateHsContextProfileTables(db: any): void {
     console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents table:', e?.message)
   }
 
+  // Additive migration: sensitive column for existing tables
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.sensitive column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add sensitive column:', e?.message)
+    }
+  }
+
+  // Additive migration: label and document_type for labeled custom documents
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN label TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.label column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add label column:', e?.message)
+    }
+  }
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN document_type TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.document_type column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add document_type column:', e?.message)
+    }
+  }
+
   try {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_profile ON hs_context_profile_documents(profile_id)').run()
     db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_status ON hs_context_profile_documents(extraction_status)').run()
   } catch (e: any) {
     console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents indexes:', e?.message)
+  }
+
+  // ── HS Context access approvals (whitelist for originals + links) ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_access_approvals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('document','link')),
+        entity_id TEXT NOT NULL,
+        handshake_id TEXT,
+        actor_wrdesk_user_id TEXT NOT NULL,
+        approved_at TEXT NOT NULL,
+        UNIQUE(entity_type, entity_id, actor_wrdesk_user_id)
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_approvals_entity ON hs_context_access_approvals(entity_type, entity_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_approvals_actor ON hs_context_access_approvals(actor_wrdesk_user_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_access_approvals table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_access_approvals:', e?.message)
+  }
+
+  // ── HS Context access audit ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_access_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        handshake_id TEXT,
+        actor_wrdesk_user_id TEXT,
+        outcome TEXT,
+        metadata TEXT
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_audit_timestamp ON hs_context_access_audit(timestamp)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_audit_entity ON hs_context_access_audit(entity_type, entity_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_access_audit table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_access_audit:', e?.message)
   }
 }
 

@@ -206,14 +206,33 @@ export interface BlockWithGovernance {
   [key: string]: unknown
 }
 
-/** Check if item-level usage policy allows the given action. Explicit deny wins. */
+/**
+ * Resolve effective usage policy.
+ * Sensitive as restrictive override: sensitive=true forces cloud_ai_allowed and searchable to false,
+ * excluding the item from cloud AI and search/embedding regardless of baseline.
+ */
+function resolveEffectiveUsagePolicy(policy: UsagePolicy | null | undefined): UsagePolicy | null {
+  if (!policy) return null
+  if (policy.sensitive === true) {
+    return {
+      ...policy,
+      cloud_ai_allowed: false,
+      searchable: false,
+    }
+  }
+  return policy
+}
+
+/** Check if item-level usage policy allows the given action. Explicit deny wins. Sensitive override enforced. */
 function itemAllowsUsage(
   governance: ContextItemGovernance | null | undefined,
   field: keyof UsagePolicy,
   denyByDefault: boolean,
 ): boolean {
   if (!governance?.usage_policy) return !denyByDefault
-  const val = governance.usage_policy[field]
+  const effective = resolveEffectiveUsagePolicy(governance.usage_policy)
+  if (!effective) return !denyByDefault
+  const val = effective[field]
   if (val === false) return false
   if (val === true) return true
   return !denyByDefault

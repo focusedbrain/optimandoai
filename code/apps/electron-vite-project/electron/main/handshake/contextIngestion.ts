@@ -10,6 +10,10 @@
  *   - Deduplication by (block_id, block_hash) pair
  *   - Version supersession when block_id matches but block_hash differs
  *   - All blocks linked to handshake_id for per-handshake retrieval
+ *
+ * Sensitive preservation: For vault_profile blocks, we parse content to derive
+ * profileSensitive from documents. If any document has sensitive === true,
+ * governance.usage_policy.sensitive is set so cloud AI/search filters exclude it.
  */
 
 import { verifyContextCommitment, computeBlockHash, type ContextBlockForCommitment } from './contextCommitment'
@@ -38,6 +42,25 @@ export interface ContextIngestionResult {
   inserted: number
   deduplicated: number
   superseded: number
+}
+
+/**
+ * Parse vault_profile block content to detect if any document is sensitive.
+ * Backward-compatible: older blocks without documents/sensitive fields return false.
+ * Exported for tests.
+ */
+export function parseVaultProfileSensitive(content: string | Record<string, unknown> | null | undefined): boolean {
+  if (content == null) return false
+  let parsed: { documents?: Array<{ sensitive?: boolean }> }
+  try {
+    parsed = typeof content === 'string' ? JSON.parse(content) : content
+  } catch {
+    return false
+  }
+  if (!parsed || typeof parsed !== 'object') return false
+  const docs = parsed.documents
+  if (!Array.isArray(docs)) return false
+  return docs.some((d) => d && d.sensitive === true)
 }
 
 /**
@@ -132,12 +155,22 @@ export function ingestContextBlocks(
       publisher_id: input.publisher_id,
       source: 'received',
     }
-    const governance = record
+    let governance = record
       ? inferGovernanceFromLegacy(legacy, record, input.relationship_id)
       : inferGovernanceFromLegacy(legacy, {
           effective_policy: { allowsCloudEscalation: false, allowsExport: false, allowedScopes: ['*'] } as any,
           policy_selections: undefined,
         } as any, input.relationship_id)
+
+    // Sensitive preservation: vault_profile blocks with sensitive documents must
+    // have usage_policy.sensitive so cloud AI/search filters exclude them.
+    if (block.type === 'vault_profile' && parseVaultProfileSensitive(block.content)) {
+      governance = {
+        ...governance,
+        usage_policy: { ...governance.usage_policy, sensitive: true },
+      }
+    }
+
     const governanceJson = JSON.stringify(governance)
 
     const visibility = (block as { visibility?: 'public' | 'private' }).visibility ?? 'public'

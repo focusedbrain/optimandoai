@@ -73,6 +73,16 @@ export interface ProfileFields {
   address?: string
   country?: string
   website?: string
+  linkedin?: string
+  twitter?: string
+  facebook?: string
+  instagram?: string
+  youtube?: string
+  officialLink?: string
+  supportUrl?: string
+  generalPhone?: string
+  generalEmail?: string
+  supportEmail?: string
   vatNumber?: string
   companyRegistrationNumber?: string
   supplierNumber?: string
@@ -106,9 +116,12 @@ export interface ProfileDocumentSummary {
   profile_id: string
   filename: string
   mime_type: string
+  label?: string | null
+  document_type?: string | null
   extraction_status: 'pending' | 'success' | 'failed'
   extracted_text?: string | null
   error_message?: string | null
+  sensitive?: boolean
   created_at: number
 }
 
@@ -192,10 +205,16 @@ export async function duplicateHsProfile(profileId: string): Promise<HsContextPr
 /**
  * Upload a PDF document to a profile.
  * Converts the File to base64 before sending over RPC.
+ * @param sensitive If true, marks the document as sensitive (restricts cloud AI and search).
+ * @param label Optional user-defined label/title for the document.
+ * @param documentType Optional document type (manual, contract, custom, etc.).
  */
 export async function uploadHsProfileDocument(
   profileId: string,
   file: File,
+  sensitive = false,
+  label?: string | null,
+  documentType?: string | null,
 ): Promise<ProfileDocumentSummary> {
   const buffer = await file.arrayBuffer()
   const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
@@ -206,12 +225,62 @@ export async function uploadHsProfileDocument(
       filename: file.name,
       mimeType: file.type || 'application/pdf',
       contentBase64: base64,
+      sensitive,
+      label: label ?? null,
+      documentType: documentType ?? null,
     },
     60_000, // longer timeout for file upload + extraction
   )
   return res.document
 }
 
+/**
+ * Update document metadata (label, document_type).
+ */
+export async function updateHsProfileDocumentMeta(
+  documentId: string,
+  updates: { label?: string | null; document_type?: string | null },
+): Promise<void> {
+  await sendVaultRpc('vault.hsProfiles.updateDocumentMeta', {
+    documentId,
+    label: updates.label ?? null,
+    document_type: updates.document_type ?? null,
+  })
+}
+
 export async function deleteHsProfileDocument(documentId: string): Promise<void> {
   await sendVaultRpc('vault.hsProfiles.deleteDocument', { documentId })
+}
+
+/**
+ * Request original document content (whitelist-gated). Requires acknowledgedWarning.
+ * Returns base64 content for download, or error if not approved.
+ */
+export async function requestOriginalDocument(
+  documentId: string,
+  acknowledgedWarning: boolean,
+  handshakeId?: string | null,
+  actorUserId?: string,
+): Promise<{ success: boolean; error?: string; approved?: boolean; contentBase64?: string; filename?: string; mimeType?: string }> {
+  const res = await sendVaultRpc<{ success: boolean; error?: string; approved?: boolean; contentBase64?: string; filename?: string; mimeType?: string }>(
+    'vault.hsProfiles.requestOriginalDocument',
+    { documentId, acknowledgedWarning, handshakeId: handshakeId ?? null, actorUserId: actorUserId ?? '' },
+  )
+  return res
+}
+
+/**
+ * Request link open approval (whitelist-gated). Requires acknowledgedWarning.
+ */
+export async function requestLinkOpenApproval(
+  linkEntityId: string,
+  acknowledgedWarning: boolean,
+  handshakeId?: string | null,
+  actorUserId?: string,
+): Promise<{ success: boolean; error?: string; approved?: boolean }> {
+  const res = await sendVaultRpc<{ success: boolean; error?: string; approved?: boolean }>(
+    'vault.hsProfiles.requestLinkOpenApproval',
+    { linkEntityId, acknowledgedWarning, handshakeId: handshakeId ?? null, actorUserId: actorUserId ?? '' },
+  )
+  return res
 }

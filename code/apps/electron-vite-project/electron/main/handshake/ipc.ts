@@ -42,6 +42,7 @@ import {
   filterBlocksForPeerTransmission,
   filterBlocksForAutoReply,
   type ContextItemGovernance,
+  type UsagePolicy,
 } from './contextGovernance'
 import {
   insertContextStoreEntry,
@@ -165,9 +166,17 @@ function resolveProfileIdsToContextBlocks(
     const scopeLabel = scope === 'acceptor' ? 'acceptor' : 'initiator'
     for (let i = 0; i < resolved.length && blocks.length < MAX_BLOCKS_PER_CAPSULE; i++) {
       const { profile, documents } = resolved[i]
+      const profileSensitive = documents.some((d: any) => d.sensitive === true)
       const content = JSON.stringify({
-        profile: { id: profile.id, name: profile.name, fields: profile.fields, custom_fields: profile.custom_fields },
-        documents: documents.map((d: any) => ({ filename: d.filename, extracted_text: d.extracted_text })),
+        profile: { id: profile.id, name: profile.name, description: profile.description, fields: profile.fields, custom_fields: profile.custom_fields },
+        documents: documents.map((d: any) => ({
+          id: d.id,
+          filename: d.filename,
+          label: d.label ?? null,
+          document_type: d.document_type ?? null,
+          extracted_text: d.extracted_text,
+          sensitive: !!d.sensitive,
+        })),
       })
       const blockHash = computeBlockHash(content)
       blocks.push({
@@ -176,7 +185,8 @@ function resolveProfileIdsToContextBlocks(
         type: 'vault_profile',
         content,
         scope_id: scope,
-      })
+        profileSensitive,
+      } as any)
     }
     return blocks
   } catch {
@@ -737,7 +747,7 @@ export async function handleHandshakeRPC(
         })
       }
 
-      const buildGovernanceForReceiverBlock = (b: { block_id: string; type: string; scope_id?: string | null }): ContextItemGovernance => {
+      const buildGovernanceForReceiverBlock = (b: { block_id: string; type: string; scope_id?: string | null; profileSensitive?: boolean }): ContextItemGovernance => {
         const isMsg = b.type === 'message' || b.block_id?.startsWith('ctx-msg')
         if (isMsg) {
           return createMessageGovernance({
@@ -750,9 +760,13 @@ export async function handleHandshakeRPC(
         const effectiveBaseline = itemPolicy
           ? baselineFromPolicySelections(itemPolicy, record.effective_policy)
           : baseline
+        const usagePolicy: UsagePolicy = {
+          ...effectiveBaseline,
+          ...((b as any).profileSensitive === true ? { sensitive: true } : {}),
+        }
         return createDefaultGovernance({
           origin: 'local',
-          usage_policy: { ...effectiveBaseline },
+          usage_policy: usagePolicy,
           provenance: { publisher_id: session.wrdesk_user_id, sender_wrdesk_user_id: session.wrdesk_user_id },
         })
       }

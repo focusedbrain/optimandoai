@@ -57,6 +57,8 @@ export interface UsagePolicy {
   auto_reply_allowed: boolean;
   export_allowed: boolean;
   transmit_to_peer_allowed: boolean;
+  /** Restrictive override: when true, cloud_ai_allowed and searchable are treated as false. Does not auto-enable local_ai or disable peer transfer. */
+  sensitive?: boolean;
 }
 
 export const DEFAULT_USAGE_POLICY: UsagePolicy = {

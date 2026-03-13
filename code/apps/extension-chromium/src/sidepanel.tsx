@@ -41,6 +41,7 @@ import { useHandshakes } from './handshake/useHandshakes'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
+import { getVaultStatus } from './vault/api'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -127,7 +128,24 @@ function SidepanelOrchestrator() {
   const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'>('draft')
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
-  
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  // Fetch vault status for HS Context gating (Publisher+ only)
+  useEffect(() => {
+    const fetchVault = async () => {
+      try {
+        const status = await getVaultStatus()
+        setCanUseHsContextProfiles(status?.canUseHsContextProfiles ?? false)
+      } catch {
+        setCanUseHsContextProfiles(false)
+      }
+    }
+    fetchVault()
+    const h = () => fetchVault()
+    window.addEventListener('vault-status-changed', h)
+    return () => window.removeEventListener('vault-status-changed', h)
+  }, [])
+
   // Helper to get combined mode for conditional rendering
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   
@@ -4355,7 +4373,7 @@ function SidepanelOrchestrator() {
                     emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                     onSelectEmailAccount={setSelectedEmailAccountId}
                     onSuccess={() => setDockedSubmode('command')}
-                    canUseHsContextProfiles={true}
+                    canUseHsContextProfiles={canUseHsContextProfiles}
                     policySelections={hsPolicy}
                   />
                 </div>
@@ -6053,7 +6071,7 @@ height: '28px',
                   emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                   onSelectEmailAccount={setSelectedEmailAccountId}
                   onSuccess={() => setDockedSubmode('command')}
-                  canUseHsContextProfiles={true}
+                  canUseHsContextProfiles={canUseHsContextProfiles}
                   policySelections={hsPolicy}
                 />
               </div>
@@ -7144,7 +7162,7 @@ height: '28px',
                   emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                   onSelectEmailAccount={setSelectedEmailAccountId}
                   onSuccess={() => setDockedSubmode('command')}
-                  canUseHsContextProfiles={true}
+                  canUseHsContextProfiles={canUseHsContextProfiles}
                   policySelections={hsPolicy}
                 />
               </div>

@@ -24,6 +24,14 @@ import type {
   UpdateProfileInput,
 } from '../hsContextProfilesRpc'
 import { HsContextDocumentUpload } from './HsContextDocumentUpload'
+import {
+  validateUrl,
+  validateEmail,
+  validatePhone,
+  validateIdentifier,
+  validatePlainText,
+  validateOpeningHoursEntry,
+} from '@shared/handshake/hsContextFieldValidation'
 
 interface Props {
   profileId?: string
@@ -131,13 +139,85 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     setSaving(true)
     setError(null)
 
+    // Strict validation for provided fields (all optional, but validated when filled)
+    const validatedFields = { ...fields }
+    const urlFields: Array<keyof ProfileFields> = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
+    for (const k of urlFields) {
+      const v = (fields as Record<string, unknown>)[k]
+      if (typeof v === 'string' && v.trim()) {
+        const r = validateUrl(v)
+        if (!r.ok) { setError(`${k}: ${r.error}`); setSaving(false); return }
+        ;(validatedFields as Record<string, string>)[k] = r.value
+      }
+    }
+    if (fields.billingEmail?.trim()) {
+      const r = validateEmail(fields.billingEmail)
+      if (!r.ok) { setError(`Billing email: ${r.error}`); setSaving(false); return }
+      validatedFields.billingEmail = r.value
+    }
+    if (fields.generalPhone?.trim()) {
+      const r = validatePhone(fields.generalPhone)
+      if (!r.ok) { setError(`General phone: ${r.error}`); setSaving(false); return }
+      validatedFields.generalPhone = r.value
+    }
+    if (fields.generalEmail?.trim()) {
+      const r = validateEmail(fields.generalEmail)
+      if (!r.ok) { setError(`General email: ${r.error}`); setSaving(false); return }
+      validatedFields.generalEmail = r.value
+    }
+    if (fields.supportEmail?.trim()) {
+      const r = validateEmail(fields.supportEmail)
+      if (!r.ok) { setError(`Support email: ${r.error}`); setSaving(false); return }
+      validatedFields.supportEmail = r.value
+    }
+    const validatedContacts: Array<{ name?: string; role?: string; email?: string; phone?: string; notes?: string }> = []
+    for (const c of fields.contacts ?? []) {
+      const out = { ...c }
+      if (c.email?.trim()) {
+        const r = validateEmail(c.email)
+        if (!r.ok) { setError(`Contact email: ${r.error}`); setSaving(false); return }
+        out.email = r.value
+      }
+      if (c.phone?.trim()) {
+        const r = validatePhone(c.phone)
+        if (!r.ok) { setError(`Contact phone: ${r.error}`); setSaving(false); return }
+        out.phone = r.value
+      }
+      validatedContacts.push(out)
+    }
+    validatedFields.contacts = validatedContacts
+    const idFields: Array<keyof ProfileFields> = ['vatNumber', 'companyRegistrationNumber', 'supplierNumber', 'customerNumber']
+    for (const k of idFields) {
+      const v = (fields as Record<string, unknown>)[k]
+      if (typeof v === 'string' && v.trim()) {
+        const r = validateIdentifier(v)
+        if (!r.ok) { setError(`${k}: ${r.error}`); setSaving(false); return }
+        ;(validatedFields as Record<string, string>)[k] = r.value
+      }
+    }
+    if (description.trim()) {
+      const r = validatePlainText(description)
+      if (!r.ok) { setError(`Description: ${r.error}`); setSaving(false); return }
+    }
+    const validatedOpeningHours: Array<{ days: string; from: string; to: string }> = []
+    for (const h of fields.openingHours ?? []) {
+      if (!h.days && !h.from && !h.to) {
+        validatedOpeningHours.push({ days: h.days ?? '', from: h.from ?? '', to: h.to ?? '' })
+        continue
+      }
+      const r = validateOpeningHoursEntry(h)
+      if (!r.ok) { setError(`Opening hours: ${r.error}`); setSaving(false); return }
+      validatedOpeningHours.push(r.value)
+    }
+    validatedFields.openingHours = validatedOpeningHours
+
     const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean)
     const input: CreateProfileInput | UpdateProfileInput = {
       name: name.trim(),
       description: description.trim() || undefined,
       scope,
       tags,
-      fields,
+      fields: validatedFields,
       custom_fields: customFields.filter((cf) => cf.label.trim()),
     }
 
@@ -279,15 +359,14 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Business Identity */}
+        {/* Company / Organization */}
         <div style={sectionStyle}>
-          <div style={sectionHeadingStyle}>Business Identity</div>
+          <div style={sectionHeadingStyle}>Company / Organization</div>
           {[
             ['legalCompanyName', 'Legal Company Name'],
-            ['tradeName', 'Trade Name (optional)'],
+            ['tradeName', 'Display Name (if distinct)'],
             ['address', 'Address'],
             ['country', 'Country'],
-            ['website', 'Website'],
           ].map(([key, label]) => (
             <div key={key}>
               <label style={labelStyle}>{label}</label>
@@ -295,6 +374,31 @@ export const HsContextProfileEditor: React.FC<Props> = ({
                 value={(fields as any)[key] ?? ''}
                 onChange={(e) => setField(key as any, e.target.value)}
                 style={inputStyle}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Links / Online Presence */}
+        <div style={sectionStyle}>
+          <div style={sectionHeadingStyle}>Links / Online Presence</div>
+          {[
+            ['website', 'Website'],
+            ['linkedin', 'LinkedIn'],
+            ['twitter', 'Twitter / X'],
+            ['facebook', 'Facebook'],
+            ['instagram', 'Instagram'],
+            ['youtube', 'YouTube'],
+            ['officialLink', 'Official Link'],
+            ['supportUrl', 'Support URL'],
+          ].map(([key, label]) => (
+            <div key={key}>
+              <label style={labelStyle}>{label}</label>
+              <input
+                value={(fields as any)[key] ?? ''}
+                onChange={(e) => setField(key as any, e.target.value)}
+                style={inputStyle}
+                placeholder="https://..."
               />
             </div>
           ))}
@@ -324,6 +428,23 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         <div style={sectionStyle}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={sectionHeadingStyle}>Contacts</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={labelStyle}>General Phone</label>
+              <input value={fields.generalPhone ?? ''} onChange={(e) => setField('generalPhone', e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>General Email</label>
+              <input type="email" value={fields.generalEmail ?? ''} onChange={(e) => setField('generalEmail', e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>Support Email</label>
+              <input type="email" value={fields.supportEmail ?? ''} onChange={(e) => setField('supportEmail', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+            <div style={sectionHeadingStyle}>Contact Persons</div>
             <button
               onClick={addContact}
               style={{

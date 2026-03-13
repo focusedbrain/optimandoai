@@ -12,14 +12,17 @@ interface Props {
 
 export default function HandshakeRequestView({ onBack }: Props) {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false)
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
 
   useEffect(() => {
     const check = async () => {
       try {
         const s = await window.handshakeView?.getVaultStatus?.()
         setIsVaultUnlocked(s?.isUnlocked ?? false)
+        setCanUseHsContextProfiles(s?.canUseHsContextProfiles ?? false)
       } catch {
         setIsVaultUnlocked(false)
+        setCanUseHsContextProfiles(false)
       }
     }
     check()
@@ -35,10 +38,7 @@ export default function HandshakeRequestView({ onBack }: Props) {
         onBack={onBack}
         isVaultUnlocked={isVaultUnlocked}
         fromAccountId=""
-        // TODO(feature-gate): Wire to actual plan/subscription check.
-        // Context Profiles require Publisher or Enterprise plan.
-        // Currently hardcoded to true — all users get access.
-        canUseHsContextProfiles={true}
+        canUseHsContextProfiles={canUseHsContextProfiles}
       />
     </div>
   )

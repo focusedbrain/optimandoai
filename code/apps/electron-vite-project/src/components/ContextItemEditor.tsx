@@ -18,6 +18,7 @@ export interface ContextItemGovernanceEdit {
     auto_reply_allowed: boolean
     export_allowed: boolean
     transmit_to_peer_allowed: boolean
+    sensitive?: boolean
   }
 }
 
@@ -35,6 +36,7 @@ export default function ContextItemEditor({ block, onSave, onClose }: Props) {
   const [contentType, setContentType] = useState(g?.content_type ?? block.type ?? 'plaintext')
   const [sensitivity, setSensitivity] = useState(g?.sensitivity ?? 'internal')
   const [searchable, setSearchable] = useState(g?.usage_policy?.searchable ?? false)
+  const [sensitive, setSensitive] = useState(g?.usage_policy?.sensitive ?? false)
   const [localAi, setLocalAi] = useState(g?.usage_policy?.local_ai_allowed ?? false)
   const [cloudAi, setCloudAi] = useState(g?.usage_policy?.cloud_ai_allowed ?? false)
   const [autoReply, setAutoReply] = useState(g?.usage_policy?.auto_reply_allowed ?? false)
@@ -52,6 +54,7 @@ export default function ContextItemEditor({ block, onSave, onClose }: Props) {
         auto_reply_allowed: autoReply,
         export_allowed: exportAllowed,
         transmit_to_peer_allowed: transmitToPeer,
+        sensitive,
       },
     })
     onClose()
@@ -135,6 +138,14 @@ export default function ContextItemEditor({ block, onSave, onClose }: Props) {
         </label>
 
         <div style={{ marginTop: '16px', fontSize: '11px', fontWeight: 600, color: '#94a3b8', marginBottom: '8px' }}>Usage policy</div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={sensitive} onChange={() => setSensitive(!sensitive)} style={{ margin: 0, marginTop: '2px' }} />
+          <span style={{ flex: 1 }}>
+            <span style={{ fontSize: '12px', color: '#d0d0d0' }}>Sensitive</span>
+            <span title="If enabled, this item stays restricted to the inner vault of the receiving orchestrator and must not be queryable by external AI. This does not automatically prevent peer transfer." style={{ marginLeft: '6px', cursor: 'help', color: '#64748b', fontSize: '11px' }}>ⓘ</span>
+          </span>
+        </label>
 
         {[
           { label: 'Searchable', value: searchable, set: setSearchable },

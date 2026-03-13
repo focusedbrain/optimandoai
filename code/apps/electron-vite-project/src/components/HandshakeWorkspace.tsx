@@ -10,6 +10,9 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import { parsePolicyToMode } from '@shared/handshake/policyUtils'
+import { validateHsContextLink, linkEntityId } from '@shared/handshake/linkValidation'
+import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
+import StructuredHsContextPanel, { KNOWN_HS_CONTEXT_LINK_FIELDS } from './StructuredHsContextPanel'
 
 // ── Types ──
 
@@ -222,19 +225,59 @@ function InlineFilterChip({ label, active, disabled, onClick }: { label: string;
 function BlockCard({
   block,
   vaultUnlocked,
+  handshakeId,
   onVisibilityChange,
 }: {
   block: ContextBlockWithVisibility
   vaultUnlocked: boolean
+  handshakeId: string
   onVisibilityChange: () => void
 }) {
   const [readMore, setReadMore] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [unstructuredExpanded, setUnstructuredExpanded] = useState(false)
+  const [warningDialog, setWarningDialog] = useState<{ kind: 'original' | 'link'; targetLabel: string; documentId?: string; linkUrl?: string } | null>(null)
   const isPrivate = block.visibility === 'private'
   const contentHidden = isPrivate && !vaultUnlocked
   const canToggle = vaultUnlocked
   const hasProfile = block.hasStructuredProfile
+  const isOwnBlock = block.source === 'sent'
+  const { documents, links } = parseBlockPayloadForProtectedAccess(block.payload)
+  const validLinks = links
+    .map(({ url }) => ({ url, validation: validateHsContextLink(url) }))
+    .filter(({ validation }) => validation.ok) as Array<{ url: string; validation: { ok: true; url: string } }>
+
+  const handleViewOriginal = (doc: { id: string; filename: string }) => {
+    setWarningDialog({ kind: 'original', targetLabel: doc.filename, documentId: doc.id })
+  }
+  const handleOpenLink = (url: string) => {
+    setWarningDialog({ kind: 'link', targetLabel: url, linkUrl: url })
+  }
+  const handleWarningAcknowledge = async () => {
+    if (!warningDialog) return
+    const { kind, documentId, linkUrl } = warningDialog
+    setWarningDialog(null)
+    if (kind === 'original' && documentId) {
+      const result = await window.handshakeView?.requestOriginalDocument?.(documentId, true, handshakeId)
+      if (result?.success && result.contentBase64 && result.filename) {
+        try {
+          const bin = Uint8Array.from(atob(result.contentBase64), c => c.charCodeAt(0))
+          const blob = new Blob([bin], { type: result.mimeType || 'application/pdf' })
+          const a = document.createElement('a')
+          a.href = URL.createObjectURL(blob)
+          a.download = result.filename
+          a.click()
+          URL.revokeObjectURL(a.href)
+        } catch { /* ignore */ }
+      }
+    } else if (kind === 'link' && linkUrl) {
+      const validation = validateHsContextLink(linkUrl)
+      if (validation.ok) {
+        const result = await window.handshakeView?.requestLinkOpenApproval?.(linkEntityId(validation.url), true, handshakeId)
+        if (result?.success) window.open(validation.url, '_blank', 'noopener,noreferrer')
+      }
+    }
+  }
 
   return (
     <div style={{
@@ -317,6 +360,47 @@ function BlockCard({
             >
               {readMore ? 'Show less' : 'Show more'}
             </button>
+          )}
+          {vaultUnlocked && (
+            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              {isOwnBlock && documents.map((doc) => (
+                <button
+                  key={doc.id}
+                  type="button"
+                  onClick={() => handleViewOriginal(doc)}
+                  style={{
+                    fontSize: '10px', padding: '4px 8px',
+                    background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+                    borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  View original: {doc.filename}
+                </button>
+              ))}
+              {validLinks.map(({ url, validation }) => (
+                <button
+                  key={validation.url}
+                  type="button"
+                  onClick={() => handleOpenLink(url)}
+                  style={{
+                    fontSize: '10px', padding: '4px 8px',
+                    background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)',
+                    borderRadius: '4px', color: '#60a5fa', cursor: 'pointer', fontWeight: 600,
+                  }}
+                >
+                  Open link
+                </button>
+              ))}
+            </div>
+          )}
+          {warningDialog && (
+            <ProtectedAccessWarningDialog
+              kind={warningDialog.kind}
+              targetLabel={warningDialog.targetLabel}
+              open={!!warningDialog}
+              onClose={() => setWarningDialog(null)}
+              onAcknowledge={handleWarningAcknowledge}
+            />
           )}
         </>
       ) : (
@@ -552,6 +636,37 @@ function CryptoDetailsContent({
 
 // ── Main Component ──
 
+// ── Parse block payload for documents and links ──
+function parseBlockPayloadForProtectedAccess(payload: string): { documents: Array<{ id: string; filename: string }>; links: Array<{ url: string; label: string }> } {
+  const documents: Array<{ id: string; filename: string }> = []
+  const links: Array<{ url: string; label: string }> = []
+  try {
+    const parsed = JSON.parse(payload)
+    if (typeof parsed !== 'object' || parsed === null) return { documents, links }
+    if (Array.isArray(parsed.documents)) {
+      for (const d of parsed.documents) {
+        if (d?.id && d?.filename) documents.push({ id: d.id, filename: d.filename })
+      }
+    }
+    const profile = parsed.profile
+    const fields = profile?.fields
+    if (fields && typeof fields === 'object') {
+      for (const k of KNOWN_HS_CONTEXT_LINK_FIELDS) {
+        const v = (fields as Record<string, unknown>)[k]
+        if (typeof v === 'string' && v.trim()) links.push({ url: v.trim(), label: v.trim() })
+      }
+      const customFields = (profile as { custom_fields?: Array<{ value?: string }> }).custom_fields
+      if (Array.isArray(customFields)) {
+        for (const cf of customFields) {
+          const v = cf?.value
+          if (typeof v === 'string' && /^https?:\/\//i.test(v.trim())) links.push({ url: v.trim(), label: v.trim() })
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return { documents, links }
+}
+
 export default function HandshakeWorkspace({
   record,
   handshakeEmail,
@@ -622,10 +737,14 @@ export default function HandshakeWorkspace({
     loadBlocks()
   }, [loadBlocks])
 
+  // Auto-expand only when the SENDER (other party) provided HS Context (vault_profile blocks we received).
+  // Normal Pro-tier generic context must NOT trigger auto-expansion.
   useEffect(() => {
     if (loading) return
-    const anyHasProfile = blocks.some(b => b.hasStructuredProfile)
-    setContextGraphExpanded(anyHasProfile)
+    const hasSenderHsStructuredContext = blocks.some(
+      (b) => b.type === 'vault_profile' && b.source === 'received'
+    )
+    setContextGraphExpanded(hasSenderHsStructuredContext)
   }, [loading, blocks])
 
   useEffect(() => {
@@ -656,6 +775,10 @@ export default function HandshakeWorkspace({
     if (filter.type === 'unstructured' && b.isStructured) return false
     return true
   })
+
+  // HS Context blocks (vault_profile) → structured panel. All others → generic BlockCard.
+  const hsContextBlocks = filteredBlocks.filter((b) => b.type === 'vault_profile')
+  const genericBlocks = filteredBlocks.filter((b) => b.type !== 'vault_profile')
 
   const INITIAL_MESSAGE_COUNT = 15
   const beapMessages: any[] = [] // Placeholder until BEAP messages are loaded
@@ -911,14 +1034,43 @@ export default function HandshakeWorkspace({
                   ) : filteredBlocks.length === 0 ? (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-muted, #94a3b8)', fontSize: '12px' }}>No blocks match the current filters.</div>
                   ) : (
-                    filteredBlocks.map((block) => (
-                      <BlockCard
-                        key={`${block.block_id}-${block.block_hash}`}
-                        block={block}
-                        vaultUnlocked={vaultUnlocked}
-                        onVisibilityChange={() => handleToggleVisibility(block)}
-                      />
-                    ))
+                    <>
+                      {hsContextBlocks.length > 0 && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
+                            Business Context
+                          </div>
+                          <StructuredHsContextPanel
+                            blocks={hsContextBlocks}
+                            handshakeId={record.handshake_id}
+                            vaultUnlocked={vaultUnlocked}
+                            onVisibilityChange={(b) => {
+                              const block = blocks.find((x) => x.block_id === b.block_id)
+                              if (block) handleToggleVisibility(block)
+                            }}
+                            senderWrdeskUserId={hsContextBlocks[0]?.sender_wrdesk_user_id}
+                          />
+                        </div>
+                      )}
+                      {genericBlocks.length > 0 && (
+                        <div>
+                          {hsContextBlocks.length > 0 && (
+                            <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '10px' }}>
+                              Other Context
+                            </div>
+                          )}
+                          {genericBlocks.map((block) => (
+                            <BlockCard
+                              key={`${block.block_id}-${block.block_hash}`}
+                              block={block}
+                              vaultUnlocked={vaultUnlocked}
+                              handshakeId={record.handshake_id}
+                              onVisibilityChange={() => handleToggleVisibility(block)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}

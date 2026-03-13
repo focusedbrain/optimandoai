@@ -127,6 +127,8 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
     return () => window.removeEventListener('handshake-list-refresh', onRefresh)
   }, [loadHandshakes])
 
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
   useEffect(() => {
     const checkVault = async () => {
       try {
@@ -135,8 +137,10 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
           isUnlocked: status?.isUnlocked ?? false,
           name: status?.name ?? null,
         })
+        setCanUseHsContextProfiles(status?.canUseHsContextProfiles ?? false)
       } catch {
         setVaultStatus({ isUnlocked: false, name: null })
+        setCanUseHsContextProfiles(false)
       }
     }
     checkVault()
@@ -549,10 +553,7 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
           record={acceptModalRecord}
           onClose={() => setAcceptModalRecord(null)}
           onSuccess={() => { setAcceptModalRecord(null); loadHandshakes() }}
-          // TODO(feature-gate): Wire to actual plan/subscription check.
-          // Context Profiles require Publisher or Enterprise plan.
-          // Currently hardcoded to true — all users get access.
-          canUseHsContextProfiles={true}
+          canUseHsContextProfiles={canUseHsContextProfiles}
         />
       )}
     </div>

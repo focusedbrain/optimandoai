@@ -2520,6 +2520,51 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:requestOriginalDocument', async (_e, documentId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+      try {
+        const session = await ensureSession()
+        const actorUserId = session.userInfo?.wrdesk_user_id ?? session.userInfo?.sub
+        if (!actorUserId) return { success: false, error: 'Authentication required' }
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status.isUnlocked) return { success: false, error: 'vault_locked' }
+        const tier = await getEffectiveTier({ refreshIfStale: true, caller: 'request-original-document' }) as import('./main/vault/types').VaultTier
+        const result = await vaultService.requestOriginalDocumentContent(tier, documentId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        if (result.success) {
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        }
+        return { success: false, error: result.error, approved: result.approved }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Request failed' }
+      }
+    })
+
+    ipcMain.handle('handshake:requestLinkOpenApproval', async (_e, linkEntityId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+      try {
+        const session = await ensureSession()
+        const actorUserId = session.userInfo?.wrdesk_user_id ?? session.userInfo?.sub
+        if (!actorUserId) return { success: false, error: 'Authentication required' }
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status.isUnlocked) return { success: false, error: 'vault_locked' }
+        const result = vaultService.requestLinkOpenApproval(linkEntityId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        return result.approved ? { success: true, approved: true } : { success: false, error: result.error, approved: false }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Request failed' }
+      }
+    })
+
     ipcMain.handle('vault:getStatus', async () => {
       try {
         const { vaultService } = await import('./main/vault/rpc')
@@ -2527,12 +2572,17 @@ app.whenReady().then(async () => {
         const vaults = status.availableVaults ?? []
         const currentId = status.currentVaultId
         const name = currentId ? vaults.find((v: { id: string; name: string }) => v.id === currentId)?.name ?? 'Default Vault' : null
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getStatus' })
+        const { canAccessRecordType } = await import('./main/vault/types')
+        const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
         return {
           isUnlocked: status.isUnlocked ?? !status.locked,
           name: status.exists ? (name ?? 'Default Vault') : null,
+          tier: String(tier),
+          canUseHsContextProfiles,
         }
       } catch {
-        return { isUnlocked: false, name: null }
+        return { isUnlocked: false, name: null, tier: 'unknown', canUseHsContextProfiles: false }
       }
     })
 
@@ -5915,12 +5965,13 @@ app.whenReady().then(async () => {
         const vaultService = await getVaultService()
         console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
-        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier })
-        // Attach the user's resolved tier so the UI can gate categories
-        // Include sessionToken when unlocked so the client can bind to the
-        // existing session (background caching picks this up automatically).
+        const { canAccessRecordType } = await import('./main/vault/types')
+        const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
+        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier, canUseHsContextProfiles })
+        // Attach tier and canUseHsContextProfiles for UI gating (HS Context = Publisher+ only).
+        // Include sessionToken when unlocked so the client can bind to the existing session.
         const sessionToken = status.isUnlocked ? vaultService.getSessionToken() : null
-        res.json({ success: true, data: { ...status, tier }, ...(sessionToken ? { sessionToken } : {}) })
+        res.json({ success: true, data: { ...status, tier, canUseHsContextProfiles }, ...(sessionToken ? { sessionToken } : {}) })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in status:', error)
         console.error('[HTTP-VAULT] Error stack:', error?.stack)

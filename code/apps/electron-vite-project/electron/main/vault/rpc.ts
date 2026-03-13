@@ -367,17 +367,66 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       }
 
       case 'vault.hsProfiles.uploadDocument': {
-        const { profileId, filename, mimeType, contentBase64 } = params as any
+        const { profileId, filename, mimeType, contentBase64, sensitive, label, documentType } = params as any
         if (!contentBase64) return { success: false, error: 'contentBase64 is required' }
         const content = Buffer.from(contentBase64, 'base64')
-        const doc = await vaultService.uploadHsProfileDocument(tier, profileId, filename, mimeType ?? 'application/pdf', content)
+        const doc = await vaultService.uploadHsProfileDocument(tier, profileId, filename, mimeType ?? 'application/pdf', content, !!sensitive, label ?? null, documentType ?? null)
         return { success: true, document: doc }
+      }
+
+      case 'vault.hsProfiles.updateDocumentMeta': {
+        const { documentId, label, document_type } = params as any
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        vaultService.updateHsProfileDocumentMeta(tier, documentId, { label, document_type })
+        return { success: true }
       }
 
       case 'vault.hsProfiles.deleteDocument': {
         const { documentId } = params as { documentId: string }
         vaultService.deleteHsProfileDocument(tier, documentId)
         return { success: true }
+      }
+
+      case 'vault.hsProfiles.requestOriginalDocument': {
+        const { documentId, acknowledgedWarning, handshakeId, actorUserId } = params as {
+          documentId: string
+          acknowledgedWarning: boolean
+          handshakeId?: string | null
+          actorUserId: string
+        }
+        if (!documentId || typeof actorUserId !== 'string') {
+          return { success: false, error: 'documentId and actorUserId are required' }
+        }
+        const result = await vaultService.requestOriginalDocumentContent(tier, documentId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        if (result.success) {
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        }
+        return { success: false, error: result.error, approved: result.approved }
+      }
+
+      case 'vault.hsProfiles.requestLinkOpenApproval': {
+        const { linkEntityId, acknowledgedWarning, handshakeId, actorUserId } = params as {
+          linkEntityId: string
+          acknowledgedWarning: boolean
+          handshakeId?: string | null
+          actorUserId: string
+        }
+        if (!linkEntityId || typeof actorUserId !== 'string') {
+          return { success: false, error: 'linkEntityId and actorUserId are required' }
+        }
+        const result = vaultService.requestLinkOpenApproval(linkEntityId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        return result.approved ? { success: true, approved: true } : { success: false, error: result.error, approved: false }
       }
 
       default:

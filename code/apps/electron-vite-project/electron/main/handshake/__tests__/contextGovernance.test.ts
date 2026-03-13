@@ -8,6 +8,8 @@ import { describe, test, expect } from 'vitest'
 import {
   baselineFromPolicySelections,
   baselineFromHandshake,
+  filterBlocksForCloudAI,
+  filterBlocksForSearch,
 } from '../contextGovernance'
 import type { HandshakeRecord } from '../types'
 
@@ -132,5 +134,28 @@ describe('contextGovernance — baselineFromHandshake', () => {
     const baseline = baselineFromHandshake(record)
     expect(baseline.local_ai_allowed).toBe(true)
     expect(baseline.cloud_ai_allowed).toBe(false)
+  })
+})
+
+// ── Sensitive policy override (sensitive=true disables cloud_ai_allowed and searchable) ──
+describe('contextGovernance — sensitive policy', () => {
+  test('sensitive=true excludes block from cloud AI', () => {
+    const blocks = [
+      { governance: { usage_policy: { cloud_ai_allowed: true, sensitive: true } } },
+      { governance: { usage_policy: { cloud_ai_allowed: true, sensitive: false } } },
+    ]
+    const filtered = filterBlocksForCloudAI(blocks, { cloud_ai_allowed: true })
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].governance?.usage_policy?.sensitive).toBe(false)
+  })
+
+  test('sensitive=true excludes block from search', () => {
+    const blocks = [
+      { governance: { usage_policy: { searchable: true, sensitive: true } } },
+      { governance: { usage_policy: { searchable: true, sensitive: false } } },
+    ]
+    const filtered = filterBlocksForSearch(blocks)
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].governance?.usage_policy?.sensitive).toBe(false)
   })
 })

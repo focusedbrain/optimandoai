@@ -20,6 +20,7 @@ import {
   markDocumentExtractionPending,
   markDocumentExtractionSuccess,
   markDocumentExtractionFailed,
+  validateExtractedText,
 } from './hsContextOcrJob'
 
 // ── Mock DB ──
@@ -128,6 +129,26 @@ describe('extractTextFromPdf — failure path', () => {
 })
 
 // ── State transition validation ──
+
+// ── Extracted text validation (HTML/markup rejected) ──
+describe('validateExtractedText', () => {
+  it('rejects HTML/markup-like extraction', () => {
+    const r = validateExtractedText('<script>alert(1)</script>')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toContain('HTML')
+  })
+
+  it('rejects content with tag-like markup', () => {
+    const r = validateExtractedText('Normal text <b>bold</b> more text')
+    expect(r.ok).toBe(false)
+  })
+
+  it('accepts plain text', () => {
+    const r = validateExtractedText('Chapter 1: Installation guide')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.sanitized).toBe('Chapter 1: Installation guide')
+  })
+})
 
 describe('extraction status state machine', () => {
   it('transitions pending → success', () => {

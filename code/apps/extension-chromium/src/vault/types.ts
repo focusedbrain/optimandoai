@@ -168,6 +168,8 @@ export interface VaultStatus {
   availableVaults?: Array<{ id: string, name: string, created: number }>
   /** User's resolved subscription tier (for capability gating). */
   tier?: string
+  /** HS Context Profiles available (Publisher+ only). Gates handshake context authoring. */
+  canUseHsContextProfiles?: boolean
   /** Available unlock provider types for the current vault. */
   unlockProviders?: Array<{ id: string; name: string }>
   /** The active (default) provider type for the current vault. */

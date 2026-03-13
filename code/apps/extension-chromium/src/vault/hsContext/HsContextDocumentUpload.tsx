@@ -7,7 +7,8 @@
 
 import React, { useRef, useState } from 'react'
 import type { ProfileDocumentSummary } from '../hsContextProfilesRpc'
-import { uploadHsProfileDocument, deleteHsProfileDocument } from '../hsContextProfilesRpc'
+import { uploadHsProfileDocument, deleteHsProfileDocument, updateHsProfileDocumentMeta } from '../hsContextProfilesRpc'
+import { validateDocumentLabel } from '@shared/handshake/hsContextFieldValidation'
 
 interface Props {
   profileId: string
@@ -52,6 +53,14 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null)
+  const [markNextAsSensitive, setMarkNextAsSensitive] = useState(false)
+  const [nextLabel, setNextLabel] = useState('')
+  const [nextDocumentType, setNextDocumentType] = useState<string>('')
+  const [editingDoc, setEditingDoc] = useState<string | null>(null)
+  const [editLabel, setEditLabel] = useState('')
+  const [editType, setEditType] = useState('')
+
+  const DOCUMENT_TYPES = ['', 'manual', 'contract', 'certificate', 'pricelist', 'custom'] as const
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -65,16 +74,44 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
       return
     }
 
+    const labelVal = nextLabel.trim() || null
+    if (labelVal) {
+      const r = validateDocumentLabel(labelVal)
+      if (!r.ok) {
+        setUploadError(r.error)
+        return
+      }
+    }
     setUploading(true)
     setUploadError(null)
     try {
-      await uploadHsProfileDocument(profileId, file)
+      await uploadHsProfileDocument(profileId, file, markNextAsSensitive, labelVal, nextDocumentType.trim() || null)
+      setNextLabel('')
+      setNextDocumentType('')
       onDocumentsChanged()
     } catch (err: any) {
       setUploadError(err?.message ?? 'Upload failed')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleUpdateMeta = async (docId: string) => {
+    const labelVal = editLabel.trim() || null
+    if (labelVal) {
+      const r = validateDocumentLabel(labelVal)
+      if (!r.ok) {
+        alert(r.error)
+        return
+      }
+    }
+    try {
+      await updateHsProfileDocumentMeta(docId, { label: labelVal, document_type: editType.trim() || null })
+      setEditingDoc(null)
+      onDocumentsChanged()
+    } catch (err: any) {
+      alert('Failed to update: ' + err?.message)
     }
   }
 
@@ -97,7 +134,38 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
         <span style={{ fontSize: '11px', fontWeight: 700, color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Documents (PDF)
         </span>
-        <button
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+          <input
+            type="text"
+            placeholder="Label (optional)"
+            value={nextLabel}
+            onChange={(e) => setNextLabel(e.target.value)}
+            style={{
+              fontSize: '11px', padding: '4px 8px', maxWidth: '140px',
+              background: isDark ? 'rgba(255,255,255,0.07)' : 'white',
+              border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor,
+            }}
+          />
+          <select
+            value={nextDocumentType}
+            onChange={(e) => setNextDocumentType(e.target.value)}
+            style={{
+              fontSize: '11px', padding: '4px 8px',
+              background: isDark ? 'rgba(255,255,255,0.07)' : 'white',
+              border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor,
+            }}
+          >
+            <option value="">Type (optional)</option>
+            {DOCUMENT_TYPES.filter(Boolean).map((t) => (
+              <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+            ))}
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: mutedColor }}>
+            <input type="checkbox" checked={markNextAsSensitive} onChange={() => setMarkNextAsSensitive(!markNextAsSensitive)} style={{ margin: 0 }} />
+            <span>Sensitive</span>
+            <span title="If enabled, this item stays restricted to the inner vault of the receiving orchestrator and must not be queryable by external AI. This does not automatically prevent peer transfer." style={{ cursor: 'help' }}>ⓘ</span>
+          </label>
+          <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || uploading}
           style={{
@@ -110,6 +178,7 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
         >
           {uploading ? '⏳ Uploading…' : '+ Add PDF'}
         </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -154,10 +223,38 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
               <span style={{ fontSize: '16px' }}>📄</span>
-              <span style={{ fontSize: '12px', color: textColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {doc.filename}
-              </span>
-              <StatusBadge status={doc.extraction_status} />
+              {editingDoc === doc.id ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                  <input
+                    type="text"
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    placeholder="Label"
+                    style={{ fontSize: '11px', padding: '3px 6px', flex: 1, maxWidth: '120px', background: isDark ? 'rgba(0,0,0,0.2)' : 'white', border: `1px solid ${borderColor}`, borderRadius: '4px', color: textColor }}
+                  />
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value)}
+                    style={{ fontSize: '10px', padding: '3px 6px', background: isDark ? 'rgba(0,0,0,0.2)' : 'white', border: `1px solid ${borderColor}`, borderRadius: '4px', color: textColor }}
+                  >
+                    <option value="">Type</option>
+                    {DOCUMENT_TYPES.filter(Boolean).map((t) => (
+                      <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => handleUpdateMeta(doc.id)} style={{ fontSize: '10px', padding: '2px 6px', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '4px', color: '#22c55e', cursor: 'pointer' }}>Save</button>
+                  <button onClick={() => setEditingDoc(null)} style={{ fontSize: '10px', padding: '2px 6px', background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: '4px', color: mutedColor, cursor: 'pointer' }}>Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <span style={{ fontSize: '12px', color: textColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {doc.label?.trim() || doc.filename}
+                    {doc.document_type && <span style={{ fontSize: '10px', color: mutedColor, marginLeft: '4px' }}>({doc.document_type})</span>}
+                  </span>
+                  <StatusBadge status={doc.extraction_status} />
+                  <button onClick={() => { setEditingDoc(doc.id); setEditLabel(doc.label ?? ''); setEditType(doc.document_type ?? '') }} style={{ fontSize: '9px', padding: '2px 4px', background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: '4px', color: mutedColor, cursor: 'pointer' }}>Edit</button>
+                </>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
               {doc.extraction_status === 'success' && doc.extracted_text && (

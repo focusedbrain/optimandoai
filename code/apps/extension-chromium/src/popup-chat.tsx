@@ -39,6 +39,7 @@ import {
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
+import { getVaultStatus } from './vault/api'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -128,7 +129,25 @@ function PopupChatApp() {
   const [userInfo, setUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   const [userTier, setUserTier] = useState<string>('free')
   const [pictureError, setPictureError] = useState(false)
-  
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  // Fetch vault status for HS Context gating (Publisher+ only)
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const fetchVault = async () => {
+      try {
+        const status = await getVaultStatus()
+        setCanUseHsContextProfiles(status?.canUseHsContextProfiles ?? false)
+      } catch {
+        setCanUseHsContextProfiles(false)
+      }
+    }
+    fetchVault()
+    const h = () => fetchVault()
+    window.addEventListener('vault-status-changed', h)
+    return () => window.removeEventListener('vault-status-changed', h)
+  }, [isLoggedIn])
+
   // Check auth status on mount
   useEffect(() => {
     const checkAuthStatus = () => {
@@ -1402,7 +1421,7 @@ function PopupChatApp() {
               emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
               onSelectEmailAccount={setSelectedEmailAccountId}
               onSuccess={() => setDockedSubmode('command')}
-              canUseHsContextProfiles={true}
+              canUseHsContextProfiles={canUseHsContextProfiles}
               policySelections={hsPolicy}
             />
           </div>

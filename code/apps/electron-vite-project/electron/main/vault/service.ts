@@ -1261,11 +1261,25 @@ export class VaultService {
     filename: string,
     mimeType: string,
     content: Buffer,
+    sensitive = false,
+    label?: string | null,
+    documentType?: string | null,
   ) {
     this.ensureUnlocked()
     this.updateActivity()
     const { uploadProfileDocument } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
-    return uploadProfileDocument(this.db!, tier, this.session!.kek, profileId, filename, mimeType, content)
+    return uploadProfileDocument(this.db!, tier, this.session!.kek, profileId, filename, mimeType, content, sensitive, label, documentType)
+  }
+
+  updateHsProfileDocumentMeta(
+    tier: VaultTier,
+    documentId: string,
+    updates: { label?: string | null; document_type?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { updateProfileDocumentMeta } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
+    return updateProfileDocumentMeta(this.db!, tier, documentId, updates)
   }
 
   deleteHsProfileDocument(tier: VaultTier, documentId: string) {
@@ -1280,6 +1294,29 @@ export class VaultService {
     this.updateActivity()
     const { resolveProfilesForHandshake } = require('./hsContextProfileService') as typeof import('./hsContextProfileService')
     return resolveProfilesForHandshake(this.db!, tier, profileIds)
+  }
+
+  async requestOriginalDocumentContent(
+    tier: VaultTier,
+    documentId: string,
+    actorUserId: string,
+    options: { acknowledgedWarning: boolean; handshakeId?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { requestOriginalDocumentContent } = require('./hsContextAccessService') as typeof import('./hsContextAccessService')
+    return requestOriginalDocumentContent(this.db!, tier, this.session!.kek, documentId, actorUserId, options)
+  }
+
+  requestLinkOpenApproval(
+    linkEntityId: string,
+    actorUserId: string,
+    options: { acknowledgedWarning: boolean; handshakeId?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const { requestLinkOpenApproval } = require('./hsContextAccessService') as typeof import('./hsContextAccessService')
+    return requestLinkOpenApproval(this.db!, linkEntityId, actorUserId, options)
   }
 
   getHsProfileDb() {
