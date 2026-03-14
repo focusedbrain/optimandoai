@@ -302,19 +302,17 @@ function StructuredHsContextBlock({
           {validLinks.map(({ url, validation }) => (
             <div key={validation.url} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <span style={{ fontSize: '13px', color: 'var(--color-text-muted, #94a3b8)', wordBreak: 'break-all' }}>{validation.url}</span>
-              {vaultUnlocked && (
-                <button
-                  type="button"
-                  onClick={() => onOpenLink(url)}
-                  style={{
-                    fontSize: '10px', padding: '4px 8px', flexShrink: 0,
-                    background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)',
-                    borderRadius: '4px', color: '#60a5fa', cursor: 'pointer', fontWeight: 600,
-                  }}
-                >
-                  Open link
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => onOpenLink(url)}
+                style={{
+                  fontSize: '10px', padding: '4px 8px', flexShrink: 0,
+                  background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)',
+                  borderRadius: '4px', color: '#60a5fa', cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                Open link
+              </button>
             </div>
           ))}
         </>
@@ -513,7 +511,10 @@ export default function StructuredHsContextPanel({
       const validation = validateHsContextLink(linkUrl)
       if (validation.ok) {
         const result = await window.handshakeView?.requestLinkOpenApproval?.(linkEntityId(validation.url), true, handshakeId)
-        if (result?.success) window.open(validation.url, '_blank', 'noopener,noreferrer')
+        // If visible in UI, open even when vault locked (backend approval is for audit only)
+        if (result?.success || result?.error === 'vault_locked') {
+          window.open(validation.url, '_blank', 'noopener,noreferrer')
+        }
       }
     }
   }

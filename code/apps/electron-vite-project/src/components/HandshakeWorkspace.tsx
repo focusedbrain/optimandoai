@@ -276,7 +276,10 @@ function BlockCard({
       const validation = validateHsContextLink(linkUrl)
       if (validation.ok) {
         const result = await window.handshakeView?.requestLinkOpenApproval?.(linkEntityId(validation.url), true, handshakeId)
-        if (result?.success) window.open(validation.url, '_blank', 'noopener,noreferrer')
+        // If visible in UI, open even when vault locked (backend approval is for audit only)
+        if (result?.success || result?.error === 'vault_locked') {
+          window.open(validation.url, '_blank', 'noopener,noreferrer')
+        }
       }
     }
   }
@@ -363,38 +366,36 @@ function BlockCard({
               {readMore ? 'Show less' : 'Show more'}
             </button>
           )}
-          {vaultUnlocked && (
-            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-              {isOwnBlock && documents.map((doc) => (
-                <button
-                  key={doc.id}
-                  type="button"
-                  onClick={() => handleViewOriginal(doc)}
-                  style={{
-                    fontSize: '10px', padding: '4px 8px',
-                    background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-                    borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
-                  }}
-                >
-                  View original: {doc.filename}
-                </button>
-              ))}
-              {validLinks.map(({ url, validation }) => (
-                <button
-                  key={validation.url}
-                  type="button"
-                  onClick={() => handleOpenLink(url)}
-                  style={{
-                    fontSize: '10px', padding: '4px 8px',
-                    background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)',
-                    borderRadius: '4px', color: '#60a5fa', cursor: 'pointer', fontWeight: 600,
-                  }}
-                >
-                  Open link
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+            {vaultUnlocked && isOwnBlock && documents.map((doc) => (
+              <button
+                key={doc.id}
+                type="button"
+                onClick={() => handleViewOriginal(doc)}
+                style={{
+                  fontSize: '10px', padding: '4px 8px',
+                  background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+                  borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                View original: {doc.filename}
+              </button>
+            ))}
+            {validLinks.map(({ url, validation }) => (
+              <button
+                key={validation.url}
+                type="button"
+                onClick={() => handleOpenLink(url)}
+                style={{
+                  fontSize: '10px', padding: '4px 8px',
+                  background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)',
+                  borderRadius: '4px', color: '#60a5fa', cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                Open link
+              </button>
+            ))}
+          </div>
           {warningDialog && (
             <ProtectedAccessWarningDialog
               kind={warningDialog.kind}

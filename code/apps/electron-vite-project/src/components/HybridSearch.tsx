@@ -380,20 +380,20 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
               Chat
             </button>
             <button
-              className={`hs-mode-btn${mode === 'search' ? ' hs-mode-btn--active hs-mode-btn--search-active' : ''}`}
-              onClick={() => setMode('search')}
-              title="Search — fulltext search across BEAP messages and context graph"
-              aria-pressed={mode === 'search'}
-            >
-              Search
-            </button>
-            <button
               className={`hs-mode-btn${mode === 'actions' ? ' hs-mode-btn--active hs-mode-btn--actions-active' : ''}`}
               onClick={() => setMode('actions')}
               title="Actions — draft, analyze, extract, or automate based on the selected handshake or message"
               aria-pressed={mode === 'actions'}
             >
               Actions
+            </button>
+            <button
+              className={`hs-mode-btn${mode === 'search' ? ' hs-mode-btn--active hs-mode-btn--search-active' : ''}`}
+              onClick={() => setMode('search')}
+              title="Search — fulltext search across BEAP messages and context graph"
+              aria-pressed={mode === 'search'}
+            >
+              Search
             </button>
           </div>
 
