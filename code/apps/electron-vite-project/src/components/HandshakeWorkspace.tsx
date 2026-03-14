@@ -1201,7 +1201,8 @@ export default function HandshakeWorkspace({
                 onClick={() => setCryptoModalOpen(false)}
                 style={{
                   padding: '4px 10px', fontSize: '11px', fontWeight: 600,
-                  background: 'transparent', color: 'var(--color-text-muted, #94a3b8)',
+                  background: 'var(--color-input-bg, rgba(255,255,255,0.08))',
+                  color: 'var(--color-text, #e2e8f0)',
                   border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
                   borderRadius: '6px', cursor: 'pointer',
                 }}
@@ -1246,7 +1247,8 @@ export default function HandshakeWorkspace({
                 onClick={() => setPolicyModalOpen(false)}
                 style={{
                   padding: '4px 10px', fontSize: '11px', fontWeight: 600,
-                  background: 'transparent', color: 'var(--color-text-muted, #94a3b8)',
+                  background: 'var(--color-input-bg, rgba(255,255,255,0.08))',
+                  color: 'var(--color-text, #e2e8f0)',
                   border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
                   borderRadius: '6px', cursor: 'pointer',
                 }}

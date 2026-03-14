@@ -533,10 +533,10 @@ export default function AcceptHandshakeModal({
             onClick={onClose}
             style={{
               padding: '9px 18px',
-              background: 'transparent',
+              background: 'rgba(0,0,0,0.04)',
               border: `1px solid ${borderColor}`,
               borderRadius: '8px',
-              color: mutedColor,
+              color: '#374151',
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',

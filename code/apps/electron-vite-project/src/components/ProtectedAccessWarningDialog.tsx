@@ -58,8 +58,8 @@ export default function ProtectedAccessWarningDialog({
     >
       <div
         style={{
-          background: 'var(--color-surface, #1e293b)',
-          border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+          background: 'var(--bg-surface, var(--color-surface, #1e293b))',
+          border: '1px solid var(--border, var(--color-border, rgba(255,255,255,0.12)))',
           borderRadius: '12px',
           maxWidth: '420px',
           width: '90%',
@@ -67,21 +67,21 @@ export default function ProtectedAccessWarningDialog({
           boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
         }}
       >
-        <h3 id="protected-access-dialog-title" style={{ margin: '0 0 12px', fontSize: '16px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
+        <h3 id="protected-access-dialog-title" style={{ margin: '0 0 12px', fontSize: '16px', fontWeight: 600, color: 'var(--text-primary, var(--color-text, #0f1419))' }}>
           {copy.title}
         </h3>
         {targetLabel && (
-          <div style={{ fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '12px', wordBreak: 'break-all' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary, var(--color-text-muted, #536471))', marginBottom: '12px', wordBreak: 'break-all' }}>
             {targetLabel}
           </div>
         )}
-        <p style={{ margin: '0 0 10px', fontSize: '13px', lineHeight: 1.5, color: 'var(--color-text-secondary, #cbd5e1)' }}>
+        <p style={{ margin: '0 0 10px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-primary, var(--color-text, #0f1419))' }}>
           {copy.intro}
         </p>
-        <p style={{ margin: '0 0 10px', fontSize: '13px', lineHeight: 1.5, color: 'var(--color-text-secondary, #cbd5e1)' }}>
+        <p style={{ margin: '0 0 10px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-primary, var(--color-text, #0f1419))' }}>
           {copy.recommend}
         </p>
-        <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.5, color: 'var(--color-text-secondary, #cbd5e1)' }}>
+        <p style={{ margin: '0 0 16px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-primary, var(--color-text, #0f1419))' }}>
           {copy.sandbox}
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -91,10 +91,10 @@ export default function ProtectedAccessWarningDialog({
             style={{
               padding: '8px 16px',
               fontSize: '13px',
-              background: 'transparent',
-              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+              background: 'var(--color-input-bg, rgba(255,255,255,0.08))',
+              border: '1px solid var(--border, var(--color-border, rgba(255,255,255,0.2)))',
               borderRadius: '6px',
-              color: 'var(--color-text-muted, #94a3b8)',
+              color: 'var(--text-primary, var(--color-text, #0f1419))',
               cursor: 'pointer',
             }}
           >
@@ -107,10 +107,10 @@ export default function ProtectedAccessWarningDialog({
               padding: '8px 16px',
               fontSize: '13px',
               fontWeight: 600,
-              background: 'rgba(139,92,246,0.3)',
-              border: '1px solid rgba(139,92,246,0.5)',
+              background: 'rgba(139,92,246,0.85)',
+              border: '1px solid rgba(139,92,246,0.9)',
               borderRadius: '6px',
-              color: '#a78bfa',
+              color: '#ffffff',
               cursor: 'pointer',
             }}
           >

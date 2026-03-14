@@ -323,10 +323,12 @@ function StructuredHsContextBlock({
                       <>
                         <pre style={{
                           marginTop: '8px', padding: '10px', fontSize: '11px',
-                          background: 'rgba(0,0,0,0.2)', borderRadius: '6px',
+                          background: 'rgba(0,0,0,0.25)',
+                          borderRadius: '6px',
                           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                           maxHeight: showFull ? 'none' : '180px', overflowY: showFull ? 'visible' : 'auto',
-                          color: 'var(--color-text-secondary, #94a3b8)', fontFamily: 'inherit',
+                          color: 'var(--color-text, #e2e8f0)',
+                          fontFamily: 'inherit',
                         }}>
                           {displayText}
                         </pre>

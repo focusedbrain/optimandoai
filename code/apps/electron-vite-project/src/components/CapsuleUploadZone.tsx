@@ -261,9 +261,9 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
               disabled={submitting}
               style={{
                 flex: 1, padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-                background: submitting ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.15)',
-                color: '#a78bfa',
-                border: '1px solid rgba(139,92,246,0.3)', borderRadius: '6px',
+                background: submitting ? 'rgba(139,92,246,0.5)' : 'rgba(139,92,246,0.85)',
+                color: '#ffffff',
+                border: '1px solid rgba(139,92,246,0.9)', borderRadius: '6px',
                 cursor: submitting ? 'wait' : 'pointer',
               }}
             >
@@ -274,7 +274,8 @@ export default function CapsuleUploadZone({ onSubmitted }: Props) {
               disabled={submitting}
               style={{
                 padding: '7px 12px', fontSize: '11px', fontWeight: 600,
-                background: 'transparent', color: 'var(--color-text-muted, #94a3b8)',
+                background: 'var(--color-input-bg, rgba(255,255,255,0.08))',
+                color: 'var(--color-text, #e2e8f0)',
                 border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
                 borderRadius: '6px', cursor: 'pointer',
               }}

@@ -143,7 +143,7 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', overflowY: 'auto' }}>
         {profiles.map((profile) => {
           const isSelected = selectedIds.includes(profile.id)
           const item = selectedItems.find((i) => i.profile_id === profile.id)
