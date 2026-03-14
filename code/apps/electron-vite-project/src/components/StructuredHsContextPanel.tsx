@@ -100,8 +100,10 @@ interface StructuredHsContextPanelProps {
   }>
   handshakeId: string
   vaultUnlocked: boolean
+  /** Currently selected document for chat attachment binding. */
+  selectedDocumentId?: string | null
   onVisibilityChange?: (block: { block_id: string; block_hash: string; sender_wrdesk_user_id: string }) => void
-  /** Called when user opens a document (for chat attachment binding). */
+  /** Called when user selects a document for chat (or opens reader). */
   onDocumentSelect?: (documentId: string | null) => void
   senderWrdeskUserId?: string
 }
@@ -113,6 +115,7 @@ function StructuredHsContextBlock({
   block,
   handshakeId,
   vaultUnlocked,
+  selectedDocumentId,
   expandedDoc,
   setExpandedDoc,
   showFullForDoc,
@@ -120,10 +123,12 @@ function StructuredHsContextBlock({
   onViewOriginal,
   onOpenLink,
   onOpenReader,
+  onDocumentSelect,
 }: {
   block: { block_id: string; block_hash: string; payload: string; source: 'sent' | 'received' }
   handshakeId: string
   vaultUnlocked: boolean
+  selectedDocumentId?: string | null
   expandedDoc: string | null
   setExpandedDoc: (id: string | null) => void
   showFullForDoc: string | null
@@ -131,6 +136,7 @@ function StructuredHsContextBlock({
   onViewOriginal: (doc: { id: string; filename: string }) => void
   onOpenLink: (url: string) => void
   onOpenReader: (doc: { id: string; filename: string; extracted_text?: string | null }) => void
+  onDocumentSelect?: (documentId: string | null) => void
 }) {
   const parsed = useMemo(
     () => parseHsContextPayload(block.payload),
@@ -321,6 +327,7 @@ function StructuredHsContextBlock({
           {documents.map((doc) => {
             const isPreviewExpanded = expandedDoc === doc.id
             const showFull = showFullForDoc === doc.id
+            const isSelected = selectedDocumentId === doc.id
             const text = doc.extracted_text ?? ''
             const truncated = text.length > PREVIEW_TRUNCATE_LEN ? text.slice(0, PREVIEW_TRUNCATE_LEN) : text
             const hasMore = text.length > PREVIEW_TRUNCATE_LEN
@@ -330,20 +337,36 @@ function StructuredHsContextBlock({
                 key={doc.id}
                 style={{
                   padding: '12px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.06)',
+                  background: isSelected ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: isSelected ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.06)',
                   borderRadius: '6px',
                   marginBottom: '8px',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
+                    {isSelected && <span style={{ marginRight: '6px', color: '#a78bfa' }}>✓</span>}
                     📄 {doc.label?.trim() || doc.filename}
                     {doc.document_type && <span style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', marginLeft: '6px' }}>({doc.document_type})</span>}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {doc.sensitive && (
                       <span style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontWeight: 600 }}>Sensitive</span>
+                    )}
+                    {onDocumentSelect && (
+                      <button
+                        type="button"
+                        onClick={() => onDocumentSelect(isSelected ? null : doc.id)}
+                        title={isSelected ? 'Deselect for chat' : 'Select for chat'}
+                        style={{
+                          fontSize: '10px', padding: '4px 8px',
+                          background: isSelected ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.15)',
+                          border: '1px solid rgba(139,92,246,0.3)',
+                          borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        {isSelected ? 'Selected for chat' : 'Select for chat'}
+                      </button>
                     )}
                     {doc.extracted_text && (
                       <button
@@ -358,17 +381,23 @@ function StructuredHsContextBlock({
                         Open Document Reader
                       </button>
                     )}
-                    {vaultUnlocked && doc.id && (
+                    {doc.id && (
                       <button
                         type="button"
-                        onClick={() => onViewOriginal(doc)}
+                        disabled={!vaultUnlocked}
+                        title={!vaultUnlocked ? 'Unlock vault to open original' : 'Open original file'}
+                        onClick={() => vaultUnlocked && onViewOriginal(doc)}
                         style={{
                           fontSize: '10px', padding: '4px 8px',
-                          background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-                          borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
+                          background: vaultUnlocked ? 'rgba(139,92,246,0.15)' : 'rgba(107,114,128,0.15)',
+                          border: '1px solid rgba(139,92,246,0.3)',
+                          borderRadius: '4px', color: vaultUnlocked ? '#a78bfa' : 'var(--color-text-muted, #64748b)',
+                          cursor: vaultUnlocked ? 'pointer' : 'not-allowed',
+                          fontWeight: 600,
+                          opacity: vaultUnlocked ? 1 : 0.7,
                         }}
                       >
-                        View original
+                        Open original
                       </button>
                     )}
                   </div>
@@ -437,6 +466,7 @@ export default function StructuredHsContextPanel({
   blocks,
   handshakeId,
   vaultUnlocked,
+  selectedDocumentId = null,
   onVisibilityChange,
   onDocumentSelect,
   senderWrdeskUserId = '',
@@ -496,6 +526,7 @@ export default function StructuredHsContextPanel({
           block={block}
           handshakeId={handshakeId}
           vaultUnlocked={vaultUnlocked}
+          selectedDocumentId={selectedDocumentId}
           expandedDoc={expandedDoc}
           setExpandedDoc={setExpandedDoc}
           showFullForDoc={showFullForDoc}
@@ -503,6 +534,7 @@ export default function StructuredHsContextPanel({
           onViewOriginal={handleViewOriginal}
           onOpenLink={handleOpenLink}
           onOpenReader={handleOpenReader}
+          onDocumentSelect={onDocumentSelect}
         />
       ))}
 

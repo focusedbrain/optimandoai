@@ -31,8 +31,10 @@ const DOCUMENT_LOOKUP_PATTERNS = [
   // Attachment and document phrasing (generic)
   /\battachment\b/i,
   /\bwhat\s+is\s+(?:this\s+)?(?:attachment|document)\s+about/i,
-  /\bsummarize\s+(?:the\s+)?(?:attachment|document)\b/i,
-  /\bsummarise\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bsummarize\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\bsummarise\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\bbriefly\s+summar(?:ise|ize)\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\b(?:short\s+)?summary\s+(?:of\s+(?:the\s+)?)?(?:the\s+)?(?:attachment|document)\b/i,
   /\bwhat\s+does\s+(?:this\s+)?(?:attachment|document)\s+say/i,
   /\bshow\s*me\s*(?:the\s+)?(?:attachment|document)\b/i,
   /\b(?:this\s+)?(?:attachment|document)\s+about/i,
@@ -107,8 +109,10 @@ const ATTACHMENT_REQUIRES_SELECTION_PATTERNS = [
   /\bwhat\s+is\s+(?:this\s+)?(?:attachment|document)\s+about/i,
   /\bwhat\s+does\s+this\s+(?:attachment|document)\s+say\b/i,
   /\b(?:the\s+)?(?:attachment|document)\s+(?:about|briefly)\b/i,
-  /\bsummarize\s+(?:the\s+)?(?:attachment|document)\b/i,
-  /\bsummarise\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bsummarize\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\bsummarise\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\bbriefly\s+summar(?:ise|ize)\s+(?:(?:the|this)\s+)?(?:attachment|document)\b/i,
+  /\b(?:short\s+)?summary\s+(?:of\s+(?:the\s+)?)?(?:the\s+)?(?:attachment|document)\b/i,
   /\bshow\s*me\s*(?:the\s+)?(?:attachment|document)\b/i,
 ]
 

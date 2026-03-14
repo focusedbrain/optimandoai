@@ -2801,20 +2801,68 @@ app.whenReady().then(async () => {
 
         console.log('[INTENT] Detected:', intentResult.intent, '| Domain:', routerResult.domain, '| Confidence:', intentResult.confidence)
 
-        // Attachment binding: when query implies "this attachment" but no document selected, fail gracefully
-        if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !params.selectedDocumentId?.trim()) {
-          const msg = 'I can summarize the attachment once a specific document is selected. Please open a document from the handshake context first.'
+        // Attachment binding: when query implies "this attachment" but no document selected
+        // — auto-bind if exactly one attachment; otherwise return context-aware message
+        let selectedDocId = params.selectedDocumentId?.trim()
+        if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !selectedDocId && filter.handshake_id) {
+          const { visibilityWhereClause: visWhere, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visWhere('cb', vaultUnlocked)
+          const rows = db.prepare(
+            `SELECT cb.block_id, cb.payload FROM context_blocks cb WHERE cb.handshake_id = ?${visSql}`
+          ).all(filter.handshake_id, ...visParams) as Array<{ block_id: string; payload: string }>
+          // Deduplicate by document id — same doc in multiple blocks counts as one
+          const docsWithText: Array<{ id: string; block_id: string }> = []
+          const seenDocIds = new Set<string>()
+          for (const row of rows) {
+            try {
+              const parsed = JSON.parse(row.payload) as { documents?: Array<{ id?: string; extracted_text?: string | null }> }
+              const docs = parsed?.documents
+              if (Array.isArray(docs)) {
+                for (const d of docs) {
+                  if (d?.id && typeof d.extracted_text === 'string' && d.extracted_text.trim() && !seenDocIds.has(d.id)) {
+                    seenDocIds.add(d.id)
+                    docsWithText.push({ id: d.id, block_id: row.block_id })
+                  }
+                }
+              }
+            } catch { /* skip malformed payload */ }
+          }
+          if (docsWithText.length === 0) {
+            const msg = "I couldn't find an attachment in the current handshake context."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+          if (docsWithText.length === 1) {
+            selectedDocId = docsWithText[0].id
+          } else {
+            const msg = 'Please select which attachment you want me to summarize.'
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+        } else if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !selectedDocId) {
+          // No handshake scope or no filter — cannot list attachments
+          const msg = "I couldn't find an attachment in the current handshake context."
           const doStream = params.stream === true && event.sender
           if (doStream) {
             const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
             send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
             send('handshake:chatStreamToken', { token: msg })
           }
-          return toIPC({ success: true, answer: msg, sources: [], streamed: doStream, resultType: 'context_answer' })
+          return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
         }
 
-        // Attachment binding: when document selected, scope retrieval to that document's content
-        const selectedDocId = params.selectedDocumentId?.trim()
+        // Attachment binding: when document selected (or auto-bound), scope retrieval to that document's content
         if (intentResult.intent === 'document_lookup' && selectedDocId && filter.handshake_id) {
           const { visibilityWhereClause: visWhere, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
           const vaultUnlocked = isVaultCurrentlyUnlocked()

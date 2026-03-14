@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { classifyIntent } from '../intentClassifier'
+import { classifyIntent, queryRequiresAttachmentSelection } from '../intentClassifier'
 
 describe('intentClassifier', () => {
   test('knowledge_query: opening hours', () => {
@@ -44,5 +44,25 @@ describe('intentClassifier', () => {
   test('empty query defaults to knowledge_query', () => {
     const r = classifyIntent('')
     expect(r.intent).toBe('knowledge_query')
+  })
+
+  test('document_lookup: attachment summary phrasing', () => {
+    expect(classifyIntent('Summarize the attachment').intent).toBe('document_lookup')
+    expect(classifyIntent('Summarize the document').intent).toBe('document_lookup')
+    expect(classifyIntent('Can you summarise the document?').intent).toBe('document_lookup')
+    expect(classifyIntent('Give me a short summary of the attachment').intent).toBe('document_lookup')
+    expect(classifyIntent('Briefly summarize this document').intent).toBe('document_lookup')
+  })
+
+  test('queryRequiresAttachmentSelection: summary phrasing', () => {
+    expect(queryRequiresAttachmentSelection('Summarize the attachment')).toBe(true)
+    expect(queryRequiresAttachmentSelection('Give me a short summary of the attachment')).toBe(true)
+    expect(queryRequiresAttachmentSelection('Briefly summarize this document')).toBe(true)
+  })
+
+  test('broad corpus: document say about X stays knowledge_query', () => {
+    const r = classifyIntent('What does the document say about refunds?')
+    expect(r.intent).toBe('knowledge_query')
+    expect(queryRequiresAttachmentSelection('What does the document say about refunds?')).toBe(false)
   })
 })

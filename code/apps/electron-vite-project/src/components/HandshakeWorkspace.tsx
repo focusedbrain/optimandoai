@@ -73,6 +73,7 @@ interface HandshakeWorkspaceProps {
   onDelete?: () => void
   onPendingClick?: () => void
   onCapsuleSubmitted?: () => void
+  selectedDocumentId?: string | null
   onDocumentSelect?: (documentId: string | null) => void
 }
 
@@ -679,6 +680,7 @@ export default function HandshakeWorkspace({
   onDelete,
   onPendingClick,
   onCapsuleSubmitted,
+  selectedDocumentId = null,
   onDocumentSelect,
 }: HandshakeWorkspaceProps) {
   const vaultUnlocked = vaultStatus?.isUnlocked ?? false
@@ -1046,6 +1048,7 @@ export default function HandshakeWorkspace({
                             blocks={hsContextBlocks}
                             handshakeId={record.handshake_id}
                             vaultUnlocked={vaultUnlocked}
+                            selectedDocumentId={selectedDocumentId}
                             onVisibilityChange={(b) => {
                               const block = blocks.find((x) => x.block_id === b.block_id)
                               if (block) handleToggleVisibility(block)

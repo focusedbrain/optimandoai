@@ -127,6 +127,7 @@ function App() {
           <HandshakeView
             onNewHandshake={() => setShowInitiateModal(true)}
             selectedHandshakeId={selectedHandshakeId}
+            selectedDocumentId={selectedDocumentId}
             onHandshakeScopeChange={(id, email) => {
               setSelectedHandshakeId(id)
               setSelectedHandshakeEmail(email ?? null)
