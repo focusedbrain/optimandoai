@@ -2675,7 +2675,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:chatWithContextRag', async (event, params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean }) => {
+    ipcMain.handle('handshake:chatWithContextRag', async (event, params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string }) => {
       const toIPC = (o: unknown) => {
         try { return JSON.parse(JSON.stringify(o)) } catch { return o }
       }
@@ -2705,12 +2705,15 @@ app.whenReady().then(async () => {
         }
 
         // Structured path (no embedding needed): try first when embedding unavailable
-        const { queryClassifier, structuredLookup, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
+        const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
         const classifierResult = queryClassifier(params.query ?? '')
-        if (classifierResult.matched && classifierResult.fieldPath) {
-          const blocks = fetchBlocksForStructuredLookup(db, filter, classifierResult.fieldPath)
+        const pathForFetch = classifierResult.fieldPaths?.[0] ?? classifierResult.fieldPath
+        if (classifierResult.matched && pathForFetch) {
+          const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
           if (blocks.length > 0) {
-            const structResult = structuredLookup(blocks, classifierResult.fieldPath)
+            const structResult = classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0
+              ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
+              : structuredLookup(blocks, classifierResult.fieldPath!)
             if (structResult.found && structResult.value) {
               const src = structResult.source
               const sources = src
@@ -2789,7 +2792,7 @@ app.whenReady().then(async () => {
         const providerLower = (params.provider ?? 'ollama').toLowerCase()
 
         // ── Intent Detection & Domain Routing ─────────────────────────────────
-        const { classifyIntent } = await import('./main/handshake/intentClassifier')
+        const { classifyIntent, queryRequiresAttachmentSelection } = await import('./main/handshake/intentClassifier')
         const { routeByIntent } = await import('./main/handshake/intentRouter')
         const { executeStructuredSearch } = await import('./main/handshake/intentExecution')
 
@@ -2797,6 +2800,76 @@ app.whenReady().then(async () => {
         const routerResult = routeByIntent(intentResult.intent, hasHandshakeScope)
 
         console.log('[INTENT] Detected:', intentResult.intent, '| Domain:', routerResult.domain, '| Confidence:', intentResult.confidence)
+
+        // Attachment binding: when query implies "this attachment" but no document selected, fail gracefully
+        if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !params.selectedDocumentId?.trim()) {
+          const msg = 'I can summarize the attachment once a specific document is selected. Please open a document from the handshake context first.'
+          const doStream = params.stream === true && event.sender
+          if (doStream) {
+            const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+            send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+            send('handshake:chatStreamToken', { token: msg })
+          }
+          return toIPC({ success: true, answer: msg, sources: [], streamed: doStream, resultType: 'context_answer' })
+        }
+
+        // Attachment binding: when document selected, scope retrieval to that document's content
+        const selectedDocId = params.selectedDocumentId?.trim()
+        if (intentResult.intent === 'document_lookup' && selectedDocId && filter.handshake_id) {
+          const { visibilityWhereClause: visWhere, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visWhere('cb', vaultUnlocked)
+          const rows = db.prepare(
+            `SELECT cb.block_id, cb.payload FROM context_blocks cb WHERE cb.handshake_id = ?${visSql}`
+          ).all(filter.handshake_id, ...visParams) as Array<{ block_id: string; payload: string }>
+          let docText: string | null = null
+          let foundBlockId: string | null = null
+          for (const row of rows) {
+            try {
+              const parsed = JSON.parse(row.payload) as { documents?: Array<{ id?: string; extracted_text?: string | null }> }
+              const docs = parsed?.documents
+              if (Array.isArray(docs)) {
+                const doc = docs.find((d) => d?.id === selectedDocId)
+                if (doc && typeof doc.extracted_text === 'string' && doc.extracted_text.trim()) {
+                  docText = doc.extracted_text.trim()
+                  foundBlockId = row.block_id
+                  break
+                }
+              }
+            } catch { /* skip malformed payload */ }
+          }
+          if (docText && foundBlockId) {
+            const { buildPrompt } = await import('./main/handshake/blockRetrieval')
+            const docContext = `[block_id: ${foundBlockId}]\n[Document content]\n${docText}`
+            const trimmedQuery = params.query?.trim() ?? ''
+            const { system, user: userPrompt } = buildPrompt(docContext, trimmedQuery)
+            const sources = [{ handshake_id: filter.handshake_id, capsule_id: filter.handshake_id, block_id: foundBlockId, source: 'received', score: 1 }]
+            const doStream = params.stream === true && event.sender
+            const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+            try {
+              if (doStream) send('handshake:chatStreamStart', { contextBlocks: [foundBlockId], sources })
+              const answer = await provider.generateChat(
+                [{ role: 'system' as const, content: system }, { role: 'user' as const, content: userPrompt }],
+                { model: params.model, stream: doStream, send: doStream ? send : undefined }
+              )
+              return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
+            } catch (err: any) {
+              const msg = err?.message ?? 'Unknown error'
+              if (/no_api_key|API key required/i.test(msg)) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
+              if (/ECONNREFUSED|fetch failed|Failed to fetch/i.test(msg) && provider.id === 'ollama') return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
+              return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
+            }
+          } else {
+            const msg = "I couldn't find that document in the current handshake context. It may not have been extracted yet."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+        }
 
         if (embeddingService && !routerResult.useRagPipeline && routerResult.forceSemanticSearch) {
           const structResult = await executeStructuredSearch(db, params.query ?? '', filter, embeddingService, intentResult.intent)
@@ -2901,11 +2974,17 @@ app.whenReady().then(async () => {
 
         // Semantic path: apply governance, build prompt, call LLM
         let searchResults = hybridResult.blocks ?? []
-        // Filter out low-relevance blocks (cosine similarity < 0.4) to avoid unrelated answers
+        // Filter out low-relevance blocks (cosine similarity < 0.4) to avoid unrelated answers.
+        // When ALL blocks score below threshold, do NOT fall back to unfiltered results — return
+        // explicit "not enough reliable context" instead of weakly grounded answers.
         const SEMANTIC_RELEVANCE_THRESHOLD = 0.4
         const relevantResults = searchResults.filter(r => (r.score ?? 0) >= SEMANTIC_RELEVANCE_THRESHOLD)
         const allFiltered = relevantResults.length === 0 && searchResults.length > 0
-        searchResults = relevantResults.length > 0 ? relevantResults : searchResults
+        if (allFiltered) {
+          searchResults = []
+        } else if (relevantResults.length > 0) {
+          searchResults = relevantResults
+        }
         const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
 
         let governanceNote: string | null = null
@@ -2941,7 +3020,25 @@ app.whenReady().then(async () => {
 
         const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
         const retrievalFailed = embeddingUnavailable || (retrievedBlocks.length === 0 && !allFiltered)
-        let { systemPrompt, userPrompt, contextBlocks: contextBlocksStr } = buildRagPrompt(retrievedBlocks, params.query ?? '', { retrievalFailed })
+        const followUpPatterns = [
+          /what\s+does\s+(this|that|it)\s+mean/i,
+          /explain\s+(this|that|it)/i,
+          /could\s+you\s+elaborate/i,
+          /clarify/i,
+          /simplify/i,
+          /in\s+simpler\s+terms/i,
+          /what\s+do\s+you\s+mean/i,
+          /\belaborate\b/i,
+          /more\s+detail/i,
+        ]
+        const isFollowUp = params.conversationContext?.lastAnswer && followUpPatterns.some((re) => re.test(params.query ?? ''))
+        const conversationContext = isFollowUp && params.conversationContext?.lastAnswer
+          ? { lastAnswer: params.conversationContext.lastAnswer }
+          : undefined
+        let { systemPrompt, userPrompt, contextBlocks: contextBlocksStr } = buildRagPrompt(retrievedBlocks, params.query ?? '', {
+          retrievalFailed,
+          conversationContext,
+        })
 
         if (userPrompt.length > 8000) {
           console.warn('Prompt too large, truncating')

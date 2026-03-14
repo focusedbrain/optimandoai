@@ -73,6 +73,7 @@ interface HandshakeWorkspaceProps {
   onDelete?: () => void
   onPendingClick?: () => void
   onCapsuleSubmitted?: () => void
+  onDocumentSelect?: (documentId: string | null) => void
 }
 
 // ── Helpers ──
@@ -678,6 +679,7 @@ export default function HandshakeWorkspace({
   onDelete,
   onPendingClick,
   onCapsuleSubmitted,
+  onDocumentSelect,
 }: HandshakeWorkspaceProps) {
   const vaultUnlocked = vaultStatus?.isUnlocked ?? false
   const showVaultIndicator = ((record.state === 'PENDING_ACCEPT' || record.state === 'PENDING_REVIEW') && record.local_role === 'acceptor') || record.state === 'ACCEPTED'
@@ -1048,6 +1050,7 @@ export default function HandshakeWorkspace({
                               const block = blocks.find((x) => x.block_id === b.block_id)
                               if (block) handleToggleVisibility(block)
                             }}
+                            onDocumentSelect={onDocumentSelect}
                             senderWrdeskUserId={hsContextBlocks[0]?.sender_wrdesk_user_id}
                           />
                         </div>

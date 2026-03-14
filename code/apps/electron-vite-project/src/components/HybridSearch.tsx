@@ -27,6 +27,7 @@ interface HybridSearchProps {
   activeView: DashboardView
   selectedHandshakeId?: string | null
   selectedHandshakeEmail?: string | null
+  selectedDocumentId?: string | null
 }
 
 // ── LLM Models (loaded from backend) ──
@@ -145,7 +146,7 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
 
 // ── Component ──
 
-export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null }: HybridSearchProps) {
+export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null }: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -241,6 +242,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     const trimmed = query.trim()
     if (!trimmed || isLoading) return
 
+    const previousAnswer = response
     setLastMode(mode)
     setIsLoading(true)
     setShowPanel(true)
@@ -277,6 +279,8 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
             model: selectedModel || 'llama3',
             provider: modelInfo?.provider || 'ollama',
             stream: true,
+            conversationContext: previousAnswer?.trim() ? { lastAnswer: previousAnswer } : undefined,
+            selectedDocumentId: selectedDocumentId ?? undefined,
           })
         } finally {
           unsubStart?.()
@@ -327,7 +331,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedModel, availableModels, isLoading])
+  }, [query, mode, scope, selectedHandshakeId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 

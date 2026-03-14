@@ -83,22 +83,121 @@ const PHRASE_TO_FIELD: Array<{ phrases: RegExp[]; fieldPath: string }> = [
     ],
     fieldPath: 'company.address',
   },
+  // Contact person (from profile.fields.contacts array)
+  {
+    phrases: [
+      /contact\s*person'?s?\s*phone/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?contact\s*person'?s?\s*phone\s*(?:number)?/i,
+      /phone\s*(?:number)?\s*(?:of\s*)?(?:the\s*)?contact\s*person/i,
+    ],
+    fieldPath: 'contact.person.phone',
+  },
+  {
+    phrases: [
+      /contact\s*person'?s?\s*name/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?contact\s*person'?s?\s*name/i,
+      /name\s*(?:of\s*)?(?:the\s*)?contact\s*person/i,
+    ],
+    fieldPath: 'contact.person.name',
+  },
+  {
+    phrases: [
+      /contact\s*person'?s?\s*email/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?contact\s*person'?s?\s*email/i,
+      /email\s*(?:of\s*)?(?:the\s*)?contact\s*person/i,
+    ],
+    fieldPath: 'contact.person.email',
+  },
+]
+
+/**
+ * Maps graph field paths to vault_profile schema (profile.fields.*).
+ * Vault blocks use profile: { fields: { openingHours, generalPhone, ... } }.
+ */
+const VAULT_PROFILE_PATH_MAP: Record<string, string | ((obj: Record<string, unknown>) => unknown)> = {
+  'opening_hours.schedule': 'openingHours',
+  'contact.support.email': 'supportEmail',
+  'contact.support.phone': 'generalPhone', // vault has generalPhone; support uses same when no dedicated field
+  'contact.general.phone': 'generalPhone',
+  'contact.general.email': 'generalEmail',
+  'company.name': 'legalCompanyName',
+  'company.headquarters': 'address',
+  'company.address': 'address',
+  // contact.person.* — extracted from profile.fields.contacts array
+  'contact.person.phone': (fields) => {
+    const contacts = fields?.contacts as Array<{ phone?: string }> | undefined
+    if (!Array.isArray(contacts)) return undefined
+    const c = contacts.find((x) => x?.phone)
+    return c?.phone
+  },
+  'contact.person.name': (fields) => {
+    const contacts = fields?.contacts as Array<{ name?: string }> | undefined
+    if (!Array.isArray(contacts)) return undefined
+    const c = contacts.find((x) => x?.name)
+    return c?.name
+  },
+  'contact.person.email': (fields) => {
+    const contacts = fields?.contacts as Array<{ email?: string }> | undefined
+    if (!Array.isArray(contacts)) return undefined
+    const c = contacts.find((x) => x?.email)
+    return c?.email
+  },
+}
+
+/** Field paths for compound queries (contact + company, etc.). */
+const MULTI_FIELD_GROUPS: Array<{ phrases: RegExp[]; fieldPaths: string[] }> = [
+  {
+    phrases: [
+      /contact\s+and\s+company\s+(?:details?|info)/i,
+      /company\s+and\s+contact\s+(?:details?|info)/i,
+      /give\s+me\s+(?:the\s+)?(?:contact\s+and\s+company|company\s+and\s+contact)\s+(?:details?|info)/i,
+      /(?:contact|company)\s+details?/i,
+    ],
+    fieldPaths: ['contact.general.phone', 'contact.general.email', 'contact.support.email', 'company.name', 'company.address'],
+  },
+  {
+    phrases: [
+      /contact\s+info\s+and\s+opening\s*hours?/i,
+      /opening\s*hours?\s+and\s+contact\s+info/i,
+      /(?:show|give)\s+me\s+contact\s+(?:info\s+)?and\s+opening\s*hours?/i,
+    ],
+    fieldPaths: ['contact.general.phone', 'contact.general.email', 'opening_hours.schedule'],
+  },
+  {
+    phrases: [
+      /phone\s*(?:number)?\s+and\s+(?:company\s+)?address/i,
+      /(?:company\s+)?address\s+and\s+phone\s*(?:number)?/i,
+      /phone\s+and\s+address/i,
+    ],
+    fieldPaths: ['contact.general.phone', 'company.address'],
+  },
 ]
 
 export interface QueryClassifierResult {
   matched: boolean
   fieldPath?: string
+  /** When matched as compound query, multiple paths to aggregate. */
+  fieldPaths?: string[]
 }
 
 /**
  * Classifies a user question to detect if it refers to a structured field.
- * Returns the matched field path if found.
+ * Returns the matched field path (or paths for compound queries) if found.
  */
 export function queryClassifier(query: string): QueryClassifierResult {
   const trimmed = query.trim()
   if (!trimmed) return { matched: false }
 
   const normalized = trimmed.replace(/\s+/g, ' ').toLowerCase()
+
+  // Check multi-field patterns first (more specific)
+  for (const { phrases, fieldPaths } of MULTI_FIELD_GROUPS) {
+    for (const re of phrases) {
+      if (re.test(normalized)) {
+        return { matched: true, fieldPaths }
+      }
+    }
+  }
 
   for (const { phrases, fieldPath } of PHRASE_TO_FIELD) {
     for (const re of phrases) {
@@ -193,8 +292,26 @@ export function structuredLookup(
       continue
     }
 
-    // Try direct path first
-    let value = getAtPath(parsed, fieldPath)
+    // Try vault_profile format first (profile.fields.*)
+    let value: unknown
+    if (parsed && typeof parsed === 'object' && 'profile' in parsed) {
+      const profile = (parsed as Record<string, unknown>).profile as Record<string, unknown> | undefined
+      const fields = profile?.fields as Record<string, unknown> | undefined
+      const mapper = VAULT_PROFILE_PATH_MAP[fieldPath]
+      if (mapper && fields) {
+        if (typeof mapper === 'function') {
+          value = mapper(fields)
+        } else {
+          value = getAtPath(fields, mapper)
+          // company.name: try legalCompanyName first, then profile.name
+          if ((value === undefined || value === null) && mapper === 'legalCompanyName') {
+            value = profile?.name
+          }
+        }
+      }
+    }
+    // Fallback: direct path
+    if (value === undefined || value === null) value = getAtPath(parsed, fieldPath)
     // Try context_graph.fieldPath for context-graph blocks (e.g. ctx-*)
     if ((value === undefined || value === null) && parsed && typeof parsed === 'object' && 'context_graph' in parsed) {
       value = getAtPath(parsed, `context_graph.${fieldPath}`)
@@ -231,6 +348,73 @@ export function structuredLookup(
   }
 
   return { found: false }
+}
+
+/**
+ * Looks up multiple structured fields and aggregates into a single result.
+ * Used for compound queries like "Give me the contact and company details."
+ */
+export function structuredLookupMulti(
+  blocks: ScoredContextBlock[],
+  fieldPaths: string[],
+): StructuredLookupResult {
+  const parts: string[] = []
+  let source: { handshake_id: string; block_id: string; source?: string } | undefined
+
+  for (const block of blocks) {
+    const payload = block.payload_ref
+    if (!payload || typeof payload !== 'string') continue
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(payload)
+    } catch {
+      continue
+    }
+
+    for (const fieldPath of fieldPaths) {
+      let value: unknown
+      if (parsed && typeof parsed === 'object' && 'profile' in parsed) {
+        const profile = (parsed as Record<string, unknown>).profile as Record<string, unknown> | undefined
+        const fields = profile?.fields as Record<string, unknown> | undefined
+        const mapper = VAULT_PROFILE_PATH_MAP[fieldPath]
+        if (mapper && fields) {
+          if (typeof mapper === 'function') {
+            value = mapper(fields)
+          } else {
+            value = getAtPath(fields, mapper)
+            if ((value === undefined || value === null) && mapper === 'legalCompanyName') {
+              value = profile?.name
+            }
+          }
+        }
+      }
+      if (value === undefined || value === null) value = getAtPath(parsed, fieldPath)
+      if ((value === undefined || value === null) && parsed && typeof parsed === 'object' && 'context_graph' in parsed) {
+        value = getAtPath(parsed, `context_graph.${fieldPath}`)
+      }
+
+      if (value !== undefined && value !== null) {
+        const formatted = formatValue(value)
+        if (formatted) {
+          const label = fieldPath.split('.').pop() ?? fieldPath
+          const entry = `${label}: ${formatted}`
+          if (!parts.includes(entry)) {
+            parts.push(entry)
+            if (!source) source = { handshake_id: block.handshake_id, block_id: block.block_id, source: block.source }
+          }
+        }
+      }
+    }
+    if (parts.length > 0) break
+  }
+
+  if (parts.length === 0) return { found: false }
+  return {
+    found: true,
+    value: parts.join('\n'),
+    source,
+  }
 }
 
 import { visibilityWhereClause, isVaultCurrentlyUnlocked } from './visibilityFilter'

@@ -145,9 +145,16 @@ Rules:
 * Do NOT include block_id references, source citations, or technical identifiers in your answer. Keep the answer clean and user-friendly.
 * Match the language of the user's question in your response (e.g. if the user asks in German, respond in German).`
 
+export interface ConversationContext {
+  /** Previous answer — used when user asks follow-up questions like "What does this mean?" */
+  lastAnswer?: string
+}
+
 export interface BuildPromptOptions {
   /** When true and contextBlocks is empty: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
   retrievalFailed?: boolean
+  /** When present and lastAnswer is set: prepend to prompt so LLM can resolve "this"/"that" references. */
+  conversationContext?: ConversationContext
 }
 
 /**
@@ -173,9 +180,17 @@ export function buildPrompt(
     contextSection = '(The retrieved blocks did not contain information relevant to the question.)'
   }
 
-  const user = `Context blocks:
+  let user = `Context blocks:
 ${contextSection}
+`
+  if (options?.conversationContext?.lastAnswer?.trim()) {
+    user += `
+Previous answer (the user may be referring to this when asking "what does this mean?" or similar):
+${options.conversationContext.lastAnswer.trim()}
 
+`
+  }
+  user += `
 User question:
 ${question}`
 
@@ -189,6 +204,8 @@ export interface BuildRagPromptOptions {
   maxContextTokens?: number
   /** When true and no blocks: use "contextual search unavailable". When false: use "retrieved blocks did not contain relevant information". */
   retrievalFailed?: boolean
+  /** When present: passed to buildPrompt for follow-up question resolution. */
+  conversationContext?: ConversationContext
 }
 
 /**
@@ -218,7 +235,10 @@ export function buildRagPrompt(
   }
 
   const contextBlocks = parts.length > 0 ? parts.join('\n\n') : ''
-  const { system, user } = buildPrompt(contextBlocks, userQuestion, { retrievalFailed: opts.retrievalFailed })
+  const { system, user } = buildPrompt(contextBlocks, userQuestion, {
+    retrievalFailed: opts.retrievalFailed,
+    conversationContext: opts.conversationContext,
+  })
 
   return { systemPrompt: system, userPrompt: user, contextBlocks }
 }

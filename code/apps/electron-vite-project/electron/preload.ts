@@ -309,7 +309,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     const user = assertString(userMessage, 'userMessage')
     return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
   },
-  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean }) => {
+  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string }) => {
     if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
       throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
     }
@@ -320,6 +320,10 @@ contextBridge.exposeInMainWorld('handshakeView', {
       provider: typeof params.provider === 'string' ? params.provider : 'ollama',
       stream: params.stream === true,
       debug: params.debug === true,
+      conversationContext: params.conversationContext && typeof params.conversationContext === 'object'
+        ? { lastAnswer: typeof params.conversationContext.lastAnswer === 'string' ? params.conversationContext.lastAnswer : undefined }
+        : undefined,
+      selectedDocumentId: typeof params.selectedDocumentId === 'string' && params.selectedDocumentId.trim() ? params.selectedDocumentId.trim() : undefined,
     })
   },
   onChatStreamStart: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => {

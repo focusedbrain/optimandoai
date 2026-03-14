@@ -18,6 +18,7 @@ export interface IntentResult {
 }
 
 const DOCUMENT_LOOKUP_PATTERNS = [
+  // Invoice, contract, bill, receipt (existing)
   /\binvoice\b/i,
   /\bbill\b/i,
   /\breceipt\b/i,
@@ -27,6 +28,15 @@ const DOCUMENT_LOOKUP_PATTERNS = [
   /\bfind\s*(?:the\s*)?(?:contract|invoice|document)/i,
   /\bopen\s*(?:the\s*)?(?:contract|invoice|document)/i,
   /\blocate\s*(?:the\s*)?(?:invoice|contract|document)/i,
+  // Attachment and document phrasing (generic)
+  /\battachment\b/i,
+  /\bwhat\s+is\s+(?:this\s+)?(?:attachment|document)\s+about/i,
+  /\bsummarize\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bsummarise\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bwhat\s+does\s+(?:this\s+)?(?:attachment|document)\s+say/i,
+  /\bshow\s*me\s*(?:the\s+)?(?:attachment|document)\b/i,
+  /\b(?:this\s+)?(?:attachment|document)\s+about/i,
+  /\b(?:the\s+)?(?:attachment|document)\s+briefly/i,
 ]
 
 const HANDSHAKE_CONTEXT_PATTERNS = [
@@ -89,4 +99,25 @@ export function classifyIntent(query: string): IntentResult {
 
   // Default: knowledge query (e.g. "What are the opening hours?")
   return { intent: 'knowledge_query', confidence: 0.7 }
+}
+
+/** Patterns that imply the user is referring to a specific attachment/document (requires selection). */
+const ATTACHMENT_REQUIRES_SELECTION_PATTERNS = [
+  /\bthis\s+(?:attachment|document)\b/i,
+  /\bwhat\s+is\s+(?:this\s+)?(?:attachment|document)\s+about/i,
+  /\bwhat\s+does\s+this\s+(?:attachment|document)\s+say\b/i,
+  /\b(?:the\s+)?(?:attachment|document)\s+(?:about|briefly)\b/i,
+  /\bsummarize\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bsummarise\s+(?:the\s+)?(?:attachment|document)\b/i,
+  /\bshow\s*me\s*(?:the\s+)?(?:attachment|document)\b/i,
+]
+
+/**
+ * Returns true when the query implies "this attachment" or "the attachment" (specific document).
+ * Used to fail gracefully when no document is selected.
+ */
+export function queryRequiresAttachmentSelection(query: string): boolean {
+  const trimmed = query.trim()
+  if (!trimmed) return false
+  return ATTACHMENT_REQUIRES_SELECTION_PATTERNS.some((re) => re.test(trimmed))
 }

@@ -42,6 +42,7 @@ function App() {
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -117,6 +118,7 @@ function App() {
           activeView={activeView}
           selectedHandshakeId={selectedHandshakeId}
           selectedHandshakeEmail={selectedHandshakeEmail}
+          selectedDocumentId={selectedDocumentId}
         />
       </header>
 
@@ -128,7 +130,9 @@ function App() {
             onHandshakeScopeChange={(id, email) => {
               setSelectedHandshakeId(id)
               setSelectedHandshakeEmail(email ?? null)
+              setSelectedDocumentId(null)
             }}
+            onDocumentSelect={setSelectedDocumentId}
           />
         ) : activeView === 'settings' ? (
           <SettingsView />

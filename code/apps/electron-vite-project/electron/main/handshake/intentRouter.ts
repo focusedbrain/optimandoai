@@ -39,9 +39,9 @@ export function routeByIntent(intent: ChatIntent, hasHandshakeScope: boolean): R
       }
     case 'document_lookup':
       return {
-        useRagPipeline: false,
-        domain: 'inbox',
-        forceSemanticSearch: true,
+        useRagPipeline: true,
+        domain: 'handshake_rag',
+        preferHandshakeScope: hasHandshakeScope,
       }
     case 'inbox_lookup':
       return {

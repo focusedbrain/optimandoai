@@ -101,6 +101,8 @@ interface StructuredHsContextPanelProps {
   handshakeId: string
   vaultUnlocked: boolean
   onVisibilityChange?: (block: { block_id: string; block_hash: string; sender_wrdesk_user_id: string }) => void
+  /** Called when user opens a document (for chat attachment binding). */
+  onDocumentSelect?: (documentId: string | null) => void
   senderWrdeskUserId?: string
 }
 
@@ -436,6 +438,7 @@ export default function StructuredHsContextPanel({
   handshakeId,
   vaultUnlocked,
   onVisibilityChange,
+  onDocumentSelect,
   senderWrdeskUserId = '',
 }: StructuredHsContextPanelProps) {
   const [warningDialog, setWarningDialog] = useState<{ kind: 'original' | 'link'; targetLabel: string; documentId?: string; linkUrl?: string } | null>(null)
@@ -454,6 +457,7 @@ export default function StructuredHsContextPanel({
       extractedTextLength: doc.extracted_text?.length ?? 0,
     })
     setReaderDoc(doc)
+    onDocumentSelect?.(doc.id)
   }
   const handleOpenLink = (url: string) => {
     setWarningDialog({ kind: 'link', targetLabel: url, linkUrl: url })

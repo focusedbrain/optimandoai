@@ -91,9 +91,10 @@ interface HandshakeViewProps {
   onNewHandshake?: () => void
   selectedHandshakeId: string | null
   onHandshakeScopeChange: (id: string | null, email?: string) => void
+  onDocumentSelect?: (documentId: string | null) => void
 }
 
-export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onHandshakeScopeChange }: HandshakeViewProps) {
+export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onHandshakeScopeChange, onDocumentSelect }: HandshakeViewProps) {
   const [handshakes, setHandshakes] = useState<HandshakeRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
@@ -398,6 +399,7 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, onH
                 onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
                 onPendingClick={() => setPendingOpen(true)}
                 onCapsuleSubmitted={handleCapsuleSubmitted}
+                onDocumentSelect={onDocumentSelect}
               />
             </div>
             <div style={{ flex: '0 0 100px', minHeight: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))' }}>

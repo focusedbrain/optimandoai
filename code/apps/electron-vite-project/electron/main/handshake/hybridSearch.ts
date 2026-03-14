@@ -13,6 +13,7 @@ import type { ScoredContextBlock } from './types'
 import {
   queryClassifier,
   structuredLookup,
+  structuredLookupMulti,
   fetchBlocksForStructuredLookup,
   type StructuredLookupFilter,
   type StructuredLookupResult,
@@ -101,13 +102,18 @@ export async function hybridSearch(
 
 async function runStructuredPath(
   db: any,
-  query: string,
+  _query: string,
   filter: StructuredLookupFilter,
-  classifierResult: { matched: boolean; fieldPath?: string },
+  classifierResult: { matched: boolean; fieldPath?: string; fieldPaths?: string[] },
 ): Promise<StructuredLookupResult | null> {
-  if (!classifierResult.matched || !classifierResult.fieldPath) {
-    return null
+  if (!classifierResult.matched) return null
+  if (classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0) {
+    const pathForFetch = classifierResult.fieldPaths[0]
+    const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
+    if (blocks.length === 0) return { found: false }
+    return structuredLookupMulti(blocks, classifierResult.fieldPaths)
   }
+  if (!classifierResult.fieldPath) return null
   const blocks = fetchBlocksForStructuredLookup(db, filter, classifierResult.fieldPath)
   if (blocks.length === 0) return { found: false }
   return structuredLookup(blocks, classifierResult.fieldPath)
