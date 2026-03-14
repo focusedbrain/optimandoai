@@ -71,6 +71,32 @@ export interface HsContextProfileSummary {
   documents_failed_names: string[]
 }
 
+/** Payment method types — matches Company Data form (vault-ui-typescript.ts). */
+export type PaymentMethodType = 'bank_account' | 'credit_card' | 'paypal'
+
+export interface PaymentMethodBankAccount {
+  type: 'bank_account'
+  iban?: string
+  bic?: string
+  bank_name?: string
+  account_holder?: string
+}
+
+export interface PaymentMethodCreditCard {
+  type: 'credit_card'
+  cc_number?: string
+  cc_holder?: string
+  cc_expiry?: string
+  cc_cvv?: string
+}
+
+export interface PaymentMethodPayPal {
+  type: 'paypal'
+  paypal_email?: string
+}
+
+export type PaymentMethod = PaymentMethodBankAccount | PaymentMethodCreditCard | PaymentMethodPayPal
+
 export interface ProfileFields {
   legalCompanyName?: string
   tradeName?: string
@@ -110,13 +136,10 @@ export interface ProfileFields {
   holidayNotes?: string
   billingEmail?: string
   paymentTerms?: string
-  /** Legacy single-line bank details. Kept for backward compat. Composed from structured fields on save. */
+  /** Legacy single-line bank details. Kept for backward compat. Composed from paymentMethods on save. */
   bankDetails?: string
-  /** Structured bank (Company Data alignment) */
-  iban?: string
-  bic?: string
-  bankName?: string
-  accountHolder?: string
+  /** Payment methods — same structure as Company Data (repeatable Bank Account, Credit Card, PayPal). */
+  paymentMethods?: PaymentMethod[]
   receivingHours?: string
   deliveryInstructions?: string
   supportHours?: string

@@ -16,6 +16,32 @@
 
 // ── Types ──
 
+/** Payment method types — matches Company Data form (vault-ui-typescript.ts). */
+export type PaymentMethodType = 'bank_account' | 'credit_card' | 'paypal'
+
+export interface PaymentMethodBankAccount {
+  type: 'bank_account'
+  iban?: string
+  bic?: string
+  bank_name?: string
+  account_holder?: string
+}
+
+export interface PaymentMethodCreditCard {
+  type: 'credit_card'
+  cc_number?: string
+  cc_holder?: string
+  cc_expiry?: string
+  cc_cvv?: string
+}
+
+export interface PaymentMethodPayPal {
+  type: 'paypal'
+  paypal_email?: string
+}
+
+export type PaymentMethod = PaymentMethodBankAccount | PaymentMethodCreditCard | PaymentMethodPayPal
+
 export interface ProfileFields {
   // Business Identity
   legalCompanyName?: string
@@ -56,13 +82,10 @@ export interface ProfileFields {
   // Billing
   billingEmail?: string
   paymentTerms?: string
-  /** Legacy single-line bank details. Kept for backward compat. Composed from structured fields on save. */
+  /** Legacy single-line bank details. Kept for backward compat. Composed from paymentMethods on save. */
   bankDetails?: string
-  /** Structured bank (Company Data alignment) */
-  iban?: string
-  bic?: string
-  bankName?: string
-  accountHolder?: string
+  /** Payment methods — same structure as Company Data (repeatable Bank Account, Credit Card, PayPal). */
+  paymentMethods?: PaymentMethod[]
   // Logistics / Operations
   receivingHours?: string
   deliveryInstructions?: string
@@ -298,16 +321,34 @@ export function normalizeProfileToText(
     if (f.holidayNotes) lines.push(`  Holiday Notes: ${f.holidayNotes}`)
   }
 
-  // Billing — prefer structured bank if available, else legacy bankDetails
-  const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
-  const bankDetailsValue = hasStructuredBank
-    ? [f.iban, f.bic, f.bankName, f.accountHolder].filter(Boolean).join(' — ')
-    : f.bankDetails
+  // Billing — prefer paymentMethods if available (with credit card masking), else legacy bankDetails
+  let bankDetailsValue: string | undefined
+  if (f.paymentMethods && f.paymentMethods.length > 0) {
+    const parts: string[] = []
+    for (const m of f.paymentMethods) {
+      if (m.type === 'bank_account') {
+        const bankParts = [m.iban, m.bic, m.bank_name, m.account_holder].filter(Boolean)
+        if (bankParts.length > 0) parts.push(`Bank: ${bankParts.join(' — ')}`)
+      } else if (m.type === 'credit_card') {
+        // SECURITY: Never include cc_cvv. Mask cc_number to last 4 digits only.
+        const last4 = m.cc_number && m.cc_number.length >= 4 ? m.cc_number.slice(-4) : ''
+        const cardParts = last4 ? [`••••${last4}`] : []
+        if (m.cc_holder) cardParts.push(m.cc_holder)
+        if (m.cc_expiry) cardParts.push(m.cc_expiry)
+        if (cardParts.length > 0) parts.push(`Card: ${cardParts.join(' — ')}`)
+      } else if (m.type === 'paypal' && m.paypal_email) {
+        parts.push(`PayPal: ${m.paypal_email}`)
+      }
+    }
+    bankDetailsValue = parts.length > 0 ? parts.join(' | ') : undefined
+  } else {
+    bankDetailsValue = f.bankDetails
+  }
 
   const billingFields: Array<[string, string | undefined]> = [
     ['Billing Email', f.billingEmail],
     ['Payment Terms', f.paymentTerms],
-    ['Bank Details', bankDetailsValue?.trim() || undefined],
+    ['Payment Methods', bankDetailsValue?.trim() || undefined],
   ]
   const billingLines = billingFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)
   if (billingLines.length) {

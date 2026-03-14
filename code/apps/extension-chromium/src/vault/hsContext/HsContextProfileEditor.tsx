@@ -24,6 +24,8 @@ import type {
   ProfileDocumentSummary,
   CreateProfileInput,
   UpdateProfileInput,
+  PaymentMethod,
+  PaymentMethodBankAccount,
 } from '../hsContextProfilesRpc'
 import { HsContextDocumentUpload } from './HsContextDocumentUpload'
 import {
@@ -54,13 +56,37 @@ function getCompanyFieldValue(item: VaultItem, key: string): string {
   return (f?.value ?? '').trim()
 }
 
-/** Get payment field — Company Data uses payment_ or payment_2_ prefix. */
-function getPaymentFieldValue(item: VaultItem, key: string): string {
-  const v = getCompanyFieldValue(item, `payment_${key}`) || getCompanyFieldValue(item, `payment_2_${key}`)
-  return v
+/** Parse Company Data flat payment fields into paymentMethods array. Company Data uses payment_, payment_2_, etc. */
+function parseCompanyFieldsToPaymentMethods(item: VaultItem): PaymentMethod[] {
+  const methods: PaymentMethod[] = []
+  let idx = 1
+  while (true) {
+    const prefix = idx === 1 ? 'payment_' : `payment_${idx}_`
+    const iban = getCompanyFieldValue(item, prefix + 'iban')
+    const bic = getCompanyFieldValue(item, prefix + 'bic')
+    const bankName = getCompanyFieldValue(item, prefix + 'bank_name')
+    const accountHolder = getCompanyFieldValue(item, prefix + 'account_holder')
+    const ccNumber = getCompanyFieldValue(item, prefix + 'cc_number')
+    const ccHolder = getCompanyFieldValue(item, prefix + 'cc_holder')
+    const ccExpiry = getCompanyFieldValue(item, prefix + 'cc_expiry')
+    const ccCvv = getCompanyFieldValue(item, prefix + 'cc_cvv')
+    const paypalEmail = getCompanyFieldValue(item, prefix + 'paypal_email')
+
+    if (iban || bic || bankName || accountHolder) {
+      methods.push({ type: 'bank_account', iban, bic, bank_name: bankName, account_holder: accountHolder })
+    } else if (ccNumber || ccHolder || ccExpiry || ccCvv) {
+      methods.push({ type: 'credit_card', cc_number: ccNumber, cc_holder: ccHolder, cc_expiry: ccExpiry, cc_cvv: ccCvv })
+    } else if (paypalEmail) {
+      methods.push({ type: 'paypal', paypal_email: paypalEmail })
+    } else {
+      break
+    }
+    idx++
+  }
+  return methods
 }
 
-/** Map Company Data item to ProfileFields. Direct field copy with snake_case → camelCase. Only non-empty values. */
+/** Map Company Data item to ProfileFields. Direct field copy. paymentMethods copied as array. */
 function mapCompanyToProfileFields(item: VaultItem): Partial<ProfileFields> {
   const out: Partial<ProfileFields> = {}
   const title = (item.title ?? '').trim()
@@ -90,14 +116,8 @@ function mapCompanyToProfileFields(item: VaultItem): Partial<ProfileFields> {
   const taxId = getCompanyFieldValue(item, 'tax_id')
   if (taxId) out.companyRegistrationNumber = taxId
 
-  const iban = getPaymentFieldValue(item, 'iban')
-  if (iban) out.iban = iban
-  const bic = getPaymentFieldValue(item, 'bic')
-  if (bic) out.bic = bic
-  const bankName = getPaymentFieldValue(item, 'bank_name')
-  if (bankName) out.bankName = bankName
-  const accountHolder = getPaymentFieldValue(item, 'account_holder')
-  if (accountHolder) out.accountHolder = accountHolder
+  const paymentMethods = parseCompanyFieldsToPaymentMethods(item)
+  if (paymentMethods.length > 0) out.paymentMethods = paymentMethods
 
   return out
 }
@@ -225,6 +245,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   const [autofillSummary, setAutofillSummary] = useState<{ filled: string[]; skipped: string[] } | null>(null)
   const [legacyAddressHint, setLegacyAddressHint] = useState<string | null>(null)
   const [legacyBankDetailsHint, setLegacyBankDetailsHint] = useState<string | null>(null)
+  const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false)
 
   const FIELD_LABELS: Record<string, string> = {
     legalCompanyName: 'Legal Company Name',
@@ -239,10 +260,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     website: 'Website',
     vatNumber: 'VAT Number',
     companyRegistrationNumber: 'Company Registration Number',
-    iban: 'IBAN',
-    bic: 'BIC',
-    bankName: 'Bank Name',
-    accountHolder: 'Account Holder',
+    paymentMethods: 'Payment Methods',
     contacts: 'Contact Persons',
   }
 
@@ -297,8 +315,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           } else {
             setLegacyAddressHint(null)
           }
-          const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
-          if (!hasStructuredBank && f.bankDetails?.trim()) {
+          const hasPaymentMethods = (f.paymentMethods?.length ?? 0) > 0
+          if (!hasPaymentMethods && f.bankDetails?.trim()) {
             setLegacyBankDetailsHint(f.bankDetails)
           } else {
             setLegacyBankDetailsHint(null)
@@ -430,9 +448,12 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       if (line3) addrParts.push(line3)
       out.address = addrParts.join(', ')
     }
-    const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
-    if (hasStructuredBank) {
-      out.bankDetails = [f.iban, f.bic, f.bankName, f.accountHolder].filter(Boolean).join(' — ')
+    if (f.paymentMethods && f.paymentMethods.length > 0) {
+      const bankParts = f.paymentMethods
+        .filter((m): m is PaymentMethodBankAccount => m.type === 'bank_account')
+        .map((m) => [m.iban, m.bic, m.bank_name, m.account_holder].filter(Boolean).join(' — '))
+        .filter(Boolean)
+      if (bankParts.length > 0) out.bankDetails = bankParts.join(' | ')
     }
     return out
   }, [])
@@ -473,8 +494,10 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       setFields((prev) => {
         const next = { ...prev }
         for (const [k, v] of Object.entries(mapped)) {
-          if (v == null || String(v).trim() === '') continue
-          const isEmpty = (prev as any)[k] == null || String((prev as any)[k] ?? '').trim() === ''
+          if (v == null || (typeof v !== 'object' && String(v).trim() === '')) continue
+          const isEmpty = k === 'paymentMethods'
+            ? !prev.paymentMethods || prev.paymentMethods.length === 0
+            : (prev as any)[k] == null || String((prev as any)[k] ?? '').trim() === ''
           if (isEmpty) {
             ;(next as any)[k] = v
             filled.push(k)
@@ -507,6 +530,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       autofilledFieldKeys.forEach((k) => {
         if (k === 'contacts') {
           next.contacts = []
+        } else if (k === 'paymentMethods') {
+          next.paymentMethods = []
         } else {
           ;(next as any)[k] = ''
         }
@@ -570,6 +595,28 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   }
   const removeOpeningHours = (index: number) => {
     setField('openingHours', (fields.openingHours ?? []).filter((_, i) => i !== index))
+  }
+
+  // ── Payment methods ────────────────────────────────────────────────────────
+
+  const addPaymentMethod = (presetType: 'bank_account' | 'credit_card' | 'paypal' = 'bank_account') => {
+    const empty: PaymentMethod =
+      presetType === 'bank_account'
+        ? { type: 'bank_account', iban: '', bic: '', bank_name: '', account_holder: '' }
+        : presetType === 'credit_card'
+          ? { type: 'credit_card', cc_number: '', cc_holder: '', cc_expiry: '', cc_cvv: '' }
+          : { type: 'paypal', paypal_email: '' }
+    setField('paymentMethods', [...(fields.paymentMethods ?? []), empty])
+  }
+
+  const updatePaymentMethod = (index: number, patch: Partial<PaymentMethod>) => {
+    const list = [...(fields.paymentMethods ?? [])]
+    list[index] = { ...list[index], ...patch } as PaymentMethod
+    setField('paymentMethods', list)
+  }
+
+  const removePaymentMethod = (index: number) => {
+    setField('paymentMethods', (fields.paymentMethods ?? []).filter((_, i) => i !== index))
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -1120,28 +1167,107 @@ export const HsContextProfileEditor: React.FC<Props> = ({
             <label style={labelStyle}>Payment Terms</label>
             <input value={fields.paymentTerms ?? ''} onChange={(e) => setField('paymentTerms', e.target.value)} style={inputStyle} />
           </div>
-          {legacyBankDetailsHint && !(fields.iban || fields.bic || fields.bankName || fields.accountHolder) && (
+          {legacyBankDetailsHint && (fields.paymentMethods?.length ?? 0) === 0 && (
             <div style={{ fontSize: '11px', color: mutedColor, padding: '8px 10px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderRadius: '6px', marginBottom: '4px' }}>
-              Previous bank details (from earlier version): {legacyBankDetailsHint}. Fill the fields below to update.
+              Previous bank details: {legacyBankDetailsHint}. Add structured payment methods below.
             </div>
           )}
-          <div>
-            <label style={labelStyle}>IBAN</label>
-            <input value={fields.iban ?? ''} onChange={(e) => setField('iban', e.target.value)} style={inputStyle} placeholder="International Bank Account Number" />
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>BIC / SWIFT</label>
-              <input value={fields.bic ?? ''} onChange={(e) => setField('bic', e.target.value)} style={inputStyle} />
-            </div>
-            <div style={{ flex: 2 }}>
-              <label style={labelStyle}>Bank Name</label>
-              <input value={fields.bankName ?? ''} onChange={(e) => setField('bankName', e.target.value)} style={inputStyle} />
-            </div>
-          </div>
-          <div>
-            <label style={labelStyle}>Account Holder</label>
-            <input value={fields.accountHolder ?? ''} onChange={(e) => setField('accountHolder', e.target.value)} style={inputStyle} />
+          <div style={{ border: `1px solid ${borderColor}`, borderRadius: '10px', overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setPaymentMethodsOpen(!paymentMethodsOpen)}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: textColor,
+                fontSize: '12px',
+                fontWeight: 600,
+              }}
+            >
+              <span style={{ transform: paymentMethodsOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▶</span>
+              Payment Methods
+            </button>
+            {paymentMethodsOpen && (
+              <div style={{ padding: '16px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderTop: `1px solid ${borderColor}` }}>
+                <div style={{ fontSize: '11px', color: mutedColor, marginBottom: '14px', fontStyle: 'italic' }}>
+                  Add payment details for autofill on checkout and payment forms.
+                </div>
+                {(fields.paymentMethods ?? []).map((pm, idx) => (
+                  <div style={{ marginBottom: '14px' }} key={idx}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                      <select
+                        value={pm.type}
+                        onChange={(e) => {
+                          const t = e.target.value as 'bank_account' | 'credit_card' | 'paypal'
+                          const list = [...(fields.paymentMethods ?? [])]
+                          list[idx] = (t === 'bank_account' ? { type: 'bank_account' as const, iban: '', bic: '', bank_name: '', account_holder: '' } : t === 'credit_card' ? { type: 'credit_card' as const, cc_number: '', cc_holder: '', cc_expiry: '', cc_cvv: '' } : { type: 'paypal' as const, paypal_email: '' }) as PaymentMethod
+                          setField('paymentMethods', list)
+                        }}
+                        style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                      >
+                        <option value="bank_account">Bank Account (IBAN)</option>
+                        <option value="credit_card">Credit / Debit Card</option>
+                        <option value="paypal">PayPal</option>
+                      </select>
+                      <button type="button" onClick={() => removePaymentMethod(idx)} style={{ fontSize: '12px', color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>Remove</button>
+                    </div>
+                    {pm.type === 'bank_account' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={labelStyle}>IBAN</label>
+                          <input value={pm.iban ?? ''} onChange={(e) => updatePaymentMethod(idx, { iban: e.target.value })} style={inputStyle} placeholder="e.g. DE89 3704 0044 0532 0130 00" />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>BIC / SWIFT</label>
+                          <input value={pm.bic ?? ''} onChange={(e) => updatePaymentMethod(idx, { bic: e.target.value })} style={inputStyle} placeholder="e.g. COBADEFFXXX" />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Bank Name</label>
+                          <input value={pm.bank_name ?? ''} onChange={(e) => updatePaymentMethod(idx, { bank_name: e.target.value })} style={inputStyle} />
+                        </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={labelStyle}>Account Holder</label>
+                          <input value={pm.account_holder ?? ''} onChange={(e) => updatePaymentMethod(idx, { account_holder: e.target.value })} style={inputStyle} />
+                        </div>
+                      </div>
+                    )}
+                    {pm.type === 'credit_card' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={labelStyle}>Card Number</label>
+                          <input type="password" value={pm.cc_number ?? ''} onChange={(e) => updatePaymentMethod(idx, { cc_number: e.target.value })} style={inputStyle} placeholder="•••• •••• •••• ••••" />
+                        </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={labelStyle}>Cardholder Name</label>
+                          <input value={pm.cc_holder ?? ''} onChange={(e) => updatePaymentMethod(idx, { cc_holder: e.target.value })} style={inputStyle} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Expiry Date</label>
+                          <input value={pm.cc_expiry ?? ''} onChange={(e) => updatePaymentMethod(idx, { cc_expiry: e.target.value })} style={inputStyle} placeholder="MM/YY" />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>CVV / CVC</label>
+                          <input type="password" value={pm.cc_cvv ?? ''} onChange={(e) => updatePaymentMethod(idx, { cc_cvv: e.target.value })} style={inputStyle} placeholder="•••" maxLength={4} />
+                        </div>
+                      </div>
+                    )}
+                    {pm.type === 'paypal' && (
+                      <div>
+                        <label style={labelStyle}>PayPal Email</label>
+                        <input type="email" value={pm.paypal_email ?? ''} onChange={(e) => updatePaymentMethod(idx, { paypal_email: e.target.value })} style={inputStyle} placeholder="your@email.com" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => addPaymentMethod()} style={addBtnStyle}>+ Add Payment Method</button>
+              </div>
+            )}
           </div>
           <hr style={dividerStyle} />
           <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>

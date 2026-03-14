@@ -238,16 +238,24 @@ function StructuredHsContextBlock({
       )}
 
       {/* Billing */}
-      {(fields.billingEmail || fields.paymentTerms || fields.bankDetails || fields.iban || fields.bic || fields.bankName || fields.accountHolder) && (
+      {(fields.billingEmail || fields.paymentTerms || fields.bankDetails || (fields.paymentMethods && (fields.paymentMethods as Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }>).length > 0)) && (
         <>
           <SectionHeader title="Billing" />
           {fields.billingEmail && <SectionRow label="Billing Email" value={String(fields.billingEmail)} />}
           {fields.paymentTerms && <SectionRow label="Payment Terms" value={String(fields.paymentTerms)} />}
-          {(fields.iban || fields.bic || fields.bankName || fields.accountHolder)
+          {fields.paymentMethods && Array.isArray(fields.paymentMethods) && (fields.paymentMethods as Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }>).length > 0
             ? (
                 <SectionRow
-                  label="Bank Details"
-                  value={[fields.iban, fields.bic, fields.bankName, fields.accountHolder].filter(Boolean).join(' — ')}
+                  label="Payment Methods"
+                  value={(fields.paymentMethods as Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }>)
+                    .map((m) => {
+                      if (m.type === 'bank_account') return [m.iban, m.bic, m.bank_name, m.account_holder].filter(Boolean).join(' — ')
+                      if (m.type === 'paypal' && m.paypal_email) return `PayPal: ${m.paypal_email}`
+                      if (m.type === 'credit_card') return 'Card (masked)'
+                      return ''
+                    })
+                    .filter(Boolean)
+                    .join(' | ')}
                 />
               )
             : fields.bankDetails && <SectionRow label="Bank Details" value={String(fields.bankDetails)} />}

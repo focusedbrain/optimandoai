@@ -151,17 +151,31 @@ describe('normalizeProfileToText — full profile', () => {
     expect(result).toContain('Country: Germany')
   })
 
-  it('renders structured bank details from iban/bic/bankName/accountHolder', () => {
+  it('renders payment methods from paymentMethods array', () => {
     const profile = makeProfile({
       fields: {
-        iban: 'DE89370400440532013000',
-        bic: 'COBADEFFXXX',
-        bankName: 'Commerzbank',
-        accountHolder: 'Acme GmbH',
+        paymentMethods: [
+          { type: 'bank_account', iban: 'DE89370400440532013000', bic: 'COBADEFFXXX', bank_name: 'Commerzbank', account_holder: 'Acme GmbH' },
+        ],
       },
     })
     const result = normalizeProfileToText(profile)
-    expect(result).toContain('Bank Details: DE89370400440532013000 — COBADEFFXXX — Commerzbank — Acme GmbH')
+    expect(result).toContain('Payment Methods: Bank: DE89370400440532013000 — COBADEFFXXX — Commerzbank — Acme GmbH')
+  })
+
+  it('masks credit card in payment methods (last 4 digits only, no CVV)', () => {
+    const profile = makeProfile({
+      fields: {
+        paymentMethods: [
+          { type: 'credit_card', cc_number: '4111111111111111', cc_holder: 'John Doe', cc_expiry: '12/25', cc_cvv: '123' },
+        ],
+      },
+    })
+    const result = normalizeProfileToText(profile)
+    expect(result).toContain('Card: ••••1111 — John Doe — 12/25')
+    expect(result).not.toContain('4111')
+    expect(result).not.toContain('123')
+    expect(result).not.toContain('cc_cvv')
   })
 
   it('renders Contacts section', () => {
