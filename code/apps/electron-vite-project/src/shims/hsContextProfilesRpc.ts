@@ -12,6 +12,10 @@ export interface HsContextProfileSummary {
   updated_at: number
   created_at: number
   document_count: number
+  documents_ready: number
+  documents_pending: number
+  documents_failed: number
+  documents_failed_names: string[]
 }
 
 export async function listHsProfiles(includeArchived = false): Promise<HsContextProfileSummary[]> {

@@ -68,6 +68,14 @@ export interface HsContextProfileSummary {
   updated_at: number
   created_at: number
   document_count: number
+  /** Count of documents with extraction_status = 'success' */
+  documents_ready: number
+  /** Count of documents with extraction_status = 'pending' (or 'processing') */
+  documents_pending: number
+  /** Count of documents with extraction_status = 'failed' */
+  documents_failed: number
+  /** Filenames of failed documents, for high-assurance explicit listing */
+  documents_failed_names: string[]
 }
 
 export interface HsContextProfileDetail extends HsContextProfileSummary {
@@ -104,7 +112,14 @@ function requireHsContextAccess(tier: VaultTier, action: 'read' | 'write' | 'sha
 
 // ── Row mappers ──
 
-function rowToSummary(row: HsContextProfileRow, documentCount = 0): HsContextProfileSummary {
+function rowToSummary(
+  row: HsContextProfileRow,
+  documentCount = 0,
+  docsReady = 0,
+  docsPending = 0,
+  docsFailed = 0,
+  docsFailedNames: string[] = [],
+): HsContextProfileSummary {
   return {
     id: row.id,
     name: row.name,
@@ -114,6 +129,10 @@ function rowToSummary(row: HsContextProfileRow, documentCount = 0): HsContextPro
     updated_at: row.updated_at,
     created_at: row.created_at,
     document_count: documentCount,
+    documents_ready: docsReady,
+    documents_pending: docsPending,
+    documents_failed: docsFailed,
+    documents_failed_names: docsFailedNames,
   }
 }
 
@@ -133,8 +152,13 @@ function rowToDetail(
     sensitive: !!(d.sensitive ?? 0),
   }))
 
+  const docsReady = docRows.filter((d) => d.extraction_status === 'success').length
+  const docsPending = docRows.filter((d) => d.extraction_status === 'pending').length
+  const docsFailed = docRows.filter((d) => d.extraction_status === 'failed').length
+  const docsFailedNames = docRows.filter((d) => d.extraction_status === 'failed').map((d) => d.filename)
+
   return {
-    ...rowToSummary(row, docRows.length),
+    ...rowToSummary(row, docRows.length, docsReady, docsPending, docsFailed, docsFailedNames),
     fields: JSON.parse(row.fields || '{}'),
     custom_fields: JSON.parse(row.custom_fields || '[]'),
     documents,
@@ -161,16 +185,33 @@ export function listProfiles(
 ): HsContextProfileSummary[] {
   requireHsContextAccess(tier, 'read')
 
-  const rows: HsContextProfileRow[] = db
+  const rows: any[] = db
     .prepare(
-      `SELECT p.*, (SELECT count(*) FROM hs_context_profile_documents d WHERE d.profile_id = p.id) as doc_count
+      `SELECT p.*,
+         (SELECT count(*) FROM hs_context_profile_documents d WHERE d.profile_id = p.id) as doc_count,
+         (SELECT count(*) FROM hs_context_profile_documents d WHERE d.profile_id = p.id AND d.extraction_status = 'success') as docs_ready,
+         (SELECT count(*) FROM hs_context_profile_documents d WHERE d.profile_id = p.id AND d.extraction_status = 'pending') as docs_pending,
+         (SELECT count(*) FROM hs_context_profile_documents d WHERE d.profile_id = p.id AND d.extraction_status = 'failed') as docs_failed,
+         (SELECT group_concat(filename, ', ') FROM hs_context_profile_documents d WHERE d.profile_id = p.id AND d.extraction_status = 'failed') as docs_failed_names
        FROM hs_context_profiles p
        WHERE p.archived = ?
        ORDER BY p.updated_at DESC`,
     )
     .all(includeArchived ? 1 : 0)
 
-  return rows.map((row: any) => rowToSummary(row, row.doc_count ?? 0))
+  return rows.map((row: any) => {
+    const failedNames = row.docs_failed_names
+      ? String(row.docs_failed_names).split(', ').filter(Boolean)
+      : []
+    return rowToSummary(
+      row,
+      row.doc_count ?? 0,
+      row.docs_ready ?? 0,
+      row.docs_pending ?? 0,
+      row.docs_failed ?? 0,
+      failedNames,
+    )
+  })
 }
 
 export function getProfile(
@@ -223,7 +264,7 @@ export function createProfile(
 
   return rowToSummary(
     db.prepare('SELECT * FROM hs_context_profiles WHERE id = ?').get(id),
-    0,
+    0, 0, 0, 0, [],
   )
 }
 
@@ -263,13 +304,29 @@ export function updateProfile(
     profileId,
   )
 
-  const docCount: number = (db
-    .prepare('SELECT count(*) as c FROM hs_context_profile_documents WHERE profile_id = ?')
-    .get(profileId) as any)?.c ?? 0
+  const docStats: any = db
+    .prepare(
+      `SELECT
+         count(*) as c,
+         sum(CASE WHEN extraction_status = 'success' THEN 1 ELSE 0 END) as r,
+         sum(CASE WHEN extraction_status = 'pending' THEN 1 ELSE 0 END) as p,
+         sum(CASE WHEN extraction_status = 'failed' THEN 1 ELSE 0 END) as f,
+         (SELECT group_concat(filename, ', ') FROM hs_context_profile_documents WHERE profile_id = ? AND extraction_status = 'failed') as fn
+       FROM hs_context_profile_documents WHERE profile_id = ?`,
+    )
+    .get(profileId, profileId)
+
+  const failedNames = docStats?.fn
+    ? String(docStats.fn).split(', ').filter(Boolean)
+    : []
 
   return rowToSummary(
     db.prepare('SELECT * FROM hs_context_profiles WHERE id = ?').get(profileId),
-    docCount,
+    docStats?.c ?? 0,
+    docStats?.r ?? 0,
+    docStats?.p ?? 0,
+    docStats?.f ?? 0,
+    failedNames,
   )
 }
 

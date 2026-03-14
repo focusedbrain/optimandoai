@@ -94,7 +94,9 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
 
   const selectedProfiles = profiles.filter((p) => selectedIds.includes(p.id))
 
-  const hasPendingDocs = selectedProfiles.some((p) => p.document_count > 0)
+  const pendingProfiles = selectedProfiles.filter((p) => (p.documents_pending ?? 0) > 0)
+  const failedProfiles = selectedProfiles.filter((p) => (p.documents_failed ?? 0) > 0)
+  const allReady = pendingProfiles.length === 0 && failedProfiles.length === 0
 
   if (isVaultUnlocked === false) {
     return (
@@ -286,9 +288,19 @@ export const HandshakeContextProfilePicker: React.FC<HandshakeContextProfilePick
             {selectedIds.length} profile{selectedIds.length > 1 ? 's' : ''} selected
           </div>
           <div>{selectedProfiles.map((p) => p.name).join(', ')}</div>
-          {hasPendingDocs && (
-            <div style={{ color: '#d97706', marginTop: '2px' }}>
-              ⚠️ Some profiles have documents — text extraction may still be in progress. Available text will be included.
+          {pendingProfiles.length > 0 && (
+            <div style={{ color: '#d97706', marginTop: '4px', fontSize: '11px' }}>
+              Document extraction in progress: {pendingProfiles.map((p) => `${p.name} has ${p.documents_pending} document(s) still processing`).join('; ')}. You can proceed — available text will be included, but pending documents will be excluded from the cryptographic proof chain.
+            </div>
+          )}
+          {failedProfiles.length > 0 && (
+            <div style={{ color: '#ef4444', marginTop: '4px', fontSize: '11px' }}>
+              Document extraction failed: {failedProfiles.map((p) => {
+                const names = (p.documents_failed_names ?? []).length > 0
+                  ? ` (${(p.documents_failed_names ?? []).join(', ')})`
+                  : ''
+                return `${p.name} has ${p.documents_failed} document(s) that could not be processed${names}`
+              }).join('; ')}. These documents will NOT be included in the handshake context.
             </div>
           )}
         </div>
