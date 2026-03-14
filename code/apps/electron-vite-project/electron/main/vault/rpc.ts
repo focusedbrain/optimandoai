@@ -94,6 +94,7 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
       getDb,
       getEmbeddingService: () => embeddingService,
       getStatus: () => vs.getStatus(),
+      resolveHsProfilesForHandshake: vs.resolveHsProfilesForHandshake?.bind(vs),
     }
     const db = handshakeDb ?? getDb()
     if (db) {

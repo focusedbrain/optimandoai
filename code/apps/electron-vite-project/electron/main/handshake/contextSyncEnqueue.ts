@@ -7,10 +7,12 @@
 
 import type { SSOSession } from './types'
 import type { ContextBlockForCommitment } from './contextCommitment'
+import type { ContextBlockInput } from './types'
 import { getHandshakeRecord, updateHandshakeContextSyncPending } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
 import { enqueueOutboundCapsule } from './outboundQueue'
+import { persistContextBlocks } from './contextBlocks'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { vaultService } from '../vault/rpc'
 import {
@@ -131,6 +133,28 @@ export function tryEnqueueContextSync(
     type: b.type,
     content: b.content ?? '',
   }))
+
+  // Persist our sent blocks to context_blocks so the UI can show them when filtering by "Sent"
+  if (allowed.length > 0) {
+    const toPersist: ContextBlockInput[] = allowed.map((b) => ({
+      block_id: b.block_id,
+      block_hash: b.block_hash,
+      relationship_id: record.relationship_id,
+      handshake_id: handshakeId,
+      scope_id: b.scope_id ?? undefined,
+      type: b.type,
+      data_classification: 'public',
+      version: 1,
+      valid_until: undefined,
+      payload: typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? ''),
+      visibility: 'public',
+    }))
+    try {
+      persistContextBlocks(db, handshakeId, toPersist, 'sent', session.wrdesk_user_id)
+    } catch (err: any) {
+      console.warn('[ContextSync] Failed to persist sent blocks to context_blocks:', err?.message)
+    }
+  }
 
   try {
     const lastSeq = opts.lastSeqReceived ?? 0

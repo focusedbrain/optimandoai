@@ -676,6 +676,9 @@ export async function handleHandshakeRPC(
       const profileIds = receiverProfileIds ?? receiverProfileItems?.map((i) => i.profile_id) ?? []
       const { blocks: receiverAdhocBlocks, blockPolicyMap: adhocBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(receiverRawBlocks, undefined)
       const receiverProfileBlocks = resolveProfileIdsToContextBlocks(profileIds, session, handshake_id)
+      if (profileIds.length > 0) {
+        console.log('[Handshake Accept] Profile resolution:', { profileIds: profileIds.length, profileBlocks: receiverProfileBlocks.length })
+      }
       const receiverBlocks = [...receiverAdhocBlocks, ...receiverProfileBlocks]
       for (const b of receiverBlocks) {
         if (!b.scope_id) (b as any).scope_id = 'acceptor'

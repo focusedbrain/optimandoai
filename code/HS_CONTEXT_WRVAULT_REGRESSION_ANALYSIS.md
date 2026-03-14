@@ -419,3 +419,137 @@ Then use `hsContextProfileService.listProfiles`, etc. This avoids `require` enti
 
 - **No change to direct-upload UX.** Fixing `service.ts` will allow `createHsProfile` to succeed, so the draft is created and `HsContextDocumentUpload` mounts. The flow remains: New Profile → draft creation → Business Documents section with "+ Add PDF" → direct upload.
 - **Optional chunk optimization** (lazy HS Context) does not change the UX; it only defers loading until the user navigates to HS Context.
+
+---
+
+## 13. Handshake Acceptance — "Text Extraction in Progress" Warning & Profile Resolution (2025-03-14)
+
+### Issue 1: Where does the "text extraction in progress" warning come from?
+
+**Exact component and condition:**
+- **File:** `apps/extension-chromium/src/handshake/components/HandshakeContextProfilePicker.tsx`
+- **Lines 97, 289–291:**
+  ```ts
+  const hasPendingDocs = selectedProfiles.some((p) => p.document_count > 0)
+  // ...
+  {hasPendingDocs && (
+    <div style={{ color: '#d97706', marginTop: '2px' }}>
+      ⚠️ Some profiles have documents — text extraction may still be in progress. Available text will be included.
+    </div>
+  )}
+  ```
+
+**Field that determines the warning:**
+- The warning is shown when **any** selected profile has `document_count > 0`.
+- There is **no** check of `extraction_status` (pending/success/failed) per document.
+- The `HsContextProfileSummary` type (used by `listHsProfiles`) only has `document_count`; it does not expose per-document `extraction_status`.
+- **Conclusion:** The warning is a conservative heuristic: it always shows when profiles have documents, regardless of whether extraction is complete. A profile with 1 doc and `extraction_status: 'success'` will still trigger the warning.
+
+**Is this status checked via a shimmed function?**
+- **No.** The picker uses `listHsProfiles()` from `hsContextProfilesRpc`, which in Electron is shimmed to call `window.handshakeView.listHsContextProfiles()` (IPC). The list returns `document_count` from the real vault DB. The warning is not caused by a shim — it's caused by the design: `document_count > 0` is the only signal available in the list, and the UI treats that as "may still be in progress."
+
+---
+
+### Issue 2: How are profile documents read during acceptance?
+
+**Function that reads profile document content:**
+- **Main process:** `resolveProfileIdsToContextBlocks()` in `apps/electron-vite-project/electron/main/handshake/ipc.ts` (lines 148–194).
+- It calls `vs.resolveHsProfilesForHandshake(tier, profileIds)` where `vs` is expected to be `(globalThis as any).__og_vault_service_ref`.
+- The real implementation is `vaultService.resolveHsProfilesForHandshake()` → `resolveProfilesForHandshake()` in `hsContextProfileService.ts` (lines 591–611), which uses `getProfile(db, tier, id)` to load full profile + documents (including `extracted_text`).
+
+**Does it call getHsProfile()?**
+- **No.** The renderer never calls `getHsProfile()` during acceptance. The renderer sends `profile_ids` and `profile_items` to the main process via `acceptHandshake()`. The main process runs `resolveProfileIdsToContextBlocks()`, which expects to call `vs.resolveHsProfilesForHandshake()` — a method on the vault service, not the shimmed `getHsProfile()`.
+
+**Are any of these functions shimmed in Electron?**
+- **Yes — and this is the root cause.** The handshake IPC uses `__og_vault_service_ref`, which is set by `setupEmbeddingServiceRef()` in `apps/electron-vite-project/electron/main/vault/rpc.ts` (lines 83–97). That object only has:
+  - `getDb`
+  - `getEmbeddingService`
+  - `getStatus`
+- It does **not** include `resolveHsProfilesForHandshake`. Therefore:
+  ```ts
+  if (!vs?.resolveHsProfilesForHandshake) return []
+  ```
+  always triggers, and `resolveProfileIdsToContextBlocks()` **always returns []** for profile blocks.
+- **Shim file:** `apps/electron-vite-project/src/shims/hsContextProfilesRpc.ts` — `getHsProfile()` returns `null`, but it is **not** used during acceptance. The acceptance flow runs entirely in the main process and expects `resolveHsProfilesForHandshake` on `__og_vault_service_ref`, which is missing.
+
+---
+
+### Issue 3: Accept click → context_sync capsule construction (critical path)
+
+**Call chain when user clicks Accept with selectedProfileItems containing "Outperform":**
+
+1. **Renderer:** `AcceptHandshakeModal.tsx` `handleAccept()` (lines 146–194)
+   - Builds `contextOpts` with `profile_ids`, `profile_items` from `selectedProfileItems`
+   - Calls `acceptHandshake(record.handshake_id, 'reciprocal', '', contextOpts)`
+
+2. **Shim:** `apps/electron-vite-project/src/shims/handshakeRpc.ts` → `window.handshakeView.acceptHandshake(...)`
+
+3. **Main process:** `main.ts` → `handleHandshakeRPC('handshake.accept', params, db)`
+
+4. **IPC handler:** `apps/electron-vite-project/electron/main/handshake/ipc.ts` case `handshake.accept` (lines 620–895)
+   - Extracts `profile_ids` / `profile_items` from params (line 676)
+   - `profileIds = receiverProfileIds ?? receiverProfileItems?.map((i) => i.profile_id) ?? []`
+   - `receiverProfileBlocks = resolveProfileIdsToContextBlocks(profileIds, session, handshake_id)` (line 678)
+   - **Here:** `resolveProfileIdsToContextBlocks` checks `vs?.resolveHsProfilesForHandshake` → **undefined** → returns `[]`
+   - `receiverBlocks = [...receiverAdhocBlocks, ...receiverProfileBlocks]` → profile blocks are empty
+   - Accept capsule is built with `acceptContextBlocks = [...initiatorBlocks, ...receiverBlocks]` — no profile blocks
+   - `insertContextStoreEntry` for receiver blocks (lines 791–807) — only adhoc blocks stored; no profile blocks
+   - After accept: `tryEnqueueContextSync(db, handshake_id, session, { lastCapsuleHash })` (lines 843–844)
+   - `tryEnqueueContextSync` reads `getContextStoreByHandshake(db, handshake_id, 'pending_delivery')` — gets only adhoc blocks, no profile blocks
+
+**At what point are profile documents resolved into context blocks?**
+- Intended: inside `resolveProfileIdsToContextBlocks()` via `vs.resolveHsProfilesForHandshake()`.
+- Actual: never — `vs.resolveHsProfilesForHandshake` is undefined, so the function returns `[]` immediately.
+
+**If getHsProfile() were called and returned null:**
+- The renderer does not call `getHsProfile()` during acceptance. The main process would call `resolveHsProfilesForHandshake` (if it were present). The shimmed `getHsProfile` is irrelevant to this flow.
+
+**Effect of missing resolveHsProfilesForHandshake:**
+- (a) No error thrown — the function returns `[]` silently.
+- (b) An empty set of profile blocks is sent — `receiverProfileBlocks = []`.
+- (c) Context sync is still sent — with initiator blocks (stubs) + receiver adhoc blocks only.
+- (d) `context_sync_pending` is not set by this path — it's set when vault is locked. The handshake can still transition to ACTIVE if both sides send and receive context_sync. The "stuck in ACCEPTED" symptom may have a different cause (e.g. P2P/relay delivery, NO_P2P_ENDPOINT, NO_SIGNING_KEYS), but the profile content is definitely not included because `resolveProfileIdsToContextBlocks` returns `[]`.
+
+---
+
+### Issue 4: Document extraction status — real vs shimmed
+
+**In WRVault (extension / Electron vault DB):**
+- Table: `hs_context_profile_documents`
+- Field: `extraction_status` — `'pending' | 'success' | 'failed'`
+- Field: `extracted_text` — populated when `extraction_status === 'success'`
+
+**When the acceptance dialog checks extraction status:**
+- It does **not** check extraction status. The picker only has `document_count` from `listHsProfiles`. The warning is based solely on `document_count > 0`.
+
+**Could the "in progress" warning be a symptom of a shimmed function?**
+- **No.** The warning is not caused by a shim. It is caused by the UI design: the list API does not expose per-document `extraction_status`, so the picker uses `document_count > 0` as a proxy for "may have documents with extraction in progress." Even when extraction is complete, the warning appears.
+
+---
+
+### Root cause summary
+
+| Issue | Root cause |
+|-------|------------|
+| "Text extraction in progress" warning | Design: `hasPendingDocs = document_count > 0`; no `extraction_status` in list. Warning always shows when profiles have documents. |
+| Profile blocks empty during accept | `__og_vault_service_ref` does not include `resolveHsProfilesForHandshake`. `resolveProfileIdsToContextBlocks` always returns `[]`. |
+| Handshake stuck in ACCEPTED | Profile resolution returns `[]` (no profile blocks). Context sync may still be sent (adhoc + initiator stubs). Stuck state may be due to P2P/relay or other conditions — needs separate trace. |
+
+---
+
+### Fix: Add resolveHsProfilesForHandshake to __og_vault_service_ref
+
+**File:** `apps/electron-vite-project/electron/main/vault/rpc.ts`
+
+In `setupEmbeddingServiceRef`, add `resolveHsProfilesForHandshake` to the ref object so the handshake IPC can resolve profile documents:
+
+```ts
+;(globalThis as any).__og_vault_service_ref = {
+  getDb,
+  getEmbeddingService: () => embeddingService,
+  getStatus: () => vs.getStatus(),
+  resolveHsProfilesForHandshake: vs.resolveHsProfilesForHandshake?.bind(vs),
+}
+```
+
+This allows `resolveProfileIdsToContextBlocks` in `ipc.ts` to successfully resolve profile IDs to context blocks with document content during handshake acceptance.
