@@ -311,6 +311,10 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           if (!result.streamed) {
             setResponse(result.answer ?? '')
             setChatSources(result.sources ?? [])
+          } else if (result.answer) {
+            // Early-return paths (no-selection, doc-not-found) stream the full message
+            // as one token; IPC reply may arrive before the token. Use answer as fallback.
+            setResponse(prev => prev || (result.answer ?? ''))
           }
           setChatGovernanceNote(result.governanceNote ?? null)
           if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
