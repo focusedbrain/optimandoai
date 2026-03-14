@@ -62,6 +62,7 @@ import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
 import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import { vaultService } from '../vault/rpc'
 
 // ── Context Block Helpers ──
 
@@ -145,6 +146,9 @@ function buildContextBlocksFromParamsWithPolicy(
  * Resolve HS Context Profile IDs to ContextBlockForCommitment[].
  * Requires vault service and Publisher+ tier. Used when acceptor attaches
  * Vault Profiles during handshake accept.
+ *
+ * Uses __og_vault_service_ref when available; falls back to vaultService
+ * direct import when ref is undefined (avoids ref lifecycle issues).
  */
 function resolveProfileIdsToContextBlocks(
   profileIds: string[],
@@ -152,16 +156,64 @@ function resolveProfileIdsToContextBlocks(
   handshakeId: string,
   scope: 'acceptor' | 'initiator' = 'acceptor',
 ): ContextBlockForCommitment[] {
+  const ref = (globalThis as any).__og_vault_service_ref as { resolveHsProfilesForHandshake?: (tier: string, ids: string[]) => any[] } | undefined
+
+  // ── Diagnostic logging ──
+  console.log('[HS Profile Resolution] resolveProfileIdsToContextBlocks:', {
+    profileIds,
+    profileCount: profileIds?.length ?? 0,
+    refDefined: !!ref,
+    resolveFnDefined: !!ref?.resolveHsProfilesForHandshake,
+  })
+  if (!ref?.resolveHsProfilesForHandshake) {
+    console.warn('[HS Profile Resolution] [CRITICAL] resolveHsProfilesForHandshake not available on vault service ref — attempting fallback to vaultService direct')
+  }
+
   if (!profileIds?.length) return []
-  const vs = (globalThis as any).__og_vault_service_ref as { resolveHsProfilesForHandshake?: (tier: string, ids: string[]) => any[] } | undefined
-  if (!vs?.resolveHsProfilesForHandshake) return []
+
+  let resolveFn = ref?.resolveHsProfilesForHandshake
+  if (!resolveFn) {
+    try {
+      resolveFn = vaultService?.resolveHsProfilesForHandshake?.bind(vaultService)
+      if (resolveFn) {
+        console.log('[HS Profile Resolution] Using vaultService direct fallback (ref was undefined)')
+      }
+    } catch (e: any) {
+      console.warn('[HS Profile Resolution] Fallback failed:', e?.message ?? e)
+    }
+  }
+
+  if (!resolveFn) {
+    console.warn('[HS Profile Resolution] [CRITICAL] resolveHsProfilesForHandshake not available — profile blocks will be empty')
+    return []
+  }
+
   const effectiveTier = session.canonical_tier ?? session.plan
   const tier = (effectiveTier === 'enterprise' || effectiveTier === 'publisher' || effectiveTier === 'publisher_lifetime')
     ? (effectiveTier as 'enterprise' | 'publisher' | 'publisher_lifetime')
     : 'free'
-  if (tier === 'free') return []
+  if (tier === 'free') {
+    console.log('[HS Profile Resolution] Tier is free — skipping profile resolution')
+    return []
+  }
+
   try {
-    const resolved = vs.resolveHsProfilesForHandshake(tier, profileIds)
+    const resolved = resolveFn(tier, profileIds)
+
+    // ── Post-resolution diagnostic ──
+    console.log('[HS Profile Resolution] Resolved:', {
+      profileCount: resolved?.length ?? 0,
+      profiles: (resolved ?? []).map((r: any) => ({
+        name: r?.profile?.name,
+        docCount: r?.documents?.length ?? 0,
+        docs: (r?.documents ?? []).map((d: any) => ({
+          filename: d?.filename,
+          hasExtractedText: !!(d?.extracted_text),
+          extractionStatus: d?.extraction_status,
+        })),
+      })),
+    })
+
     const blocks: ContextBlockForCommitment[] = []
     const shortId = handshakeId.replace(/^hs-/, '').slice(0, 8)
     const scopeLabel = scope === 'acceptor' ? 'acceptor' : 'initiator'
@@ -189,8 +241,10 @@ function resolveProfileIdsToContextBlocks(
         profileSensitive,
       } as any)
     }
+    console.log('[HS Profile Resolution] Built', blocks.length, 'blocks')
     return blocks
-  } catch {
+  } catch (err: any) {
+    console.error('[HS Profile Resolution] Resolution threw:', err?.message ?? err)
     return []
   }
 }
