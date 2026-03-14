@@ -2575,14 +2575,17 @@ app.whenReady().then(async () => {
         const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getStatus' })
         const { canAccessRecordType } = await import('./main/vault/types')
         const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
+        const userInfo = getCachedUserInfo()
+        const email = userInfo?.email ?? null
         return {
           isUnlocked: status.isUnlocked ?? !status.locked,
           name: status.exists ? (name ?? 'Default Vault') : null,
           tier: String(tier),
           canUseHsContextProfiles,
+          email,
         }
       } catch {
-        return { isUnlocked: false, name: null, tier: 'unknown', canUseHsContextProfiles: false }
+        return { isUnlocked: false, name: null, tier: 'unknown', canUseHsContextProfiles: false, email: null }
       }
     })
 

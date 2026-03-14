@@ -218,12 +218,12 @@ function applyVaultTheme(root: HTMLElement): VaultThemeName {
           color: #0f1419 !important;
           background: #ffffff !important;
         }
-        #wrvault-overlay button {
+        /* Dark text only on light-background buttons */
+        #wrvault-overlay button:not(.wrv-btn-primary) {
           color: var(--wrv-text) !important;
         }
-        #wrvault-overlay #vault-unlock-btn,
-        #wrvault-overlay #vault-create-btn,
-        #wrvault-overlay .wrv-add-data-btn {
+        /* Dark-background primary buttons: always white text for accessibility */
+        #wrvault-overlay .wrv-btn-primary {
           color: #ffffff !important;
         }
       `
@@ -492,7 +492,7 @@ async function initVaultUI(container: HTMLElement) {
         </div>
         
         <div style="max-width:800px;margin:0 auto;">
-          <button id="vault-retry-connection" style="
+          <button id="vault-retry-connection" class="wrv-btn-primary" style="
             margin-bottom:20px;
             padding:12px 24px;
             background:var(--wrv-btn-primary);
@@ -510,7 +510,7 @@ async function initVaultUI(container: HTMLElement) {
             <div style="font-size:11px;color:var(--wrv-text-2);font-family:monospace;white-space:pre-wrap;max-height:400px;overflow-y:auto;padding:12px;background:var(--wrv-bg-input);border-radius:4px;margin-top:12px;">
               ${logsText || 'No debug logs available'}
             </div>
-            <button onclick="navigator.clipboard.writeText(\`Error: ${(err.message || err).replace(/`/g, '\\`')}\n\nStack:\n${(err.stack || '').replace(/`/g, '\\`')}\n\nDebug Logs:\n${logsText.replace(/`/g, '\\`')}\`)" style="margin-top:12px;padding:8px 16px;background:var(--wrv-accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">📋 Copy All Logs</button>
+            <button class="wrv-btn-primary" onclick="navigator.clipboard.writeText(\`Error: ${(err.message || err).replace(/`/g, '\\`')}\n\nStack:\n${(err.stack || '').replace(/`/g, '\\`')}\n\nDebug Logs:\n${logsText.replace(/`/g, '\\`')}\`)" style="margin-top:12px;padding:8px 16px;background:var(--wrv-accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">📋 Copy All Logs</button>
           </details>
         </div>
       </div>
@@ -646,7 +646,7 @@ function renderCreateVaultScreen(container: HTMLElement) {
         <div id="vault-create-error" style="display:none;background:rgba(255,59,48,0.1);border:1px solid var(--wrv-danger-border);padding:12px;border-radius:8px;margin-bottom:24px;color:var(--wrv-danger);font-size:13px;clear:both;"></div>
         
         <div style="clear:both;margin-top:40px;margin-bottom:0;">
-          <button id="vault-create-btn" disabled style="
+          <button id="vault-create-btn" class="wrv-btn-primary" disabled style="
             width:100%;
             padding:14px;
             background:var(--wrv-btn-primary);
@@ -823,7 +823,7 @@ function renderCreateVaultScreen(container: HTMLElement) {
               <li>Review and update your backup strategy periodically</li>
             </ul>
           </div>
-          <button id="vault-continue-btn" style="
+          <button id="vault-continue-btn" class="wrv-btn-primary" style="
             padding:14px 32px;
             background:var(--wrv-btn-primary);
             border:none;
@@ -972,7 +972,7 @@ async function renderUnlockScreen(container: HTMLElement) {
           ${connectionError ? `⚠️ Connection issue: ${connectionError}. You can still try to unlock if Electron is running.` : ''}
         </div>
         
-        <button id="vault-unlock-btn" style="
+        <button id="vault-unlock-btn" class="wrv-btn-primary" style="
           width:100%;
           padding:14px;
           background:var(--wrv-btn-primary);
@@ -1155,7 +1155,7 @@ function renderVaultDashboard(container: HTMLElement) {
             color:var(--wrv-text);
             font-size:14px;
           "/>
-          <button id="vault-add-btn" class="wrv-add-data-btn" style="
+          <button id="vault-add-btn" class="wrv-add-data-btn wrv-btn-primary" style="
             padding:10px 20px;
             background:var(--wrv-btn-primary);
             border:none;
@@ -1755,11 +1755,11 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
         padding:10px 20px;border-radius:8px;
         color:var(--wrv-text-2);font-size:13px;cursor:pointer;
       ">Cancel</button>
-      <button id="doc-upload-submit" disabled style="
+      <button id="doc-upload-submit" class="wrv-btn-primary" disabled style="
         background:var(--wrv-accent, #8b5cf6);
         border:none;
         padding:10px 24px;border-radius:8px;
-        color:var(--wrv-text);font-size:13px;font-weight:600;cursor:pointer;
+        color:#ffffff;font-size:13px;font-weight:600;cursor:pointer;
         opacity:0.5;
       ">Upload & Encrypt</button>
     </div>
@@ -1895,7 +1895,7 @@ async function loadHandshakeContextList(parentContainer: HTMLElement) {
           <div style="font-size:36px;margin-bottom:12px;">🤝</div>
           <div style="font-size:14px;margin-bottom:6px;">No handshake context items yet.</div>
           <div style="font-size:12px;color:var(--wrv-text-3);margin-bottom:16px;">Store data to attach to handshakes — personalized offers, user manuals, support profiles.</div>
-          <button id="hc-empty-add-btn" style="padding:8px 20px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">+ Add Context Item</button>
+          <button id="hc-empty-add-btn" class="wrv-btn-primary" style="padding:8px 20px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">+ Add Context Item</button>
         </div>`
       listDiv.querySelector('#hc-empty-add-btn')?.addEventListener('click', () => {
         renderHandshakeContextDialog(parentContainer)
@@ -1915,7 +1915,7 @@ async function loadHandshakeContextList(parentContainer: HTMLElement) {
     let html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <h3 style="margin:0;font-size:15px;color:var(--wrv-text);">🤝 HS Context Items (${items.length})</h3>
-        <button id="hc-list-add-btn" style="padding:6px 16px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">+ Add Context</button>
+        <button id="hc-list-add-btn" class="wrv-btn-primary" style="padding:6px 16px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">+ Add Context</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">`
 
@@ -2161,7 +2161,7 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
     <!-- Actions -->
     <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button id="hc-dialog-cancel" style="padding:10px 20px;background:var(--wrv-bg-card);border:1px solid var(--wrv-border);border-radius:8px;color:var(--wrv-text-2);cursor:pointer;font-size:13px;">Cancel</button>
-      <button id="hc-dialog-save" style="padding:10px 24px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">${isEdit ? 'Save Changes' : 'Create Context Item'}</button>
+      <button id="hc-dialog-save" class="wrv-btn-primary" style="padding:10px 24px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">${isEdit ? 'Save Changes' : 'Create Context Item'}</button>
     </div>
 
     <div id="hc-dialog-status" style="display:none;margin-top:12px;padding:10px;border-radius:8px;font-size:12px;text-align:center;"></div>
@@ -2317,7 +2317,7 @@ function renderAttachEvalDialog(parentContainer: HTMLElement, itemId: string) {
       Step-up authentication completed
     </label>
 
-    <button id="eval-run-btn" style="width:100%;padding:10px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Evaluate</button>
+    <button id="eval-run-btn" class="wrv-btn-primary" style="width:100%;padding:10px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Evaluate</button>
 
     <div id="eval-result" style="display:none;margin-top:16px;"></div>
   `
@@ -3185,7 +3185,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
           cursor:pointer;
           transition:all 0.15s;
         ">Cancel</button>
-        <button id="vault-add-data-save" style="
+        <button id="vault-add-data-save" class="wrv-btn-primary" style="
           padding:10px 20px;
           background:var(--wrv-btn-primary);
           border:none;

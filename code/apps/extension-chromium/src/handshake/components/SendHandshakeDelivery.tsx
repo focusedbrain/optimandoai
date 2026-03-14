@@ -638,6 +638,22 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               {emailError}
             </div>
           )}
+          <div style={{
+            marginTop: '6px',
+            padding: '10px 14px',
+            background: t.noteBg,
+            border: `1px solid ${t.noteBorder}`,
+            borderRadius: '8px',
+            fontSize: '12px',
+            color: t.noteText,
+            lineHeight: 1.5,
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'flex-start',
+          }}>
+            <span style={{ flexShrink: 0, fontSize: '14px' }}>ℹ️</span>
+            <span>Use the exact SSO/account email of the intended recipient — not a personal email, alias, or forwarding address. Only the account with that email can accept this handshake.</span>
+          </div>
         </div>
 
         {/* ---- Subject ---- */}

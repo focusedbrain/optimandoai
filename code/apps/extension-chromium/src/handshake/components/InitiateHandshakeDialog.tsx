@@ -175,6 +175,22 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
               />
             </div>
 
+            <div style={{
+              padding: '10px 14px',
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.22)',
+              borderRadius: '8px',
+              fontSize: '12px',
+              color: t.textMuted,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'flex-start',
+            }}>
+              <span style={{ flexShrink: 0, fontSize: '14px' }}>ℹ️</span>
+              <span>Use the exact SSO/account email of the intended recipient — not a personal email, alias, or forwarding address. Only the account with that email can accept this handshake.</span>
+            </div>
+
             {error && !(includeVaultProfiles && error.toLowerCase().includes('vault')) && (
               <div style={notificationStyle('error')}>✕ {error}</div>
             )}

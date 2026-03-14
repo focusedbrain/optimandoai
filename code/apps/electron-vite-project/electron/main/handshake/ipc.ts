@@ -61,6 +61,7 @@ import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
+import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 
 // ── Context Block Helpers ──
 
@@ -339,6 +340,19 @@ export async function handleHandshakeRPC(
       if (capsuleType !== 'initiate') {
         return { success: false, error: `Only initiate capsules can be imported. Got: ${capsuleType}`, reason: 'NOT_INITIATE_CAPSULE' }
       }
+
+      // LAYER 3 — Import validation: reject if receiver_email does not match current user
+      const capsuleReceiverEmail = cap?.receiver_email as string | undefined
+      const importCheck = validateReceiverEmail(capsuleReceiverEmail, session.email)
+      if (!importCheck.valid) {
+        const receiverDisplay = (capsuleReceiverEmail && String(capsuleReceiverEmail).trim()) || '(unknown)'
+        return {
+          success: false,
+          error: `Cannot import: This handshake is addressed to ${receiverDisplay}. Your account (${session.email}) is not the intended recipient. Ask the sender to create a new handshake for your email address.`,
+          reason: 'RECEIVER_EMAIL_MISMATCH',
+        }
+      }
+
       const existing = getHandshakeRecord(db, handshakeId)
       if (existing) {
         return { success: false, error: 'Handshake already exists', reason: 'HANDSHAKE_ALREADY_EXISTS' }
@@ -362,7 +376,33 @@ export async function handleHandshakeRPC(
 
     case 'handshake.list': {
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
-      const records = listHandshakeRecords(db, filter)
+      let records = listHandshakeRecords(db, filter)
+
+      // LAYER 2 — Visibility filtering: receiver-only handshakes must match current user's email
+      let session: SSOSession | undefined
+      try {
+        session = requireSession()
+      } catch {
+        session = undefined
+      }
+      if (session?.email) {
+        const userEmails = session.email
+        records = records.filter((r) => {
+          // Initiator: always show (they created it)
+          if (r.local_role === 'initiator') return true
+          // Active/completed: always show (don't hide history)
+          if (r.state === HS.ACCEPTED || r.state === HS.ACTIVE || r.state === HS.EXPIRED || r.state === HS.REVOKED) {
+            return true
+          }
+          // Acceptor, pending: only show if receiver_email matches
+          if (r.local_role === 'acceptor' && (r.state === HS.PENDING_ACCEPT || r.state === HS.PENDING_REVIEW)) {
+            const check = validateReceiverEmail(r.receiver_email, userEmails)
+            return check.valid
+          }
+          return true
+        })
+      }
+
       return { type: 'handshake-list', records }
     }
 
@@ -644,6 +684,16 @@ export async function handleHandshakeRPC(
       }
       if (record.state !== HS.PENDING_ACCEPT && record.state !== HS.PENDING_REVIEW) {
         return { success: false, error: `Handshake is in state ${record.state}, expected PENDING_ACCEPT or PENDING_REVIEW` }
+      }
+
+      // LAYER 1 — Receiver email validation (HIGH ASSURANCE)
+      const receiverCheck = validateReceiverEmail(record.receiver_email, session.email)
+      if (!receiverCheck.valid) {
+        return {
+          success: false,
+          error: receiverCheck.reason ?? 'Handshake rejection: Your authenticated identity does not match the intended recipient.',
+          reason: ReasonCode.POLICY_VIOLATION,
+        }
       }
 
       // Clamp sharing_mode: if the initiator did not allow reciprocal, force receive-only

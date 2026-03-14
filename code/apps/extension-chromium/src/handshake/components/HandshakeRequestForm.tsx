@@ -324,6 +324,22 @@ export function HandshakeRequestForm({
           />
         </div>
 
+        <div style={{
+          padding: '10px 14px',
+          background: isStandard ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.12)',
+          border: `1px solid ${isStandard ? 'rgba(59,130,246,0.20)' : 'rgba(59,130,246,0.25)'}`,
+          borderRadius: '8px',
+          fontSize: '12px',
+          color: isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)',
+          lineHeight: 1.5,
+          display: 'flex',
+          gap: '8px',
+          alignItems: 'flex-start',
+        }}>
+          <span style={{ flexShrink: 0, fontSize: '14px' }}>ℹ️</span>
+          <span>Use the exact SSO/account email of the intended recipient — not a personal email, alias, or forwarding address. Only the account with that email can accept this handshake.</span>
+        </div>
+
         {/* Personal message */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <label style={labelStyle}>Message</label>

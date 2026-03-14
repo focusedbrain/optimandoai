@@ -16,6 +16,7 @@ import { computeBlockHashClient } from '../utils/contextBlockHash'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import type { ProfileContextItem, ContextBlockWithPolicy } from '../../../../packages/shared/src/handshake/types'
+import { validateReceiverEmail } from '@shared/handshake/receiverEmailValidation'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -23,6 +24,7 @@ interface HandshakeRecord {
   initiator: { email: string; wrdesk_user_id: string } | null
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
+  receiver_email?: string | null
 }
 
 interface Props {
@@ -54,8 +56,13 @@ export default function AcceptHandshakeModal({
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [vaultWarning, setVaultWarning] = useState(false)
   const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_AI_POLICY)
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
+
+  // LAYER 4 — Receiver email guard (defense in depth)
+  const receiverCheck = validateReceiverEmail(record.receiver_email, currentUserEmail)
+  const receiverEmailMismatch = currentUserEmail != null && !receiverCheck.valid
 
   useEffect(() => {
     const checkVault = async () => {
@@ -63,9 +70,11 @@ export default function AcceptHandshakeModal({
         const status = await window.handshakeView?.getVaultStatus?.()
         setIsVaultUnlocked(status?.isUnlocked ?? false)
         setVaultName(status?.name ?? null)
+        setCurrentUserEmail(status?.email ?? null)
       } catch {
         setIsVaultUnlocked(false)
         setVaultName(null)
+        setCurrentUserEmail(null)
       }
     }
     checkVault()
@@ -233,6 +242,23 @@ export default function AcceptHandshakeModal({
             From {counterpartyEmail}
           </div>
         </div>
+
+        {receiverEmailMismatch && (
+          <div
+            style={{
+              margin: '12px 16px',
+              padding: '12px 14px',
+              background: 'rgba(220,38,38,0.12)',
+              border: '1px solid rgba(220,38,38,0.4)',
+              borderRadius: '8px',
+              fontSize: '12px',
+              color: '#b91c1c',
+              lineHeight: 1.5,
+            }}
+          >
+            Security check failed: This handshake is addressed to {record.receiver_email ?? '(unknown)'}. Your account ({currentUserEmail}) cannot accept it. Contact the sender to issue a new handshake for your email.
+          </div>
+        )}
 
         <div style={{ margin: '0 16px 12px' }}>
           <VaultStatusIndicator
@@ -544,23 +570,25 @@ export default function AcceptHandshakeModal({
           >
             Cancel
           </button>
-          <button
-            onClick={handleAccept}
-            disabled={accepting || !isVaultUnlocked}
-            title={!isVaultUnlocked ? 'Unlock your Vault to accept' : undefined}
-            style={{
-              padding: '9px 18px',
-              background: accepting || !isVaultUnlocked ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.9)',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: accepting || !isVaultUnlocked ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {accepting ? 'Accepting…' : !isVaultUnlocked ? '🔒 Unlock Vault to Accept' : 'Accept'}
-          </button>
+          {!receiverEmailMismatch && (
+            <button
+              onClick={handleAccept}
+              disabled={accepting || !isVaultUnlocked}
+              title={!isVaultUnlocked ? 'Unlock your Vault to accept' : undefined}
+              style={{
+                padding: '9px 18px',
+                background: accepting || !isVaultUnlocked ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.9)',
+                border: 'none',
+                borderRadius: '8px',
+                color: 'white',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: accepting || !isVaultUnlocked ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {accepting ? 'Accepting…' : !isVaultUnlocked ? '🔒 Unlock Vault to Accept' : 'Accept'}
+            </button>
+          )}
         </div>
       </div>
     </div>
