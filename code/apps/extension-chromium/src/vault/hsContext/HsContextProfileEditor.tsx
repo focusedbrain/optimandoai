@@ -52,7 +52,8 @@ const EMPTY_CUSTOMS: CustomField[] = []
 
 /** Get field value by key from a VaultItem's fields array. */
 function getCompanyFieldValue(item: VaultItem, key: string): string {
-  const f = item.fields?.find((x) => x.key === key)
+  const fields = Array.isArray(item?.fields) ? item.fields : []
+  const f = fields.find((x: { key?: string; value?: string }) => x?.key === key)
   return (f?.value ?? '').trim()
 }
 
@@ -488,7 +489,12 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   const handleCompanyAutofill = useCallback(async (itemId: string) => {
     if (!itemId) return
     try {
-      const item = await getItem(itemId) as VaultItem
+      const raw = await getItem(itemId)
+      // Normalize: API may return item in data wrapper or with missing fields array
+      const item: VaultItem = {
+        ...raw,
+        fields: Array.isArray((raw as any)?.fields) ? (raw as any).fields : [],
+      } as VaultItem
       const mapped = mapCompanyToProfileFields(item)
       const filled: string[] = []
       const skipped: string[] = []
@@ -521,6 +527,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         return next
       })
       setAutofillSummary({ filled, skipped })
+      // Auto-expand Payment Methods section when we filled payment data
+      if (filled.includes('paymentMethods')) setPaymentMethodsOpen(true)
     } catch (err) {
       setError((err as Error)?.message ?? 'Failed to load company data')
     }

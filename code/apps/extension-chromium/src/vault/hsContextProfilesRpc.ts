@@ -408,3 +408,56 @@ export async function retryExtractionWithVision(
   )
   return { status: (res as any).status ?? 'pending' }
 }
+
+// ── Document reader (page-by-page) ─────────────────────────────────────────
+
+export async function getDocumentPageCount(documentId: string): Promise<number> {
+  const res = await sendVaultRpc<{ success: boolean; count?: number }>(
+    'vault.hsProfiles.getDocumentPageCount',
+    { documentId },
+  )
+  return (res as any).count ?? 0
+}
+
+export async function getDocumentPage(documentId: string, pageNumber: number): Promise<string | null> {
+  const res = await sendVaultRpc<{ success: boolean; text?: string | null }>(
+    'vault.hsProfiles.getDocumentPage',
+    { documentId, pageNumber },
+  )
+  return (res as any).text ?? null
+}
+
+export async function getDocumentPageList(
+  documentId: string,
+): Promise<Array<{ page_number: number; char_count: number }>> {
+  const res = await sendVaultRpc<{ success: boolean; pages?: Array<{ page_number: number; char_count: number }> }>(
+    'vault.hsProfiles.getDocumentPageList',
+    { documentId },
+  )
+  return (res as any).pages ?? []
+}
+
+export async function getDocumentFullText(documentId: string): Promise<string | null> {
+  const res = await sendVaultRpc<{ success: boolean; text?: string | null }>(
+    'vault.hsProfiles.getDocumentFullText',
+    { documentId },
+  )
+  return (res as any).text ?? null
+}
+
+export interface DocumentSearchMatch {
+  page_number: number
+  match_count: number
+  snippet: string
+}
+
+export async function searchDocumentPages(
+  documentId: string,
+  query: string,
+): Promise<DocumentSearchMatch[]> {
+  const res = await sendVaultRpc<{ success: boolean; matches?: DocumentSearchMatch[] }>(
+    'vault.hsProfiles.searchDocumentPages',
+    { documentId, query: query ?? '' },
+  )
+  return (res as any).matches ?? []
+}

@@ -55,6 +55,7 @@ export interface HsContextProfileDocumentRow {
   label?: string | null
   document_type?: string | null
   created_at: number
+  page_count?: number
 }
 
 // ── Public API types ──
@@ -600,6 +601,144 @@ export function deleteProfileDocument(db: any, tier: VaultTier, documentId: stri
  * Additive; only updates provided fields.
  * Validates label and document_type (aligns with upload path validation).
  */
+/**
+ * Migrate legacy documents: split extracted_text by double newline into per-page records.
+ * Call lazily when opening the document reader and no pages exist yet.
+ * Returns true if pages were created, false if not needed or no extracted_text.
+ */
+export function splitExtractedTextToPages(db: any, documentId: string): boolean {
+  const docRow: HsContextProfileDocumentRow | undefined = db
+    .prepare('SELECT id, extracted_text FROM hs_context_profile_documents WHERE id = ?')
+    .get(documentId)
+  if (!docRow || !docRow.extracted_text?.trim()) return false
+
+  const existingCount = db.prepare(
+    'SELECT count(*) as c FROM hs_context_profile_document_pages WHERE document_id = ?'
+  ).get(documentId) as { c: number }
+  if ((existingCount?.c ?? 0) > 0) return false
+
+  const pageTexts = docRow.extracted_text.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
+  if (pageTexts.length === 0) {
+    pageTexts.push('')
+  }
+
+  const now = Date.now()
+  const insert = db.prepare(`
+    INSERT INTO hs_context_profile_document_pages (id, document_id, page_number, text, char_count, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  for (let i = 0; i < pageTexts.length; i++) {
+    const text = pageTexts[i] ?? ''
+    const pageNum = i + 1
+    const id = `hspg_${documentId}_${pageNum}`
+    insert.run(id, documentId, pageNum, text, text.length, now)
+  }
+
+  db.prepare('UPDATE hs_context_profile_documents SET page_count = ? WHERE id = ?')
+    .run(pageTexts.length, documentId)
+  return true
+}
+
+// ── Document reader: per-page fetch ──
+
+export interface DocumentPageInfo {
+  page_number: number
+  char_count: number
+}
+
+/**
+ * Get page count for a document. Runs splitExtractedTextToPages if needed for legacy docs.
+ */
+export function getDocumentPageCount(db: any, tier: VaultTier, documentId: string): number {
+  requireHsContextAccess(tier, 'read')
+  splitExtractedTextToPages(db, documentId)
+  const row = db.prepare(
+    'SELECT page_count FROM hs_context_profile_documents WHERE id = ?'
+  ).get(documentId) as { page_count?: number } | undefined
+  return row?.page_count ?? 0
+}
+
+/**
+ * Get text for a single page (1-indexed).
+ */
+export function getDocumentPage(
+  db: any,
+  tier: VaultTier,
+  documentId: string,
+  pageNumber: number,
+): string | null {
+  requireHsContextAccess(tier, 'read')
+  splitExtractedTextToPages(db, documentId)
+  const row = db.prepare(
+    'SELECT text FROM hs_context_profile_document_pages WHERE document_id = ? AND page_number = ?'
+  ).get(documentId, pageNumber) as { text: string } | undefined
+  return row?.text ?? null
+}
+
+/**
+ * Get lightweight page list (page_number, char_count) for sidebar navigation.
+ */
+export function getDocumentPageList(db: any, tier: VaultTier, documentId: string): DocumentPageInfo[] {
+  requireHsContextAccess(tier, 'read')
+  splitExtractedTextToPages(db, documentId)
+  const rows = db.prepare(
+    'SELECT page_number, char_count FROM hs_context_profile_document_pages WHERE document_id = ? ORDER BY page_number ASC'
+  ).all(documentId) as { page_number: number; char_count: number }[]
+  return rows.map((r) => ({ page_number: r.page_number, char_count: r.char_count }))
+}
+
+/**
+ * Get full extracted text for Download Full Text (avoids fetching all pages).
+ */
+export function getDocumentFullText(db: any, tier: VaultTier, documentId: string): string | null {
+  requireHsContextAccess(tier, 'read')
+  const row = db.prepare('SELECT extracted_text FROM hs_context_profile_documents WHERE id = ?').get(documentId) as { extracted_text: string | null } | undefined
+  return row?.extracted_text ?? null
+}
+
+export interface DocumentSearchMatch {
+  page_number: number
+  match_count: number
+  /** Short context snippet around first match (max ~80 chars) */
+  snippet: string
+}
+
+/**
+ * Search across document pages using SQL LIKE. Returns pages with matches.
+ */
+export function searchDocumentPages(db: any, tier: VaultTier, documentId: string, query: string): DocumentSearchMatch[] {
+  requireHsContextAccess(tier, 'read')
+  if (!query?.trim()) return []
+  splitExtractedTextToPages(db, documentId)
+  const escaped = query.trim().replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+  const likePattern = `%${escaped}%`
+  const rows = db.prepare(
+    `SELECT page_number, text FROM hs_context_profile_document_pages WHERE document_id = ? AND text LIKE ? ESCAPE '\\' ORDER BY page_number ASC`
+  ).all(documentId, likePattern) as { page_number: number; text: string }[]
+
+  const results: DocumentSearchMatch[] = []
+  const q = query.trim().toLowerCase()
+  for (const row of rows) {
+    const text = row.text ?? ''
+    const lower = text.toLowerCase()
+    let count = 0
+    let idx = 0
+    while ((idx = lower.indexOf(q, idx)) !== -1) {
+      count++
+      idx += q.length
+    }
+    const firstIdx = lower.indexOf(q)
+    let snippet = ''
+    if (firstIdx !== -1) {
+      const start = Math.max(0, firstIdx - 30)
+      const end = Math.min(text.length, firstIdx + query.length + 40)
+      snippet = (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
+    }
+    results.push({ page_number: row.page_number, match_count: count, snippet })
+  }
+  return results
+}
+
 export function updateProfileDocumentMeta(
   db: any,
   tier: VaultTier,

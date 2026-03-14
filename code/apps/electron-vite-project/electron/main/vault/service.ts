@@ -74,6 +74,13 @@ import {
   resolveProfilesForHandshake,
   getProfileDocumentContent,
   retryDocumentWithVision,
+  getDocumentPageCount,
+  getDocumentPage,
+  getDocumentPageList,
+  getDocumentFullText,
+  searchDocumentPages,
+  type DocumentPageInfo,
+  type DocumentSearchMatch,
 } from './hsContextProfileService'
 import type { CreateProfileInput, UpdateProfileInput } from './hsContextProfileService'
 import {
@@ -1333,6 +1340,36 @@ export class VaultService {
     this.ensureUnlocked()
     this.updateActivity()
     return getProfileDocumentContent(this.db!, tier, this.session!.kek, documentId)
+  }
+
+  getDocumentPageCount(tier: VaultTier, documentId: string): number {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPageCount(this.db!, tier, documentId)
+  }
+
+  getDocumentPage(tier: VaultTier, documentId: string, pageNumber: number): string | null {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPage(this.db!, tier, documentId, pageNumber)
+  }
+
+  getDocumentPageList(tier: VaultTier, documentId: string): DocumentPageInfo[] {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPageList(this.db!, tier, documentId)
+  }
+
+  getDocumentFullText(tier: VaultTier, documentId: string): string | null {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentFullText(this.db!, tier, documentId)
+  }
+
+  searchDocumentPages(tier: VaultTier, documentId: string, query: string): DocumentSearchMatch[] {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return searchDocumentPages(this.db!, tier, documentId, query)
   }
 
   // ── BYOK API Key management ────────────────────────────────────────────────

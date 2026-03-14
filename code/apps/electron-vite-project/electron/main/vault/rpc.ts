@@ -405,6 +405,41 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
         }
       }
 
+      case 'vault.hsProfiles.getDocumentPageCount': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const count = vaultService.getDocumentPageCount(tier, documentId)
+        return { success: true, count }
+      }
+
+      case 'vault.hsProfiles.getDocumentPage': {
+        const { documentId, pageNumber } = params as { documentId: string; pageNumber: number }
+        if (!documentId || typeof pageNumber !== 'number') return { success: false, error: 'documentId and pageNumber are required' }
+        const text = vaultService.getDocumentPage(tier, documentId, pageNumber)
+        return { success: true, text }
+      }
+
+      case 'vault.hsProfiles.getDocumentPageList': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const pages = vaultService.getDocumentPageList(tier, documentId)
+        return { success: true, pages }
+      }
+
+      case 'vault.hsProfiles.getDocumentFullText': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const text = vaultService.getDocumentFullText(tier, documentId)
+        return { success: true, text }
+      }
+
+      case 'vault.hsProfiles.searchDocumentPages': {
+        const { documentId, query } = params as { documentId: string; query: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const matches = vaultService.searchDocumentPages(tier, documentId, query ?? '')
+        return { success: true, matches }
+      }
+
       case 'vault.hsProfiles.requestOriginalDocument': {
         const { documentId, acknowledgedWarning, handshakeId, actorUserId } = params as {
           documentId: string

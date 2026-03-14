@@ -25,6 +25,7 @@ import {
   hasAnthropicApiKey,
   retryExtractionWithVision,
 } from '../hsContextProfilesRpc'
+import { HsContextDocumentReader } from './HsContextDocumentReader'
 import { validateDocumentLabel } from '@shared/handshake/hsContextFieldValidation'
 
 /** Trigger a browser download for a base64-encoded file. */
@@ -121,6 +122,7 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
   const [editType, setEditType] = useState('')
   const [downloadingDoc, setDownloadingDoc] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [readerDoc, setReaderDoc] = useState<ProfileDocumentSummary | null>(null)
 
   // BYOK Vision state
   const [hasStoredKey, setHasStoredKey] = useState<boolean | null>(null)
@@ -484,12 +486,20 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
               </div>
               <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                 {doc.extraction_status === 'success' && doc.extracted_text && (
-                  <button
-                    onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
-                    style={{ fontSize: '10px', padding: '3px 8px', background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: '4px', color: mutedColor, cursor: 'pointer' }}
-                  >
-                    {expandedDoc === doc.id ? 'Hide' : 'Preview'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setReaderDoc(doc)}
+                      style={{ fontSize: '10px', padding: '3px 8px', background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '4px', color: isDark ? '#c4b5fd' : '#7c3aed', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Open Document Reader
+                    </button>
+                    <button
+                      onClick={() => setExpandedDoc(expandedDoc === doc.id ? null : doc.id)}
+                      style={{ fontSize: '10px', padding: '3px 8px', background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: '4px', color: mutedColor, cursor: 'pointer' }}
+                    >
+                      {expandedDoc === doc.id ? 'Hide' : 'Preview'}
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => handleOwnerDownload(doc.id)}
@@ -522,9 +532,9 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
                 <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '6px', fontWeight: 600 }}>EXTRACTED TEXT PREVIEW</div>
                 <pre style={{
                   fontSize: '11px', color: textColor, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  maxHeight: '180px', overflowY: 'auto', margin: 0, fontFamily: 'inherit', lineHeight: 1.5,
+                  maxHeight: '72px', overflowY: 'auto', margin: 0, fontFamily: 'inherit', lineHeight: 1.5,
                 }}>
-                  {doc.extracted_text.slice(0, 800)}{doc.extracted_text.length > 800 ? '\n…' : ''}
+                  {doc.extracted_text.split('\n').slice(0, 3).join('\n')}{(doc.extracted_text.split('\n').length > 3 ? '\n…' : '')}
                 </pre>
               </div>
             )}
@@ -669,6 +679,37 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
           </div>
         )
       })}
+
+      {/* ── Document reader modal ── */}
+      {readerDoc && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setReaderDoc(null)}
+        >
+          <div style={{ width: '100%', maxWidth: 900, height: '85vh', maxHeight: 700 }} onClick={(e) => e.stopPropagation()}>
+            <HsContextDocumentReader
+              documentId={readerDoc.id}
+              filename={readerDoc.label?.trim() || readerDoc.filename}
+              mimeType={readerDoc.mime_type || 'application/pdf'}
+              canViewOriginal={true}
+              onViewOriginal={async () => {
+                setReaderDoc(null)
+                await handleOwnerDownload(readerDoc.id)
+              }}
+              onClose={() => setReaderDoc(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

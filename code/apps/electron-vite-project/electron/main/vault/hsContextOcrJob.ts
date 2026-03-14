@@ -50,6 +50,8 @@ const VISION_MAX_PAGES = 100
 export interface OcrJobResult {
   success: boolean
   extracted_text?: string
+  /** Per-page text for document reader (1-indexed pages). */
+  pageTexts?: string[]
   extractor_name?: string
   error_message?: string
   /** Structured error code for the UI to decide which failure card to render. */
@@ -215,7 +217,7 @@ function reconstructPageText(items: any[]): string {
  * We catch it and throw a tagged error so the orchestrator can surface a
  * clear, actionable message without trying OCR (which would also fail).
  */
-async function extractTextDirect(pdfjs: any, data: Buffer): Promise<{ text: string; pageCount: number }> {
+async function extractTextDirect(pdfjs: any, data: Buffer): Promise<{ text: string; pageCount: number; pageTexts: string[] }> {
   let pdf: any
   try {
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(data) })
@@ -241,7 +243,7 @@ async function extractTextDirect(pdfjs: any, data: Buffer): Promise<{ text: stri
     pageTexts.push(pageText)
   }
 
-  return { text: pageTexts.join('\n\n'), pageCount }
+  return { text: pageTexts.join('\n\n'), pageCount, pageTexts }
 }
 
 // ── OCR fallback via Tesseract ──
@@ -274,7 +276,7 @@ async function extractTextOcr(
   pdfjs: any,
   data: Buffer,
   onPageProgress?: (current: number, total: number) => void,
-): Promise<{ text: string; pageCount: number }> {
+): Promise<{ text: string; pageCount: number; pageTexts: string[] }> {
   let createCanvas: ((w: number, h: number) => any) | null = null
   try {
     createCanvas = require('canvas').createCanvas
@@ -329,7 +331,7 @@ async function extractTextOcr(
     }
   }
 
-  return { text: pageTexts.filter(Boolean).join('\n\n'), pageCount }
+  return { text: pageTexts.filter(Boolean).join('\n\n'), pageCount, pageTexts }
 }
 
 // ── Anthropic Vision API extraction ─────────────────────────────────────────
@@ -484,6 +486,7 @@ async function extractTextVision(
   return {
     success: true,
     extracted_text: fullText,
+    pageTexts,
     extractor_name: 'anthropic-vision',
   }
 }
@@ -512,7 +515,7 @@ export async function extractTextFromPdf(
     const pdfjs = await loadPdfjs()
 
     // ── Attempt 1: Direct text extraction ──
-    let directResult: { text: string; pageCount: number } | null = null
+    let directResult: { text: string; pageCount: number; pageTexts: string[] } | null = null
     try {
       directResult = await extractTextDirect(pdfjs, pdfBuffer)
     } catch (err: any) {
@@ -530,6 +533,7 @@ export async function extractTextFromPdf(
         return {
           success: true,
           extracted_text: directResult.text.trim(),
+          pageTexts: directResult.pageTexts,
           extractor_name: 'pdfjs-direct',
         }
       }
@@ -538,28 +542,31 @@ export async function extractTextFromPdf(
 
     // ── Attempt 2: Tesseract OCR ──
     let ocrText = ''
+    let ocrResult: { text: string; pageCount: number; pageTexts: string[] } | null = null
     try {
-      const ocrResult = await extractTextOcr(pdfjs, pdfBuffer, onOcrPageProgress)
+      ocrResult = await extractTextOcr(pdfjs, pdfBuffer, onOcrPageProgress)
       ocrText = ocrResult.text.trim()
     } catch (ocrErr: any) {
       console.warn('[HS OCR] OCR path failed entirely:', ocrErr?.message)
     }
 
-    if (ocrText) {
+    if (ocrText && ocrResult) {
       return {
         success: true,
         extracted_text: ocrText,
+        pageTexts: ocrResult.pageTexts,
         extractor_name: 'pdfjs+tesseract',
       }
     }
 
     // ── Attempt 3: Sparse direct text ──
     const sparseText = directResult?.text?.trim() ?? ''
-    if (sparseText) {
+    if (sparseText && directResult) {
       console.warn('[HS OCR] OCR produced no text — using sparse direct extraction as fallback')
       return {
         success: true,
         extracted_text: sparseText,
+        pageTexts: directResult.pageTexts,
         extractor_name: 'pdfjs-direct-sparse',
       }
     }
@@ -618,22 +625,47 @@ export function markDocumentExtractionPending(db: any, documentId: string): void
   `).run(documentId)
 }
 
+/**
+ * Insert per-page text into hs_context_profile_document_pages.
+ * Clears existing pages for the document first (idempotent for re-extraction).
+ */
+function insertDocumentPages(db: any, documentId: string, pageTexts: string[]): void {
+  db.prepare('DELETE FROM hs_context_profile_document_pages WHERE document_id = ?').run(documentId)
+  const now = Date.now()
+  const insert = db.prepare(`
+    INSERT INTO hs_context_profile_document_pages (id, document_id, page_number, text, char_count, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  for (let i = 0; i < pageTexts.length; i++) {
+    const text = pageTexts[i] ?? ''
+    const pageNum = i + 1
+    const id = `hspg_${documentId}_${pageNum}`
+    insert.run(id, documentId, pageNum, text, text.length, now)
+  }
+}
+
 export function markDocumentExtractionSuccess(
   db: any,
   documentId: string,
   extractedText: string,
   extractorName: string,
+  pageTexts?: string[],
 ): void {
+  const pageCount = pageTexts?.length ?? 0
+  if (pageTexts && pageTexts.length > 0) {
+    insertDocumentPages(db, documentId, pageTexts)
+  }
   db.prepare(`
     UPDATE hs_context_profile_documents
     SET extraction_status = 'success',
         extracted_text = ?,
         extracted_at = ?,
         extractor_name = ?,
+        page_count = ?,
         error_message = NULL,
         error_code = NULL
     WHERE id = ?
-  `).run(extractedText, Date.now(), extractorName, documentId)
+  `).run(extractedText, Date.now(), extractorName, pageCount, documentId)
 }
 
 /**
@@ -737,7 +769,7 @@ export async function runExtractionJobWithVision(
   if (result.success && result.extracted_text !== undefined) {
     const validation = validateExtractedText(result.extracted_text)
     if (validation.ok) {
-      markDocumentExtractionSuccess(db, documentId, validation.sanitized, result.extractor_name ?? 'anthropic-vision')
+      markDocumentExtractionSuccess(db, documentId, validation.sanitized, result.extractor_name ?? 'anthropic-vision', result.pageTexts)
       console.log(`[HS OCR Vision] Extraction succeeded for document: ${documentId}`)
     } else {
       markDocumentExtractionFailed(db, documentId, `Validation failed: ${validation.reason}`, 'VALIDATION_FAILED')

@@ -10,6 +10,7 @@
 import React, { useState, useMemo } from 'react'
 import { validateHsContextLink, linkEntityId } from '@shared/handshake/linkValidation'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
+import { HsContextDocumentReader } from './HsContextDocumentReader'
 
 // ── Parsed payload types (backward-compatible with existing block payloads) ──
 interface ParsedProfile {
@@ -103,6 +104,7 @@ interface StructuredHsContextPanelProps {
   senderWrdeskUserId?: string
 }
 
+const PREVIEW_LINES = 3
 const PREVIEW_TRUNCATE_LEN = 1500
 
 // ── Single block with memoized parse ──
@@ -116,6 +118,7 @@ function StructuredHsContextBlock({
   setShowFullForDoc,
   onViewOriginal,
   onOpenLink,
+  onOpenReader,
 }: {
   block: { block_id: string; block_hash: string; payload: string; source: 'sent' | 'received' }
   handshakeId: string
@@ -126,6 +129,7 @@ function StructuredHsContextBlock({
   setShowFullForDoc: (id: string | null) => void
   onViewOriginal: (doc: { id: string; filename: string }) => void
   onOpenLink: (url: string) => void
+  onOpenReader: (doc: { id: string; filename: string }) => void
 }) {
   const parsed = useMemo(
     () => parseHsContextPayload(block.payload),
@@ -315,11 +319,10 @@ function StructuredHsContextBlock({
           <SectionHeader title="Documents" />
           {documents.map((doc) => {
             const isPreviewExpanded = expandedDoc === doc.id
-            const isTruncated = (doc.extracted_text?.length ?? 0) > PREVIEW_TRUNCATE_LEN
-            const showFull = showFullForDoc === doc.id
-            const displayText = doc.extracted_text
-              ? (showFull ? doc.extracted_text : doc.extracted_text.slice(0, PREVIEW_TRUNCATE_LEN) + (isTruncated ? '\n…' : ''))
+            const firstLines = doc.extracted_text
+              ? doc.extracted_text.split('\n').slice(0, PREVIEW_LINES).join('\n')
               : ''
+            const hasMore = (doc.extracted_text?.split('\n').length ?? 0) > PREVIEW_LINES
             return (
               <div
                 key={doc.id}
@@ -339,6 +342,19 @@ function StructuredHsContextBlock({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {doc.sensitive && (
                       <span style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontWeight: 600 }}>Sensitive</span>
+                    )}
+                    {doc.extracted_text && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenReader(doc)}
+                        style={{
+                          fontSize: '10px', padding: '4px 8px',
+                          background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+                          borderRadius: '4px', color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        Open Document Reader
+                      </button>
                     )}
                     {vaultUnlocked && doc.id && (
                       <button
@@ -374,24 +390,12 @@ function StructuredHsContextBlock({
                           background: 'rgba(0,0,0,0.25)',
                           borderRadius: '6px',
                           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                          maxHeight: showFull ? 'none' : '180px', overflowY: showFull ? 'visible' : 'auto',
+                          maxHeight: '72px', overflowY: 'auto',
                           color: 'var(--color-text, #e2e8f0)',
                           fontFamily: 'inherit',
                         }}>
-                          {displayText}
+                          {firstLines}{hasMore ? '\n…' : ''}
                         </pre>
-                        {isTruncated && (
-                          <button
-                            type="button"
-                            onClick={() => setShowFullForDoc(showFull ? null : doc.id)}
-                            style={{
-                              marginTop: '6px', fontSize: '11px', padding: 0, background: 'none', border: 'none',
-                              color: '#a78bfa', cursor: 'pointer', fontWeight: 600,
-                            }}
-                          >
-                            {showFull ? 'Show less' : 'Show full'}
-                          </button>
-                        )}
                       </>
                     )}
                   </div>
@@ -425,9 +429,13 @@ export default function StructuredHsContextPanel({
   const [warningDialog, setWarningDialog] = useState<{ kind: 'original' | 'link'; targetLabel: string; documentId?: string; linkUrl?: string } | null>(null)
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null)
   const [showFullForDoc, setShowFullForDoc] = useState<string | null>(null)
+  const [readerDoc, setReaderDoc] = useState<{ id: string; filename: string } | null>(null)
 
   const handleViewOriginal = (doc: { id: string; filename: string }) => {
     setWarningDialog({ kind: 'original', targetLabel: doc.filename, documentId: doc.id })
+  }
+  const handleOpenReader = (doc: { id: string; filename: string }) => {
+    setReaderDoc(doc)
   }
   const handleOpenLink = (url: string) => {
     setWarningDialog({ kind: 'link', targetLabel: url, linkUrl: url })
@@ -472,8 +480,39 @@ export default function StructuredHsContextPanel({
           setShowFullForDoc={setShowFullForDoc}
           onViewOriginal={handleViewOriginal}
           onOpenLink={handleOpenLink}
+          onOpenReader={handleOpenReader}
         />
       ))}
+
+      {readerDoc && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setReaderDoc(null)}
+        >
+          <div style={{ width: '100%', maxWidth: 900, height: '85vh', maxHeight: 700 }} onClick={(e) => e.stopPropagation()}>
+            <HsContextDocumentReader
+              documentId={readerDoc.id}
+              filename={readerDoc.filename}
+              mimeType="application/pdf"
+              canViewOriginal={vaultUnlocked}
+              onViewOriginal={() => {
+                setReaderDoc(null)
+                handleViewOriginal(readerDoc)
+              }}
+              onClose={() => setReaderDoc(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {warningDialog && (
         <ProtectedAccessWarningDialog

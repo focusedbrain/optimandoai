@@ -632,6 +632,35 @@ export function migrateHsContextProfileTables(db: any): void {
       console.warn('[VAULT DB] ⚠️ Could not add error_code column:', e?.message)
     }
   }
+
+  // ── Additive migration: page_count for document reader ──
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN page_count INTEGER DEFAULT 0').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.page_count column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add page_count column:', e?.message)
+    }
+  }
+
+  // ── Per-page extracted text for document reader ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profile_document_pages (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES hs_context_profile_documents(id) ON DELETE CASCADE,
+        page_number INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(document_id, page_number)
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_doc_pages_doc ON hs_context_profile_document_pages(document_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_document_pages table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_document_pages:', e?.message)
+  }
 }
 
 /**

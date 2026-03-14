@@ -18,6 +18,11 @@ declare global {
       unlockVaultWithPassword: (password: string, vaultId?: string) => Promise<{ success?: boolean; error?: string }>
       getVaultStatus?: () => Promise<{ isUnlocked?: boolean; name?: string | null; tier?: string; canUseHsContextProfiles?: boolean; email?: string | null }>
       listHsContextProfiles?: (includeArchived?: boolean) => Promise<{ profiles: Array<{ id: string; name: string; description?: string; scope: 'non_confidential' | 'confidential'; tags: string[]; updated_at: number; created_at: number; document_count: number; documents_ready: number; documents_pending: number; documents_failed: number; documents_failed_names: string[] }> }>
+      getDocumentPageCount?: (documentId: string) => Promise<{ count: number }>
+      getDocumentPage?: (documentId: string, pageNumber: number) => Promise<{ text: string | null }>
+      getDocumentPageList?: (documentId: string) => Promise<{ pages: Array<{ page_number: number; char_count: number }> }>
+      getDocumentFullText?: (documentId: string) => Promise<{ text: string | null }>
+      searchDocumentPages?: (documentId: string, query: string) => Promise<{ matches: Array<{ page_number: number; match_count: number; snippet: string }> }>
       forceRevokeHandshake: (id: string) => Promise<{ success?: boolean; error?: string }>
       updateHandshakePolicies?: (handshakeId: string, policies: { ai_processing_mode?: string } | Record<string, boolean>) => Promise<{ success?: boolean }>
       updateContextItemGovernance?: (handshakeId: string, blockId: string, blockHash: string, senderUserId: string, governance: Record<string, unknown>) => Promise<{ success?: boolean; error?: string }>

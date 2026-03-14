@@ -235,6 +235,24 @@ contextBridge.exposeInMainWorld('handshakeView', {
   listHsContextProfiles: (includeArchived?: boolean) => {
     return ipcRenderer.invoke('vault:listHsContextProfiles', includeArchived === true)
   },
+  getDocumentPageCount: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentPageCount', assertString(documentId, 'documentId'))
+  },
+  getDocumentPage: (documentId: unknown, pageNumber: unknown) => {
+    const docId = assertString(documentId, 'documentId')
+    const pn = typeof pageNumber === 'number' && Number.isInteger(pageNumber) && pageNumber >= 1 ? pageNumber : 1
+    return ipcRenderer.invoke('vault:getDocumentPage', docId, pn)
+  },
+  getDocumentPageList: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentPageList', assertString(documentId, 'documentId'))
+  },
+  getDocumentFullText: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentFullText', assertString(documentId, 'documentId'))
+  },
+  searchDocumentPages: (documentId: unknown, query: unknown) => {
+    const q = typeof query === 'string' ? query : ''
+    return ipcRenderer.invoke('vault:searchDocumentPages', assertString(documentId, 'documentId'), q)
+  },
   updateHandshakePolicies: (handshakeId: unknown, policies: unknown) => {
     return ipcRenderer.invoke('handshake:updatePolicies', assertString(handshakeId, 'handshakeId'), policies)
   },

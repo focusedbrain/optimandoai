@@ -2600,6 +2600,61 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('vault:getDocumentPageCount', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPageCount' })
+        const count = vaultService.getDocumentPageCount(tier as any, documentId)
+        return { count }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page count')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentPage', async (_e, documentId: string, pageNumber: number) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPage' })
+        const text = vaultService.getDocumentPage(tier as any, documentId, pageNumber)
+        return { text }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentPageList', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPageList' })
+        const pages = vaultService.getDocumentPageList(tier as any, documentId)
+        return { pages }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page list')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentFullText', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentFullText' })
+        const text = vaultService.getDocumentFullText(tier as any, documentId)
+        return { text }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document full text')
+      }
+    })
+
+    ipcMain.handle('vault:searchDocumentPages', async (_e, documentId: string, query: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-searchDocumentPages' })
+        const matches = vaultService.searchDocumentPages(tier as any, documentId, query ?? '')
+        return { matches }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to search document pages')
+      }
+    })
+
     ipcMain.handle('handshake:chatWithContext', async (_e, systemMessage: string, dataWrapper: string, userMessage: string) => {
       try {
         // Route to the LLM module if available, using the unidirectional prompt structure
