@@ -22,7 +22,7 @@
  * | automation_secret   | free            | free            | Secrets & API Keys      |
  * | human_credential    | pro             | pro             | Password Manager        |
  * | pii_record          | pro             | pro             | Data Manager            |
- * | company_data        | pro             | publisher       | Company Data (read-only for Pro) |
+ * | company_data        | publisher       | publisher       | Company Data (Publisher+ only)   |
  * | document            | pro             | pro             | Document Vault          |
  * | custom              | pro             | pro             | Custom Data             |
  * | handshake_context   | publisher       | publisher       | Handshake Context       |
@@ -89,7 +89,7 @@ export const RECORD_TYPE_MIN_TIER: Record<VaultRecordType, VaultTier> = {
   automation_secret: 'free',
   human_credential: 'pro',
   pii_record: 'pro',
-  company_data: 'pro',
+  company_data: 'publisher',
   document: 'pro',
   custom: 'pro',
   handshake_context: 'publisher',
@@ -98,11 +98,8 @@ export const RECORD_TYPE_MIN_TIER: Record<VaultRecordType, VaultTier> = {
 /**
  * Minimum tier required to WRITE (create/update/delete) each record type.
  * If not set, defaults to RECORD_TYPE_MIN_TIER (same as read).
- * company_data: Pro can read (grandfathering), Publisher+ can write.
  */
-export const RECORD_TYPE_MIN_TIER_WRITE: Partial<Record<VaultRecordType, VaultTier>> = {
-  company_data: 'publisher',
-} as const
+export const RECORD_TYPE_MIN_TIER_WRITE: Partial<Record<VaultRecordType, VaultTier>> = {} as const
 
 // ---------------------------------------------------------------------------
 // 4. Actions

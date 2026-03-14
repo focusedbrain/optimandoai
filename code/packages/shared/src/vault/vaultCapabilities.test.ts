@@ -66,7 +66,7 @@ describe('Free tier', () => {
     expect(canAccessCategory(tier, 'automation_secret')).toBe(true)
     expect(canAccessCategory(tier, 'password')).toBe(false)
     expect(canAccessCategory(tier, 'identity')).toBe(false)
-    expect(canAccessCategory(tier, 'company')).toBe(false) // company_data read requires Pro
+    expect(canAccessCategory(tier, 'company')).toBe(false) // company_data requires Publisher
     expect(canAccessCategory(tier, 'custom')).toBe(false)
   })
 
@@ -99,7 +99,7 @@ describe('Unknown tier', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 2. Pro tier — automation_secret + human_credential + pii_record + document + custom
+// 2. Pro tier — automation_secret + human_credential + pii_record + document + custom (company_data requires Publisher)
 // ---------------------------------------------------------------------------
 describe('Pro tier', () => {
   const tier: VaultTier = 'pro'
@@ -130,24 +130,21 @@ describe('Pro tier', () => {
     expect(canAccessRecordType(tier, 'handshake_context')).toBe(false)
   })
 
-  it('getCategoryOptionsForTier returns categories Pro can write (company excluded — Publisher+ only for write)', () => {
+  it('getCategoryOptionsForTier returns categories Pro can write (company excluded — Publisher+ only)', () => {
     const opts = getCategoryOptionsForTier(tier, 'write')
     const values = opts.map(o => o.value)
     expect(values).toContain('automation_secret')
     expect(values).toContain('password')
     expect(values).toContain('identity')
-    expect(values).not.toContain('company') // company_data write requires Publisher
+    expect(values).not.toContain('company') // company_data requires Publisher
     expect(values).toContain('custom')
     expect(values).toContain('document')
     expect(values).not.toContain('handshake_context')
     expect(values).toHaveLength(5)
   })
 
-  it('Pro can READ company (grandfathering for existing Company Data)', () => {
-    expect(canAccessCategory(tier, 'company', 'read')).toBe(true)
-  })
-
-  it('Pro CANNOT write company (Publisher+ required)', () => {
+  it('Pro CANNOT read or write company (Publisher+ required, same as HS Context)', () => {
+    expect(canAccessCategory(tier, 'company', 'read')).toBe(false)
     expect(canAccessCategory(tier, 'company', 'write')).toBe(false)
     expect(canAccessCategory(tier, 'company', 'delete')).toBe(false)
   })
