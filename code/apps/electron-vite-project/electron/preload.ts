@@ -232,6 +232,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
   getVaultStatus: () => {
     return ipcRenderer.invoke('vault:getStatus')
   },
+  listHsContextProfiles: (includeArchived?: boolean) => {
+    return ipcRenderer.invoke('vault:listHsContextProfiles', includeArchived === true)
+  },
   updateHandshakePolicies: (handshakeId: unknown, policies: unknown) => {
     return ipcRenderer.invoke('handshake:updatePolicies', assertString(handshakeId, 'handshakeId'), policies)
   },

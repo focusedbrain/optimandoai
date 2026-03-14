@@ -2586,6 +2586,17 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('vault:listHsContextProfiles', async (_e, includeArchived?: boolean) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-listHsContextProfiles' })
+        const profiles = vaultService.listHsProfiles(tier as any, includeArchived === true)
+        return { profiles }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to list HS Context Profiles')
+      }
+    })
+
     ipcMain.handle('handshake:chatWithContext', async (_e, systemMessage: string, dataWrapper: string, userMessage: string) => {
       try {
         // Route to the LLM module if available, using the unidirectional prompt structure

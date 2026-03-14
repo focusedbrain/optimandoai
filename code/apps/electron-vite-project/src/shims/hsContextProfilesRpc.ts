@@ -1,18 +1,30 @@
 /**
- * Shim for extension-chromium hsContextProfilesRpc — stub for Electron.
- * Vault context profiles are not available in the desktop app yet.
+ * Shim for extension-chromium hsContextProfilesRpc — routes through Electron IPC
+ * instead of chrome.runtime.sendMessage (VAULT_RPC WebSocket).
  */
 
 export interface HsContextProfileSummary {
   id: string
   name: string
   description?: string
-  created_at: string
-  field_count: number
+  scope: 'non_confidential' | 'confidential'
+  tags: string[]
+  updated_at: number
+  created_at: number
+  document_count: number
 }
 
-export async function listHsProfiles(): Promise<HsContextProfileSummary[]> {
-  return []
+export async function listHsProfiles(includeArchived = false): Promise<HsContextProfileSummary[]> {
+  const list = (window as any).handshakeView?.listHsContextProfiles
+  if (!list || typeof list !== 'function') {
+    return []
+  }
+  try {
+    const res = await list(includeArchived)
+    return Array.isArray(res?.profiles) ? res.profiles : []
+  } catch (err: any) {
+    throw new Error(err?.message ?? 'Failed to load HS Context Profiles')
+  }
 }
 
 export async function getHsProfile(_id: string): Promise<any> {
