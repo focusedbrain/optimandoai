@@ -1,10 +1,9 @@
 /**
  * Tests: HS Context draft lifecycle logic
  *
- * Validates blocking fixes for the draft-upload flow:
- * 1. Cancel cleanup — do not delete draft if document was uploaded
- * 2. Name preservation — user-typed name during draft creation is preserved
- * 3. Empty draft cleanup — empty untouched draft can be deleted on cancel
+ * Validates cancel cleanup for the deferred-draft flow:
+ * - Draft is created only on first upload OR explicit Save
+ * - On Cancel: always delete draft when in create mode and draft exists
  *
  * @vitest-environment jsdom
  */
@@ -16,46 +15,20 @@ import {
 } from '../hsContextDraftLogic'
 
 describe('shouldDeleteDraftOnCancel', () => {
-  it('does NOT delete when document was uploaded (hasUploaded=true)', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, 'hsp_123', 'Untitled', true),
-    ).toBe(false)
+  it('deletes draft when in create mode and draft exists (from upload)', () => {
+    expect(shouldDeleteDraftOnCancel(undefined, 'hsp_123')).toBe(true)
   })
 
-  it('does NOT delete when documents.length would be stale but hasUploaded is true', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, 'hsp_123', 'Untitled', true),
-    ).toBe(false)
-  })
-
-  it('deletes empty untouched draft (hasUploaded=false, name=Untitled)', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, 'hsp_123', 'Untitled', false),
-    ).toBe(true)
+  it('deletes draft when in create mode regardless of name or uploads', () => {
+    expect(shouldDeleteDraftOnCancel(undefined, 'hsp_123')).toBe(true)
   })
 
   it('does NOT delete when editing existing profile (profileId provided)', () => {
-    expect(
-      shouldDeleteDraftOnCancel('hsp_123', 'hsp_123', 'Untitled', false),
-    ).toBe(false)
+    expect(shouldDeleteDraftOnCancel('hsp_123', 'hsp_123')).toBe(false)
   })
 
   it('does NOT delete when no currentProfileId', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, undefined, 'Untitled', false),
-    ).toBe(false)
-  })
-
-  it('does NOT delete when user changed name from Untitled', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, 'hsp_123', 'My Company', false),
-    ).toBe(false)
-  })
-
-  it('does NOT delete when name has extra spaces but is effectively Untitled', () => {
-    expect(
-      shouldDeleteDraftOnCancel(undefined, 'hsp_123', '  Untitled  ', false),
-    ).toBe(true)
+    expect(shouldDeleteDraftOnCancel(undefined, undefined)).toBe(false)
   })
 })
 

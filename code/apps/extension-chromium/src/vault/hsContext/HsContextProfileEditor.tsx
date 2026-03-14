@@ -34,7 +34,9 @@ import {
   validatePlainText,
   validateOpeningHoursEntry,
 } from '@shared/handshake/hsContextFieldValidation'
-import { shouldDeleteDraftOnCancel, resolveNameAfterDraftCreation } from './hsContextDraftLogic'
+import { shouldDeleteDraftOnCancel } from './hsContextDraftLogic'
+import { listItems, getItem } from '../api'
+import type { VaultItem } from '../types'
 
 interface Props {
   profileId?: string
@@ -46,8 +48,48 @@ interface Props {
 const EMPTY_FIELDS: ProfileFields = {}
 const EMPTY_CUSTOMS: CustomField[] = []
 
-/** Shared promise to prevent duplicate draft creation on React Strict Mode double-mount */
-let _draftCreationPromise: Promise<{ id: string }> | null = null
+/** Get field value by key from a VaultItem's fields array. */
+function getCompanyFieldValue(item: VaultItem, key: string): string {
+  const f = item.fields?.find((x) => x.key === key)
+  return (f?.value ?? '').trim()
+}
+
+/** Map Company Data item to ProfileFields. Only non-empty values. Skips empty company fields. */
+function mapCompanyToProfileFields(item: VaultItem): Partial<ProfileFields> {
+  const street = getCompanyFieldValue(item, 'street')
+  const street_number = getCompanyFieldValue(item, 'street_number')
+  const postal_code = getCompanyFieldValue(item, 'postal_code')
+  const city = getCompanyFieldValue(item, 'city')
+  const state = getCompanyFieldValue(item, 'state')
+  const country = getCompanyFieldValue(item, 'country')
+
+  const addrParts: string[] = []
+  const line1 = [street, street_number].filter(Boolean).join(' ')
+  if (line1) addrParts.push(line1)
+  const line2 = [postal_code, city].filter(Boolean).join(' ')
+  if (line2) addrParts.push(line2)
+  const line3 = [state, country].filter(Boolean).join(', ')
+  if (line3) addrParts.push(line3)
+  const address = addrParts.join(', ')
+
+  const out: Partial<ProfileFields> = {}
+  const title = (item.title ?? '').trim()
+  if (title) out.legalCompanyName = title
+  if (address) out.address = address
+  const c = getCompanyFieldValue(item, 'country')
+  if (c) out.country = c
+  const w = getCompanyFieldValue(item, 'website')
+  if (w) out.website = w
+  const p = getCompanyFieldValue(item, 'phone')
+  if (p) out.generalPhone = p
+  const e = getCompanyFieldValue(item, 'email')
+  if (e) out.generalEmail = e
+  const v = getCompanyFieldValue(item, 'vat_number')
+  if (v) out.vatNumber = v
+  const t = getCompanyFieldValue(item, 'tax_id')
+  if (t) out.companyRegistrationNumber = t
+  return out
+}
 
 /** Document icon — stroke-based, matches product style */
 const DocumentIcon = ({ color, size = 18 }: { color: string; size?: number }) => (
@@ -158,8 +200,9 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   const [fields, setFields] = useState<ProfileFields>(EMPTY_FIELDS)
   const [customFields, setCustomFields] = useState<CustomField[]>(EMPTY_CUSTOMS)
   const [currentProfileId, setCurrentProfileId] = useState<string | undefined>(profileId)
-  const [draftCreating, setDraftCreating] = useState(!profileId)
-  const [retryCount, setRetryCount] = useState(0)
+  const [companyDataItems, setCompanyDataItems] = useState<Array<{ id: string; title: string }>>([])
+  const [companyDataLoading, setCompanyDataLoading] = useState(true)
+  const [companyAutofillValue, setCompanyAutofillValue] = useState('')
 
   const mountedRef = useRef(true)
   const hasUploadedRef = useRef(false)
@@ -174,13 +217,29 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     return () => { mountedRef.current = false }
   }, [])
 
-  // ── Load / draft creation ─────────────────────────────────────────────────
+  // ── Load Company Data items for auto-fill dropdown ─────────────────────────
+  useEffect(() => {
+    setCompanyDataLoading(true)
+    listItems({ category: 'company' })
+      .then((items: VaultItem[]) => {
+        if (!mountedRef.current) return
+        setCompanyDataItems(items.map((i) => ({ id: i.id, title: i.title || '(Untitled)' })))
+      })
+      .catch(() => {
+        if (!mountedRef.current) return
+        setCompanyDataItems([])
+      })
+      .finally(() => setCompanyDataLoading(false))
+  }, [])
+
+  // ── Load existing profile (edit mode only) ─────────────────────────────────
 
   useEffect(() => {
     if (profileId) {
       setLoading(true)
       getHsProfile(profileId)
         .then((detail: HsContextProfileDetail) => {
+          if (!mountedRef.current) return
           setName(detail.name)
           setDescription(detail.description ?? '')
           setScope(detail.scope)
@@ -191,63 +250,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         })
         .catch((err: any) => setError(err?.message ?? 'Failed to load profile'))
         .finally(() => setLoading(false))
-    } else {
-      const applyDraft = (created: { id: string }) => {
-        if (!mountedRef.current) return
-        setCurrentProfileId(created.id)
-        setDescription('')
-        setDraftCreating(false)
-        setName((prev) => resolveNameAfterDraftCreation(prev))
-      }
-      if (_draftCreationPromise) {
-        _draftCreationPromise
-          .then(applyDraft)
-          .catch((err: any) => {
-            _draftCreationPromise = null
-            if (!mountedRef.current) return
-            setError(err?.message ?? 'Failed to prepare editor')
-            setDraftCreating(false)
-          })
-      } else {
-        // Helper: is this a vault session binding error that may be transient?
-        const isBindingError = (msg: string) =>
-          /vault session not bound|vault.*bind|session not bound/i.test(msg)
-
-        const attemptDraftCreation = (attemptsLeft: number) => {
-          _draftCreationPromise = createHsProfile({
-            name: 'Untitled',
-            description: '',
-            scope: 'non_confidential',
-            tags: [],
-            fields: {},
-            custom_fields: [],
-          })
-            .then((created) => {
-              applyDraft(created)
-              _draftCreationPromise = null
-              return created
-            })
-            .catch((err: any) => {
-              _draftCreationPromise = null
-              if (!mountedRef.current) return
-              // Auto-retry once after a short delay for transient vault binding errors.
-              // The background service worker's VSBT recovery from chrome.storage.session
-              // is async — the vault may be unlocked but the token not yet restored.
-              if (attemptsLeft > 0 && isBindingError(err?.message ?? '')) {
-                setTimeout(() => {
-                  if (!mountedRef.current) return
-                  attemptDraftCreation(attemptsLeft - 1)
-                }, 800)
-                return
-              }
-              setError(err?.message ?? 'Failed to prepare editor')
-              setDraftCreating(false)
-            })
-        }
-        attemptDraftCreation(3) // up to 3 auto-retries (~2.4 s total)
-      }
     }
-  }, [profileId, retryCount])
+  }, [profileId])
 
   // ── Document reload (stable, used by polling & upload callback) ───────────
 
@@ -266,11 +270,140 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     reloadDocuments()
   }, [reloadDocuments])
 
+  // ── Build validated input from form state (for create or update) ───────────
+
+  const buildValidatedInput = useCallback((): CreateProfileInput | null => {
+    if (!name.trim()) {
+      setError('Profile name is required')
+      return null
+    }
+    const validatedFields = { ...fields }
+    const urlFields: Array<keyof ProfileFields> = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
+    for (const k of urlFields) {
+      const v = (fields as Record<string, unknown>)[k]
+      if (typeof v === 'string' && v.trim()) {
+        const r = validateUrl(v)
+        if (!r.ok) { setError(`${k}: ${r.error}`); return null }
+        ;(validatedFields as Record<string, string>)[k] = r.value
+      }
+    }
+    if (fields.billingEmail?.trim()) {
+      const r = validateEmail(fields.billingEmail)
+      if (!r.ok) { setError(`Billing email: ${r.error}`); return null }
+      validatedFields.billingEmail = r.value
+    }
+    if (fields.generalPhone?.trim()) {
+      const r = validatePhone(fields.generalPhone)
+      if (!r.ok) { setError(`General phone: ${r.error}`); return null }
+      validatedFields.generalPhone = r.value
+    }
+    if (fields.generalEmail?.trim()) {
+      const r = validateEmail(fields.generalEmail)
+      if (!r.ok) { setError(`General email: ${r.error}`); return null }
+      validatedFields.generalEmail = r.value
+    }
+    if (fields.supportEmail?.trim()) {
+      const r = validateEmail(fields.supportEmail)
+      if (!r.ok) { setError(`Support email: ${r.error}`); return null }
+      validatedFields.supportEmail = r.value
+    }
+    const validatedContacts: Array<{ name?: string; role?: string; email?: string; phone?: string; notes?: string }> = []
+    for (const c of fields.contacts ?? []) {
+      const out = { ...c }
+      if (c.email?.trim()) {
+        const r = validateEmail(c.email)
+        if (!r.ok) { setError(`Contact email: ${r.error}`); return null }
+        out.email = r.value
+      }
+      if (c.phone?.trim()) {
+        const r = validatePhone(c.phone)
+        if (!r.ok) { setError(`Contact phone: ${r.error}`); return null }
+        out.phone = r.value
+      }
+      validatedContacts.push(out)
+    }
+    validatedFields.contacts = validatedContacts
+    const idFields: Array<keyof ProfileFields> = ['vatNumber', 'companyRegistrationNumber', 'supplierNumber', 'customerNumber']
+    for (const k of idFields) {
+      const v = (fields as Record<string, unknown>)[k]
+      if (typeof v === 'string' && v.trim()) {
+        const r = validateIdentifier(v)
+        if (!r.ok) { setError(`${k}: ${r.error}`); return null }
+        ;(validatedFields as Record<string, string>)[k] = r.value
+      }
+    }
+    if (description.trim()) {
+      const r = validatePlainText(description)
+      if (!r.ok) { setError(`Description: ${r.error}`); return null }
+    }
+    const validatedOpeningHours: Array<{ days: string; from: string; to: string }> = []
+    for (const h of fields.openingHours ?? []) {
+      if (!h.days && !h.from && !h.to) {
+        validatedOpeningHours.push({ days: h.days ?? '', from: h.from ?? '', to: h.to ?? '' })
+        continue
+      }
+      const r = validateOpeningHoursEntry(h)
+      if (!r.ok) { setError(`Opening hours: ${r.error}`); return null }
+      validatedOpeningHours.push(r.value)
+    }
+    validatedFields.openingHours = validatedOpeningHours
+
+    const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean)
+    return {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      scope,
+      tags,
+      fields: validatedFields,
+      custom_fields: customFields.filter((cf) => cf.label.trim()),
+    }
+  }, [name, description, scope, tagsInput, fields, customFields])
+
+  /** Create profile with current form state — used when user uploads before first Save. Uses minimal validation; name defaults to "Untitled" if empty. */
+  const getOrCreateProfileId = useCallback(async (): Promise<string> => {
+    if (currentProfileIdRef.current) return currentProfileIdRef.current
+    const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean)
+    const input: CreateProfileInput = {
+      name: name.trim() || 'Untitled',
+      description: description.trim() || undefined,
+      scope,
+      tags,
+      fields: { ...fields },
+      custom_fields: customFields.filter((cf) => cf.label.trim()),
+    }
+    const created = await createHsProfile(input)
+    if (!mountedRef.current) return created.id
+    currentProfileIdRef.current = created.id
+    setCurrentProfileId(created.id)
+    return created.id
+  }, [name, description, scope, tagsInput, fields, customFields])
+
   // ── Field helpers ─────────────────────────────────────────────────────────
 
   const setField = <K extends keyof ProfileFields>(key: K, value: ProfileFields[K]) => {
     setFields((prev) => ({ ...prev, [key]: value }))
   }
+
+  const handleCompanyAutofill = useCallback(async (itemId: string) => {
+    if (!itemId) return
+    try {
+      const item = await getItem(itemId) as VaultItem
+      const mapped = mapCompanyToProfileFields(item)
+      setFields((prev) => {
+        const next = { ...prev }
+        for (const [k, v] of Object.entries(mapped)) {
+          const isEmpty = (prev as any)[k] == null || String((prev as any)[k] ?? '').trim() === ''
+          if (v != null && String(v).trim() !== '' && isEmpty) {
+            ;(next as any)[k] = v
+          }
+        }
+        return next
+      })
+      setCompanyAutofillValue('')
+    } catch (err) {
+      setError((err as Error)?.message ?? 'Failed to load company data')
+    }
+  }, [])
 
   // Section-scoped custom field helpers (uses `section` tag on CustomField)
   const getSectionFields = (section: string) =>
@@ -330,96 +463,22 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   // ── Save ──────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
-    if (!currentProfileId) { setError('Editor not ready'); return }
-    if (!name.trim()) { setError('Profile name is required'); return }
+    const input = buildValidatedInput()
+    if (!input) return
 
     setSaving(true)
     setError(null)
 
-    const validatedFields = { ...fields }
-    const urlFields: Array<keyof ProfileFields> = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
-    for (const k of urlFields) {
-      const v = (fields as Record<string, unknown>)[k]
-      if (typeof v === 'string' && v.trim()) {
-        const r = validateUrl(v)
-        if (!r.ok) { setError(`${k}: ${r.error}`); setSaving(false); return }
-        ;(validatedFields as Record<string, string>)[k] = r.value
-      }
-    }
-    if (fields.billingEmail?.trim()) {
-      const r = validateEmail(fields.billingEmail)
-      if (!r.ok) { setError(`Billing email: ${r.error}`); setSaving(false); return }
-      validatedFields.billingEmail = r.value
-    }
-    if (fields.generalPhone?.trim()) {
-      const r = validatePhone(fields.generalPhone)
-      if (!r.ok) { setError(`General phone: ${r.error}`); setSaving(false); return }
-      validatedFields.generalPhone = r.value
-    }
-    if (fields.generalEmail?.trim()) {
-      const r = validateEmail(fields.generalEmail)
-      if (!r.ok) { setError(`General email: ${r.error}`); setSaving(false); return }
-      validatedFields.generalEmail = r.value
-    }
-    if (fields.supportEmail?.trim()) {
-      const r = validateEmail(fields.supportEmail)
-      if (!r.ok) { setError(`Support email: ${r.error}`); setSaving(false); return }
-      validatedFields.supportEmail = r.value
-    }
-    const validatedContacts: Array<{ name?: string; role?: string; email?: string; phone?: string; notes?: string }> = []
-    for (const c of fields.contacts ?? []) {
-      const out = { ...c }
-      if (c.email?.trim()) {
-        const r = validateEmail(c.email)
-        if (!r.ok) { setError(`Contact email: ${r.error}`); setSaving(false); return }
-        out.email = r.value
-      }
-      if (c.phone?.trim()) {
-        const r = validatePhone(c.phone)
-        if (!r.ok) { setError(`Contact phone: ${r.error}`); setSaving(false); return }
-        out.phone = r.value
-      }
-      validatedContacts.push(out)
-    }
-    validatedFields.contacts = validatedContacts
-    const idFields: Array<keyof ProfileFields> = ['vatNumber', 'companyRegistrationNumber', 'supplierNumber', 'customerNumber']
-    for (const k of idFields) {
-      const v = (fields as Record<string, unknown>)[k]
-      if (typeof v === 'string' && v.trim()) {
-        const r = validateIdentifier(v)
-        if (!r.ok) { setError(`${k}: ${r.error}`); setSaving(false); return }
-        ;(validatedFields as Record<string, string>)[k] = r.value
-      }
-    }
-    if (description.trim()) {
-      const r = validatePlainText(description)
-      if (!r.ok) { setError(`Description: ${r.error}`); setSaving(false); return }
-    }
-    const validatedOpeningHours: Array<{ days: string; from: string; to: string }> = []
-    for (const h of fields.openingHours ?? []) {
-      if (!h.days && !h.from && !h.to) {
-        validatedOpeningHours.push({ days: h.days ?? '', from: h.from ?? '', to: h.to ?? '' })
-        continue
-      }
-      const r = validateOpeningHoursEntry(h)
-      if (!r.ok) { setError(`Opening hours: ${r.error}`); setSaving(false); return }
-      validatedOpeningHours.push(r.value)
-    }
-    validatedFields.openingHours = validatedOpeningHours
-
-    const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean)
-    const input: CreateProfileInput | UpdateProfileInput = {
-      name: name.trim(),
-      description: description.trim() || undefined,
-      scope,
-      tags,
-      fields: validatedFields,
-      custom_fields: customFields.filter((cf) => cf.label.trim()),
-    }
-
     try {
-      await updateHsProfile(currentProfileId!, input as UpdateProfileInput)
-      onSaved(currentProfileId!)
+      if (currentProfileId) {
+        await updateHsProfile(currentProfileId, input as UpdateProfileInput)
+        onSaved(currentProfileId)
+      } else {
+        const created = await createHsProfile(input)
+        if (!mountedRef.current) return
+        setCurrentProfileId(created.id)
+        onSaved(created.id)
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Save failed')
     } finally {
@@ -430,7 +489,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   // ── Cancel ────────────────────────────────────────────────────────────────
 
   const handleCancel = async () => {
-    if (shouldDeleteDraftOnCancel(profileId, currentProfileId, name, hasUploadedRef.current)) {
+    if (shouldDeleteDraftOnCancel(profileId, currentProfileId)) {
       try { await deleteHsProfile(currentProfileId!) } catch {}
     }
     onCancel()
@@ -509,7 +568,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         flexShrink: 0,
       }}>
         <span style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>
-          {currentProfileId ? 'Edit Profile' : 'New Profile'}
+          {profileId ? 'Edit Profile' : currentProfileId ? 'Draft — click Save to keep' : 'New Profile (unsaved)'}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -524,8 +583,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !currentProfileId}
-            style={saving || !currentProfileId ? primaryBtnDisabledStyle : primaryBtnStyle}
+            disabled={saving || !name.trim()}
+            style={saving || !name.trim() ? primaryBtnDisabledStyle : primaryBtnStyle}
           >
             {saving ? 'Saving…' : 'Save Profile'}
           </button>
@@ -574,6 +633,31 @@ export const HsContextProfileEditor: React.FC<Props> = ({
               <input value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} style={inputStyle} placeholder="supplier, billing" />
             </div>
           </div>
+          {companyDataLoading ? (
+            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '12px' }}>Loading company data…</div>
+          ) : companyDataItems.length === 0 ? (
+            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '12px' }}>
+              No company data available — add company data in the vault first
+            </div>
+          ) : (
+            <div style={{ marginTop: '14px' }}>
+              <label style={labelStyle}>Auto-fill from Company Data</label>
+              <select
+                value={companyAutofillValue}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setCompanyAutofillValue(v)
+                  if (v) handleCompanyAutofill(v)
+                }}
+                style={{ ...inputStyle, cursor: 'pointer' }}
+              >
+                <option value="">— Select company data to auto-fill —</option>
+                {companyDataItems.map((i) => (
+                  <option key={i.id} value={i.id}>{i.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* ── Business Documents ── */}
@@ -598,40 +682,13 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           <div style={{ fontSize: '11px', color: mutedColor, marginBottom: '12px' }}>
             Examples: contracts, user manuals, pricing lists, brochures, certificates, custom PDFs.
           </div>
-          {draftCreating ? (
-            <div style={{
-              padding: '20px', textAlign: 'center',
-              border: `2px dashed ${isDark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)'}`,
-              borderRadius: '12px',
-              background: isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.04)',
-              fontSize: '12px', color: mutedColor,
-            }}>
-              Preparing document upload…
-            </div>
-          ) : currentProfileId ? (
-            <HsContextDocumentUpload
-              profileId={currentProfileId}
-              documents={documents}
-              onDocumentsChanged={handleDocumentsChanged}
-              theme={theme}
-            />
-          ) : (
-            <div style={{
-              padding: '20px', textAlign: 'center',
-              border: `2px dashed ${isDark ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.25)'}`,
-              borderRadius: '12px',
-              background: isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.04)',
-              fontSize: '12px', color: mutedColor,
-            }}>
-              <div style={{ marginBottom: '12px' }}>Unable to prepare upload. {error || 'Please unlock the vault and try again.'}</div>
-              <button
-                onClick={() => { setError(null); setDraftCreating(true); _draftCreationPromise = null; setRetryCount((c) => c + 1) }}
-                style={primaryBtnStyle}
-              >
-                Retry
-              </button>
-            </div>
-          )}
+          <HsContextDocumentUpload
+            profileId={currentProfileId}
+            documents={documents}
+            onDocumentsChanged={handleDocumentsChanged}
+            onGetOrCreateProfileId={!profileId ? getOrCreateProfileId : undefined}
+            theme={theme}
+          />
         </div>
 
         {/* ── Company / Organization ── */}

@@ -66,7 +66,7 @@ describe('Free tier', () => {
     expect(canAccessCategory(tier, 'automation_secret')).toBe(true)
     expect(canAccessCategory(tier, 'password')).toBe(false)
     expect(canAccessCategory(tier, 'identity')).toBe(false)
-    expect(canAccessCategory(tier, 'company')).toBe(false)
+    expect(canAccessCategory(tier, 'company')).toBe(false) // company_data read requires Pro
     expect(canAccessCategory(tier, 'custom')).toBe(false)
   })
 
@@ -130,17 +130,26 @@ describe('Pro tier', () => {
     expect(canAccessRecordType(tier, 'handshake_context')).toBe(false)
   })
 
-  it('getCategoryOptionsForTier returns all DB categories except handshake_context', () => {
-    const opts = getCategoryOptionsForTier(tier)
+  it('getCategoryOptionsForTier returns categories Pro can write (company excluded — Publisher+ only for write)', () => {
+    const opts = getCategoryOptionsForTier(tier, 'write')
     const values = opts.map(o => o.value)
     expect(values).toContain('automation_secret')
     expect(values).toContain('password')
     expect(values).toContain('identity')
-    expect(values).toContain('company')
+    expect(values).not.toContain('company') // company_data write requires Publisher
     expect(values).toContain('custom')
     expect(values).toContain('document')
     expect(values).not.toContain('handshake_context')
-    expect(values).toHaveLength(6)
+    expect(values).toHaveLength(5)
+  })
+
+  it('Pro can READ company (grandfathering for existing Company Data)', () => {
+    expect(canAccessCategory(tier, 'company', 'read')).toBe(true)
+  })
+
+  it('Pro CANNOT write company (Publisher+ required)', () => {
+    expect(canAccessCategory(tier, 'company', 'write')).toBe(false)
+    expect(canAccessCategory(tier, 'company', 'delete')).toBe(false)
   })
 })
 
@@ -166,10 +175,11 @@ describe('Publisher tier', () => {
     expect(canAccessRecordType(tier, 'custom')).toBe(true)
   })
 
-  it('getCategoryOptionsForTier includes handshake_context', () => {
-    const opts = getCategoryOptionsForTier(tier)
+  it('getCategoryOptionsForTier includes handshake_context and company (Publisher can write both)', () => {
+    const opts = getCategoryOptionsForTier(tier, 'write')
     const values = opts.map(o => o.value)
     expect(values).toContain('handshake_context')
+    expect(values).toContain('company')
     expect(values).toHaveLength(7)
   })
 
@@ -192,9 +202,9 @@ describe('Category ↔ RecordType mapping', () => {
     expect(LEGACY_CATEGORY_TO_RECORD_TYPE['password']).toBe('human_credential')
   })
 
-  it('identity/company map to pii_record', () => {
+  it('identity maps to pii_record, company maps to company_data', () => {
     expect(LEGACY_CATEGORY_TO_RECORD_TYPE['identity']).toBe('pii_record')
-    expect(LEGACY_CATEGORY_TO_RECORD_TYPE['company']).toBe('pii_record')
+    expect(LEGACY_CATEGORY_TO_RECORD_TYPE['company']).toBe('company_data')
   })
 
   it('RECORD_TYPE_TO_DEFAULT_CATEGORY round-trips for automation_secret', () => {

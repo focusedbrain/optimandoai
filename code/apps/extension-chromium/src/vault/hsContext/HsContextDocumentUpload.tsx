@@ -67,9 +67,12 @@ function suggestTypeFromFilename(filename: string): string {
 }
 
 interface Props {
-  profileId: string
+  /** When undefined, upload will call onGetOrCreateProfileId before uploading. */
+  profileId?: string
   documents: ProfileDocumentSummary[]
   onDocumentsChanged: () => void
+  /** Called when user uploads and profileId is missing — returns new profile ID. Enables upload-triggered draft creation. */
+  onGetOrCreateProfileId?: () => Promise<string>
   theme?: 'dark' | 'standard'
   disabled?: boolean
 }
@@ -96,6 +99,7 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
   profileId,
   documents,
   onDocumentsChanged,
+  onGetOrCreateProfileId,
   theme = 'dark',
   disabled = false,
 }) => {
@@ -222,6 +226,20 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
       return
     }
 
+    let pid = profileId
+    if (!pid && onGetOrCreateProfileId) {
+      try {
+        pid = await onGetOrCreateProfileId()
+      } catch (err: any) {
+        setUploadError(err?.message ?? 'Failed to create profile for upload')
+        return
+      }
+    }
+    if (!pid) {
+      setUploadError('Profile not ready — save the profile first to enable uploads')
+      return
+    }
+
     const suggestedLabel = suggestLabelFromFilename(file.name)
     const suggestedType = suggestTypeFromFilename(file.name)
     const labelVal = (nextLabel.trim() || suggestedLabel) || null
@@ -234,7 +252,7 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
     setUploading(true)
     setUploadError(null)
     try {
-      await uploadHsProfileDocument(profileId, file, markNextAsSensitive, labelVal, documentTypeVal)
+      await uploadHsProfileDocument(pid, file, markNextAsSensitive, labelVal, documentTypeVal)
       setNextLabel('')
       setNextDocumentType('')
       onDocumentsChanged()

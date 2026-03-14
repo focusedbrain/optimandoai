@@ -17,19 +17,21 @@
 /**
  * Vault record types — the fundamental data classification.
  *
- * | Type                | Min Tier    | UI Section              |
- * |---------------------|-------------|-------------------------|
- * | automation_secret   | free        | Secrets & API Keys      |
- * | human_credential    | pro         | Password Manager        |
- * | pii_record          | pro         | Data Manager            |
- * | document            | pro         | Document Vault          |
- * | custom              | pro         | Custom Data             |
- * | handshake_context   | publisher   | Handshake Context       |
+ * | Type                | Min Tier (read) | Min Tier (write) | UI Section              |
+ * |---------------------|-----------------|-----------------|-------------------------|
+ * | automation_secret   | free            | free            | Secrets & API Keys      |
+ * | human_credential    | pro             | pro             | Password Manager        |
+ * | pii_record          | pro             | pro             | Data Manager            |
+ * | company_data        | pro             | publisher       | Company Data (read-only for Pro) |
+ * | document            | pro             | pro             | Document Vault          |
+ * | custom              | pro             | pro             | Custom Data             |
+ * | handshake_context   | publisher       | publisher       | Handshake Context       |
  */
 export type VaultRecordType =
   | 'automation_secret'
   | 'human_credential'
   | 'pii_record'
+  | 'company_data'
   | 'document'
   | 'custom'
   | 'handshake_context'
@@ -39,6 +41,7 @@ export const VAULT_RECORD_TYPES: readonly VaultRecordType[] = [
   'automation_secret',
   'human_credential',
   'pii_record',
+  'company_data',
   'document',
   'custom',
   'handshake_context',
@@ -80,25 +83,25 @@ export const TIER_LEVEL: Record<VaultTier, number> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Minimum tier required to access each record type.
- *
- * Security is identical across all tiers; this gate controls WHICH record
- * types are available, not HOW they are encrypted.
- *
- *   Free           → automation_secret only
- *   Private(+)     → automation_secret only (vault features start at Pro)
- *   Pro            → automation_secret, human_credential, pii_record,
- *                    document, custom
- *   Publisher(+)   → all of the above + handshake_context
- *   Enterprise     → everything
+ * Minimum tier required to READ each record type.
  */
 export const RECORD_TYPE_MIN_TIER: Record<VaultRecordType, VaultTier> = {
   automation_secret: 'free',
   human_credential: 'pro',
   pii_record: 'pro',
+  company_data: 'pro',
   document: 'pro',
   custom: 'pro',
   handshake_context: 'publisher',
+} as const
+
+/**
+ * Minimum tier required to WRITE (create/update/delete) each record type.
+ * If not set, defaults to RECORD_TYPE_MIN_TIER (same as read).
+ * company_data: Pro can read (grandfathering), Publisher+ can write.
+ */
+export const RECORD_TYPE_MIN_TIER_WRITE: Partial<Record<VaultRecordType, VaultTier>> = {
+  company_data: 'publisher',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -152,10 +155,14 @@ export function canAccessRecordType(
   if (tier === 'unknown') return false
 
   const userLevel = TIER_LEVEL[tier] ?? 0
-  const requiredTier = RECORD_TYPE_MIN_TIER[recordType]
-  const requiredLevel = TIER_LEVEL[requiredTier] ?? 0
 
-  // 1. Tier must meet the minimum for the record type
+  // 1. For read: use RECORD_TYPE_MIN_TIER. For write/delete: use RECORD_TYPE_MIN_TIER_WRITE if set.
+  const minTierForAction =
+    action === 'read'
+      ? RECORD_TYPE_MIN_TIER[recordType]
+      : (RECORD_TYPE_MIN_TIER_WRITE[recordType] ?? RECORD_TYPE_MIN_TIER[recordType])
+  const requiredLevel = TIER_LEVEL[minTierForAction] ?? 0
+
   if (userLevel < requiredLevel) return false
 
   // 2. Action must be allowed for the user's tier
@@ -224,6 +231,13 @@ export const RECORD_TYPE_DISPLAY: Record<VaultRecordType, RecordTypeDisplayInfo>
     section: 'Custom Data',
     minTier: 'pro',
   },
+  company_data: {
+    label: 'Company Data',
+    icon: '\u{1F3E2}',
+    description: 'Company and business information',
+    section: 'Data Manager',
+    minTier: 'publisher',
+  },
   handshake_context: {
     label: 'HS Context',
     icon: '\u{1F91D}',
@@ -258,7 +272,7 @@ export const LEGACY_CATEGORY_TO_RECORD_TYPE: Record<LegacyItemCategory, VaultRec
   automation_secret: 'automation_secret',
   password: 'human_credential',
   identity: 'pii_record',
-  company: 'pii_record',
+  company: 'company_data',
   custom: 'custom',
   document: 'document',
   handshake_context: 'handshake_context',
@@ -274,6 +288,7 @@ export const RECORD_TYPE_TO_DEFAULT_CATEGORY: Record<VaultRecordType, LegacyItem
   automation_secret: 'automation_secret',
   human_credential: 'password',
   pii_record: 'identity',
+  company_data: 'company',
   document: 'document',
   custom: 'custom',
   handshake_context: 'handshake_context',
@@ -328,7 +343,7 @@ export const CATEGORY_UI_MAP: Record<LegacyItemCategory, CategoryUILabel> = {
     sidebarLabel: 'Company Data',
     createDialogLabel: 'Company Data',
     icon: '\u{1F3E2}',
-    recordType: 'pii_record',
+    recordType: 'company_data',
   },
   custom: {
     sidebarLabel: 'Custom Data',
@@ -368,11 +383,16 @@ export const ALL_ITEM_CATEGORIES: readonly LegacyItemCategory[] = [
   'handshake_context',
 ] as const
 
+/**
+ * Get category options for the create dialog (write access required).
+ * Use action='write' so Pro users don't see Company Data in the create dropdown.
+ */
 export function getCategoryOptionsForTier(
   tier: VaultTier,
+  action: VaultAction = 'write',
 ): Array<{ value: LegacyItemCategory; label: string; icon: string }> {
   return (ALL_ITEM_CATEGORIES as readonly LegacyItemCategory[])
-    .filter(cat => canAccessRecordType(tier, CATEGORY_UI_MAP[cat].recordType))
+    .filter(cat => canAccessRecordType(tier, CATEGORY_UI_MAP[cat].recordType, action))
     .map(cat => ({
       value: cat,
       label: `${CATEGORY_UI_MAP[cat].icon} ${CATEGORY_UI_MAP[cat].createDialogLabel}`,

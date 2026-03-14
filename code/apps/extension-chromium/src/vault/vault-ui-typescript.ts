@@ -1453,9 +1453,9 @@ function addAddButtonsToTree(container: HTMLElement) {
     personSubcategories.insertBefore(addIdentityBtn, personSubcategories.querySelector('#person-containers'))
   }
   
-  // Company category
+  // Company category — only show Add button when user can write (Publisher+)
   const companySubcategories = container.querySelector('.vault-subcategories[data-parent="company"]')
-  if (companySubcategories && !companySubcategories.querySelector('[data-action="add-company"]')) {
+  if (companySubcategories && !companySubcategories.querySelector('[data-action="add-company"]') && canAccessCategory(currentVaultTier, 'company', 'write')) {
     const addCompanyBtn = document.createElement('div')
     addCompanyBtn.className = 'vault-subcategory-btn'
     addCompanyBtn.setAttribute('data-action', 'add-company')
@@ -2631,10 +2631,42 @@ function renderListItemRow(item: VaultItem): string {
   
   // For non-password items, show minimal view with field names
   if (item.category !== 'password') {
+    const canWrite = canAccessCategory(currentVaultTier, item.category as LegacyItemCategory, 'write')
+    const upgradeMsg = item.category === 'company' && !canWrite
+      ? '<div style="font-size:11px;color:var(--wrv-accent);margin-top:6px;">Upgrade to Publisher to edit Company Data</div>'
+      : ''
     // Show up to 3 fields with their names
     const displayFields = item.fields.slice(0, 3)
     const hasMoreFields = item.fields.length > 3
-    
+    const actionButtons = canWrite
+      ? `
+            <button class="vault-item-edit-btn" style="
+              background:rgba(var(--wrv-accent-rgb),0.15);
+              border:1px solid rgba(var(--wrv-accent-rgb),0.3);
+              padding:7px 16px;
+              border-radius:6px;
+              color:var(--wrv-accent);
+              font-size:12px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.15s;
+              white-space:nowrap;
+            " onmouseenter="this.style.background='rgba(var(--wrv-accent-rgb),0.25)'" onmouseleave="this.style.background='rgba(var(--wrv-accent-rgb),0.15)'">Edit</button>
+            <button class="vault-item-delete-btn" style="
+              background:var(--wrv-danger-bg);
+              border:1px solid var(--wrv-danger-border);
+              padding:7px 16px;
+              border-radius:6px;
+              color:var(--wrv-danger);
+              font-size:12px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.15s;
+              white-space:nowrap;
+            " onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'">Delete</button>
+          `
+      : upgradeMsg
+
     return `
       <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
         background:var(--wrv-bg-card);
@@ -2673,31 +2705,8 @@ function renderListItemRow(item: VaultItem): string {
               ` : '<div style="font-size:13px;color:var(--wrv-text-3);">No fields</div>'}
             </div>
           </div>
-          <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0;padding-top:2px;">
-            <button class="vault-item-edit-btn" style="
-              background:rgba(var(--wrv-accent-rgb),0.15);
-              border:1px solid rgba(var(--wrv-accent-rgb),0.3);
-              padding:7px 16px;
-              border-radius:6px;
-              color:var(--wrv-accent);
-              font-size:12px;
-              font-weight:500;
-              cursor:pointer;
-              transition:all 0.15s;
-              white-space:nowrap;
-            " onmouseenter="this.style.background='rgba(var(--wrv-accent-rgb),0.25)'" onmouseleave="this.style.background='rgba(var(--wrv-accent-rgb),0.15)'">Edit</button>
-            <button class="vault-item-delete-btn" style="
-              background:var(--wrv-danger-bg);
-              border:1px solid var(--wrv-danger-border);
-              padding:7px 16px;
-              border-radius:6px;
-              color:var(--wrv-danger);
-              font-size:12px;
-              font-weight:500;
-              cursor:pointer;
-              transition:all 0.15s;
-              white-space:nowrap;
-            " onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'">Delete</button>
+          <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0;padding-top:2px;flex-direction:column;align-items:flex-end;">
+            ${actionButtons}
           </div>
         </div>
       </div>

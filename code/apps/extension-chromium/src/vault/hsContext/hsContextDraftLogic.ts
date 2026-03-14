@@ -5,21 +5,14 @@
 
 /**
  * Whether to delete a draft profile on cancel.
- * Only delete when: new draft (no profileId), has currentProfileId,
- * name is still "Untitled", and no document upload has occurred.
+ * Delete when: create mode (!profileId) and we have a draft (currentProfileId).
+ * The draft was created by document upload — user cancelled without saving.
  */
 export function shouldDeleteDraftOnCancel(
   profileId: string | undefined,
   currentProfileId: string | undefined,
-  name: string,
-  hasUploaded: boolean,
 ): boolean {
-  return (
-    !profileId &&
-    !!currentProfileId &&
-    name.trim() === 'Untitled' &&
-    !hasUploaded
-  )
+  return !profileId && !!currentProfileId
 }
 
 /**
