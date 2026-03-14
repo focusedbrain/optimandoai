@@ -10,7 +10,7 @@
  * Uses handshakeView IPC bridge (Electron) or passed-in api (extension).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
 // ── API abstraction (Electron uses handshakeView; extension passes api) ──
 export interface DocumentSearchMatch {
@@ -48,6 +48,8 @@ interface HsContextDocumentReaderProps {
   mimeType?: string
   /** Optional: for extension context when handshakeView is not available */
   api?: HsContextDocumentReaderApi | null
+  /** Optional: full extracted text from context block (received documents). When provided and no page records exist, splits by \\n\\n into synthetic pages. */
+  fullText?: string | null
   /** Optional: callback to open original PDF (e.g. ProtectedAccessWarningDialog flow) */
   onViewOriginal?: () => void
   /** Optional: whether View Original button is available (vault unlocked, etc.) */
@@ -62,22 +64,36 @@ const ACCENT = '#8b5cf6'
 const MUTED = 'var(--color-text-muted, #94a3b8)'
 const BORDER = '1px solid rgba(255,255,255,0.08)'
 
+/** Split full text by double newline into synthetic pages (matches extraction format). */
+function splitToSyntheticPages(fullText: string): string[] {
+  const pages = fullText.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
+  return pages.length > 0 ? pages : ['']
+}
+
 export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = ({
   documentId,
   filename,
   mimeType = 'application/pdf',
   api: apiProp,
+  fullText: fullTextProp,
   onViewOriginal,
   canViewOriginal = false,
   onClose,
 }) => {
   const api = apiProp ?? getDefaultApi()
+  const fullText = fullTextProp?.trim() || null
+  const syntheticPages = useMemo(
+    () => (fullText ? splitToSyntheticPages(fullText) : null),
+    [fullText],
+  )
+
   const [pageCount, setPageCount] = useState(0)
   const [pageList, setPageList] = useState<Array<{ page_number: number; char_count: number }>>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [pageText, setPageText] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [pageCache, setPageCache] = useState<Record<number, string>>({})
+  const [fullTextMode, setFullTextMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchMatches, setSearchMatches] = useState<DocumentSearchMatch[]>([])
@@ -89,8 +105,15 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   const isPdf = /pdf/i.test(mimeType)
   const maxCharCount = pageList.length > 0 ? Math.max(...pageList.map((p) => p.char_count), 1) : 1
 
-  // Load page list and count
+  // Load page list and count (API or fullText fallback)
   useEffect(() => {
+    if (fullText && syntheticPages && !api) {
+      setFullTextMode(true)
+      setPageCount(syntheticPages.length)
+      setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
+      setLoading(false)
+      return
+    }
     if (!api) return
     let cancelled = false
     setLoading(true)
@@ -100,22 +123,49 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
     ])
       .then(([countRes, listRes]) => {
         if (cancelled) return
-        setPageCount(countRes.count)
-        setPageList(listRes.pages)
+        const count = countRes.count
+        const pages = listRes.pages ?? []
+        if (count > 0 && pages.length > 0) {
+          setFullTextMode(false)
+          setPageCount(count)
+          setPageList(pages)
+        } else if (fullText && syntheticPages) {
+          setFullTextMode(true)
+          setPageCount(syntheticPages.length)
+          setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
+        } else {
+          setFullTextMode(false)
+          setPageCount(0)
+          setPageList([])
+        }
         setLoading(false)
       })
       .catch(() => {
+        if (!cancelled && fullText && syntheticPages) {
+          setFullTextMode(true)
+          setPageCount(syntheticPages.length)
+          setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
+        } else if (!cancelled) {
+          setFullTextMode(false)
+          setPageCount(0)
+          setPageList([])
+        }
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [api, documentId])
+  }, [api, documentId, fullText, syntheticPages])
 
-  // Load current page text
+  // Load current page text (API or synthetic)
   useEffect(() => {
-    if (!api || pageCount === 0 || currentPage < 1 || currentPage > pageCount) {
+    if (pageCount === 0 || currentPage < 1 || currentPage > pageCount) {
       setPageText(null)
       return
     }
+    if (fullTextMode && syntheticPages) {
+      setPageText(syntheticPages[currentPage - 1] ?? null)
+      return
+    }
+    if (!api) return
     const cached = pageCache[currentPage]
     if (cached !== undefined) {
       setPageText(cached)
@@ -130,7 +180,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
       setPageCache((prev) => ({ ...prev, [currentPage]: text }))
     })
     return () => { cancelled = true }
-  }, [api, documentId, currentPage, pageCount, pageCache])
+  }, [api, documentId, currentPage, pageCount, pageCache, fullTextMode, syntheticPages])
 
   // Scroll active page into view in sidebar
   useEffect(() => {
@@ -138,23 +188,48 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [currentPage])
 
-  // Debounced search (300ms)
+  // Debounced search (API or client-side when fullTextMode)
   useEffect(() => {
-    if (!api?.searchDocumentPages || !searchQuery.trim()) {
+    if (!searchQuery.trim()) {
       setSearchMatches([])
       return
     }
+    const q = searchQuery.trim()
+    const qLower = q.toLowerCase()
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+
+    if (fullTextMode && syntheticPages) {
+      const timer = setTimeout(() => {
+        const matches: DocumentSearchMatch[] = []
+        syntheticPages.forEach((text, i) => {
+          const count = (text.match(regex) ?? []).length
+          if (count > 0) {
+            const idx = text.toLowerCase().indexOf(qLower)
+            const start = Math.max(0, idx - 30)
+            const end = Math.min(text.length, idx + q.length + 50)
+            matches.push({
+              page_number: i + 1,
+              match_count: count,
+              snippet: (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : ''),
+            })
+          }
+        })
+        setSearchMatches(matches)
+        setSearchMatchIndex(0)
+        if (matches.length > 0) setCurrentPage(matches[0].page_number)
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+    if (!api?.searchDocumentPages) return
     const timer = setTimeout(() => {
-      api.searchDocumentPages!(documentId, searchQuery.trim()).then((res) => {
+      api.searchDocumentPages!(documentId, q).then((res) => {
         setSearchMatches(res.matches ?? [])
         setSearchMatchIndex(0)
-        if (res.matches?.length > 0) {
-          setCurrentPage(res.matches[0].page_number)
-        }
+        if (res.matches?.length > 0) setCurrentPage(res.matches[0].page_number)
       }).catch(() => setSearchMatches([]))
     }, 300)
     return () => clearTimeout(timer)
-  }, [api, documentId, searchQuery])
+  }, [api, documentId, searchQuery, fullTextMode, syntheticPages])
 
   // Sync searchMatchIndex when currentPage changes (e.g. from sidebar click)
   useEffect(() => {
@@ -205,11 +280,14 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   }, [pageText])
 
   const handleDownloadFullText = useCallback(async () => {
-    if (!api) return
-    try {
+    let text = ''
+    if (fullTextMode && fullText) text = fullText
+    else if (api) {
       const res = await api.getDocumentFullText(documentId)
-      const text = res.text ?? ''
-      if (!text) return
+      text = res.text ?? ''
+    }
+    if (!text) return
+    try {
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -222,11 +300,18 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
     } catch {
       // ignore
     }
-  }, [api, documentId, filename])
+  }, [api, documentId, filename, fullTextMode, fullText])
 
-  if (!api) {
+  if (!api && !fullText) {
     return (
-      <div style={{ padding: 24, color: MUTED, fontSize: 13 }}>
+      <div style={{
+        padding: 24,
+        color: MUTED,
+        fontSize: 13,
+        background: 'var(--color-bg, #0f172a)',
+        borderRadius: 8,
+        border: BORDER,
+      }}>
         Document reader is not available in this context.
       </div>
     )
@@ -234,7 +319,16 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
 
   if (loading && pageCount === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: MUTED }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 200,
+        color: MUTED,
+        background: 'var(--color-bg, #0f172a)',
+        borderRadius: 8,
+        border: BORDER,
+      }}>
         Loading document…
       </div>
     )
@@ -242,8 +336,15 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
 
   if (pageCount === 0) {
     return (
-      <div style={{ padding: 24, color: MUTED, fontSize: 13 }}>
-        No pages available. The document may still be extracting.
+      <div style={{
+        padding: 24,
+        color: MUTED,
+        fontSize: 13,
+        background: 'var(--color-bg, #0f172a)',
+        borderRadius: 8,
+        border: BORDER,
+      }}>
+        No pages available. The document may still be extracting, or it may belong to another user's vault (e.g. when viewing a received handshake).
       </div>
     )
   }
@@ -264,6 +365,20 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
         border: BORDER,
       }}
     >
+      {fullTextMode && (
+        <div
+          style={{
+            padding: '8px 14px',
+            fontSize: 11,
+            color: MUTED,
+            background: 'rgba(139,92,246,0.08)',
+            borderBottom: BORDER,
+            flexShrink: 0,
+          }}
+        >
+          ℹ️ Viewing received document — page boundaries are approximate
+        </div>
+      )}
       {/* ── Top bar ── */}
       <div
         style={{

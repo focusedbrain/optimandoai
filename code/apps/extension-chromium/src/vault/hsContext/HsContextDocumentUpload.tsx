@@ -532,9 +532,11 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
                 <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '6px', fontWeight: 600 }}>EXTRACTED TEXT PREVIEW</div>
                 <pre style={{
                   fontSize: '11px', color: textColor, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  maxHeight: '72px', overflowY: 'auto', margin: 0, fontFamily: 'inherit', lineHeight: 1.5,
+                  maxHeight: '180px', overflowY: 'auto', margin: 0, fontFamily: 'inherit', lineHeight: 1.5,
                 }}>
-                  {doc.extracted_text.split('\n').slice(0, 3).join('\n')}{(doc.extracted_text.split('\n').length > 3 ? '\n…' : '')}
+                  {doc.extracted_text.length > 800
+                    ? doc.extracted_text.slice(0, 800) + '…'
+                    : doc.extracted_text}
                 </pre>
               </div>
             )}
@@ -695,7 +697,19 @@ export const HsContextDocumentUpload: React.FC<Props> = ({
           }}
           onClick={(e) => e.target === e.currentTarget && setReaderDoc(null)}
         >
-          <div style={{ width: '100%', maxWidth: 900, height: '85vh', maxHeight: 700 }} onClick={(e) => e.stopPropagation()}>
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 900,
+              height: '85vh',
+              maxHeight: 700,
+              background: '#0f172a',
+              borderRadius: 8,
+              overflow: 'hidden',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <HsContextDocumentReader
               documentId={readerDoc.id}
               filename={readerDoc.label?.trim() || readerDoc.filename}
