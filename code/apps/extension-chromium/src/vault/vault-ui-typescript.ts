@@ -2632,8 +2632,10 @@ function renderListItemRow(item: VaultItem): string {
   // For non-password items, show minimal view with field names
   if (item.category !== 'password') {
     const canWrite = canAccessCategory(currentVaultTier, item.category as LegacyItemCategory, 'write')
-    const upgradeMsg = item.category === 'company' && !canWrite
-      ? '<div style="font-size:11px;color:var(--wrv-accent);margin-top:6px;">Upgrade to Publisher to edit Company Data</div>'
+    // Publisher-gated categories (company, handshake_context): show lock + PUBLISHER badge when !canWrite (same as sidebar)
+    const isPublisherGated = (item.category === 'company' || item.category === 'handshake_context') && !canWrite
+    const publisherBadgeHtml = isPublisherGated
+      ? `<span style="display:flex;align-items:center;gap:6px;flex-shrink:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--wrv-text-3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span style="font-size:9px;font-weight:600;letter-spacing:0.3px;background:rgba(var(--wrv-accent-rgb),0.10);padding:2px 5px;border-radius:3px;color:var(--wrv-text-3);text-transform:uppercase;">Publisher</span></span>`
       : ''
     // Show up to 3 fields with their names
     const displayFields = item.fields.slice(0, 3)
@@ -2665,7 +2667,7 @@ function renderListItemRow(item: VaultItem): string {
               white-space:nowrap;
             " onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'">Delete</button>
           `
-      : upgradeMsg
+      : publisherBadgeHtml
 
     return `
       <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
