@@ -80,10 +80,71 @@ const PHRASE_TO_FIELD: Array<{ phrases: RegExp[]; fieldPath: string }> = [
       /company\s*address/i,
       /(?:what(?:'s| is)\s*)?(?:your\s*)?(?:company\s*)?address/i,
       /physical\s*address/i,
+      /(?:what\s*about\s*)?(?:the\s*)?address/i,
     ],
     fieldPath: 'company.address',
   },
-  // Contact person (from profile.fields.contacts array)
+  // Tax & Identifiers
+  {
+    phrases: [
+      /\bvat\s*(?:number)?\b/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?vat\s*(?:number)?/i,
+      /(?:and\s*)?(?:the\s*)?vat\s*(?:number)?/i,
+    ],
+    fieldPath: 'tax.vat_number',
+  },
+  {
+    phrases: [
+      /\bregistration\s*(?:number)?\b/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?registration\s*(?:number)?/i,
+      /(?:what\s*about\s*)?(?:the\s*)?registration/i,
+      /(?:and\s*)?(?:the\s*)?registration\s*(?:number)?/i,
+    ],
+    fieldPath: 'tax.registration_number',
+  },
+  // Billing
+  {
+    phrases: [
+      /\bpayment\s*methods?\b/i,
+      /(?:what(?:'s| are| is)\s*)?(?:that\s+then\s+)?(?:the\s*)?payment\s*methods?/i,
+      /(?:what\s*about\s*)?(?:the\s*)?payment\s*methods?/i,
+      /(?:show\s+me\s+)?(?:the\s*)?payment\s*methods?/i,
+    ],
+    fieldPath: 'billing.payment_methods',
+  },
+  // Legal company
+  {
+    phrases: [
+      /\blegal\s*company\b/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?legal\s*company/i,
+    ],
+    fieldPath: 'company.legal_name',
+  },
+  // Country
+  {
+    phrases: [
+      /\bcountry\b/i,
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?country/i,
+    ],
+    fieldPath: 'company.country',
+  },
+  // General email/phone (looser phrasing)
+  {
+    phrases: [
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?email/i,
+      /(?:what\s*about\s*)?(?:the\s*)?email/i,
+      /(?:show\s+me\s+)?(?:the\s*)?email\s*(?:again)?/i,
+    ],
+    fieldPath: 'contact.general.email',
+  },
+  {
+    phrases: [
+      /(?:what(?:'s| is)\s*)?(?:the\s*)?phone/i,
+      /(?:what\s*about\s*)?(?:the\s*)?phone/i,
+    ],
+    fieldPath: 'contact.general.phone',
+  },
+  // Contact person (from profile.fields.contacts array) — must precede general "contacts"
   {
     phrases: [
       /contact\s*person'?s?\s*phone/i,
@@ -108,12 +169,63 @@ const PHRASE_TO_FIELD: Array<{ phrases: RegExp[]; fieldPath: string }> = [
     ],
     fieldPath: 'contact.person.email',
   },
+  // Contacts (top-level array) — after contact.person.*
+  {
+    phrases: [
+      /\bcontacts?\b/i,
+      /(?:who\s*is\s*)?(?:the\s*)?contact\s*(?:person)?/i,
+      /(?:what(?:'s| are)\s*)?(?:the\s*)?contacts?/i,
+    ],
+    fieldPath: 'contact.persons',
+  },
+  // Links
+  {
+    phrases: [
+      /\blinks?\b/i,
+      /(?:what(?:'s| are)\s*)?(?:the\s*)?links?/i,
+    ],
+    fieldPath: 'company.links',
+  },
 ]
 
 /**
  * Maps graph field paths to vault_profile schema (profile.fields.*).
  * Vault blocks use profile: { fields: { openingHours, generalPhone, ... } }.
  */
+/** Composes address from legacy or structured fields. */
+function formatAddress(fields: Record<string, unknown>): unknown {
+  const addr = fields?.address
+  if (addr && typeof addr === 'string' && addr.trim()) return addr
+  const parts = [
+    [fields?.street, fields?.streetNumber].filter(Boolean).join(' '),
+    [fields?.postalCode, fields?.city].filter(Boolean).join(' '),
+    [fields?.state, fields?.country].filter(Boolean).join(', '),
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : undefined
+}
+
+/** Formats payment methods array for display. */
+function formatPaymentMethods(fields: Record<string, unknown>): unknown {
+  const pm = fields?.paymentMethods as Array<{ type?: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }> | undefined
+  if (!Array.isArray(pm) || pm.length === 0) return undefined
+  return pm
+    .map((m) => {
+      if (m?.type === 'bank_account') return [m.iban, m.bic, m.bank_name, m.account_holder].filter(Boolean).join(' — ')
+      if (m?.type === 'paypal' && m.paypal_email) return `PayPal: ${m.paypal_email}`
+      if (m?.type === 'credit_card') return 'Card (masked)'
+      return ''
+    })
+    .filter(Boolean)
+    .join(' | ')
+}
+
+/** Collects link URLs from profile fields. */
+function formatLinks(fields: Record<string, unknown>): unknown {
+  const linkKeys = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
+  const urls = linkKeys.map((k) => fields?.[k]).filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+  return urls.length > 0 ? urls.join('\n') : undefined
+}
+
 const VAULT_PROFILE_PATH_MAP: Record<string, string | ((obj: Record<string, unknown>) => unknown)> = {
   'opening_hours.schedule': 'openingHours',
   'contact.support.email': 'supportEmail',
@@ -121,8 +233,19 @@ const VAULT_PROFILE_PATH_MAP: Record<string, string | ((obj: Record<string, unkn
   'contact.general.phone': 'generalPhone',
   'contact.general.email': 'generalEmail',
   'company.name': 'legalCompanyName',
-  'company.headquarters': 'address',
-  'company.address': 'address',
+  'company.legal_name': 'legalCompanyName',
+  'company.headquarters': formatAddress,
+  'company.address': formatAddress,
+  'company.country': 'country',
+  'tax.vat_number': 'vatNumber',
+  'tax.registration_number': 'companyRegistrationNumber',
+  'billing.payment_methods': formatPaymentMethods,
+  'contact.persons': (fields) => {
+    const c = fields?.contacts as Array<{ name?: string; role?: string; email?: string; phone?: string }> | undefined
+    if (!Array.isArray(c)) return undefined
+    return c.map((x) => [x.name, x.role, x.email, x.phone].filter(Boolean).join(' · ')).filter(Boolean).join('\n')
+  },
+  'company.links': formatLinks,
   // contact.person.* — extracted from profile.fields.contacts array
   'contact.person.phone': (fields) => {
     const contacts = fields?.contacts as Array<{ phone?: string }> | undefined
@@ -184,6 +307,19 @@ export interface QueryClassifierResult {
  * Classifies a user question to detect if it refers to a structured field.
  * Returns the matched field path (or paths for compound queries) if found.
  */
+/** Imperative/command patterns that must NOT be treated as structured field lookups. */
+const BLOCKLIST: RegExp[] = [
+  /^(?:send|give|forward|reply)\s+me\s+(?:an?\s+)?email/i,
+  /\bcountry\s+manager\b/i,
+  /\blink\s+this\b/i,
+  /\baddress\s+this\s+(?:issue|problem|matter)/i,
+  /\bpayment\s+failed\b/i,
+]
+
+function isBlocked(query: string): boolean {
+  return BLOCKLIST.some((re) => re.test(query))
+}
+
 export function queryClassifier(query: string): QueryClassifierResult {
   const trimmed = query.trim()
   if (!trimmed) return { matched: false }
@@ -194,6 +330,7 @@ export function queryClassifier(query: string): QueryClassifierResult {
   for (const { phrases, fieldPaths } of MULTI_FIELD_GROUPS) {
     for (const re of phrases) {
       if (re.test(normalized)) {
+        if (isBlocked(trimmed)) return { matched: false }
         return { matched: true, fieldPaths }
       }
     }
@@ -202,6 +339,30 @@ export function queryClassifier(query: string): QueryClassifierResult {
   for (const { phrases, fieldPath } of PHRASE_TO_FIELD) {
     for (const re of phrases) {
       if (re.test(normalized)) {
+        if (isBlocked(trimmed)) return { matched: false }
+        return { matched: true, fieldPath }
+      }
+    }
+  }
+
+  // Label-based fallback: only when query looks like a question (avoids "send me an email", "address this issue", etc.)
+  const looksLikeQuestion = /\b(what|which|who|where|when|how|show|give|tell|whats?|and\s+the)\b/i.test(normalized) || /\?$/.test(trimmed)
+  if (looksLikeQuestion) {
+    const LABEL_TO_FIELD: Array<{ label: RegExp; fieldPath: string }> = [
+      { label: /\bpayment\s*methods?\b/i, fieldPath: 'billing.payment_methods' },
+      { label: /\bvat\s*(?:number)?\b/i, fieldPath: 'tax.vat_number' },
+      { label: /\bregistration\s*(?:number)?\b/i, fieldPath: 'tax.registration_number' },
+      { label: /\blegal\s*company\b/i, fieldPath: 'company.legal_name' },
+      { label: /\baddress\b/i, fieldPath: 'company.address' },
+      { label: /\bcountry\b/i, fieldPath: 'company.country' },
+      { label: /\bemail\b/i, fieldPath: 'contact.general.email' },
+      { label: /\bphone\b/i, fieldPath: 'contact.general.phone' },
+      { label: /\bcontacts?\b/i, fieldPath: 'contact.persons' },
+      { label: /\blinks?\b/i, fieldPath: 'company.links' },
+    ]
+    for (const { label, fieldPath } of LABEL_TO_FIELD) {
+      if (label.test(normalized)) {
+        if (isBlocked(trimmed)) return { matched: false }
         return { matched: true, fieldPath }
       }
     }

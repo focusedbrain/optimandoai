@@ -117,6 +117,58 @@ function isStructuredBlock(blockId: string): boolean {
   return STRUCTURED_PREFIXES.includes(top as (typeof STRUCTURED_PREFIXES)[number])
 }
 
+/** Custom field shape from profile payload. */
+interface CustomFieldEntry {
+  label?: string
+  value?: string
+}
+
+/**
+ * Extract custom_fields from a vault profile payload as searchable pseudo-blocks.
+ * Each block contains label + value for semantic retrieval by label, key, or value.
+ * Block IDs: {parentBlockId}.custom_field_{index}
+ */
+function extractCustomFieldBlocks(
+  parentBlockId: string,
+  parentBlockHash: string,
+  sourcePath: string,
+  parsed: unknown,
+): ExtractedBlock[] {
+  const blocks: ExtractedBlock[] = []
+  const profile = parsed && typeof parsed === 'object' && 'profile' in parsed
+    ? (parsed as Record<string, unknown>).profile as Record<string, unknown> | undefined
+    : undefined
+  const customFields = profile?.custom_fields as CustomFieldEntry[] | undefined
+  if (!Array.isArray(customFields) || customFields.length === 0) return blocks
+
+  for (let i = 0; i < customFields.length; i++) {
+    const cf = customFields[i]
+    const label = typeof cf?.label === 'string' ? cf.label.trim() : ''
+    const value = typeof cf?.value === 'string' ? cf.value.trim() : ''
+    if (!label && !value) continue
+
+    const displayLabel = label || `Custom field ${i + 1}`
+    const text = value
+      ? `Custom field: ${displayLabel}\n${value}`
+      : `Custom field: ${displayLabel}`
+
+    const cfBlockId = `${parentBlockId}.custom_field_${i}`
+    const cfHash = createHash('sha256')
+      .update(parentBlockHash + '\0custom_field\0' + i + '\0' + text)
+      .digest('hex')
+
+    blocks.push({
+      block_id: cfBlockId,
+      parent_block_id: parentBlockId,
+      text,
+      source_path: `${sourcePath}.custom_field_${i}`,
+      chunk_index: 0,
+      block_hash: cfHash,
+    })
+  }
+  return blocks
+}
+
 // ── Document chunking ────────────────────────────────────────────────────────
 
 /** Split text into semantic chunks (target 500–800 tokens). Preserves section boundaries. */
@@ -261,6 +313,12 @@ export function extractBlocks(
       chunk_index: 0,
       block_hash: blockHash,
     })
+  }
+
+  // Custom fields: extract as separate searchable blocks for semantic retrieval
+  if (blockId.startsWith('ctx-') && parsed && typeof parsed === 'object') {
+    const cfBlocks = extractCustomFieldBlocks(blockId, blockHash, sourcePath, parsed)
+    blocks.push(...cfBlocks)
   }
 
   return blocks
