@@ -135,6 +135,35 @@ describe('normalizeProfileToText — full profile', () => {
     expect(result).toContain('Website: https://acme.de')
   })
 
+  it('renders structured address from street/city/country', () => {
+    const profile = makeProfile({
+      fields: {
+        legalCompanyName: 'Acme GmbH',
+        street: 'Hauptstr',
+        streetNumber: '42',
+        postalCode: '10115',
+        city: 'Berlin',
+        country: 'Germany',
+      },
+    })
+    const result = normalizeProfileToText(profile)
+    expect(result).toContain('Address: Hauptstr 42, 10115 Berlin, Germany')
+    expect(result).toContain('Country: Germany')
+  })
+
+  it('renders structured bank details from iban/bic/bankName/accountHolder', () => {
+    const profile = makeProfile({
+      fields: {
+        iban: 'DE89370400440532013000',
+        bic: 'COBADEFFXXX',
+        bankName: 'Commerzbank',
+        accountHolder: 'Acme GmbH',
+      },
+    })
+    const result = normalizeProfileToText(profile)
+    expect(result).toContain('Bank Details: DE89370400440532013000 — COBADEFFXXX — Commerzbank — Acme GmbH')
+  })
+
   it('renders Contacts section', () => {
     const profile = makeProfile({
       fields: {
@@ -144,7 +173,7 @@ describe('normalizeProfileToText — full profile', () => {
       },
     })
     const result = normalizeProfileToText(profile)
-    expect(result).toContain('Contacts')
+    expect(result).toContain('Contact Persons')
     expect(result).toContain('Jane Doe')
     expect(result).toContain('Sales')
     expect(result).toContain('jane@acme.de')

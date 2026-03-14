@@ -20,7 +20,14 @@ export interface ProfileFields {
   // Business Identity
   legalCompanyName?: string
   tradeName?: string
+  /** Legacy single-line address. Kept for backward compat. Composed from structured fields on save. */
   address?: string
+  /** Structured address (Company Data alignment) */
+  street?: string
+  streetNumber?: string
+  postalCode?: string
+  city?: string
+  state?: string
   country?: string
   website?: string
   // Links / Online Presence (normalized field names for authoring + display)
@@ -49,7 +56,13 @@ export interface ProfileFields {
   // Billing
   billingEmail?: string
   paymentTerms?: string
+  /** Legacy single-line bank details. Kept for backward compat. Composed from structured fields on save. */
   bankDetails?: string
+  /** Structured bank (Company Data alignment) */
+  iban?: string
+  bic?: string
+  bankName?: string
+  accountHolder?: string
   // Logistics / Operations
   receivingHours?: string
   deliveryInstructions?: string
@@ -199,11 +212,26 @@ export function normalizeProfileToText(
 
   const f = profile.fields
 
-  // Business Identity
+  // Business Identity — address: prefer structured if available, else legacy
+  const hasStructuredAddress = !!(f.street || f.streetNumber || f.postalCode || f.city || f.state || f.country)
+  let addressValue: string | undefined
+  if (hasStructuredAddress) {
+    const addrParts: string[] = []
+    const line1 = [f.street, f.streetNumber].filter(Boolean).join(' ')
+    if (line1) addrParts.push(line1)
+    const line2 = [f.postalCode, f.city].filter(Boolean).join(' ')
+    if (line2) addrParts.push(line2)
+    const line3 = [f.state, f.country].filter(Boolean).join(', ')
+    if (line3) addrParts.push(line3)
+    addressValue = addrParts.join(', ')
+  } else {
+    addressValue = f.address
+  }
+
   const bizFields: Array<[string, string | undefined]> = [
     ['Legal Company Name', f.legalCompanyName],
     ['Trade Name', f.tradeName],
-    ['Address', f.address],
+    ['Address', addressValue?.trim() || undefined],
     ['Country', f.country],
   ]
   const bizLines = bizFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)
@@ -270,11 +298,16 @@ export function normalizeProfileToText(
     if (f.holidayNotes) lines.push(`  Holiday Notes: ${f.holidayNotes}`)
   }
 
-  // Billing
+  // Billing — prefer structured bank if available, else legacy bankDetails
+  const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
+  const bankDetailsValue = hasStructuredBank
+    ? [f.iban, f.bic, f.bankName, f.accountHolder].filter(Boolean).join(' — ')
+    : f.bankDetails
+
   const billingFields: Array<[string, string | undefined]> = [
     ['Billing Email', f.billingEmail],
     ['Payment Terms', f.paymentTerms],
-    ['Bank Details', f.bankDetails],
+    ['Bank Details', bankDetailsValue?.trim() || undefined],
   ]
   const billingLines = billingFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`)
   if (billingLines.length) {

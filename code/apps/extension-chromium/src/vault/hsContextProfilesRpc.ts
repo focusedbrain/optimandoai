@@ -74,7 +74,14 @@ export interface HsContextProfileSummary {
 export interface ProfileFields {
   legalCompanyName?: string
   tradeName?: string
+  /** Legacy single-line address. Kept for backward compat. Composed from structured fields on save. */
   address?: string
+  /** Structured address (Company Data alignment) */
+  street?: string
+  streetNumber?: string
+  postalCode?: string
+  city?: string
+  state?: string
   country?: string
   website?: string
   linkedin?: string
@@ -103,7 +110,13 @@ export interface ProfileFields {
   holidayNotes?: string
   billingEmail?: string
   paymentTerms?: string
+  /** Legacy single-line bank details. Kept for backward compat. Composed from structured fields on save. */
   bankDetails?: string
+  /** Structured bank (Company Data alignment) */
+  iban?: string
+  bic?: string
+  bankName?: string
+  accountHolder?: string
   receivingHours?: string
   deliveryInstructions?: string
   supportHours?: string

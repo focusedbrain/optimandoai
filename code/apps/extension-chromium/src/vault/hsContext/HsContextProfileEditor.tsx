@@ -54,41 +54,59 @@ function getCompanyFieldValue(item: VaultItem, key: string): string {
   return (f?.value ?? '').trim()
 }
 
-/** Map Company Data item to ProfileFields. Only non-empty values. Skips empty company fields. */
+/** Get payment field — Company Data uses payment_ or payment_2_ prefix. */
+function getPaymentFieldValue(item: VaultItem, key: string): string {
+  const v = getCompanyFieldValue(item, `payment_${key}`) || getCompanyFieldValue(item, `payment_2_${key}`)
+  return v
+}
+
+/** Map Company Data item to ProfileFields. Direct field copy with snake_case → camelCase. Only non-empty values. */
 function mapCompanyToProfileFields(item: VaultItem): Partial<ProfileFields> {
-  const street = getCompanyFieldValue(item, 'street')
-  const street_number = getCompanyFieldValue(item, 'street_number')
-  const postal_code = getCompanyFieldValue(item, 'postal_code')
-  const city = getCompanyFieldValue(item, 'city')
-  const state = getCompanyFieldValue(item, 'state')
-  const country = getCompanyFieldValue(item, 'country')
-
-  const addrParts: string[] = []
-  const line1 = [street, street_number].filter(Boolean).join(' ')
-  if (line1) addrParts.push(line1)
-  const line2 = [postal_code, city].filter(Boolean).join(' ')
-  if (line2) addrParts.push(line2)
-  const line3 = [state, country].filter(Boolean).join(', ')
-  if (line3) addrParts.push(line3)
-  const address = addrParts.join(', ')
-
   const out: Partial<ProfileFields> = {}
   const title = (item.title ?? '').trim()
   if (title) out.legalCompanyName = title
-  if (address) out.address = address
-  const c = getCompanyFieldValue(item, 'country')
-  if (c) out.country = c
-  const w = getCompanyFieldValue(item, 'website')
-  if (w) out.website = w
-  const p = getCompanyFieldValue(item, 'phone')
-  if (p) out.generalPhone = p
-  const e = getCompanyFieldValue(item, 'email')
-  if (e) out.generalEmail = e
-  const v = getCompanyFieldValue(item, 'vat_number')
-  if (v) out.vatNumber = v
-  const t = getCompanyFieldValue(item, 'tax_id')
-  if (t) out.companyRegistrationNumber = t
+
+  const street = getCompanyFieldValue(item, 'street')
+  if (street) out.street = street
+  const streetNumber = getCompanyFieldValue(item, 'street_number')
+  if (streetNumber) out.streetNumber = streetNumber
+  const postalCode = getCompanyFieldValue(item, 'postal_code')
+  if (postalCode) out.postalCode = postalCode
+  const city = getCompanyFieldValue(item, 'city')
+  if (city) out.city = city
+  const state = getCompanyFieldValue(item, 'state')
+  if (state) out.state = state
+  const country = getCompanyFieldValue(item, 'country')
+  if (country) out.country = country
+
+  const email = getCompanyFieldValue(item, 'email')
+  if (email) out.generalEmail = email
+  const phone = getCompanyFieldValue(item, 'phone')
+  if (phone) out.generalPhone = phone
+  const website = getCompanyFieldValue(item, 'website')
+  if (website) out.website = website
+  const vat = getCompanyFieldValue(item, 'vat_number')
+  if (vat) out.vatNumber = vat
+  const taxId = getCompanyFieldValue(item, 'tax_id')
+  if (taxId) out.companyRegistrationNumber = taxId
+
+  const iban = getPaymentFieldValue(item, 'iban')
+  if (iban) out.iban = iban
+  const bic = getPaymentFieldValue(item, 'bic')
+  if (bic) out.bic = bic
+  const bankName = getPaymentFieldValue(item, 'bank_name')
+  if (bankName) out.bankName = bankName
+  const accountHolder = getPaymentFieldValue(item, 'account_holder')
+  if (accountHolder) out.accountHolder = accountHolder
+
   return out
+}
+
+/** CEO name from Company Data for optional first contact. */
+function getCeoForContact(item: VaultItem): string {
+  const first = getCompanyFieldValue(item, 'ceo_first_name')
+  const surname = getCompanyFieldValue(item, 'ceo_surname')
+  return [first, surname].filter(Boolean).join(' ')
 }
 
 /** Document icon — stroke-based, matches product style */
@@ -203,6 +221,30 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   const [companyDataItems, setCompanyDataItems] = useState<Array<{ id: string; title: string }>>([])
   const [companyDataLoading, setCompanyDataLoading] = useState(true)
   const [companyAutofillValue, setCompanyAutofillValue] = useState('')
+  const [autofilledFieldKeys, setAutofilledFieldKeys] = useState<Set<string>>(new Set())
+  const [autofillSummary, setAutofillSummary] = useState<{ filled: string[]; skipped: string[] } | null>(null)
+  const [legacyAddressHint, setLegacyAddressHint] = useState<string | null>(null)
+  const [legacyBankDetailsHint, setLegacyBankDetailsHint] = useState<string | null>(null)
+
+  const FIELD_LABELS: Record<string, string> = {
+    legalCompanyName: 'Legal Company Name',
+    street: 'Street',
+    streetNumber: 'Street Number',
+    postalCode: 'Postal Code',
+    city: 'City',
+    state: 'State',
+    country: 'Country',
+    generalEmail: 'General Email',
+    generalPhone: 'General Phone',
+    website: 'Website',
+    vatNumber: 'VAT Number',
+    companyRegistrationNumber: 'Company Registration Number',
+    iban: 'IBAN',
+    bic: 'BIC',
+    bankName: 'Bank Name',
+    accountHolder: 'Account Holder',
+    contacts: 'Contact Persons',
+  }
 
   const mountedRef = useRef(true)
   const hasUploadedRef = useRef(false)
@@ -237,7 +279,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
   useEffect(() => {
     if (profileId) {
       setLoading(true)
-      getHsProfile(profileId)
+        getHsProfile(profileId)
         .then((detail: HsContextProfileDetail) => {
           if (!mountedRef.current) return
           setName(detail.name)
@@ -247,6 +289,20 @@ export const HsContextProfileEditor: React.FC<Props> = ({
           setFields(detail.fields ?? {})
           setCustomFields(detail.custom_fields ?? [])
           setDocuments(detail.documents ?? [])
+
+          const f = detail.fields ?? {}
+          const hasStructuredAddress = !!(f.street || f.streetNumber || f.postalCode || f.city || f.state || f.country)
+          if (!hasStructuredAddress && f.address?.trim()) {
+            setLegacyAddressHint(f.address)
+          } else {
+            setLegacyAddressHint(null)
+          }
+          const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
+          if (!hasStructuredBank && f.bankDetails?.trim()) {
+            setLegacyBankDetailsHint(f.bankDetails)
+          } else {
+            setLegacyBankDetailsHint(null)
+          }
         })
         .catch((err: any) => setError(err?.message ?? 'Failed to load profile'))
         .finally(() => setLoading(false))
@@ -277,7 +333,8 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       setError('Profile name is required')
       return null
     }
-    const validatedFields = { ...fields }
+    let validatedFields = { ...fields }
+    validatedFields = composeLegacyFields(validatedFields)
     const urlFields: Array<keyof ProfileFields> = ['website', 'linkedin', 'twitter', 'facebook', 'instagram', 'youtube', 'officialLink', 'supportUrl']
     for (const k of urlFields) {
       const v = (fields as Record<string, unknown>)[k]
@@ -359,6 +416,27 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     }
   }, [name, description, scope, tagsInput, fields, customFields])
 
+  /** Compose legacy address and bankDetails from structured fields. */
+  const composeLegacyFields = useCallback((f: ProfileFields): ProfileFields => {
+    const out = { ...f }
+    const hasStructuredAddress = !!(f.street || f.streetNumber || f.postalCode || f.city || f.state || f.country)
+    if (hasStructuredAddress) {
+      const addrParts: string[] = []
+      const line1 = [f.street, f.streetNumber].filter(Boolean).join(' ')
+      if (line1) addrParts.push(line1)
+      const line2 = [f.postalCode, f.city].filter(Boolean).join(' ')
+      if (line2) addrParts.push(line2)
+      const line3 = [f.state, f.country].filter(Boolean).join(', ')
+      if (line3) addrParts.push(line3)
+      out.address = addrParts.join(', ')
+    }
+    const hasStructuredBank = !!(f.iban || f.bic || f.bankName || f.accountHolder)
+    if (hasStructuredBank) {
+      out.bankDetails = [f.iban, f.bic, f.bankName, f.accountHolder].filter(Boolean).join(' — ')
+    }
+    return out
+  }, [])
+
   /** Create profile with current form state — used when user uploads before first Save. Uses minimal validation; name defaults to "Untitled" if empty. */
   const getOrCreateProfileId = useCallback(async (): Promise<string> => {
     if (currentProfileIdRef.current) return currentProfileIdRef.current
@@ -368,7 +446,7 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       description: description.trim() || undefined,
       scope,
       tags,
-      fields: { ...fields },
+      fields: composeLegacyFields(fields),
       custom_fields: customFields.filter((cf) => cf.label.trim()),
     }
     const created = await createHsProfile(input)
@@ -389,21 +467,55 @@ export const HsContextProfileEditor: React.FC<Props> = ({
     try {
       const item = await getItem(itemId) as VaultItem
       const mapped = mapCompanyToProfileFields(item)
+      const filled: string[] = []
+      const skipped: string[] = []
+
       setFields((prev) => {
         const next = { ...prev }
         for (const [k, v] of Object.entries(mapped)) {
+          if (v == null || String(v).trim() === '') continue
           const isEmpty = (prev as any)[k] == null || String((prev as any)[k] ?? '').trim() === ''
-          if (v != null && String(v).trim() !== '' && isEmpty) {
+          if (isEmpty) {
             ;(next as any)[k] = v
+            filled.push(k)
+          } else {
+            skipped.push(k)
           }
+        }
+        // CEO → first contact if contacts empty
+        const ceoName = getCeoForContact(item)
+        if (ceoName && (!prev.contacts || prev.contacts.length === 0)) {
+          next.contacts = [{ name: ceoName, role: 'CEO' }]
+          filled.push('contacts')
         }
         return next
       })
-      setCompanyAutofillValue('')
+      setAutofilledFieldKeys((prev) => {
+        const next = new Set(prev)
+        filled.forEach((k) => next.add(k))
+        return next
+      })
+      setAutofillSummary({ filled, skipped })
     } catch (err) {
       setError((err as Error)?.message ?? 'Failed to load company data')
     }
   }, [])
+
+  const handleClearAutofilled = useCallback(() => {
+    setFields((prev) => {
+      const next = { ...prev }
+      autofilledFieldKeys.forEach((k) => {
+        if (k === 'contacts') {
+          next.contacts = []
+        } else {
+          ;(next as any)[k] = ''
+        }
+      })
+      return next
+    })
+    setAutofilledFieldKeys(new Set())
+    setAutofillSummary(null)
+  }, [autofilledFieldKeys])
 
   // Section-scoped custom field helpers (uses `section` tag on CustomField)
   const getSectionFields = (section: string) =>
@@ -594,6 +706,78 @@ export const HsContextProfileEditor: React.FC<Props> = ({
       {/* ── Scrollable body ── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
+        {/* ── Quick Fill from Company Data (top, above all sections) ── */}
+        {!companyDataLoading && companyDataItems.length > 0 && (
+          <div style={sectionStyle}>
+            <div style={sectionHeadingStyle}>Quick Fill from Company Data</div>
+            <div style={{ fontSize: '11px', color: mutedColor, marginBottom: '10px' }}>
+              Select a company record to auto-populate matching fields
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                value={companyAutofillValue}
+                onChange={(e) => setCompanyAutofillValue(e.target.value)}
+                style={{ ...inputStyle, flex: '1 1 200px', cursor: 'pointer' }}
+              >
+                <option value="">— Select company —</option>
+                {companyDataItems.map((i) => (
+                  <option key={i.id} value={i.id}>{i.title}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => companyAutofillValue && handleCompanyAutofill(companyAutofillValue)}
+                disabled={!companyAutofillValue}
+                style={{
+                  padding: '6px 14px',
+                  background: 'transparent',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '7px',
+                  color: companyAutofillValue ? (isDark ? '#c4b5fd' : '#7c3aed') : mutedColor,
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: companyAutofillValue ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Autofill Company Data
+              </button>
+            </div>
+            {autofillSummary && (
+              <div style={{ marginTop: '10px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {autofillSummary.filled.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                    <span style={{ color: '#22c55e', flexShrink: 0 }}>✓</span>
+                    <span>Filled: {autofillSummary.filled.map((k) => FIELD_LABELS[k] ?? k).join(', ')}</span>
+                  </div>
+                )}
+                {autofillSummary.skipped.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                    <span style={{ color: mutedColor, flexShrink: 0 }}>⊘</span>
+                    <span>Skipped (already filled): {autofillSummary.skipped.map((k) => FIELD_LABELS[k] ?? k).join(', ')}</span>
+                  </div>
+                )}
+                {autofilledFieldKeys.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAutofilled}
+                    style={{
+                      alignSelf: 'flex-start',
+                      background: 'none',
+                      border: 'none',
+                      color: mutedColor,
+                      fontSize: '11px',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    Clear autofilled data
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {error && (
           <div style={{
             padding: '10px 12px', background: 'rgba(239,68,68,0.1)',
@@ -633,31 +817,6 @@ export const HsContextProfileEditor: React.FC<Props> = ({
               <input value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} style={inputStyle} placeholder="supplier, billing" />
             </div>
           </div>
-          {companyDataLoading ? (
-            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '12px' }}>Loading company data…</div>
-          ) : companyDataItems.length === 0 ? (
-            <div style={{ fontSize: '12px', color: mutedColor, marginTop: '12px' }}>
-              No company data available — add company data in the vault first
-            </div>
-          ) : (
-            <div style={{ marginTop: '14px' }}>
-              <label style={labelStyle}>Auto-fill from Company Data</label>
-              <select
-                value={companyAutofillValue}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setCompanyAutofillValue(v)
-                  if (v) handleCompanyAutofill(v)
-                }}
-                style={{ ...inputStyle, cursor: 'pointer' }}
-              >
-                <option value="">— Select company data to auto-fill —</option>
-                {companyDataItems.map((i) => (
-                  <option key={i.id} value={i.id}>{i.title}</option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
 
         {/* ── Business Documents ── */}
@@ -694,21 +853,49 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         {/* ── Company / Organization ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Company / Organization</div>
-          {([
-            ['legalCompanyName', 'Legal Company Name'],
-            ['tradeName', 'Display Name (if distinct)'],
-            ['address', 'Address'],
-            ['country', 'Country'],
-          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
-            <div key={key as string}>
-              <label style={labelStyle}>{label}</label>
-              <input
-                value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key, e.target.value as any)}
-                style={inputStyle}
-              />
+          <div>
+            <label style={labelStyle}>Legal Company Name</label>
+            <input value={fields.legalCompanyName ?? ''} onChange={(e) => setField('legalCompanyName', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Display Name (if distinct)</label>
+            <input value={fields.tradeName ?? ''} onChange={(e) => setField('tradeName', e.target.value)} style={inputStyle} />
+          </div>
+          {legacyAddressHint && !(fields.street || fields.streetNumber || fields.postalCode || fields.city || fields.state || fields.country) && (
+            <div style={{ fontSize: '11px', color: mutedColor, padding: '8px 10px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderRadius: '6px', marginBottom: '4px' }}>
+              Previous address (from earlier version): {legacyAddressHint}. Fill the fields below to update.
             </div>
-          ))}
+          )}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 3 }}>
+              <label style={labelStyle}>Street</label>
+              <input value={fields.street ?? ''} onChange={(e) => setField('street', e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Street Number</label>
+              <input value={fields.streetNumber ?? ''} onChange={(e) => setField('streetNumber', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Postal Code</label>
+              <input value={fields.postalCode ?? ''} onChange={(e) => setField('postalCode', e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ flex: 3 }}>
+              <label style={labelStyle}>City</label>
+              <input value={fields.city ?? ''} onChange={(e) => setField('city', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>State</label>
+              <input value={fields.state ?? ''} onChange={(e) => setField('state', e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Country</label>
+              <input value={fields.country ?? ''} onChange={(e) => setField('country', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
           <hr style={dividerStyle} />
           <SectionCustomFields
             fields={getSectionFields('company')}
@@ -925,20 +1112,37 @@ export const HsContextProfileEditor: React.FC<Props> = ({
         {/* ── Billing ── */}
         <div style={sectionStyle}>
           <div style={sectionHeadingStyle}>Billing</div>
-          {([
-            ['billingEmail', 'Billing Email'],
-            ['paymentTerms', 'Payment Terms'],
-            ['bankDetails', 'Bank Details (confidential)'],
-          ] as [keyof ProfileFields, string][]).map(([key, label]) => (
-            <div key={key as string}>
-              <label style={labelStyle}>{label}</label>
-              <input
-                value={(fields as any)[key] ?? ''}
-                onChange={(e) => setField(key, e.target.value as any)}
-                style={inputStyle}
-              />
+          <div>
+            <label style={labelStyle}>Billing Email</label>
+            <input type="email" value={fields.billingEmail ?? ''} onChange={(e) => setField('billingEmail', e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Payment Terms</label>
+            <input value={fields.paymentTerms ?? ''} onChange={(e) => setField('paymentTerms', e.target.value)} style={inputStyle} />
+          </div>
+          {legacyBankDetailsHint && !(fields.iban || fields.bic || fields.bankName || fields.accountHolder) && (
+            <div style={{ fontSize: '11px', color: mutedColor, padding: '8px 10px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderRadius: '6px', marginBottom: '4px' }}>
+              Previous bank details (from earlier version): {legacyBankDetailsHint}. Fill the fields below to update.
             </div>
-          ))}
+          )}
+          <div>
+            <label style={labelStyle}>IBAN</label>
+            <input value={fields.iban ?? ''} onChange={(e) => setField('iban', e.target.value)} style={inputStyle} placeholder="International Bank Account Number" />
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>BIC / SWIFT</label>
+              <input value={fields.bic ?? ''} onChange={(e) => setField('bic', e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>Bank Name</label>
+              <input value={fields.bankName ?? ''} onChange={(e) => setField('bankName', e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Account Holder</label>
+            <input value={fields.accountHolder ?? ''} onChange={(e) => setField('accountHolder', e.target.value)} style={inputStyle} />
+          </div>
           <hr style={dividerStyle} />
           <div style={{ fontSize: '10px', color: mutedColor, marginBottom: '-2px' }}>
             Add country-specific billing references: IBAN, procurement portal ID, cost center, etc.

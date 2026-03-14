@@ -160,12 +160,23 @@ function StructuredHsContextBlock({
       )}
 
       {/* Business Identity */}
-      {(fields.legalCompanyName || fields.tradeName || fields.address || fields.country) && (
+      {(fields.legalCompanyName || fields.tradeName || fields.address || fields.street || fields.city || fields.country) && (
         <>
           <SectionHeader title="Business Identity" />
           {fields.legalCompanyName && <SectionRow label="Legal Company" value={String(fields.legalCompanyName)} />}
           {fields.tradeName && <SectionRow label="Trade Name" value={String(fields.tradeName)} />}
-          {fields.address && <SectionRow label="Address" value={String(fields.address)} />}
+          {(fields.street || fields.streetNumber || fields.postalCode || fields.city || fields.state || fields.country)
+            ? (
+                <SectionRow
+                  label="Address"
+                  value={[
+                    [fields.street, fields.streetNumber].filter(Boolean).join(' '),
+                    [fields.postalCode, fields.city].filter(Boolean).join(' '),
+                    [fields.state, fields.country].filter(Boolean).join(', '),
+                  ].filter(Boolean).join(', ')}
+                />
+              )
+            : fields.address && <SectionRow label="Address" value={String(fields.address)} />}
           {fields.country && <SectionRow label="Country" value={String(fields.country)} />}
         </>
       )}
@@ -227,12 +238,19 @@ function StructuredHsContextBlock({
       )}
 
       {/* Billing */}
-      {(fields.billingEmail || fields.paymentTerms || fields.bankDetails) && (
+      {(fields.billingEmail || fields.paymentTerms || fields.bankDetails || fields.iban || fields.bic || fields.bankName || fields.accountHolder) && (
         <>
           <SectionHeader title="Billing" />
           {fields.billingEmail && <SectionRow label="Billing Email" value={String(fields.billingEmail)} />}
           {fields.paymentTerms && <SectionRow label="Payment Terms" value={String(fields.paymentTerms)} />}
-          {fields.bankDetails && <SectionRow label="Bank Details" value={String(fields.bankDetails)} />}
+          {(fields.iban || fields.bic || fields.bankName || fields.accountHolder)
+            ? (
+                <SectionRow
+                  label="Bank Details"
+                  value={[fields.iban, fields.bic, fields.bankName, fields.accountHolder].filter(Boolean).join(' — ')}
+                />
+              )
+            : fields.bankDetails && <SectionRow label="Bank Details" value={String(fields.bankDetails)} />}
         </>
       )}
 
