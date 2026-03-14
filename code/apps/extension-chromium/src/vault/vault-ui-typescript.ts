@@ -3083,8 +3083,38 @@ function renderItemCard(item: VaultItem): string {
   `
 }
 
+/** Parse payment fields from a VaultItem into structured payment methods (for edit dialog population). */
+function parsePaymentMethodsFromItem(item: VaultItem): Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; cc_number?: string; cc_holder?: string; cc_expiry?: string; cc_cvv?: string; paypal_email?: string }> {
+  const getVal = (key: string) => (item.fields?.find((f) => f.key === key)?.value ?? '').trim()
+  const methods: Array<Record<string, string>> = []
+  let idx = 1
+  while (true) {
+    const prefix = idx === 1 ? 'payment_' : `payment_${idx}_`
+    const iban = getVal(prefix + 'iban')
+    const bic = getVal(prefix + 'bic')
+    const bankName = getVal(prefix + 'bank_name')
+    const accountHolder = getVal(prefix + 'account_holder')
+    const ccNumber = getVal(prefix + 'cc_number')
+    const ccHolder = getVal(prefix + 'cc_holder')
+    const ccExpiry = getVal(prefix + 'cc_expiry')
+    const ccCvv = getVal(prefix + 'cc_cvv')
+    const paypalEmail = getVal(prefix + 'paypal_email')
+    if (iban || bic || bankName || accountHolder) {
+      methods.push({ type: 'bank_account', iban, bic, bank_name: bankName, account_holder: accountHolder })
+    } else if (ccNumber || ccHolder || ccExpiry || ccCvv) {
+      methods.push({ type: 'credit_card', cc_number: ccNumber, cc_holder: ccHolder, cc_expiry: ccExpiry, cc_cvv: ccCvv })
+    } else if (paypalEmail) {
+      methods.push({ type: 'paypal', paypal_email: paypalEmail })
+    } else {
+      break
+    }
+    idx++
+  }
+  return methods
+}
+
 // Render Add Data Dialog
-function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context') {
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context', editItem?: VaultItem) {
   // Documents use their own dedicated upload dialog — redirect immediately.
   if (preselectedCategory === 'document') {
     renderDocumentUploadDialog(container)
@@ -3778,7 +3808,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     if (addPaymentMethodBtn && paymentMethodsList) {
       let paymentCounter = 0
 
-      const addPaymentEntry = (presetType?: string) => {
+      const addPaymentEntry = (presetType?: string, initialData?: Record<string, string>) => {
         paymentCounter++
         const idx = paymentCounter
         const entry = document.createElement('div')
@@ -3884,9 +3914,33 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         renderPaymentFields(typeSelect.value)
         typeSelect.addEventListener('change', () => renderPaymentFields(typeSelect.value))
         entry.querySelector('.remove-payment-method')?.addEventListener('click', () => entry.remove())
+
+        if (initialData) {
+          typeSelect.value = initialData.type || typeSelect.value
+          renderPaymentFields(typeSelect.value)
+          const setInput = (sel: string, val: string) => {
+            const el = entry.querySelector(sel) as HTMLInputElement
+            if (el && val) el.value = val
+          }
+          setInput('.pay-iban', initialData.iban ?? '')
+          setInput('.pay-bic', initialData.bic ?? '')
+          setInput('.pay-bank-name', initialData.bank_name ?? '')
+          setInput('.pay-account-holder', initialData.account_holder ?? '')
+          setInput('.pay-cc-number', initialData.cc_number ?? '')
+          setInput('.pay-cc-holder', initialData.cc_holder ?? '')
+          setInput('.pay-cc-expiry', initialData.cc_expiry ?? '')
+          setInput('.pay-cc-cvv', initialData.cc_cvv ?? '')
+          setInput('.pay-paypal-email', initialData.paypal_email ?? '')
+        }
       }
 
       addPaymentMethodBtn.addEventListener('click', () => addPaymentEntry())
+
+      // Pre-populate payment methods when editing
+      if (editItem && (editItem.category === 'identity' || editItem.category === 'company')) {
+        const methods = parsePaymentMethodsFromItem(editItem)
+        methods.forEach((m) => addPaymentEntry(m.type, m as Record<string, string>))
+      }
     }
   }
   
@@ -4195,8 +4249,8 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
 
 // Render Edit Data Dialog (similar to Add Data Dialog but pre-filled)
 function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
-  // Reuse the add dialog function but with pre-filled data
-  renderAddDataDialog(container, item.category as any)
+  // Reuse the add dialog function but with pre-filled data (pass item for payment population)
+  renderAddDataDialog(container, item.category as any, item)
   
   // Wait for dialog to be rendered, then fill in the data
   setTimeout(() => {
@@ -4291,6 +4345,39 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
             }
           })
           
+          // Collect payment method fields (identity / company) — same as create flow
+          const paymentEntries = addDialog.querySelectorAll('.payment-method-entry')
+          let paymentIdx = 0
+          paymentEntries.forEach((entry) => {
+            paymentIdx++
+            const typeSelect = entry.querySelector('.payment-type-select') as HTMLSelectElement
+            const payType = typeSelect?.value || 'bank_account'
+            const prefix = paymentIdx > 1 ? `payment_${paymentIdx}_` : 'payment_'
+
+            if (payType === 'bank_account') {
+              const iban = (entry.querySelector('.pay-iban') as HTMLInputElement)?.value.trim()
+              const bic = (entry.querySelector('.pay-bic') as HTMLInputElement)?.value.trim()
+              const bankName = (entry.querySelector('.pay-bank-name') as HTMLInputElement)?.value.trim()
+              const holder = (entry.querySelector('.pay-account-holder') as HTMLInputElement)?.value.trim()
+              if (iban) fields.push({ key: `${prefix}iban`, value: iban, encrypted: true, type: 'text', explanation: 'IBAN – International Bank Account Number' })
+              if (bic) fields.push({ key: `${prefix}bic`, value: bic, encrypted: false, type: 'text', explanation: 'BIC / SWIFT code' })
+              if (bankName) fields.push({ key: `${prefix}bank_name`, value: bankName, encrypted: false, type: 'text', explanation: 'Bank or financial institution name' })
+              if (holder) fields.push({ key: `${prefix}account_holder`, value: holder, encrypted: false, type: 'text', explanation: 'Name on the bank account' })
+            } else if (payType === 'credit_card') {
+              const ccNum = (entry.querySelector('.pay-cc-number') as HTMLInputElement)?.value.trim()
+              const ccHolder = (entry.querySelector('.pay-cc-holder') as HTMLInputElement)?.value.trim()
+              const ccExpiry = (entry.querySelector('.pay-cc-expiry') as HTMLInputElement)?.value.trim()
+              const ccCvv = (entry.querySelector('.pay-cc-cvv') as HTMLInputElement)?.value.trim()
+              if (ccNum) fields.push({ key: `${prefix}cc_number`, value: ccNum, encrypted: true, type: 'password', explanation: 'Credit / debit card number' })
+              if (ccHolder) fields.push({ key: `${prefix}cc_holder`, value: ccHolder, encrypted: false, type: 'text', explanation: 'Cardholder name' })
+              if (ccExpiry) fields.push({ key: `${prefix}cc_expiry`, value: ccExpiry, encrypted: true, type: 'text', explanation: 'Card expiry date (MM/YY)' })
+              if (ccCvv) fields.push({ key: `${prefix}cc_cvv`, value: ccCvv, encrypted: true, type: 'password', explanation: 'Card verification value (CVV/CVC)' })
+            } else if (payType === 'paypal') {
+              const ppEmail = (entry.querySelector('.pay-paypal-email') as HTMLInputElement)?.value.trim()
+              if (ppEmail) fields.push({ key: `${prefix}paypal_email`, value: ppEmail, encrypted: false, type: 'email', explanation: 'PayPal account email' })
+            }
+          })
+
           // Collect custom fields
           const customFieldsContainer = addDialog.querySelector('#vault-custom-fields') as HTMLElement
           if (customFieldsContainer) {
@@ -4324,7 +4411,9 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
             domain: category === 'password' ? (addDialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined
           })
           
-          // Restore dashboard and refresh
+          // Show success feedback (temporary toast, same as create flow)
+          const updateMsg = category === 'company' ? 'Company Data has been updated successfully' : category === 'identity' ? 'Identity has been updated successfully' : category === 'password' ? 'Password has been updated successfully' : 'Data has been updated successfully'
+          showSuccessNotification(updateMsg)
           
           // Refresh the view
           if (item.container_id) {

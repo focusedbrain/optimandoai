@@ -113,8 +113,10 @@ function mapCompanyToProfileFields(item: VaultItem): Partial<ProfileFields> {
   if (website) out.website = website
   const vat = getCompanyFieldValue(item, 'vat_number')
   if (vat) out.vatNumber = vat
+  const companyRegNum = getCompanyFieldValue(item, 'company_registration_number')
   const taxId = getCompanyFieldValue(item, 'tax_id')
-  if (taxId) out.companyRegistrationNumber = taxId
+  if (companyRegNum) out.companyRegistrationNumber = companyRegNum
+  else if (taxId) out.companyRegistrationNumber = taxId
 
   const paymentMethods = parseCompanyFieldsToPaymentMethods(item)
   if (paymentMethods.length > 0) out.paymentMethods = paymentMethods

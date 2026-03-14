@@ -198,7 +198,12 @@ export const LEGACY_KEY_MAP: Record<string, Record<string, FieldKind>> = {
     phone:           'company.phone',
     vat_number:      'company.vat_number',
     tax_id:          'company.tax_id',
+    company_registration_number: 'company.hrb',
     additional_info: 'custom.textarea',
+    // Payment methods — IBAN from bank account(s) for company.iban autofill
+    payment_iban:    'company.iban',
+    payment_2_iban:  'company.iban',
+    payment_3_iban:  'company.iban',
   },
 } as const
 

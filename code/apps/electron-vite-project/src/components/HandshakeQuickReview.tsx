@@ -319,7 +319,7 @@ export default function HandshakeQuickReview({
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<QuickReviewFilter>({
     visibility: 'all',
-    direction: 'all',
+    direction: 'received',
     type: 'all',
     search: '',
   })

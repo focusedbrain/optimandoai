@@ -684,7 +684,7 @@ export default function HandshakeWorkspace({
 
   const [blocks, setBlocks] = useState<ContextBlockWithVisibility[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<ContextGraphFilter>({ visibility: 'all', direction: 'all', type: 'all' })
+  const [filter, setFilter] = useState<ContextGraphFilter>({ visibility: 'all', direction: 'received', type: 'all' })
   const [contextGraphExpanded, setContextGraphExpanded] = useState(false)
   const [showAllBeapMessages, setShowAllBeapMessages] = useState(false)
   const [cryptoModalOpen, setCryptoModalOpen] = useState(false)

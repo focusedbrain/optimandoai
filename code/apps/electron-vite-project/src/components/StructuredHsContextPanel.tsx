@@ -44,6 +44,28 @@ function parseHsContextPayload(payload: string): ParsedPayload | null {
   }
 }
 
+// ── Helpers: only show sections when data exists ──
+function hasStr(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().length > 0
+}
+function hasOpeningHours(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length === 0) return false
+  return (v as Array<{ days?: string; from?: string; to?: string }>).some((h) => hasStr(h.days) || hasStr(h.from) || hasStr(h.to))
+}
+function hasPaymentMethods(v: unknown): boolean {
+  return Array.isArray(v) && v.length > 0
+}
+function hasContacts(v: unknown): boolean {
+  return Array.isArray(v) && v.length > 0
+}
+function hasAddressParts(f: Record<string, unknown>): boolean {
+  const parts = [f.street, f.streetNumber, f.postalCode, f.city, f.state, f.country, f.address]
+  return parts.some((p) => hasStr(p))
+}
+function hasCustomFieldsWithContent(arr: Array<{ label?: string; value?: string }>): boolean {
+  return Array.isArray(arr) && arr.some((cf) => hasStr(cf.label) || hasStr(cf.value))
+}
+
 // ── Section helpers ──
 function SectionRow({ label, value }: { label: string; value: string }) {
   if (!value?.trim()) return null
@@ -150,7 +172,7 @@ function StructuredHsContextBlock({
         </span>
       </div>
 
-      {profile.description && (
+      {hasStr(profile.description) && (
         <>
           <SectionHeader title="Company" />
           <div style={{ fontSize: '13px', color: 'var(--color-text-secondary, #94a3b8)', lineHeight: 1.5, marginBottom: '8px' }}>
@@ -159,13 +181,13 @@ function StructuredHsContextBlock({
         </>
       )}
 
-      {/* Business Identity */}
-      {(fields.legalCompanyName || fields.tradeName || fields.address || fields.street || fields.city || fields.country) && (
+      {/* Business Identity — only show when at least one field has content */}
+      {(hasStr(fields.legalCompanyName) || hasStr(fields.tradeName) || hasAddressParts(fields as Record<string, unknown>)) && (
         <>
           <SectionHeader title="Business Identity" />
-          {fields.legalCompanyName && <SectionRow label="Legal Company" value={String(fields.legalCompanyName)} />}
-          {fields.tradeName && <SectionRow label="Trade Name" value={String(fields.tradeName)} />}
-          {(fields.street || fields.streetNumber || fields.postalCode || fields.city || fields.state || fields.country)
+          {hasStr(fields.legalCompanyName) && <SectionRow label="Legal Company" value={String(fields.legalCompanyName)} />}
+          {hasStr(fields.tradeName) && <SectionRow label="Trade Name" value={String(fields.tradeName)} />}
+          {(hasStr(fields.street) || hasStr(fields.streetNumber) || hasStr(fields.postalCode) || hasStr(fields.city) || hasStr(fields.state) || hasStr(fields.country))
             ? (
                 <SectionRow
                   label="Address"
@@ -176,34 +198,34 @@ function StructuredHsContextBlock({
                   ].filter(Boolean).join(', ')}
                 />
               )
-            : fields.address && <SectionRow label="Address" value={String(fields.address)} />}
-          {fields.country && <SectionRow label="Country" value={String(fields.country)} />}
+            : hasStr(fields.address) && <SectionRow label="Address" value={String(fields.address)} />}
+          {hasStr(fields.country) && <SectionRow label="Country" value={String(fields.country)} />}
         </>
       )}
 
-      {/* Tax & Identifiers */}
-      {(fields.vatNumber || fields.companyRegistrationNumber || fields.supplierNumber || fields.customerNumber) && (
+      {/* Tax & Identifiers — only show when at least one field has content */}
+      {(hasStr(fields.vatNumber) || hasStr(fields.companyRegistrationNumber) || hasStr(fields.supplierNumber) || hasStr(fields.customerNumber)) && (
         <>
           <SectionHeader title="Tax & Identifiers" />
-          {fields.vatNumber && <SectionRow label="VAT Number" value={String(fields.vatNumber)} />}
-          {fields.companyRegistrationNumber && <SectionRow label="Registration" value={String(fields.companyRegistrationNumber)} />}
-          {fields.supplierNumber && <SectionRow label="Supplier No." value={String(fields.supplierNumber)} />}
-          {fields.customerNumber && <SectionRow label="Customer No." value={String(fields.customerNumber)} />}
+          {hasStr(fields.vatNumber) && <SectionRow label="VAT Number" value={String(fields.vatNumber)} />}
+          {hasStr(fields.companyRegistrationNumber) && <SectionRow label="Registration" value={String(fields.companyRegistrationNumber)} />}
+          {hasStr(fields.supplierNumber) && <SectionRow label="Supplier No." value={String(fields.supplierNumber)} />}
+          {hasStr(fields.customerNumber) && <SectionRow label="Customer No." value={String(fields.customerNumber)} />}
         </>
       )}
 
-      {/* General Contact (phone, email, support — when no contact persons) */}
-      {(fields.generalPhone || fields.generalEmail || fields.supportEmail) && (
+      {/* General Contact — only show when at least one field has content */}
+      {(hasStr(fields.generalPhone) || hasStr(fields.generalEmail) || hasStr(fields.supportEmail)) && (
         <>
           <SectionHeader title="General Contact" />
-          {fields.generalPhone && <SectionRow label="Phone" value={String(fields.generalPhone)} />}
-          {fields.generalEmail && <SectionRow label="Email" value={String(fields.generalEmail)} />}
-          {fields.supportEmail && <SectionRow label="Support Email" value={String(fields.supportEmail)} />}
+          {hasStr(fields.generalPhone) && <SectionRow label="Phone" value={String(fields.generalPhone)} />}
+          {hasStr(fields.generalEmail) && <SectionRow label="Email" value={String(fields.generalEmail)} />}
+          {hasStr(fields.supportEmail) && <SectionRow label="Support Email" value={String(fields.supportEmail)} />}
         </>
       )}
 
       {/* Contacts (contact persons) */}
-      {fields.contacts && Array.isArray(fields.contacts) && fields.contacts.length > 0 && (
+      {hasContacts(fields.contacts) && (
         <>
           <SectionHeader title="Contacts" />
           {(fields.contacts as Array<Record<string, unknown>>).map((c, i) => (
@@ -217,33 +239,33 @@ function StructuredHsContextBlock({
         </>
       )}
 
-      {/* Opening Hours / Operations */}
-      {(fields.openingHours || fields.timezone || fields.receivingHours || fields.supportHours || fields.deliveryInstructions || fields.holidayNotes || fields.escalationContact) && (
+      {/* Opening Hours / Operations — only show when at least one field has content */}
+      {(hasOpeningHours(fields.openingHours) || hasStr(fields.timezone) || hasStr(fields.receivingHours) || hasStr(fields.supportHours) || hasStr(fields.deliveryInstructions) || hasStr(fields.holidayNotes) || hasStr(fields.escalationContact)) && (
         <>
           <SectionHeader title="Opening Hours & Operations" />
-          {fields.openingHours && Array.isArray(fields.openingHours) && (
+          {hasOpeningHours(fields.openingHours) && (
             <div style={{ marginBottom: '8px', fontSize: '13px' }}>
               {(fields.openingHours as Array<{ days?: string; from?: string; to?: string }>).map((h, i) => (
                 <div key={i}>{h.days}: {h.from}–{h.to}</div>
               ))}
             </div>
           )}
-          {fields.timezone && <SectionRow label="Timezone" value={String(fields.timezone)} />}
-          {fields.receivingHours && <SectionRow label="Receiving Hours" value={String(fields.receivingHours)} />}
-          {fields.supportHours && <SectionRow label="Support Hours" value={String(fields.supportHours)} />}
-          {fields.deliveryInstructions && <SectionRow label="Delivery" value={String(fields.deliveryInstructions)} />}
-          {fields.holidayNotes && <SectionRow label="Holiday Notes" value={String(fields.holidayNotes)} />}
-          {fields.escalationContact && <SectionRow label="Escalation Contact" value={String(fields.escalationContact)} />}
+          {hasStr(fields.timezone) && <SectionRow label="Timezone" value={String(fields.timezone)} />}
+          {hasStr(fields.receivingHours) && <SectionRow label="Receiving Hours" value={String(fields.receivingHours)} />}
+          {hasStr(fields.supportHours) && <SectionRow label="Support Hours" value={String(fields.supportHours)} />}
+          {hasStr(fields.deliveryInstructions) && <SectionRow label="Delivery" value={String(fields.deliveryInstructions)} />}
+          {hasStr(fields.holidayNotes) && <SectionRow label="Holiday Notes" value={String(fields.holidayNotes)} />}
+          {hasStr(fields.escalationContact) && <SectionRow label="Escalation Contact" value={String(fields.escalationContact)} />}
         </>
       )}
 
-      {/* Billing */}
-      {(fields.billingEmail || fields.paymentTerms || fields.bankDetails || (fields.paymentMethods && (fields.paymentMethods as Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }>).length > 0)) && (
+      {/* Billing — only show when at least one field has content */}
+      {(hasStr(fields.billingEmail) || hasStr(fields.paymentTerms) || hasStr(fields.bankDetails) || hasPaymentMethods(fields.paymentMethods)) && (
         <>
           <SectionHeader title="Billing" />
-          {fields.billingEmail && <SectionRow label="Billing Email" value={String(fields.billingEmail)} />}
-          {fields.paymentTerms && <SectionRow label="Payment Terms" value={String(fields.paymentTerms)} />}
-          {fields.paymentMethods && Array.isArray(fields.paymentMethods) && (fields.paymentMethods as Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; paypal_email?: string }>).length > 0
+          {hasStr(fields.billingEmail) && <SectionRow label="Billing Email" value={String(fields.billingEmail)} />}
+          {hasStr(fields.paymentTerms) && <SectionRow label="Payment Terms" value={String(fields.paymentTerms)} />}
+          {hasPaymentMethods(fields.paymentMethods)
             ? (
                 <SectionRow
                   label="Payment Methods"
@@ -258,7 +280,7 @@ function StructuredHsContextBlock({
                     .join(' | ')}
                 />
               )
-            : fields.bankDetails && <SectionRow label="Bank Details" value={String(fields.bankDetails)} />}
+            : hasStr(fields.bankDetails) && <SectionRow label="Bank Details" value={String(fields.bankDetails)} />}
         </>
       )}
 
@@ -380,12 +402,12 @@ function StructuredHsContextBlock({
         </>
       )}
 
-      {/* Custom Fields */}
-      {customFields.length > 0 && (
+      {/* Custom Fields — only show when at least one has label or value */}
+      {hasCustomFieldsWithContent(customFields) && (
         <>
           <SectionHeader title="Custom Fields" />
-          {customFields.map((cf, i) => cf.label && (
-            <SectionRow key={i} label={cf.label} value={cf.value ?? ''} />
+          {customFields.filter((cf) => hasStr(cf.label) || hasStr(cf.value)).map((cf, i) => (
+            <SectionRow key={i} label={cf.label?.trim() || 'Custom'} value={cf.value ?? ''} />
           ))}
         </>
       )}
