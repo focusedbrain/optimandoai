@@ -105,9 +105,12 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   const isPdf = /pdf/i.test(mimeType)
   const maxCharCount = pageList.length > 0 ? Math.max(...pageList.map((p) => p.char_count), 1) : 1
 
-  // Load page list and count (API or fullText fallback)
+  // Load page list and count (fullText first when available, else API)
+  // When fullText is provided (e.g. from context block payload), use it immediately.
+  // Do NOT wait for IPC — getDocumentPageCount can hang (getEffectiveTier, vault init)
+  // for received documents that don't exist in local vault.
   useEffect(() => {
-    if (fullText && syntheticPages && !api) {
+    if (fullText && syntheticPages && syntheticPages.length > 0) {
       setFullTextMode(true)
       setPageCount(syntheticPages.length)
       setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
@@ -117,9 +120,16 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
     if (!api) return
     let cancelled = false
     setLoading(true)
-    Promise.all([
-      api.getDocumentPageCount(documentId),
-      api.getDocumentPageList(documentId),
+    const timeoutMs = 8000
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Document load timeout')), timeoutMs),
+    )
+    Promise.race([
+      Promise.all([
+        api.getDocumentPageCount(documentId),
+        api.getDocumentPageList(documentId),
+      ]),
+      timeoutPromise,
     ])
       .then(([countRes, listRes]) => {
         if (cancelled) return

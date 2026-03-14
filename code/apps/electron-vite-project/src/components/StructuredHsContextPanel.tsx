@@ -446,7 +446,13 @@ export default function StructuredHsContextPanel({
   const handleViewOriginal = (doc: { id: string; filename: string }) => {
     setWarningDialog({ kind: 'original', targetLabel: doc.filename, documentId: doc.id })
   }
-  const handleOpenReader = (doc: { id: string; filename: string }) => {
+  const handleOpenReader = (doc: { id: string; filename: string; extracted_text?: string | null }) => {
+    console.log('[StructuredHsContextPanel] Open Document Reader:', {
+      documentId: doc.id,
+      filename: doc.filename,
+      hasExtractedText: !!doc.extracted_text,
+      extractedTextLength: doc.extracted_text?.length ?? 0,
+    })
     setReaderDoc(doc)
   }
   const handleOpenLink = (url: string) => {
