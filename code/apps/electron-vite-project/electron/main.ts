@@ -2704,6 +2704,26 @@ app.whenReady().then(async () => {
           else if (scope.startsWith('rel-')) filter.relationship_id = scope
         }
 
+        // Fallback scope: when no handshake selected, use most recent handshake with context
+        // so retrieval runs in a sensible default scope instead of empty filter
+        if (!filter.handshake_id && !filter.relationship_id && (scope === 'context-graph' || scope === 'all')) {
+          try {
+            const row = db.prepare(
+              `SELECT c.handshake_id FROM context_blocks c
+               INNER JOIN handshakes h ON h.handshake_id = c.handshake_id
+               WHERE h.state IN ('ACCEPTED','ACTIVE')
+               ORDER BY h.created_at DESC
+               LIMIT 1`
+            ).get() as { handshake_id: string } | undefined
+            if (row?.handshake_id) {
+              filter.handshake_id = row.handshake_id
+              console.log('[Chat] No selection: using fallback handshake', row.handshake_id)
+            }
+          } catch (e) {
+            /* ignore — proceed with empty filter */
+          }
+        }
+
         // Structured path (no embedding needed): try first when embedding unavailable
         const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
         const classifierResult = queryClassifier(params.query ?? '')
