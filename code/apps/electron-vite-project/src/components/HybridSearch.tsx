@@ -21,6 +21,12 @@ interface SearchResult {
   data_classification?: string
   /** Governance policy summary (e.g. "Local AI only", "Cloud AI allowed") */
   governance_summary?: string
+  /** Human-readable label for structured/context-graph matches */
+  matched_field_label?: string
+  /** True when result comes from structured lookup */
+  structured_result?: boolean
+  /** Text to copy when user clicks Copy result (Label: Value for structured, snippet for others) */
+  copyableText?: string
 }
 
 interface HybridSearchProps {
@@ -56,7 +62,7 @@ function friendlyTypeName(type: string | undefined): string {
   const map: Record<string, string> = {
     text: 'Text', document: 'Document', url: 'Link', email: 'Email',
     json: 'Structured Data', image: 'Image', file: 'File', note: 'Note',
-    profile: 'Profile', contact: 'Contact',
+    profile: 'Profile', contact: 'Contact', vault_profile: 'Profile',
   }
   return map[type.toLowerCase()] ?? type.charAt(0).toUpperCase() + type.slice(1)
 }
@@ -64,6 +70,40 @@ function friendlyTypeName(type: string | undefined): string {
 function truncate(s: string, max = 220): string {
   if (!s) return ''
   return s.length > max ? s.slice(0, max) + '…' : s
+}
+
+/** Strip leading internal IDs (hsp_xxx, hs-xxx, long hex) from snippet so user-facing content shows first. */
+function sanitizeSnippet(s: string): string {
+  if (!s || typeof s !== 'string') return ''
+  const trimmed = s.trim()
+  const withoutLeadingId = trimmed.replace(/^(?:hsp_[a-zA-Z0-9]+|hs-[a-zA-Z0-9-]+|[a-f0-9]{24,})\s+/i, '')
+  return withoutLeadingId || trimmed
+}
+
+/** Recursively collect string values from JSON for full-text extraction (no truncation). */
+function collectStringsFromJson(val: unknown): string[] {
+  if (val == null) return []
+  if (typeof val === 'string') return [val]
+  if (typeof val === 'number' || typeof val === 'boolean') return [String(val)]
+  if (Array.isArray(val)) return val.flatMap((v) => collectStringsFromJson(v))
+  if (typeof val === 'object') return Object.values(val).flatMap((v) => collectStringsFromJson(v))
+  return []
+}
+
+/** Extract full readable text from payload (JSON or plain). No truncation. */
+function extractFullTextFromPayload(payload: string): string {
+  if (!payload || typeof payload !== 'string') return ''
+  const trimmed = payload.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed === 'string') return trimmed
+    if (parsed && typeof parsed === 'object') {
+      const parts = collectStringsFromJson(parsed).filter(Boolean)
+      return parts.join(' ').replace(/\s+/g, ' ').trim()
+    }
+  } catch { /* not JSON */ }
+  return trimmed
 }
 
 function shortId(id: string): string {
@@ -127,18 +167,41 @@ async function runSearch(query: string, scope: SearchScope | string): Promise<Se
       }]
     }
     const raw = result.results ?? []
-    return raw.map((r: Record<string, unknown>, i: number) => ({
-      id: (r.block_id as string) ?? `result-${i}`,
-      title: friendlyTypeName(r.type as string | undefined),
-      snippet: truncate((r.snippet as string) ?? (typeof r.payload_ref === 'string' ? r.payload_ref : ''), 200),
-      scope: 'context-graph' as const,
-      timestamp: r.source === 'received' ? '↓ Received' : r.source === 'sent' ? '↑ Sent' : undefined,
-      handshake_id: r.handshake_id as string | undefined,
-      source: r.source as 'received' | 'sent' | undefined,
-      score: typeof r.score === 'number' ? r.score : undefined,
-      data_classification: r.data_classification as string | undefined,
-      governance_summary: r.governance_summary as string | undefined,
-    }))
+    return raw.map((r: Record<string, unknown>, i: number) => {
+      const matchedLabel = r.matched_field_label as string | undefined
+      const title = matchedLabel ?? friendlyTypeName(r.type as string | undefined)
+      const payloadRef = typeof r.payload_ref === 'string' ? r.payload_ref : ''
+      const snippet = (r.snippet as string) ?? ''
+      const isStructured = r.structured_result === true && matchedLabel
+      const bestFullText = (() => {
+        if (isStructured) return snippet || payloadRef
+        const fromPayload = payloadRef ? extractFullTextFromPayload(payloadRef) : ''
+        const fromSnippet = sanitizeSnippet(snippet)
+        return fromPayload || fromSnippet
+      })()
+      const sanitizedFull = sanitizeSnippet(bestFullText)
+      const displayText = isStructured
+        ? truncate(`${matchedLabel}: ${sanitizedFull}`, 200)
+        : truncate(sanitizedFull, 200)
+      const copyableText = isStructured
+        ? `${matchedLabel}: ${sanitizedFull}`.trim()
+        : sanitizedFull
+      return {
+        id: (r.block_id as string) ?? `result-${i}`,
+        title,
+        snippet: displayText,
+        scope: 'context-graph' as const,
+        timestamp: r.source === 'received' ? '↓ Received' : r.source === 'sent' ? '↑ Sent' : undefined,
+        handshake_id: r.handshake_id as string | undefined,
+        source: r.source as 'received' | 'sent' | undefined,
+        score: typeof r.score === 'number' ? r.score : undefined,
+        data_classification: r.data_classification as string | undefined,
+        governance_summary: r.governance_summary as string | undefined,
+        matched_field_label: matchedLabel,
+        structured_result: r.structured_result === true,
+        copyableText,
+      }
+    })
   } catch (err) {
     console.error('Search failed:', err)
     return []
@@ -372,6 +435,10 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
 
   const handleViewHandshake = useCallback((handshakeId: string) => {
     navigator.clipboard.writeText(handshakeId).then(() => {}).catch(() => {})
+  }, [])
+
+  const handleCopyResult = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(() => {}).catch(() => {})
   }, [])
 
   return (
@@ -614,7 +681,12 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
               ) : (
                 <div className="hs-result-group">
                   {results.filter(r => !isSpecialResult(r)).map(r => (
-                    <ResultRow key={r.id} result={r} onViewHandshake={handleViewHandshake} />
+                    <ResultRow
+                      key={r.id}
+                      result={r}
+                      selectedHandshakeId={selectedHandshakeId}
+                      onCopyResult={handleCopyResult}
+                    />
                   ))}
                 </div>
               )}
@@ -795,7 +867,15 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
 
 // ── Result row ──
 
-function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHandshake: (id: string) => void }) {
+function ResultRow({
+  result,
+  selectedHandshakeId,
+  onCopyResult,
+}: {
+  result: SearchResult
+  selectedHandshakeId?: string | null
+  onCopyResult: (text: string) => void
+}) {
   const [copied, setCopied] = useState(false)
   const scorePct = result.score != null ? Math.round(Math.min(1, Math.max(0, result.score)) * 100) : null
   const attribution =
@@ -805,14 +885,17 @@ function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHa
         : `Sent by you · handshake ${shortId(result.handshake_id)}`
       : result.timestamp ?? ''
 
-  const handleCopyHandshake = (e: React.MouseEvent) => {
+  const textToCopy = result.copyableText ?? result.snippet
+  const handleCopyResult = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (result.handshake_id) {
-      onViewHandshake(result.handshake_id)
+    if (textToCopy) {
+      onCopyResult(textToCopy)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
   }
+
+  const ctaLabel = copied ? 'Copied!' : 'Copy result'
 
   return (
     <div
@@ -821,6 +904,15 @@ function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHa
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <div className="hs-result-row__title">{result.title}</div>
+        {result.structured_result && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(34,197,94,0.12)', color: '#22c55e',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            Context
+          </span>
+        )}
         {result.data_classification && (
           <span className="hs-result-badge" style={{
             fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
@@ -868,12 +960,12 @@ function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHa
             </span>
           )}
           {attribution && <span>{attribution}</span>}
-          {result.handshake_id && (
+          {textToCopy && (
             <button
               type="button"
               className="hs-result-view-handshake"
-              onClick={handleCopyHandshake}
-              title={copied ? 'Handshake ID copied' : 'Copy handshake ID'}
+              onClick={handleCopyResult}
+              title={copied ? 'Copied to clipboard' : 'Copy result to clipboard'}
               style={{
                 marginLeft: 'auto', fontSize: '10px', padding: '2px 6px',
                 background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
@@ -881,7 +973,7 @@ function ResultRow({ result, onViewHandshake }: { result: SearchResult; onViewHa
                 cursor: 'pointer', fontWeight: 600,
               }}
             >
-              {copied ? 'Copied!' : 'View in handshake'}
+              {ctaLabel}
             </button>
           )}
         </div>

@@ -68,6 +68,28 @@ import { vaultService } from '../vault/rpc'
 
 const MAX_MESSAGE_BYTES = 32 * 1024
 
+/** Map structured field path to human-readable label for Search result titles. */
+const PATH_TO_LABEL: Record<string, string> = {
+  'billing.payment_methods': 'Payment details',
+  'tax.vat_number': 'VAT number',
+  'tax.registration_number': 'Registration details',
+  'company.legal_name': 'Legal company',
+  'company.name': 'Company name',
+  'company.address': 'Address',
+  'company.headquarters': 'Headquarters',
+  'company.country': 'Country',
+  'company.links': 'Links',
+  'contact.general.email': 'Contact email',
+  'contact.general.phone': 'Contact phone',
+  'contact.support.email': 'Support email',
+  'contact.support.phone': 'Support phone',
+  'contact.persons': 'Contact details',
+  'opening_hours.schedule': 'Opening hours',
+}
+function pathToHumanLabel(path: string): string {
+  return PATH_TO_LABEL[path] ?? (path.split('.').pop() ?? path).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
 /** Recursively collect string values from JSON for snippet display (avoids raw JSON in UI). */
 function collectStringsFromJson(val: unknown): string[] {
   if (val == null) return []
@@ -1248,7 +1270,7 @@ export async function handleHandshakeRPC(
                 ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
                 : structuredLookup(blocks, classifierResult.fieldPath!)
               if (structResult.found && structResult.value && structResult.source) {
-                const label = pathForFetch.split('.').pop() ?? 'Structured Data'
+                const matched_field_label = pathToHumanLabel(pathForFetch)
                 const enriched = [{
                   block_id: structResult.source.block_id,
                   handshake_id: structResult.source.handshake_id,
@@ -1257,6 +1279,8 @@ export async function handleHandshakeRPC(
                   payload_ref: structResult.value,
                   score: 1,
                   type: 'profile',
+                  matched_field_label,
+                  structured_result: true,
                   governance_summary: 'No restrictions' as string,
                 }]
                 return { success: true, results: enriched, degraded: 'structured_only' }
