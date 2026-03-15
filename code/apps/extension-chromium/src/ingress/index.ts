@@ -31,7 +31,10 @@ export {
   getEmailCandidates,
   importFromEmail,
   importFromMessenger,
-  importFromFile
+  importFromFile,
+  // Stage 5: Sandbox isolation verification (Annex I §I.2 — Normative)
+  verifyImportedMessage,
+  type VerifyImportedMessageResult,
 } from './importPipeline'
 
 // Components

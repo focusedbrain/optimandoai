@@ -360,12 +360,14 @@ export interface WRGuardConfig {
 export type WRGuardSection = 
   | 'providers'
   | 'protected-sites'
+  | 'handshakes'
   | 'policies'
   | 'runtime-controls'
 
 export const WRGUARD_SECTIONS: { id: WRGuardSection; label: string; icon: string }[] = [
   { id: 'providers', label: 'Email Providers', icon: '📧' },
   { id: 'protected-sites', label: 'Protected Sites', icon: '🛡️' },
+  { id: 'handshakes', label: 'Handshakes', icon: '🤝' },
   { id: 'policies', label: 'Policies', icon: '📋' },
   { id: 'runtime-controls', label: 'Runtime Controls', icon: '⚙️' }
 ]

@@ -30,9 +30,12 @@ import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 import { ThirdPartyLicensesView } from './bundled-tools'
-import { WRGuardWorkspace } from './wrguard'
-import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
+import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { BeapInboxView } from './beap-messages/components/BeapInboxView'
+import type { BeapInboxViewHandle } from './beap-messages/components/BeapInboxView'
+import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
@@ -130,6 +133,29 @@ function SidepanelOrchestrator() {
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
 
+  // Deep linking: ?message=id, ?handshake=id, or #message=id, #handshake=id (R.8)
+  useEffect(() => {
+    try {
+      const search = typeof window !== 'undefined' ? window.location.search : ''
+      const hash = typeof window !== 'undefined' ? window.location.hash : ''
+      const searchParams = new URLSearchParams(search)
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ''))
+      const messageId = searchParams.get('message') ?? hashParams.get('message')
+      const handshakeId = searchParams.get('handshake') ?? hashParams.get('handshake')
+      if (messageId) {
+        setDockedWorkspace('beap-messages')
+        setBeapSubmode('inbox')
+        useBeapInboxStore.getState().selectMessage(messageId)
+      } else if (handshakeId) {
+        setDockedWorkspace('wrguard')
+        useWRGuardStore.getState().setActiveSection('handshakes')
+        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+      }
+    } catch {
+      // Ignore deep-link parse errors
+    }
+  }, [])
+
   // Fetch vault status for HS Context gating (Publisher+ only)
   useEffect(() => {
     const fetchVault = async () => {
@@ -151,6 +177,12 @@ function SidepanelOrchestrator() {
   
   // Helper to get the current BEAP view for conditional rendering
   const currentBeapView = dockedWorkspace === 'beap-messages' ? beapSubmode : null
+
+  // Search bar context label — updated by BeapInboxView / HandshakeDetailsPanel when a
+  // message or handshake is selected. Used as the dynamic textarea placeholder.
+  const [searchBarContext, setSearchBarContext] = React.useState<string>('')
+  const inboxViewRef = React.useRef<BeapInboxViewHandle>(null)
+  const pendingInboxAiRef = React.useRef<{ messageId: string; query: string } | null>(null)
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -2645,8 +2677,17 @@ function SidepanelOrchestrator() {
     }
   }
 
+  const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
+    const ctx = pendingInboxAiRef.current
+    if (ctx) {
+      inboxViewRef.current?.appendAiEntry({ query: ctx.query, content: response, type: 'text', source: 'search' })
+      inboxViewRef.current?.stopGenerating()
+      pendingInboxAiRef.current = null
+    }
+  }, [])
+
   const handleSendMessage = async () => {
-    const text = chatInput.trim()
+    const text = (pendingInboxAiRef.current?.query ?? chatInput).trim()
     // Allow sending with just an image (no text required)
     const hasImage = chatMessages.some(msg => msg.imageUrl)
     
@@ -2815,10 +2856,8 @@ function SidepanelOrchestrator() {
           // Display match detection feedback if any agents matched
           if (eventTagResult.batch.results.length > 0) {
             const matchFeedback = generateEventTagMatchFeedback(eventTagResult.batch)
-            setChatMessages(prev => [...prev, {
-              role: 'assistant' as const,
-              text: matchFeedback
-            }])
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: matchFeedback }])
+            routeAssistantToInboxIfPending(matchFeedback)
             scrollToBottom()
           } else {
             // Debug: Show why no matches were found
@@ -2844,10 +2883,8 @@ function SidepanelOrchestrator() {
         // =================================================================
         
         // A1. Show Butler confirmation (immediate response)
-        setChatMessages([...newMessages, {
-          role: 'assistant' as const,
-          text: routingDecision.butlerResponse
-        }])
+        setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
         // A2. Process with each matched agent
@@ -2877,24 +2914,21 @@ function SidepanelOrchestrator() {
               )
               
               // Show brief confirmation in chat
-              setChatMessages(prev => [...prev, {
-                role: 'assistant' as const,
-                text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
-              }])
+              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+              setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
+              routeAssistantToInboxIfPending(agentConfirm)
             } else {
               // No AgentBox - show full output in chat
-              setChatMessages(prev => [...prev, {
-                role: 'assistant' as const,
-                text: `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
-              }])
+              const agentOutput = `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
+              setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentOutput }])
+              routeAssistantToInboxIfPending(agentOutput)
             }
             scrollToBottom()
           } else if (result.error) {
             // Show error for this agent
-            setChatMessages(prev => [...prev, {
-              role: 'assistant' as const,
-              text: `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
-            }])
+            const agentErr = `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentErr }])
+            routeAssistantToInboxIfPending(agentErr)
             scrollToBottom()
           }
         }
@@ -2904,10 +2938,8 @@ function SidepanelOrchestrator() {
         // PATH B: SYSTEM STATUS RESPONSE
         // Butler handled this directly (e.g., "status", "what agents")
         // =================================================================
-        setChatMessages([...newMessages, {
-          role: 'assistant' as const,
-          text: routingDecision.butlerResponse
-        }])
+        setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
       } else {
@@ -2918,10 +2950,8 @@ function SidepanelOrchestrator() {
         const butlerResult = await getButlerResponse(processedMessages, activeLlmModel, baseUrl)
         
         if (butlerResult.success && butlerResult.response) {
-          setChatMessages([...newMessages, {
-            role: 'assistant' as const,
-            text: butlerResult.response
-          }])
+          setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])
+          routeAssistantToInboxIfPending(butlerResult.response)
           scrollToBottom()
         } else {
           throw new Error(butlerResult.error || 'No response from butler')
@@ -2940,16 +2970,18 @@ function SidepanelOrchestrator() {
         errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
       }
       
-      setChatMessages(prev => [...prev, {
-        role: 'assistant' as const,
-        text: errorMsg
-      }])
+      setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
+      routeAssistantToInboxIfPending(errorMsg)
       
       // Scroll to bottom after error message
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
       }, 0)
     } finally {
+      if (pendingInboxAiRef.current) {
+        inboxViewRef.current?.stopGenerating()
+        pendingInboxAiRef.current = null
+      }
       setIsLlmLoading(false)
     }
   }
@@ -4474,7 +4506,7 @@ function SidepanelOrchestrator() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={handleChatKeyDown}
-                  placeholder="Type your message..."
+                  placeholder={searchBarContext || 'Type your message...'}
                   style={{
                     boxSizing: 'border-box',
                     height: '40px',
@@ -4729,52 +4761,65 @@ function SidepanelOrchestrator() {
                   {/* INBOX VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'inbox' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Received BEAP™ packages will appear here. All packages are verified before display.
-                      </div>
-                    </div>
+                    <BeapInboxView
+                      ref={inboxViewRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                      onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                      onNavigateToHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onNavigateToHandshakesTab={() => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                      }}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId, attachmentId) => {
+                        pendingInboxAiRef.current = { messageId, query }
+                        inboxViewRef.current?.startGenerating()
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      replyComposerConfig={{
+                        senderFingerprint: ourFingerprint,
+                        senderFingerprintShort: ourFingerprintShort,
+                      }}
+                    />
                   )}
                   
                   {/* ========================================== */}
                   {/* OUTBOX VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'outbox' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Packages pending delivery. Monitor send status and delivery confirmations.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="outbox"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
                   )}
                   
                   {/* ========================================== */}
                   {/* ARCHIVED VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'archived' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Successfully executed packages are archived here for reference.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="archived"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
                   )}
                   
                   {/* ========================================== */}
                   {/* REJECTED VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'rejected' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Rejected packages that failed verification or were declined by the user.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="rejected"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
                   )}
                   
                   {/* ========================================== */}
@@ -5422,6 +5467,15 @@ function SidepanelOrchestrator() {
                 onConnectEmail={() => setShowEmailSetupWizard(true)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={{
+                  senderFingerprint: ourFingerprint,
+                  senderFingerprintShort: ourFingerprintShort,
+                }}
               />
             )}
         
@@ -6172,7 +6226,7 @@ height: '28px',
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Type your message..."
+                    placeholder={searchBarContext || 'Type your message...'}
                     style={{
                       boxSizing: 'border-box',
                       height: '40px',
@@ -6233,40 +6287,53 @@ height: '28px',
                 
                 {/* Placeholder views for non-draft submodes */}
                 {beapSubmode === 'inbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Received BEAP™ packages will appear here.
-                    </div>
-                  </div>
+                  <BeapInboxView
+                    ref={inboxViewRef}
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                    onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                    onNavigateToHandshake={(handshakeId) => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                      useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                    }}
+                    onNavigateToHandshakesTab={() => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                    }}
+                    onSetSearchContext={setSearchBarContext}
+                    onAiQuery={(query, messageId, attachmentId) => {
+                      pendingInboxAiRef.current = { messageId, query }
+                      inboxViewRef.current?.startGenerating()
+                      setChatInput(query)
+                      handleSendMessage()
+                    }}
+                    replyComposerConfig={{
+                      senderFingerprint: ourFingerprint,
+                      senderFingerprintShort: ourFingerprintShort,
+                    }}
+                  />
                 )}
                 {beapSubmode === 'outbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Packages pending delivery.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="outbox"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'archived' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Successfully executed packages.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="archived"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'rejected' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Rejected packages.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="rejected"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 
                 {/* Draft view - EMAIL ACCOUNTS + BEAP Message */}
@@ -6478,6 +6545,15 @@ height: '28px',
                 onConnectEmail={() => setShowEmailSetupWizard(true)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={{
+                  senderFingerprint: ourFingerprint,
+                  senderFingerprintShort: ourFingerprintShort,
+                }}
               />
             )}
           </div>
@@ -7263,7 +7339,7 @@ height: '28px',
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Type your message..."
+                    placeholder={searchBarContext || 'Type your message...'}
                     style={{
                       boxSizing: 'border-box',
                       height: '40px',
@@ -7324,32 +7400,53 @@ height: '28px',
                 
                 {/* Placeholder views for non-draft submodes */}
                 {beapSubmode === 'inbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Received BEAP™ packages will appear here.</div>
-                  </div>
+                  <BeapInboxView
+                    ref={inboxViewRef}
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                    onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                    onNavigateToHandshake={(handshakeId) => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                      useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                    }}
+                    onNavigateToHandshakesTab={() => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                    }}
+                    onSetSearchContext={setSearchBarContext}
+                    onAiQuery={(query, messageId, attachmentId) => {
+                      pendingInboxAiRef.current = { messageId, query }
+                      inboxViewRef.current?.startGenerating()
+                      setChatInput(query)
+                      handleSendMessage()
+                    }}
+                    replyComposerConfig={{
+                      senderFingerprint: ourFingerprint,
+                      senderFingerprintShort: ourFingerprintShort,
+                    }}
+                  />
                 )}
                 {beapSubmode === 'outbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Packages pending delivery.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="outbox"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'archived' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Successfully executed packages.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="archived"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'rejected' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Rejected packages.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="rejected"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 
                 {/* Draft view */}
@@ -7562,6 +7659,15 @@ height: '28px',
                 onConnectEmail={() => setShowEmailSetupWizard(true)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={{
+                  senderFingerprint: ourFingerprint,
+                  senderFingerprintShort: ourFingerprintShort,
+                }}
               />
             )}
 

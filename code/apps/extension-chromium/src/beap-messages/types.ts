@@ -153,6 +153,19 @@ export interface BeapMessageUI {
   
   /** Raw incoming message reference (for re-verification) */
   incomingMessageRef?: string
+
+  /**
+   * Validated capsule data (present after Stage 5 sandbox verification succeeds).
+   *
+   * This is the ONLY form of capsule content that reaches the UI — it has
+   * been sanitised by the sandbox isolation boundary (Stage 5, Annex I §I.2).
+   * Derived key material, raw ciphertext, and internal pipeline details
+   * are never present in this object.
+   *
+   * Consumers MUST check `decryptedData.authorizedProcessing.decision === 'AUTHORIZED'`
+   * before using capsule content for any processing or rendering.
+   */
+  decryptedData?: import('./sandbox').SanitisedDecryptedPackage
 }
 
 /**

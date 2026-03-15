@@ -13,11 +13,16 @@ import { HandshakeDetailsPanel } from './HandshakeDetailsPanel'
 import { HandshakeAcceptModal } from './HandshakeAcceptModal'
 import { InitiateHandshakeDialog } from './InitiateHandshakeDialog'
 import { getVaultStatus } from '../../vault/api'
+import { useWRGuardStore } from '../../wrguard/useWRGuardStore'
 
 interface HandshakeManagementPanelProps {
   fromAccountId: string
   theme?: 'default' | 'dark' | 'professional'
   onSendMessage?: (handshakeId: string) => void
+  /** Navigate to BEAP inbox and select a message. Used when "View in Inbox" is clicked from handshake messages. */
+  onViewInInbox?: (messageId: string) => void
+  /** Config for BeapMessageDetailPanel reply composer. */
+  replyComposerConfig?: import('../../beap-messages/hooks/useReplyComposer').UseReplyComposerConfig
 }
 
 const STATE_ORDER: HandshakeState[] = ['ACTIVE', 'PENDING_ACCEPT', 'REVOKED', 'EXPIRED']
@@ -33,6 +38,8 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
   fromAccountId,
   theme = 'default',
   onSendMessage,
+  onViewInInbox,
+  replyComposerConfig,
 }) => {
   const { handshakes, loading, error, refresh } = useHandshakes('all')
   const [selectedHandshake, setSelectedHandshake] = useState<HandshakeRecord | null>(null)
@@ -40,12 +47,24 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
   const [showInitiate, setShowInitiate] = useState(false)
   const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+  const selectedHandshakeId = useWRGuardStore((s) => s.selectedHandshakeId)
+  const setSelectedHandshakeId = useWRGuardStore((s) => s.setSelectedHandshakeId)
 
   useEffect(() => {
     getVaultStatus()
       .then((s) => setCanUseHsContextProfiles(s?.canUseHsContextProfiles ?? false))
       .catch(() => setCanUseHsContextProfiles(false))
   }, [])
+
+  // When navigating from inbox ("View Handshake"), select the handshake by ID
+  useEffect(() => {
+    if (!selectedHandshakeId || handshakes.length === 0) return
+    const hs = handshakes.find((h) => h.handshake_id === selectedHandshakeId)
+    if (hs) {
+      setSelectedHandshake(hs)
+      setSelectedHandshakeId(null)
+    }
+  }, [selectedHandshakeId, handshakes, setSelectedHandshakeId])
 
   const isProfessional = theme === 'professional'
 
@@ -219,13 +238,15 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
 
       {/* Detail panel */}
       {selectedHandshake && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setSelectedHandshake(null)}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => { setSelectedHandshake(null); setSelectedHandshakeId(null) }}>
           <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px', width: '100%' }}>
             <HandshakeDetailsPanel
               handshake={selectedHandshake}
               theme={theme}
-              onClose={() => setSelectedHandshake(null)}
+              onClose={() => { setSelectedHandshake(null); setSelectedHandshakeId(null) }}
               onSendMessage={onSendMessage}
+              onViewInInbox={onViewInInbox}
+              replyComposerConfig={replyComposerConfig}
               onAccept={
                 selectedHandshake.state === 'PENDING_ACCEPT' && selectedHandshake.local_role === 'acceptor'
                   ? () => { setAcceptingHandshake(selectedHandshake); setSelectedHandshake(null) }

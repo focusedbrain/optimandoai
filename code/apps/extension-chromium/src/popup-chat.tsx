@@ -23,7 +23,7 @@ import {
   P2PStreamPlaceholder,
   GroupChatPlaceholder
 } from './ui/components'
-import { WRGuardWorkspace } from './wrguard'
+import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { formatFingerprintShort } from './handshake/fingerprint'
 import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
 import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
@@ -31,6 +31,7 @@ import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDeliv
 import { useHandshakes } from './handshake/useHandshakes'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
+import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import {
   getOurIdentity,
@@ -318,16 +319,23 @@ function PopupChatApp() {
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
   const activeLlmModelRef = useRef<string>('')
   
-  // Handle launchMode query parameter from Electron dashboard
+  // Handle launchMode and deep-link query parameters (R.8)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const launchMode = params.get('launchMode')
-    if (launchMode === 'dashboard-beap') {
-      // Preselect BEAP Messages with Inbox when opened from dashboard
+    const messageId = params.get('message')
+    const handshakeId = params.get('handshake')
+    if (messageId) {
+      setDockedWorkspace('beap-messages')
+      setBeapSubmode('inbox')
+      useBeapInboxStore.getState().selectMessage(messageId)
+    } else if (handshakeId) {
+      setDockedWorkspace('wrguard')
+      useWRGuardStore.getState().setActiveSection('handshakes')
+    } else if (launchMode === 'dashboard-beap') {
       setDockedWorkspace('beap-messages')
       setBeapSubmode('inbox')
     } else if (launchMode === 'dashboard-handshake-request') {
-      // Preselect WRChat → Handshake Request when opened from dashboard + New
       setDockedWorkspace('wr-chat')
       setDockedSubmode('handshake')
     }

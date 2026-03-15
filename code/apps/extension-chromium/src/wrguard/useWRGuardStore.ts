@@ -36,6 +36,9 @@ interface WRGuardState extends WRGuardConfig {
   /** Current active section */
   activeSection: WRGuardSection
   
+  /** Handshake ID to select when navigating from inbox (e.g. "View Handshake") */
+  selectedHandshakeId: string | null
+  
   /** Loading state */
   isLoading: boolean
   
@@ -45,6 +48,9 @@ interface WRGuardState extends WRGuardConfig {
   
   /** Set active section */
   setActiveSection: (section: WRGuardSection) => void
+  
+  /** Set handshake to select (used when navigating from inbox) */
+  setSelectedHandshakeId: (id: string | null) => void
   
   // =========================================================================
   // Email Providers
@@ -162,6 +168,7 @@ export const useWRGuardStore = create<WRGuardState>()(
     (set, get) => ({
       ...createInitialState(),
       activeSection: 'providers',
+      selectedHandshakeId: null,
       isLoading: false,
       
       // =========================================================================
@@ -169,6 +176,8 @@ export const useWRGuardStore = create<WRGuardState>()(
       // =========================================================================
       
       setActiveSection: (section) => set({ activeSection: section }),
+      
+      setSelectedHandshakeId: (id) => set({ selectedHandshakeId: id }),
       
       // =========================================================================
       // Email Providers

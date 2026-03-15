@@ -36,6 +36,21 @@ export {
   executeDeliveryAction
 } from './BeapPackageBuilder'
 
+// Inner/Outer Envelope (A.3.055 Stage 4)
+export {
+  // Types
+  type OuterEnvelopeHeader,
+  type InnerEnvelopeMetadata,
+  type ArtefactTopology,
+  type ArtefactTopologyEntry,
+
+  // Functions
+  buildArtefactTopology,
+  encryptInnerEnvelope,
+  decryptInnerEnvelope,
+  validateInnerEnvelopeSchema,
+} from './outerEnvelope'
+
 // Package Decryption (per canon A.3.055 Pipeline)
 export {
   // Types
@@ -44,6 +59,15 @@ export {
   type DecryptedPackage,
   type VerificationResult,
   type DecryptionResult,
+
+  // Stage 0 eligibility types (re-exported from beapDecrypt for caller convenience)
+  type LocalHandshake,
+  type EligibilityCheckResult,
+  
+  // Policy types
+  type ReceiverProcessingPolicy,
+  type ProcessingGateResult,
+  DEFAULT_RECEIVER_POLICY,
   
   // Pipeline Stages
   checkRecipientEligibility,
@@ -64,6 +88,80 @@ export {
   getOriginalArtefact,
   getRasterArtefacts
 } from './beapDecrypt'
+
+// Stage 0 Eligibility Check (A.3.054.3 + A.3.055 Stage 0)
+// Types LocalHandshake and EligibilityCheckResult already exported above from beapDecrypt.
+export {
+  // Additional types not re-exported from beapDecrypt
+  type EligibilityOutcome,
+
+  // Functions
+  evaluateRecipientEligibility,
+  evaluateLegacyEligibility,
+  deriveEligibilityMaterial,
+} from './eligibilityCheck'
+
+// Canon §10 — 6-Gate Depackaging Verification Pipeline
+export {
+  // Types (not already re-exported from beapDecrypt above)
+  type PipelineInput,
+  type Gate1Context,
+  type Gate2Context,
+  type Gate3Context,
+  type Gate4Context,
+  type Gate5Context,
+
+  // Gate functions
+  gate1SenderIdentity,
+  gate2ReceiverIdentity,
+  gate3CiphertextIntegrity,
+  gate4Decryption,
+  gate5SignatureVerification,
+  gate6TemplateHash,
+
+  // Orchestrator
+  runDepackagingPipeline,
+} from './depackagingPipeline'
+
+// Stage 6.1 Processing Event Gate (A.3.055 + A.3.054 Stage 6.1.1)
+// Stage 6.2 Consent Resolution (A.3.055 Stage 6.2)
+// Stage 6.3 Gating Artefacts (A.3.055 Stage 6.3)
+export {
+  // Types
+  type DataClass,
+  type AccessScope,
+  type CapabilityToken,
+  type ReceiverCapabilityPolicy,
+  type ImpliedProcessingEvent,
+  type GateDecision,
+  type AuthorizedProcessingResult,
+
+  // Stage 6.2 types
+  type ConsentBindingContext,
+  type ConsentRecord,
+  type ClassConsentStatus,
+  type ConsentResolutionResult,
+
+  // Stage 6.3 types
+  type GatingArtefact,
+  type GatingAuditStore,
+  type GateContext,
+
+  // Constants
+  DEFAULT_CAPABILITY_POLICY,
+
+  // Stage 6.1 gate functions
+  extractImpliedEvents,
+  alignImpliedWithDeclarations,
+  evaluateCapabilityTokens,
+  runStage61Gate,
+
+  // Stage 6.2 consent resolution
+  resolveConsentRequirements,
+
+  // Stage 6.3 artefact generation
+  generateGatingArtefacts,
+} from './processingEventGate'
 
 // Crypto Types (from beapCrypto)
 export {
@@ -96,6 +194,9 @@ export {
   resetDebugAadStats,
   setDebugAadTrackingEnabled,
   getDebugLastSigningData,
+  // Eligibility primitives (A.3.054.3 + A.3.055 Stage 0)
+  hmacSha256,
+  constantTimeEqual,
   // Post-Quantum KEM Interface
   type PQEncapsulationResult,
   type PQDecapsulationResult,
@@ -104,7 +205,9 @@ export {
   pqKemSupportedAsync,
   pqKemGenerateKeyPair,
   pqEncapsulate,
-  pqDecapsulate
+  pqDecapsulate,
+  // Signing key vault integration
+  detectAndMigrateEphemeralKey,
 } from './beapCrypto'
 
 // X25519 Key Agreement
@@ -126,3 +229,91 @@ export {
   hasValidX25519Key,
   validateX25519PublicKey
 } from './x25519KeyAgreement'
+
+// Proof of Authenticated Execution (PoAE™) — A.3.054.12 + A.3.055 Stages 2 & 7
+export {
+  // Core Types
+  type PoAEAnchorType,
+  type PoAEAnchorReference,
+  type PoAERecord,
+  type PoAERLog,
+
+  // Anchor Provider Interface + Default Implementation
+  type PoAEAnchorProvider,
+  type PoAERLogStore,
+  LocalAnchorProvider,
+  PoAEAnchorError,
+
+  // Generation Parameters
+  type GeneratePoAERLogParams,
+
+  // Verification Result
+  type PoAEVerificationResult,
+
+  // Functions
+  generateUUID,
+  computePoAECommitment,
+  generatePoAERecord,
+  verifyPoAERecord,
+  generatePoAERLog,
+  computeCapsuleHash,
+} from './poae'
+
+// Ed25519 Signing Key Vault — Persistent Identity (replaces ephemeral MVP)
+export {
+  // Types
+  type PersistedEd25519KeyPair,
+  type KeyRotationResult,
+  type MigrationResult,
+
+  // Lifecycle
+  signingKeyExists,
+  getOrCreateSigningKeyPair,
+  loadSigningKeyPair,
+  storeSigningKeyPair,
+  touchSigningKeyLastUsed,
+
+  // Rotation
+  rotateSigningKeyPair,
+  listArchivedSigningKeyIds,
+  loadArchivedSigningKeyPair,
+
+  // Migration (from MVP ephemeral key)
+  migrateEphemeralSigningKey,
+
+  // Cleanup (factory reset / testing)
+  deleteSigningKeyVault,
+} from './signingKeyVault'
+
+// A.3.054.6 — URL Normalization
+export {
+  // Types
+  type ExtractedUrl,
+  type UrlNormalizationResult,
+  type UrlNormalizationVerification,
+
+  // Functions
+  normalizeUrls,
+  verifyUrlNormalization,
+} from './urlNormalizer'
+
+// AI Classification Engine — bulk inbox urgency classifier
+export {
+  // Types
+  type ClassificationResult,
+  type ProjectedContent,
+  type AIProvider,
+  type ClassificationContext,
+  type AiClassificationResponse,
+  type ClassificationProgressEvent,
+  type ClassificationEngineConfig,
+
+  // Core functions
+  heuristicClassify,
+  projectContent,
+  classifyBatch,
+
+  // Helpers
+  selectMessagesForAutoDeletion,
+  toStoreClassificationMap,
+} from './beapClassificationEngine'

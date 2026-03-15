@@ -59,10 +59,26 @@ export default defineManifest({
   },
   web_accessible_resources: [
     {
-      resources: ['grid-display.html', 'grid-display.js', 'grid-script.js', 'grid-display-v2.html', 'grid-script-v2.js', 'src/popup-chat.html'],
+      resources: [
+        'grid-display.html',
+        'grid-display.js',
+        'grid-script.js',
+        'grid-display-v2.html',
+        'grid-script-v2.js',
+        'src/popup-chat.html',
+        // Stage 5 sandbox page — loadable by extension renderer frames
+        'src/beap-messages/sandbox/sandbox.html'
+      ],
       matches: ['<all_urls>']
     }
   ],
+  // Stage 5: Annex I §I.2 — Sandbox Sub-Orchestrator isolation boundary.
+  // Declares sandbox.html as a sandboxed extension page with its own JS context.
+  // Sandboxed pages have no access to chrome.* extension APIs and communicate
+  // only via window.postMessage (structured-clone transport).
+  sandbox: {
+    pages: ['src/beap-messages/sandbox/sandbox.html']
+  },
   content_security_policy: {
     extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:* wss://localhost:* http://localhost:* http://127.0.0.1:* https://*; img-src 'self' data: https://*;"
   }

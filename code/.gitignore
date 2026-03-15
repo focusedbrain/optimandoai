@@ -2,6 +2,7 @@
 node_modules/
 dist/
 apps/**/dist/**
+apps/**/build712/**
 apps/**/release/**
 apps/**/release-*/**
 apps/**/win-unpacked/**

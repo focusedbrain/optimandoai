@@ -24,7 +24,33 @@ import type {
 } from './types'
 import { useIngressStore } from './useIngressStore'
 import { useBeapMessagesStore } from '../beap-messages/useBeapMessagesStore'
+import { useBeapInboxStore } from '../beap-messages/useBeapInboxStore'
 import { useWRGuardStore } from '../wrguard'
+import {
+  sandboxDepackage,
+  isSandboxSuccess,
+  isSandboxFailure,
+  type SandboxDecryptOptions,
+} from '../beap-messages/sandbox'
+import type { SanitisedDecryptedPackage, RejectionReasonUI } from '../beap-messages/sandbox'
+
+// =============================================================================
+// Verification Result
+// =============================================================================
+
+/**
+ * Result of a Stage 5 sandbox verification attempt.
+ */
+export interface VerifyImportedMessageResult {
+  success: boolean
+  messageId: string
+  /** Non-disclosing error (safe for display). Present on failure. */
+  nonDisclosingError?: string
+  /** Failure stage indicator (coarse-grained, non-disclosing). */
+  failureStage?: string
+  /** Validated capsule data — present on success only. */
+  sanitisedPackage?: SanitisedDecryptedPackage
+}
 
 // =============================================================================
 // Minimal Validation (NO parsing)
@@ -416,6 +442,238 @@ export async function importFromFile(
       success: false,
       error: error instanceof Error ? error.message : 'Failed to read file'
     }
+  }
+}
+
+// =============================================================================
+// Stage 5: Sandbox Verification (Annex I §I.2 — Mandatory)
+// =============================================================================
+
+/**
+ * Verify an already-imported message through the Stage 5 sandbox isolation
+ * boundary (Annex I §I.2 — Normative).
+ *
+ * This is the MANDATORY gate between ingress (raw storage) and capsule access.
+ * The host (extension renderer) NEVER touches raw capsule bytes directly —
+ * all crypto operations run inside the Chrome Extension Sandboxed Page.
+ *
+ * Workflow:
+ *   1. Retrieve raw payload from the ingress store.
+ *   2. Mark message status as `'verifying'` in the UI store.
+ *   3. Send payload to the sandbox via `sandboxDepackage()`.
+ *   4a. On success: call `acceptMessage()` with the sanitised package.
+ *   4b. On failure: call `rejectMessage()` with a non-disclosing reason.
+ *
+ * Per A.3.055 Stage 5:
+ *   - The sandbox runs Stages 0, 2, 4, 6.1–6.3, 7 + Gates 1–6 (Canon §10).
+ *   - Only a sanitised `SanitisedDecryptedPackage` crosses the boundary.
+ *   - Fail-closed: if the sandbox fails, the message is rejected with no
+ *     additional disclosure.
+ *
+ * @param messageId - The message ID from `importBeapMessage`
+ * @param options   - Serialisable decryption options (handshakes, sender keys, etc.)
+ */
+export async function verifyImportedMessage(
+  messageId: string,
+  options: SandboxDecryptOptions = {}
+): Promise<VerifyImportedMessageResult> {
+  const { getEventsByMessageId, getPayloadByRef } = useIngressStore.getState()
+  const { updateVerificationStatus, acceptMessage, rejectMessage } = useBeapMessagesStore.getState()
+
+  // ------------------------------------------------------------------
+  // Step 1: Retrieve raw payload from ingress store
+  // ------------------------------------------------------------------
+  const events = getEventsByMessageId(messageId)
+  if (events.length === 0) {
+    const reason: RejectionReasonUI = {
+      code: 'STAGE5_NO_EVENT',
+      humanSummary: 'Package not found in ingress store.',
+      timestamp: Date.now(),
+      failedStep: 'Stage 5 — Ingress lookup'
+    }
+    rejectMessage(messageId, reason)
+    return {
+      success: false,
+      messageId,
+      nonDisclosingError: 'Package verification failed',
+      failureStage: 'INTERNAL',
+    }
+  }
+
+  const latestEvent = events[events.length - 1]
+  const payload = getPayloadByRef(latestEvent.rawRef)
+
+  if (!payload) {
+    const reason: RejectionReasonUI = {
+      code: 'STAGE5_NO_PAYLOAD',
+      humanSummary: 'Raw package data not found in ingress store.',
+      timestamp: Date.now(),
+      failedStep: 'Stage 5 — Payload lookup'
+    }
+    rejectMessage(messageId, reason)
+    return {
+      success: false,
+      messageId,
+      nonDisclosingError: 'Package verification failed',
+      failureStage: 'INTERNAL',
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2: Mark message as verifying in UI
+  // ------------------------------------------------------------------
+  updateVerificationStatus(messageId, 'verifying')
+
+  // ------------------------------------------------------------------
+  // Step 3: Route to Stage 5 sandbox
+  // ------------------------------------------------------------------
+  let sandboxResponse
+  try {
+    sandboxResponse = await sandboxDepackage(payload.rawData, options)
+  } catch (err) {
+    // sandboxDepackage is designed to never throw — this is a belt-and-braces
+    // catch for unexpected errors. Fail-closed.
+    console.error('[Ingress] Unexpected error from sandboxDepackage:', err)
+    const reason: RejectionReasonUI = {
+      code: 'STAGE5_UNEXPECTED_ERROR',
+      humanSummary: 'Package verification failed',
+      timestamp: Date.now(),
+      failedStep: 'Stage 5 — Sandbox error'
+    }
+    rejectMessage(messageId, reason)
+    return {
+      success: false,
+      messageId,
+      nonDisclosingError: 'Package verification failed',
+      failureStage: 'INTERNAL',
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 4a: Success path
+  // ------------------------------------------------------------------
+  if (isSandboxSuccess(sandboxResponse)) {
+    const pkg = sandboxResponse.result
+
+    // Build UI summary from sanitised package
+    const envelopeSummary = buildEnvelopeSummary(pkg)
+    const capsuleMetadata = buildCapsuleMetadata(pkg)
+
+    acceptMessage(messageId, envelopeSummary, capsuleMetadata, pkg)
+
+    // Populate BEAP inbox store so messages appear in BeapInboxView, handshake view, bulk inbox
+    if (
+      pkg.allGatesPassed &&
+      pkg.authorizedProcessing?.decision === 'AUTHORIZED'
+    ) {
+      const handshakeId = resolveHandshakeId(pkg, options)
+      useBeapInboxStore.getState().addMessage(pkg, handshakeId)
+    }
+
+    console.log(`[Ingress] Stage 5 verification succeeded for message ${messageId}`)
+
+    return {
+      success: true,
+      messageId,
+      sanitisedPackage: pkg,
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 4b: Failure path — fail-closed
+  // ------------------------------------------------------------------
+  if (isSandboxFailure(sandboxResponse)) {
+    const reason: RejectionReasonUI = {
+      code: `STAGE5_${sandboxResponse.failureStage}`,
+      humanSummary: sandboxResponse.nonDisclosingError,
+      timestamp: Date.now(),
+      failedStep: `Stage 5 — ${sandboxResponse.failureStage}`
+    }
+    rejectMessage(messageId, reason)
+
+    console.warn(
+      `[Ingress] Stage 5 verification failed for message ${messageId}:`,
+      sandboxResponse.failureStage
+    )
+
+    return {
+      success: false,
+      messageId,
+      nonDisclosingError: sandboxResponse.nonDisclosingError,
+      failureStage: sandboxResponse.failureStage,
+    }
+  }
+
+  // Should not reach here (ACK-only response) — fail-closed
+  const reason: RejectionReasonUI = {
+    code: 'STAGE5_UNKNOWN',
+    humanSummary: 'Package verification failed',
+    timestamp: Date.now(),
+    failedStep: 'Stage 5 — Unknown response'
+  }
+  rejectMessage(messageId, reason)
+  return {
+    success: false,
+    messageId,
+    nonDisclosingError: 'Package verification failed',
+    failureStage: 'INTERNAL',
+  }
+}
+
+// =============================================================================
+// Handshake Resolution
+// =============================================================================
+
+/**
+ * Resolve handshakeId for inbox store. qBEAP: from options or match by sender fingerprint.
+ * pBEAP / depackaged email: null.
+ */
+function resolveHandshakeId(
+  pkg: SanitisedDecryptedPackage,
+  options: SandboxDecryptOptions
+): string | null {
+  if (pkg.header.encoding === 'pBEAP') return null
+  if (options.handshakeId) return options.handshakeId
+  const fp = pkg.header.sender_fingerprint
+  const match = options.handshakes?.find((h) => h.senderFingerprint === fp)
+  return match?.handshakeId ?? null
+}
+
+// =============================================================================
+// UI Summary Builders
+// =============================================================================
+
+/**
+ * Build an `EnvelopeSummaryUI` from a sanitised package result.
+ * Used to populate the inbox message display after acceptance.
+ */
+function buildEnvelopeSummary(pkg: SanitisedDecryptedPackage): import('../beap-messages/types').EnvelopeSummaryUI {
+  const fp = pkg.header.sender_fingerprint
+  return {
+    envelopeIdShort: pkg.header.content_hash.slice(0, 12),
+    senderFingerprintDisplay: fp.length > 12 ? `${fp.slice(0, 8)}…${fp.slice(-4)}` : fp,
+    channelDisplay: pkg.metadata.delivery_method,
+    ingressSummary: `Received via ${pkg.metadata.delivery_method}`,
+    egressSummary: pkg.authorizedProcessing.decision === 'AUTHORIZED' ? 'Processing authorized' : 'Processing blocked',
+    createdAt: pkg.metadata.created_at,
+    expiryStatus: 'no_expiry',
+    signatureStatusDisplay: pkg.verification.signatureValid ? 'Valid' : 'Invalid',
+    hashVerificationDisplay: pkg.allGatesPassed ? 'Verified' : 'Failed',
+  }
+}
+
+/**
+ * Build a `CapsuleMetadataUI` from a sanitised package result.
+ */
+function buildCapsuleMetadata(pkg: SanitisedDecryptedPackage): import('../beap-messages/types').CapsuleMetadataUI {
+  const attachments = pkg.capsule.attachments ?? []
+  return {
+    capsuleId: pkg.header.content_hash.slice(0, 16),
+    title: pkg.capsule.subject ?? 'Untitled',
+    attachmentCount: attachments.length,
+    attachmentNames: attachments.map(a => a.originalName).filter(Boolean),
+    sessionRefCount: 0,
+    hasDataRequest: (pkg.capsule.automation?.tags?.length ?? 0) > 0,
   }
 }
 
