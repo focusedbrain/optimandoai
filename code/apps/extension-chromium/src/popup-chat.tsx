@@ -200,12 +200,11 @@ function PopupChatApp() {
     })
   }
   
-  // Launch Electron app (Linux: tries protocol; Windows: polls for manual start)
+  // Launch Electron app (protocol launch disabled - caused xdg-open dialog on Linux)
   const launchElectronApp = async () => {
     setIsLaunchingElectron(true)
     setLaunchTimedOut(false)
     try {
-      window.open('wrdesk://launch', '_blank')
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
       if (response?.success) {
         setElectronNotRunning(false)

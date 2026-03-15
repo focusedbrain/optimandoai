@@ -836,7 +836,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
     isConnecting = true;
     connectionAttempts++;
 
-    const wsUrl = 'ws://localhost:51247/';
+    const wsUrl = 'ws://127.0.0.1:51247/';
 
     try {
       console.log(`[BG] 🔗 Connecting to WebSocket (attempt ${connectionAttempts}): ${wsUrl}`);
@@ -1671,31 +1671,14 @@ async function launchElectronAppDirect(): Promise<boolean> {
   
   try {
     // ============================================================================
-    // Linux-only: Try custom protocol launch (wrcode://start). On Linux there is
-    // no autostart, so users need a way to start the app. Protocol works reliably.
-    // Windows: Do NOT use protocol - it caused "Open Electron?" prompts and
-    // "Cannot find module" errors. Windows has autostart via Task Scheduler.
+    // Protocol launch (wrcode://, wrdesk://) DISABLED on all platforms.
+    // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
+    // - Linux: Triggers "xdg-open öffnen?" when protocol handler not registered
+    //   (common in dev mode or when .desktop file doesn't register the handler).
+    // Users must start WR Desk manually from application menu or desktop shortcut.
     // ============================================================================
-    const platformInfo = await chrome.runtime.getPlatformInfo()
-    if (platformInfo.os === 'linux') {
-      console.log('[BG] Linux detected - attempting wrcode://start protocol launch')
-      try {
-        await chrome.tabs.create({ url: 'wrcode://start' })
-        // Wait for app to start
-        for (let i = 0; i < 8; i++) {
-          await new Promise(r => setTimeout(r, 500))
-          if (await isElectronRunning()) {
-            console.log('[BG] ✅ App launched via protocol on Linux')
-            electronLaunchInProgress = false
-            return true
-          }
-        }
-      } catch (e) {
-        console.warn('[BG] Protocol launch failed (user may need to start manually):', e)
-      }
-    }
 
-    // Wait briefly and check if app is starting (Windows fallback, or Linux if protocol failed)
+    // Wait briefly and check if app is starting (user may have started manually)
     console.log('[BG] ⏳ Waiting briefly to see if app is starting...')
     for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 500))
@@ -2081,10 +2064,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!hasSecret) {
           // Secret still missing – check if Electron is at least alive
           // via the secret-exempt /api/health endpoint.
-          const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(3000),
-          }).catch(() => null);
+          // Retry up to 3 times (app may still be starting on Linux)
+          let healthCheck: Response | null = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+              method: 'GET',
+              signal: AbortSignal.timeout(3000),
+            }).catch(() => null);
+            if (healthCheck?.ok) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
 
           if (healthCheck && healthCheck.ok) {
             // Electron is running but the WebSocket handshake hasn't completed.
@@ -2612,7 +2601,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else {
           // Try to connect on-demand to 127.0.0.1:53247 and retry
           try {
-            const url = 'ws://localhost:51247/'
+            const url = 'ws://127.0.0.1:51247/'
             const temp = new WebSocket(url)
             temp.addEventListener('open', () => {
               try { ws = temp as any } catch {}
@@ -2651,7 +2640,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           
           // Try to connect on-demand
-          const url = 'ws://localhost:51247/'
+          const url = 'ws://127.0.0.1:51247/'
           const temp = new WebSocket(url)
           
           const timeout = setTimeout(() => {

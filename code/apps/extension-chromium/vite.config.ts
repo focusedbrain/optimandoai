@@ -3,37 +3,6 @@ import react from '@vitejs/plugin-react'
 import { crx } from '@crxjs/vite-plugin'
 import manifest from './manifest.config'
 import path from 'path'
-import fs from 'fs'
-
-/**
- * Remove crossorigin from script/link tags in built HTML.
- * On Linux, crossorigin can cause ERR_FILE_NOT_FOUND when loading extension
- * resources (same fix as Electron app for file:// CORS blocking).
- */
-function removeCrossoriginPlugin(): Plugin {
-  return {
-    name: 'remove-crossorigin',
-    apply: 'build' as const,
-    closeBundle() {
-      const outDir = path.resolve(__dirname, 'build02')
-      const htmlFiles = [
-        path.join(outDir, 'src', 'popup-chat.html'),
-        path.join(outDir, 'src', 'sidepanel.html'),
-        path.join(outDir, 'src', 'beap-messages', 'sandbox', 'sandbox.html'),
-      ]
-      for (const htmlPath of htmlFiles) {
-        if (fs.existsSync(htmlPath)) {
-          const content = fs.readFileSync(htmlPath, 'utf-8')
-          const fixed = content.replace(/ crossorigin(?:="[^"]*")?/g, '')
-          if (fixed !== content) {
-            fs.writeFileSync(htmlPath, fixed, 'utf-8')
-            console.log('[remove-crossorigin] Stripped crossorigin from', path.relative(outDir, htmlPath))
-          }
-        }
-      }
-    },
-  }
-}
 
 /**
  * Vite plugin: makes the preload helper safe for service workers.
@@ -90,7 +59,6 @@ export default defineConfig({
     // @ts-expect-error crxjs plugin types lag behind Vite's Plugin type
     crx({ manifest }),
     serviceWorkerSafePreload(),
-    removeCrossoriginPlugin(),
   ],
   // Use relative paths for Chrome extension compatibility
   base: '',

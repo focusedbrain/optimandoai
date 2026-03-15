@@ -1841,8 +1841,7 @@ function SidepanelOrchestrator() {
         return
       }
 
-      // Try to launch via protocol and background message
-      window.open('wrdesk://launch', '_blank')
+      // Protocol launch (wrdesk://) disabled - caused xdg-open dialog on Linux
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
       
       if (response?.success) {

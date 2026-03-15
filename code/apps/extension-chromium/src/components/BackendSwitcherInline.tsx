@@ -228,7 +228,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
     setIsLaunchingElectron(true);
     setLaunchTimedOut(false);
     try {
-      window.open('wrdesk://launch', '_blank');
+      // Protocol launch disabled - caused xdg-open dialog on Linux
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' });
       if (response?.success) {
         setElectronNotRunning(false);

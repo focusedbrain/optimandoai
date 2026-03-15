@@ -1023,7 +1023,8 @@ async function createWindow() {
         win.minimize()
       }
       
-      // Send message to Chrome extension via WebSocket to open the popup
+      // Send message to Chrome extension via WebSocket to open the popup.
+      // Only send to first client to avoid opening duplicate popups when multiple connections exist.
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
         theme: currentExtensionTheme,
@@ -1031,17 +1032,15 @@ async function createWindow() {
         bounds: bounds,
         windowState: windowState
       })
-      let sent = false
-      wsClients.forEach((socket: any) => {
+      const client = wsClients[0]
+      if (client) {
         try {
-          socket.send(message)
-          sent = true
+          client.send(message)
           console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with bounds')
         } catch (e) {
           console.error('[MAIN] Error sending to extension:', e)
         }
-      })
-      if (!sent) {
+      } else {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
     })
@@ -1067,17 +1066,15 @@ async function createWindow() {
         bounds: bounds,
         windowState: windowState
       })
-      let sent = false
-      wsClients.forEach((socket: any) => {
+      const client = wsClients[0]
+      if (client) {
         try {
-          socket.send(message)
-          sent = true
+          client.send(message)
           console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP (handshake-request) to extension')
         } catch (e) {
           console.error('[MAIN] Error sending to extension:', e)
         }
-      })
-      if (!sent) {
+      } else {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - handshake popup may not open')
       }
     })
