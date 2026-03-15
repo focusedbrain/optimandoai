@@ -9,8 +9,8 @@
  */
 
 import React, { useState } from 'react'
-import type { HandshakeRecord } from '../../handshake/rpcTypes'
-import type { SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
+import type { HandshakeRecord, SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
+import { hasHandshakeKeyMaterial } from '../../handshake/rpcTypes'
 
 export type { SelectedHandshakeRecipient }
 
@@ -44,11 +44,14 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
 
   const handleSelect = (hs: HandshakeRecord) => {
     if (disabled) return
+    if (!hasHandshakeKeyMaterial(hs)) return // Incomplete handshakes are not selectable
     const recipient: SelectedHandshakeRecipient = {
       handshake_id: hs.handshake_id,
       counterparty_email: hs.counterparty_email,
       counterparty_user_id: hs.counterparty_user_id,
       sharing_mode: hs.sharing_mode ?? 'receive-only',
+      peerX25519PublicKey: hs.peerX25519PublicKey,
+      peerPQPublicKey: hs.peerPQPublicKey,
     }
     onSelect(recipient)
   }
@@ -148,6 +151,8 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
       >
         {activeHandshakes.map((hs) => {
           const isSelected = selectedHandshakeId === hs.handshake_id
+          const hasKeys = hasHandshakeKeyMaterial(hs)
+          const isSelectable = hasKeys && !disabled
 
           return (
             <div
@@ -155,19 +160,23 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
               onClick={() => handleSelect(hs)}
               style={{
                 padding: '12px',
-                background: isSelected
-                  ? isStandard
-                    ? 'rgba(59,130,246,0.1)'
-                    : 'rgba(139,92,246,0.2)'
-                  : bgColor,
-                border: isSelected
-                  ? isStandard
-                    ? '2px solid #3b82f6'
-                    : '2px solid #8b5cf6'
-                  : `1px solid ${borderColor}`,
+                background: !hasKeys
+                  ? isStandard ? 'rgba(107,114,128,0.08)' : 'rgba(107,114,128,0.12)'
+                  : isSelected
+                    ? isStandard
+                      ? 'rgba(59,130,246,0.1)'
+                      : 'rgba(139,92,246,0.2)'
+                    : bgColor,
+                border: !hasKeys
+                  ? `1px dashed ${isStandard ? 'rgba(107,114,128,0.3)' : 'rgba(107,114,128,0.4)'}`
+                  : isSelected
+                    ? isStandard
+                      ? '2px solid #3b82f6'
+                      : '2px solid #8b5cf6'
+                    : `1px solid ${borderColor}`,
                 borderRadius: '8px',
-                cursor: disabled ? 'not-allowed' : 'pointer',
-                opacity: disabled ? 0.5 : 1,
+                cursor: isSelectable ? 'pointer' : 'not-allowed',
+                opacity: hasKeys ? (disabled ? 0.5 : 1) : 0.7,
                 transition: 'all 0.15s ease',
               }}
             >
@@ -180,14 +189,20 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '18px' }}>🔐</span>
+                  <span style={{ fontSize: '18px' }}>{hasKeys ? '🔒' : '⚠️'}</span>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: hasKeys ? textColor : mutedColor }}>
                       {hs.counterparty_email}
                     </div>
-                    {hs.sharing_mode && (
-                      <div style={{ fontSize: '11px', color: mutedColor }}>
-                        {hs.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}
+                    {hasKeys ? (
+                      hs.sharing_mode && (
+                        <div style={{ fontSize: '11px', color: mutedColor }}>
+                          {hs.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}
+                        </div>
+                      )
+                    ) : (
+                      <div style={{ fontSize: '11px', color: isStandard ? '#b91c1c' : '#fca5a5', fontWeight: 500 }}>
+                        ⚠️ Incomplete — delete and re-establish
                       </div>
                     )}
                   </div>
@@ -195,7 +210,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {getStateBadge(hs.state)}
-                  {isSelected && (
+                  {isSelected && hasKeys && (
                     <span style={{ fontSize: '14px', color: isStandard ? '#3b82f6' : '#a78bfa' }}>
                       ✓
                     </span>
@@ -203,7 +218,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 </div>
               </div>
 
-              {hs.activated_at && (
+              {hs.activated_at && hasKeys && (
                 <div
                   style={{
                     fontSize: '10px',

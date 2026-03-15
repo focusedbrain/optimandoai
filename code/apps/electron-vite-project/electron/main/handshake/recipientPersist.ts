@@ -67,6 +67,14 @@ export function persistRecipientHandshakeRecord(
     const senderP2PAuthToken: string | null =
       typeof c?.p2p_auth_token === 'string' && c.p2p_auth_token.trim().length > 0 ? c.p2p_auth_token.trim() : null
     const senderPublicKey = typeof c?.sender_public_key === 'string' ? c.sender_public_key : ''
+    const senderX25519: string | null =
+      (typeof c?.sender_x25519_public_key_b64 === 'string' && c.sender_x25519_public_key_b64.trim().length > 0)
+        ? c.sender_x25519_public_key_b64.trim()
+        : null
+    const senderMlkem768: string | null =
+      (typeof c?.sender_mlkem768_public_key_b64 === 'string' && c.sender_mlkem768_public_key_b64.trim().length > 0)
+        ? c.sender_mlkem768_public_key_b64.trim()
+        : null
 
     const senderIdentity = c.senderIdentity ?? {
       email: c.sender_email ?? '',
@@ -112,6 +120,8 @@ export function persistRecipientHandshakeRecord(
       counterparty_p2p_token: senderP2PAuthToken,
       counterparty_public_key: senderPublicKey || null,
       receiver_email: c.receiver_email ?? null,
+      peer_x25519_public_key_b64: senderX25519,
+      peer_mlkem768_public_key_b64: senderMlkem768,
     }
 
     insertHandshakeRecord(db, record)

@@ -299,13 +299,21 @@ export function processHandshakeCapsule(
     (typeof capsuleObj?.p2p_auth_token === 'string' && capsuleObj.p2p_auth_token.trim().length > 0)
       ? capsuleObj.p2p_auth_token.trim()
       : null
+  const senderX25519: string | null =
+    (typeof capsuleObj?.sender_x25519_public_key_b64 === 'string' && capsuleObj.sender_x25519_public_key_b64.trim().length > 0)
+      ? capsuleObj.sender_x25519_public_key_b64.trim()
+      : null
+  const senderMlkem768: string | null =
+    (typeof capsuleObj?.sender_mlkem768_public_key_b64 === 'string' && capsuleObj.sender_mlkem768_public_key_b64.trim().length > 0)
+      ? capsuleObj.sender_mlkem768_public_key_b64.trim()
+      : null
 
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
-      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey)
+      record = buildInitiateRecord(input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       insertHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-accept') {
-      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey)
+      record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-refresh') {
       record = buildRefreshRecord(handshakeRecord!, input, tierDecision)
@@ -560,6 +568,8 @@ function buildInitiateRecord(
   p2pEndpoint: string | null,
   counterpartyP2PToken: string | null,
   senderPublicKey: string,
+  senderX25519: string | null,
+  senderMlkem768: string | null,
 ): HandshakeRecord {
   return {
     handshake_id: input.handshake_id,
@@ -597,6 +607,8 @@ function buildInitiateRecord(
     p2p_endpoint: p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken,
     counterparty_public_key: senderPublicKey || null,
+    peer_x25519_public_key_b64: senderX25519,
+    peer_mlkem768_public_key_b64: senderMlkem768,
   }
 }
 
@@ -609,6 +621,8 @@ function buildAcceptRecord(
   p2pEndpoint: string | null,
   counterpartyP2PToken: string | null,
   senderPublicKey: string,
+  senderX25519: string | null,
+  senderMlkem768: string | null,
 ): HandshakeRecord {
   return {
     ...existing,
@@ -638,6 +652,8 @@ function buildAcceptRecord(
     // processed via submitCapsuleViaRpc). Overwriting it with the acceptor's own key causes
     // SIGNATURE_INVALID when the initiator's context_sync later arrives.
     counterparty_public_key: existing.counterparty_public_key || senderPublicKey,
+    peer_x25519_public_key_b64: senderX25519 ?? existing.peer_x25519_public_key_b64 ?? null,
+    peer_mlkem768_public_key_b64: senderMlkem768 ?? existing.peer_mlkem768_public_key_b64 ?? null,
   }
 }
 

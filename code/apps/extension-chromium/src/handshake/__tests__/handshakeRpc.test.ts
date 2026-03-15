@@ -131,6 +131,22 @@ describe('RecipientHandshakeSelect integration', () => {
     expect(selected.counterparty_email).toBe('them@test.com')
     expect(selected.counterparty_user_id).toBe('u-them')
   })
+
+  it('T5: peer keys flow from backend through normalizeRecord to HandshakeRecord', async () => {
+    const recordWithKeys = {
+      ...MOCK_RECORD,
+      state: 'ACTIVE',
+      peer_x25519_public_key_b64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      peer_mlkem768_public_key_b64: 'dGVzdC1tbC1rZW0tNzY4LXB1YmxpYy1rZXktYmFzZTY0',
+    }
+    mockRpcResponse({ type: 'handshake-list', records: [recordWithKeys] })
+
+    const result = await listHandshakes('active')
+    const selected = result[0]
+
+    expect(selected.peerX25519PublicKey).toBe('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=')
+    expect(selected.peerPQPublicKey).toBe('dGVzdC1tbC1rZW0tNzY4LXB1YmxpYy1rZXktYmFzZTY0')
+  })
 })
 
 describe('acceptHandshake', () => {

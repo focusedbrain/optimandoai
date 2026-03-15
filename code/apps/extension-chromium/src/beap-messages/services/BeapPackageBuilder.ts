@@ -931,16 +931,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       error: 'SECURITY: qBEAP requires handshake binding. No handshake_id available.'
     }
   }
-  
-  // SECURITY: qBEAP REQUIRES real key agreement - NO FALLBACK
-  // Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
-  // X25519 is the minimum requirement (stepping stone to PQ hybrid)
+
+  // SECURITY: Handshakes without full key material are INVALID. No upgrade path.
+  // Defensive guard — if a handshake without keys somehow reaches the builder, fail closed.
   const hasX25519KeyMaterial = hasValidX25519Key(recipient.peerX25519PublicKey)
-  
-  if (!hasX25519KeyMaterial) {
+  const hasPQKeyMaterial = !!(recipient.peerPQPublicKey && recipient.peerPQPublicKey.trim())
+  if (!hasX25519KeyMaterial || !hasPQKeyMaterial) {
     return {
       success: false,
-      error: 'SECURITY: qBEAP requires cryptographic key agreement. Selected handshake has no X25519 public key. Complete the handshake key exchange before sending private messages.'
+      error: 'Invalid handshake — missing cryptographic key material.'
     }
   }
   

@@ -37,46 +37,58 @@ async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
   return pdfjsLib
 }
 
+/** Timeout for browser extraction — prevents hanging on large/complex PDFs */
+const BROWSER_EXTRACT_TIMEOUT_MS = 90_000
+
 /**
  * Extract text from PDF using pdfjs-dist (browser-compatible, no Electron)
+ * Wrapped with timeout to prevent indefinite hangs.
  */
 async function extractPdfTextBrowser(base64Data: string): Promise<ParserResult> {
-  const pdfjsLib = await initPdfjs()
-  try {
-    const binary = atob(base64Data)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i)
+  const timeoutPromise = new Promise<ParserResult>((_, reject) => {
+    setTimeout(() => reject(new Error('PDF extraction timed out — try Vision AI fallback')), BROWSER_EXTRACT_TIMEOUT_MS)
+  })
+
+  const extractPromise = (async (): Promise<ParserResult> => {
+    const pdfjsLib = await initPdfjs()
+    try {
+      const binary = atob(base64Data)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      const loadingTask = pdfjsLib.getDocument({ data: bytes })
+      const pdf = await loadingTask.promise
+      const pageCount = pdf.numPages
+      const textParts: string[] = []
+      const MAX_PAGES = 500
+      const pagesToProcess = Math.min(pageCount, MAX_PAGES)
+      for (let i = 1; i <= pagesToProcess; i++) {
+        const page = await pdf.getPage(i)
+        const textContent = await page.getTextContent()
+        const pageText = textContent.items
+          .map((item: { str?: string }) => item.str || '')
+          .join(' ')
+        textParts.push(pageText)
+      }
+      const extractedText = textParts.join('\n\n').trim()
+      return {
+        success: true,
+        pageCount,
+        pagesProcessed: pagesToProcess,
+        extractedText: extractedText || undefined,
+        truncated: pageCount > MAX_PAGES,
+        parser: { engine: 'pdfjs-dist', version: pdfjsLib.version || 'unknown' },
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Browser PDF extraction failed',
+      }
     }
-    const loadingTask = pdfjsLib.getDocument({ data: bytes })
-    const pdf = await loadingTask.promise
-    const pageCount = pdf.numPages
-    const textParts: string[] = []
-    const MAX_PAGES = 500
-    const pagesToProcess = Math.min(pageCount, MAX_PAGES)
-    for (let i = 1; i <= pagesToProcess; i++) {
-      const page = await pdf.getPage(i)
-      const textContent = await page.getTextContent()
-      const pageText = textContent.items
-        .map((item: { str?: string }) => item.str || '')
-        .join(' ')
-      textParts.push(pageText)
-    }
-    const extractedText = textParts.join('\n\n').trim()
-    return {
-      success: true,
-      pageCount,
-      pagesProcessed: pagesToProcess,
-      extractedText: extractedText || undefined,
-      truncated: pageCount > MAX_PAGES,
-      parser: { engine: 'pdfjs-dist', version: pdfjsLib.version || 'unknown' },
-    }
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Browser PDF extraction failed',
-    }
-  }
+  })()
+
+  return Promise.race([extractPromise, timeoutPromise])
 }
 
 // =============================================================================

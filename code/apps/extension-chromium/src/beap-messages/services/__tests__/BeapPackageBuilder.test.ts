@@ -19,20 +19,31 @@ import {
   type BeapPackageConfig,
   type DraftBuildPolicy
 } from '../BeapPackageBuilder'
+import { hasValidX25519Key } from '../x25519KeyAgreement'
 
 // =============================================================================
 // Test Fixtures
 // =============================================================================
 
+/** Valid X25519 public key (32 bytes base64) for qBEAP key agreement tests */
+const VALID_X25519_PUBLIC_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+/** Valid ML-KEM-768 public key (base64) for post-quantum tests */
+const VALID_PQ_PUBLIC_KEY_B64 = 'dGVzdC1tbC1rZW0tNzY4LXB1YmxpYy1rZXktYmFzZTY0' // 32+ chars for PQ
+
 const createBaseConfig = (): Omit<BeapPackageConfig, 'recipientMode'> => ({
   deliveryMethod: 'email',
   selectedRecipient: {
     handshake_id: 'test-hs-123',
+    counterparty_email: 'test@example.com',
+    counterparty_user_id: 'u-test',
+    sharing_mode: 'reciprocal',
     receiver_fingerprint_short: 'ABC1…2345',
     receiver_fingerprint_full: 'ABC123456789012345678901234567890123456789012345',
     receiver_display_name: 'Test Recipient',
     receiver_organization: 'Test Org',
-    receiver_email_list: ['test@example.com']
+    receiver_email_list: ['test@example.com'],
+    peerX25519PublicKey: VALID_X25519_PUBLIC_KEY_B64,
+    peerPQPublicKey: VALID_PQ_PUBLIC_KEY_B64,
   },
   senderFingerprint: 'SENDER123456789012345678901234567890123456789012',
   senderFingerprintShort: 'SND1…6789',
@@ -53,6 +64,36 @@ const createPublicConfig = (overrides: Partial<BeapPackageConfig> = {}): BeapPac
   recipientMode: 'public',
   selectedRecipient: null, // Public mode doesn't use handshake
   ...overrides
+})
+
+// =============================================================================
+// qBEAP Key Agreement — hasValidX25519Key passes when recipient has peer keys
+// =============================================================================
+
+describe('qBEAP Key Agreement', () => {
+  it('hasValidX25519Key passes when SelectedHandshakeRecipient has peerX25519PublicKey', () => {
+    const recipient = createBaseConfig().selectedRecipient!
+    expect(hasValidX25519Key(recipient.peerX25519PublicKey)).toBe(true)
+  })
+
+  it('hasValidX25519Key fails when peerX25519PublicKey is missing', () => {
+    const recipient = { ...createBaseConfig().selectedRecipient!, peerX25519PublicKey: undefined }
+    expect(hasValidX25519Key(recipient.peerX25519PublicKey)).toBe(false)
+  })
+
+  it('buildPackage fails with "Invalid handshake — missing cryptographic key material" when keys missing', async () => {
+    const config = createPrivateConfig({
+      selectedRecipient: {
+        ...createBaseConfig().selectedRecipient!,
+        peerX25519PublicKey: undefined,
+        peerPQPublicKey: undefined,
+      },
+      encryptedMessage: 'test',
+    })
+    const result = await buildPackage(config)
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('Invalid handshake — missing cryptographic key material.')
+  })
 })
 
 // =============================================================================

@@ -5,6 +5,8 @@
  * Uses the existing VAULT_RPC message channel which is already wired up.
  */
 
+import { getDeviceX25519PublicKey } from '../beap-messages/services/x25519KeyAgreement'
+import { pqKemGenerateKeyPair, pqKemSupportedAsync } from '../beap-messages/services/beapCrypto'
 import type {
   HandshakeRecord,
   HandshakeListResponse,
@@ -62,6 +64,25 @@ async function sendHandshakeRpc<T = unknown>(
   })
 }
 
+/** Get X25519 + ML-KEM public keys for handshake key agreement. Uses device X25519; generates ML-KEM if PQ available. */
+async function getKeyAgreementForHandshake(): Promise<{
+  x25519PublicKeyB64: string
+  mlkem768PublicKeyB64: string | undefined
+}> {
+  const x25519PublicKeyB64 = await getDeviceX25519PublicKey()
+  let mlkem768PublicKeyB64: string | undefined
+  try {
+    if (await pqKemSupportedAsync()) {
+      const kp = await pqKemGenerateKeyPair()
+      mlkem768PublicKeyB64 = kp.publicKeyB64
+      // TODO: Store kp.secretKeyB64 per handshake for qBEAP decapsulation when receiving
+    }
+  } catch {
+    // PQ not available — Electron will generate fallback
+  }
+  return { x25519PublicKeyB64, mlkem768PublicKeyB64 }
+}
+
 // ── Public API ──
 
 export async function listHandshakes(
@@ -104,10 +125,13 @@ export async function initiateHandshake(
     policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeInitiateResponse> {
+  const keyAgreement = await getKeyAgreementForHandshake()
   return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
+    senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
+    senderMlkem768PublicKeyB64: keyAgreement.mlkem768PublicKeyB64,
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
     ...(options?.message ? { message: options.message } : {}),
     ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
@@ -129,9 +153,12 @@ export async function buildHandshakeForDownload(
     policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
+  const keyAgreement = await getKeyAgreementForHandshake()
   return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
     receiverUserId: receiverEmail,
     receiverEmail,
+    senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
+    senderMlkem768PublicKeyB64: keyAgreement.mlkem768PublicKeyB64,
     ...(options?.skipVaultContext ? { skipVaultContext: true } : {}),
     ...(options?.message ? { message: options.message } : {}),
     ...(options?.context_blocks && options.context_blocks.length > 0 ? { context_blocks: options.context_blocks } : {}),
@@ -152,10 +179,13 @@ export async function acceptHandshake(
     policy_selections?: PolicySelectionInput
   },
 ): Promise<HandshakeAcceptResponse> {
+  const keyAgreement = await getKeyAgreementForHandshake()
   return sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
     handshake_id: handshakeId,
     sharing_mode: sharingMode,
     fromAccountId,
+    senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
+    senderMlkem768PublicKeyB64: keyAgreement.mlkem768PublicKeyB64,
     ...(contextOpts?.context_blocks?.length ? { context_blocks: contextOpts.context_blocks } : {}),
     ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
     ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
@@ -210,6 +240,8 @@ function normalizeRecord(raw: any): HandshakeRecord {
     sharing_mode: raw.sharing_mode ?? undefined,
     created_at: raw.created_at,
     activated_at: raw.activated_at ?? undefined,
+    peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
+    peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
   }
 }
 

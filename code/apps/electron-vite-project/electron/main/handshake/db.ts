@@ -540,6 +540,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_blocks_visibility ON context_blocks(visibility)`,
     ],
   },
+  {
+    version: 25,
+    description: 'Schema v25: X25519 and ML-KEM key agreement for qBEAP',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN peer_x25519_public_key_b64 TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN peer_mlkem768_public_key_b64 TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -624,6 +632,8 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     local_private_key: record.local_private_key ?? null,
     counterparty_public_key: record.counterparty_public_key ?? null,
     receiver_email: record.receiver_email ?? null,
+    peer_x25519_public_key_b64: record.peer_x25519_public_key_b64 ?? null,
+    peer_mlkem768_public_key_b64: record.peer_mlkem768_public_key_b64 ?? null,
   }
 }
 
@@ -662,6 +672,8 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_private_key: row.local_private_key ?? null,
     counterparty_public_key: row.counterparty_public_key ?? null,
     receiver_email: row.receiver_email ?? null,
+    peer_x25519_public_key_b64: row.peer_x25519_public_key_b64 ?? null,
+    peer_mlkem768_public_key_b64: row.peer_mlkem768_public_key_b64 ?? null,
     context_sync_pending: !!(row.context_sync_pending),
     policy_selections: parsePolicySelections(row.policy_selections),
   }
@@ -727,7 +739,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_wrdesk_policy_hash, initiator_wrdesk_policy_version,
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
     initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
-    local_public_key, local_private_key, counterparty_public_key, receiver_email
+    local_public_key, local_private_key, counterparty_public_key, receiver_email,
+    peer_x25519_public_key_b64, peer_mlkem768_public_key_b64
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -738,7 +751,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @initiator_wrdesk_policy_hash, @initiator_wrdesk_policy_version,
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
     @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
-    @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email
+    @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email,
+    @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64
   )`).run(s)
 }
 
@@ -765,7 +779,9 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     local_public_key = @local_public_key,
     local_private_key = @local_private_key,
     counterparty_public_key = @counterparty_public_key,
-    receiver_email = @receiver_email
+    receiver_email = @receiver_email,
+    peer_x25519_public_key_b64 = @peer_x25519_public_key_b64,
+    peer_mlkem768_public_key_b64 = @peer_mlkem768_public_key_b64
   WHERE handshake_id = @handshake_id`).run(s)
 }
 

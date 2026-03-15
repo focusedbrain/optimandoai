@@ -361,6 +361,10 @@ export interface HandshakeRecord {
   counterparty_public_key?: string | null;
   /** For initiator PENDING_ACCEPT: intended receiver's email (from initiate capsule) */
   receiver_email?: string | null;
+  /** Peer's X25519 public key (base64) for qBEAP key agreement. Extracted from initiate/accept capsule. */
+  peer_x25519_public_key_b64?: string | null;
+  /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement. Extracted from initiate/accept capsule. */
+  peer_mlkem768_public_key_b64?: string | null;
   /** True when context_sync was deferred (vault locked); cleared on successful enqueue */
   context_sync_pending?: boolean;
   /** AI policy: ai_processing_mode (new) or legacy cloud_ai/internal_ai. Parsed from JSON. */

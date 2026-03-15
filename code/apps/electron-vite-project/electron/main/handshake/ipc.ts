@@ -54,7 +54,7 @@ import {
 import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
-import { randomBytes, randomUUID } from 'crypto'
+import { randomBytes, randomUUID, generateKeyPairSync } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
@@ -63,6 +63,27 @@ import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
 import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import { vaultService } from '../vault/rpc'
+
+// ── Key Agreement Helpers (fallback when extension does not provide keys) ──
+
+async function ensureKeyAgreementKeys(params: {
+  sender_x25519_public_key_b64?: string | null
+  sender_mlkem768_public_key_b64?: string | null
+}): Promise<{ sender_x25519_public_key_b64: string; sender_mlkem768_public_key_b64: string }> {
+  let x25519 = params.sender_x25519_public_key_b64?.trim()
+  let mlkem = params.sender_mlkem768_public_key_b64?.trim()
+  if (!x25519 || x25519.length < 32) {
+    const { publicKey } = generateKeyPairSync('x25519')
+    const raw = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
+    x25519 = raw.subarray(-32).toString('base64')
+  }
+  if (!mlkem || mlkem.length < 100) {
+    const pq = await import('@noble/post-quantum/ml-kem')
+    const keypair = pq.ml_kem768.keygen()
+    mlkem = Buffer.from(keypair.publicKey).toString('base64')
+  }
+  return { sender_x25519_public_key_b64: x25519, sender_mlkem768_public_key_b64: mlkem }
+}
 
 // ── Context Block Helpers ──
 
@@ -366,6 +387,14 @@ export async function handleHandshakeRPC(
       }
     }
 
+    case 'handshake.get': {
+      const { handshake_id } = params as { handshake_id: string }
+      if (!handshake_id) return { error: 'handshake_id is required' }
+      const record = getHandshakeRecord(db, handshake_id)
+      if (!record) return { error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
+      return { record }
+    }
+
     case 'handshake.requestContextBlocks': {
       const { handshakeId, scopes, purpose } = params
       const auth = authorizeAction(db, handshakeId, 'read-context', scopes ?? [], new Date())
@@ -576,6 +605,11 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
+      const keyAgreement = await ensureKeyAgreementKeys({
+        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+      })
+
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
         receiverEmail,
@@ -583,6 +617,8 @@ export async function handleHandshakeRPC(
         ...(allBlocks.length > 0 ? { context_blocks: allBlocks } : {}),
         ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
+        sender_x25519_public_key_b64: keyAgreement.sender_x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: keyAgreement.sender_mlkem768_public_key_b64,
       })
 
       const canonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
@@ -682,6 +718,11 @@ export async function handleHandshakeRPC(
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
+      const dlKeyAgreement = await ensureKeyAgreementKeys({
+        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+      })
+
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
         receiverEmail: dlReceiverEmail,
@@ -689,6 +730,8 @@ export async function handleHandshakeRPC(
         ...(dlAllBlocks.length > 0 ? { context_blocks: dlAllBlocks } : {}),
         ...(dlP2PEndpoint ? { p2p_endpoint: dlP2PEndpoint } : {}),
         ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
+        sender_x25519_public_key_b64: dlKeyAgreement.sender_x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: dlKeyAgreement.sender_mlkem768_public_key_b64,
       })
 
       const dlCanonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
@@ -858,6 +901,11 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
+      const acceptKeyAgreement = await ensureKeyAgreementKeys({
+        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+      })
+
       const { capsule, keypair } = buildAcceptCapsule(session, {
         handshake_id,
         initiatorUserId,
@@ -868,6 +916,8 @@ export async function handleHandshakeRPC(
         initiator_capsule_hash: record.last_capsule_hash_received,
         ...(p2pEndpoint ? { p2p_endpoint: p2pEndpoint } : {}),
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
+        sender_x25519_public_key_b64: acceptKeyAgreement.sender_x25519_public_key_b64,
+        sender_mlkem768_public_key_b64: acceptKeyAgreement.sender_mlkem768_public_key_b64,
       })
       updateHandshakeSigningKeys(db, handshake_id, {
         local_public_key: keypair.publicKey,

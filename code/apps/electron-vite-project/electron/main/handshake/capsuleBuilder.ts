@@ -79,6 +79,10 @@ export interface HandshakeCapsuleWire {
   readonly sender_signature: string;
   /** On accept only: acceptor's signature over initiator's capsule_hash (128-char hex) */
   readonly countersigned_hash?: string;
+  /** X25519 public key (base64, 32 bytes) for qBEAP key agreement */
+  readonly sender_x25519_public_key_b64?: string;
+  /** ML-KEM-768 public key (base64, 1184 bytes) for post-quantum key agreement */
+  readonly sender_mlkem768_public_key_b64?: string;
 }
 
 // ── Options types ──
@@ -106,6 +110,10 @@ export interface InitiateOptions {
   p2p_endpoint?: string | null;
   /** Sender's P2P auth token (Bearer) for authenticating requests to our /beap/ingest. 32 bytes hex. */
   p2p_auth_token?: string | null;
+  /** X25519 public key (base64) for qBEAP key agreement. From extension getDeviceX25519PublicKey or generated. */
+  sender_x25519_public_key_b64?: string | null;
+  /** ML-KEM-768 public key (base64) for post-quantum key agreement. Generated or from caller. */
+  sender_mlkem768_public_key_b64?: string | null;
 }
 
 /** Result of buildInitiateCapsuleWithContent including keypair for persistence */
@@ -144,6 +152,10 @@ export interface AcceptOptions {
   p2p_auth_token?: string | null;
   /** Initiator's capsule_hash (from received initiate) — required for countersignature */
   initiator_capsule_hash?: string;
+  /** X25519 public key (base64) for qBEAP key agreement. From extension getDeviceX25519PublicKey or generated. */
+  sender_x25519_public_key_b64?: string | null;
+  /** ML-KEM-768 public key (base64) for post-quantum key agreement. Generated or from caller. */
+  sender_mlkem768_public_key_b64?: string | null;
 }
 
 export interface RefreshOptions {
@@ -307,6 +319,8 @@ function buildInitiateCapsuleCore(
     sender_signature: senderSignature,
     ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
+    ...(opts.sender_x25519_public_key_b64 ? { sender_x25519_public_key_b64: opts.sender_x25519_public_key_b64 } : {}),
+    ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
   }
   return { capsule, keypair }
 }
@@ -441,6 +455,8 @@ export function buildAcceptCapsule(
     ...(countersignedHash ? { countersigned_hash: countersignedHash } : {}),
     ...(opts.p2p_endpoint ? { p2p_endpoint: opts.p2p_endpoint } : {}),
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
+    ...(opts.sender_x25519_public_key_b64 ? { sender_x25519_public_key_b64: opts.sender_x25519_public_key_b64 } : {}),
+    ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
   }
   return { capsule, keypair }
 }

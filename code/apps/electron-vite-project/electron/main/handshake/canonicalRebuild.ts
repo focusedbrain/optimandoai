@@ -92,6 +92,10 @@ export interface HandshakeCapsuleCanonical {
   readonly sender_signature?: string
   /** Acceptor's signature over initiator's capsule_hash (128-char hex) — accept only */
   readonly countersigned_hash?: string
+  /** X25519 public key (base64, 32 bytes) for qBEAP key agreement */
+  readonly sender_x25519_public_key_b64?: string
+  /** ML-KEM-768 public key (base64, 1184 bytes) for post-quantum key agreement */
+  readonly sender_mlkem768_public_key_b64?: string
 }
 
 export interface CanonicalContextBlock {
@@ -163,6 +167,8 @@ const FIELD_RULES: Record<string, FieldRule> = {
   sender_public_key: { type: 'regex', pattern: /^[a-f0-9]{64}$/ },
   sender_signature: { type: 'regex', pattern: /^[a-f0-9]{128}$/ },
   countersigned_hash: { type: 'regex', pattern: /^[a-f0-9]{128}$/ },
+  sender_x25519_public_key_b64: { type: 'string', maxLength: 64 },
+  sender_mlkem768_public_key_b64: { type: 'string', maxLength: 1600 },
 }
 
 // ── Sender identity validation rules ──
@@ -492,6 +498,18 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
         return { ok: false, reason: `Invalid value for ${sigField}`, field: sigField }
       }
       canonical[sigField] = result.sanitized
+    }
+  }
+
+  // Validate key agreement fields (optional — X25519 and ML-KEM for qBEAP)
+  for (const keyField of ['sender_x25519_public_key_b64', 'sender_mlkem768_public_key_b64'] as const) {
+    if (keyField in obj && obj[keyField] !== undefined && obj[keyField] !== null) {
+      const rule = FIELD_RULES[keyField]
+      const result = validateField(obj[keyField], rule)
+      if (!result.valid) {
+        return { ok: false, reason: `Invalid value for ${keyField}`, field: keyField }
+      }
+      canonical[keyField] = result.sanitized
     }
   }
 

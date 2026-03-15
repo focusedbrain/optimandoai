@@ -19,6 +19,10 @@ export interface HandshakeRecord {
   readonly sharing_mode?: 'receive-only' | 'reciprocal'
   readonly created_at: string
   readonly activated_at?: string
+  /** Peer's X25519 public key (base64) for qBEAP key agreement */
+  readonly peerX25519PublicKey?: string
+  /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
+  readonly peerPQPublicKey?: string
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──
@@ -44,6 +48,16 @@ export interface SelectedHandshakeRecipient {
   readonly peerX25519PublicKey?: string
   /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
   readonly peerPQPublicKey?: string
+}
+
+/**
+ * Checks if handshake has full key material for qBEAP (both X25519 and PQ).
+ * No upgrade path — handshakes without keys are invalid. User must delete and re-establish.
+ */
+export function hasHandshakeKeyMaterial(
+  record: Pick<HandshakeRecord | SelectedHandshakeRecipient, 'peerX25519PublicKey' | 'peerPQPublicKey'>
+): boolean {
+  return !!(record.peerX25519PublicKey && record.peerPQPublicKey)
 }
 
 // ── RPC response types ──

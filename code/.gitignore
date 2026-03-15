@@ -16,4 +16,6 @@ apps/**/out/**
 packages/**/dist/**
 apps/extension-chromium/build01/
 apps/extension-chromium/build02/
+apps/extension-chromium/build05/
+apps/extension-chromium/build001/
 

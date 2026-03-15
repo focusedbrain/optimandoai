@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react'
 import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
+import { hasHandshakeKeyMaterial } from '../rpcTypes'
 import { useHandshakes } from '../useHandshakes'
 import { deleteHandshake } from '../handshakeRpc'
 import { HandshakeDetailsPanel } from './HandshakeDetailsPanel'
@@ -322,15 +323,20 @@ const HandshakeListItem: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '16px' }}>
-            {handshake.state === 'ACTIVE' ? '🔐' : handshake.state === 'PENDING_ACCEPT' ? '⏳' : '🔒'}
+            {handshake.state === 'ACTIVE'
+              ? (hasHandshakeKeyMaterial(handshake) ? '🔒' : '⚠️')
+              : handshake.state === 'PENDING_ACCEPT'
+                ? '⏳'
+                : '🔒'}
           </span>
           <div>
             <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
               {handshake.counterparty_email}
             </div>
             <div style={{ fontSize: '10px', color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)' }}>
-              {handshake.local_role === 'initiator' ? 'You initiated' : 'They initiated'}
-              {handshake.sharing_mode ? ` · ${handshake.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}` : ''}
+              {handshake.state === 'ACTIVE' && !hasHandshakeKeyMaterial(handshake)
+                ? '⚠️ Incomplete — delete and re-establish'
+                : `${handshake.local_role === 'initiator' ? 'You initiated' : 'They initiated'}${handshake.sharing_mode ? ` · ${handshake.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}` : ''}`}
             </div>
           </div>
         </div>
