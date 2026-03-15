@@ -1581,12 +1581,12 @@ export function getArtefactsForAttachment(
 /**
  * Get original file artefact for an attachment.
  * 
- * @param pkg - Decrypted package
+ * @param pkg - Decrypted package (or any object with artefacts array)
  * @param attachmentId - Attachment ID
  * @returns Original artefact or undefined
  */
 export function getOriginalArtefact(
-  pkg: DecryptedPackage,
+  pkg: { artefacts: DecryptedArtefact[] },
   attachmentId: string
 ): DecryptedArtefact | undefined {
   return pkg.artefacts.find(

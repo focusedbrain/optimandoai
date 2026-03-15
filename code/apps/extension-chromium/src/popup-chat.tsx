@@ -38,6 +38,7 @@ import {
   type OurIdentity
 } from './handshake/handshakeService'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
+import { VisionFallbackButton } from './beap-builder/components/VisionFallbackButton'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
@@ -658,8 +659,15 @@ function PopupChatApp() {
     setIsSendingBeap(true)
     
     try {
-      // New path: if private mode with a handshake recipient, use handshake.refresh RPC
-      if (beapRecipientMode === 'private' && selectedRecipient && 'handshake_id' in selectedRecipient) {
+      // Download/messenger: always use package builder + executeDeliveryAction (never handshake.refresh)
+      // Email + private: use handshake.refresh RPC for direct delivery
+      const useHandshakeRefresh =
+        beapDeliveryMethod === 'email' &&
+        beapRecipientMode === 'private' &&
+        selectedRecipient &&
+        'handshake_id' in selectedRecipient
+
+      if (useHandshakeRefresh) {
         const hsId = (selectedRecipient as any).handshake_id as string
         const accountId = selectedEmailAccountId || 'default'
         
@@ -738,7 +746,7 @@ function PopupChatApp() {
       
       if (result.success) {
         // Show success notification based on delivery method
-        const actionLabel = beapDeliveryMethod === 'download' ? 'Package downloaded!' 
+        const actionLabel = beapDeliveryMethod === 'download' ? 'BEAP capsule downloaded' 
           : beapDeliveryMethod === 'messenger' ? 'Payload copied to clipboard!' 
           : 'BEAP™ Message sent!'
         setToastMessage({ message: actionLabel, type: 'success' })
@@ -1247,7 +1255,7 @@ function PopupChatApp() {
                   <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`, r.rasterPageData?.length || 0, 'pages'); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error }, rasterPageData: r.rasterPageData || undefined } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: mutedColor }} />
                   {beapDraftAttachments.length > 0 && (
                     <div style={{ marginTop: '8px' }}>
-                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                      {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: textColor }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>{a.mime?.toLowerCase() === 'application/pdf' && !a.capsuleAttachment?.semanticExtracted && !a.processing?.parsing && a.dataBase64 && (<VisionFallbackButton attachment={a.capsuleAttachment} dataBase64={a.dataBase64} onSuccess={(text) => setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, capsuleAttachment: { ...x.capsuleAttachment, semanticContent: text, semanticExtracted: true }, processing: { ...x.processing, error: undefined } } : x))} theme={isStandard ? 'standard' : 'default'} />)}<button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div></div>))}
                       <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                     </div>
                   )}

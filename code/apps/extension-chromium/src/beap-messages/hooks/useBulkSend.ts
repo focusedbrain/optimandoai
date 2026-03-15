@@ -140,7 +140,7 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
         }
 
         const buildResult = await buildPackage(packageConfig)
-        if (!buildResult.success || !buildResult.pkg) {
+        if (!buildResult.success || !buildResult.package) {
           return { success: false, error: buildResult.error ?? 'BEAP build failed.' }
         }
         return { success: true, error: null }
@@ -160,11 +160,11 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
         }
 
         const buildResult = await buildPackage(packageConfig)
-        if (!buildResult.success || !buildResult.pkg) {
+        if (!buildResult.success || !buildResult.package) {
           return { success: false, error: buildResult.error ?? 'Email build failed.' }
         }
 
-        const emailResult = await executeEmailAction(buildResult.pkg, packageConfig)
+        const emailResult = await executeEmailAction(buildResult.package, packageConfig)
         if (!emailResult.success) {
           return { success: false, error: emailResult.error ?? 'Email delivery failed.' }
         }

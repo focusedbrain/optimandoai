@@ -1,5 +1,5 @@
 import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
-import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpAdapter'
+import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 
 declare global {

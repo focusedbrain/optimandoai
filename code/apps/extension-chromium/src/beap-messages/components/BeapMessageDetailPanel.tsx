@@ -29,13 +29,7 @@
  * @version 1.0.0
  */
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { BeapMessage, BeapAttachment, TrustLevel } from '../beapInboxTypes'
 import type { AiOutputEntry } from '../hooks/useBeapMessageAi'
 import { useBeapInboxStore } from '../useBeapInboxStore'
@@ -43,6 +37,8 @@ import { useBeapMessageAi } from '../hooks/useBeapMessageAi'
 import { useReplyComposer } from '../hooks/useReplyComposer'
 import { BeapReplyComposer } from './BeapReplyComposer'
 import { AiEntryContent } from './AiEntryContent'
+import { BeapAttachmentReader } from './BeapAttachmentReader'
+import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 
 // =============================================================================
 // Public props
@@ -185,6 +181,11 @@ interface MessageContentPanelProps {
   composerActions: import('../hooks/useReplyComposer').ReplyComposerActions
   /** Navigate to the Handshakes tab for this message's handshake relationship. */
   onViewHandshake?: (handshakeId: string) => void
+  /** Called when user confirms viewing the original artefact (after warning). */
+  onViewOriginal?: (attachment: BeapAttachment) => void
+  /** Error message from view original (e.g. artefact not available). */
+  viewOriginalError?: string | null
+  onDismissViewOriginalError?: () => void
 }
 
 const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
@@ -195,6 +196,9 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
   composerState,
   composerActions,
   onViewHandshake,
+  onViewOriginal,
+  viewOriginalError,
+  onDismissViewOriginalError,
 }) => {
   const isProfessional = theme === 'professional'
   const textColor = isProfessional ? '#1f2937' : 'white'
@@ -424,6 +428,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                         : att.attachmentId,
                     )
                   }
+                  onViewOriginal={onViewOriginal}
                 />
               ))}
             </div>
@@ -454,8 +459,11 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
 }
 
 // =============================================================================
-// AttachmentRow
+// AttachmentRow — reader view for semanticContent + warning before original access
 // =============================================================================
+
+const ORIGINAL_ACCESS_WARNING =
+  'This is an original artefact from outside the protected environment. Opening it carries inherent risk. The file will be opened outside the WRGuard™-protected boundary.'
 
 interface AttachmentRowProps {
   attachment: BeapAttachment
@@ -465,6 +473,8 @@ interface AttachmentRowProps {
   mutedColor: string
   borderColor: string
   onClick: () => void
+  /** Called when user confirms viewing the original artefact (after warning). */
+  onViewOriginal?: (attachment: BeapAttachment) => void
 }
 
 const AttachmentRow: React.FC<AttachmentRowProps> = ({
@@ -475,64 +485,204 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
   mutedColor,
   borderColor,
   onClick,
+  onViewOriginal,
 }) => {
   const [hovered, setHovered] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [showWarning, setShowWarning] = useState(false)
+
+  const hasSemanticContent = !!attachment.semanticContent?.trim()
+
+  const handleViewOriginalClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowWarning(true)
+  }
+
+  const handleConfirmViewOriginal = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowWarning(false)
+    onViewOriginal?.(attachment)
+  }
+
+  const handleCancelWarning = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowWarning(false)
+  }
+
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      title={isSelected ? 'Click to deselect attachment' : 'Click to query this attachment via the search bar'}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '7px 10px',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        border: isSelected
-          ? `1px solid ${isProfessional ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.45)'}`
-          : `1px solid ${hovered ? borderColor : 'transparent'}`,
-        background: isSelected
-          ? (isProfessional ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.15)')
-          : hovered
-            ? (isProfessional ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)')
-            : 'transparent',
-        transition: 'all 0.12s ease',
-      }}
-    >
-      <span style={{ fontSize: '14px', flexShrink: 0 }}>📄</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: '12px',
-            fontWeight: isSelected ? 600 : 500,
-            color: isSelected ? (isProfessional ? '#7c3aed' : '#c084fc') : textColor,
-            whiteSpace: 'nowrap' as const,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {attachment.filename}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      <div
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('[data-no-select]')) return
+          onClick()
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={isSelected ? 'Click to deselect attachment' : 'Click to query this attachment via the search bar'}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '7px 10px',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          border: isSelected
+            ? `1px solid ${isProfessional ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.45)'}`
+            : `1px solid ${hovered ? borderColor : 'transparent'}`,
+          background: isSelected
+            ? (isProfessional ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.15)')
+            : hovered
+              ? (isProfessional ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)')
+              : 'transparent',
+          transition: 'all 0.12s ease',
+        }}
+      >
+        <span style={{ fontSize: '14px', flexShrink: 0 }}>📄</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: '12px',
+              fontWeight: isSelected ? 600 : 500,
+              color: isSelected ? (isProfessional ? '#7c3aed' : '#c084fc') : textColor,
+              whiteSpace: 'nowrap' as const,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {attachment.filename}
+          </div>
+          <div style={{ fontSize: '10px', color: mutedColor, marginTop: '1px' }}>
+            {attachment.mimeType} · {formatBytes(attachment.sizeBytes)}
+            {hasSemanticContent && ' · text extracted'}
+          </div>
         </div>
-        <div style={{ fontSize: '10px', color: mutedColor, marginTop: '1px' }}>
-          {attachment.mimeType} · {formatBytes(attachment.sizeBytes)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} data-no-select>
+          {hasSemanticContent && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded((x) => !x) }}
+              style={{
+                background: 'transparent',
+                border: `1px solid ${borderColor}`,
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                color: mutedColor,
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? '▲ Hide' : '▼ Read'}
+            </button>
+          )}
+          {onViewOriginal && (
+            <button
+              onClick={handleViewOriginalClick}
+              style={{
+                background: 'transparent',
+                border: `1px solid ${isProfessional ? 'rgba(245,158,11,0.5)' : 'rgba(245,158,11,0.6)'}`,
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                color: isProfessional ? '#b45309' : '#fbbf24',
+                cursor: 'pointer',
+              }}
+            >
+              View original
+            </button>
+          )}
         </div>
+        {isSelected && (
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              padding: '1px 5px',
+              borderRadius: '3px',
+              color: '#a855f7',
+              background: 'rgba(168,85,247,0.12)',
+              flexShrink: 0,
+            }}
+          >
+            active
+          </span>
+        )}
       </div>
-      {isSelected && (
-        <span
+
+      {/* Expandable semantic content reader (BeapAttachmentReader — matches HsContextDocumentReader style) */}
+      {hasSemanticContent && expanded && (
+        <div style={{ marginTop: '6px', marginLeft: '8px', minHeight: 120 }}>
+          <BeapAttachmentReader
+            attachment={attachment}
+            isProfessional={isProfessional}
+            maxHeight={200}
+            showCopy={true}
+          />
+        </div>
+      )}
+
+      {/* Warning dialog before viewing original */}
+      {showWarning && (
+        <div
+          data-no-select
           style={{
-            fontSize: '10px',
-            fontWeight: 600,
-            padding: '1px 5px',
-            borderRadius: '3px',
-            color: '#a855f7',
-            background: 'rgba(168,85,247,0.12)',
-            flexShrink: 0,
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
           }}
+          onClick={handleCancelWarning}
         >
-          active
-        </span>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isProfessional ? '#fff' : '#1f2937',
+              borderRadius: '8px',
+              padding: '16px 20px',
+              maxWidth: '360px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              border: `1px solid ${borderColor}`,
+            }}
+          >
+            <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+              ⚠️ View original artefact
+            </div>
+            <p style={{ fontSize: '12px', color: mutedColor, margin: '0 0 12px 0', lineHeight: 1.5 }}>
+              {ORIGINAL_ACCESS_WARNING}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                onClick={handleCancelWarning}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  color: mutedColor,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmViewOriginal}
+                style={{
+                  background: isProfessional ? '#b45309' : '#f59e0b',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  color: 'white',
+                  cursor: 'pointer',
+                }}
+              >
+                Open Original
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -907,6 +1057,9 @@ export const BeapMessageDetailPanel = React.forwardRef<
   const selectedMessage = useBeapInboxStore((s) => s.getSelectedMessage())
   const markAsRead = useBeapInboxStore((s) => s.markAsRead)
 
+  // View original artefact (download)
+  const { viewOriginal } = useViewOriginalArtefact()
+
   // Reply composer (shared with BeapBulkInbox)
   const [composerState, composerActions] = useReplyComposer(
     selectedMessage,
@@ -915,6 +1068,7 @@ export const BeapMessageDetailPanel = React.forwardRef<
 
   // Local UI state
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
+  const [viewOriginalError, setViewOriginalError] = useState<string | null>(null)
 
   // Split ratio (0–1, fraction for left panel)
   const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO)
@@ -931,6 +1085,16 @@ export const BeapMessageDetailPanel = React.forwardRef<
     clear: clearAi,
     getSearchContextLabel,
   } = useBeapMessageAi()
+
+  const handleViewOriginal = useCallback(
+    async (attachment: BeapAttachment) => {
+      if (!selectedMessage) return
+      setViewOriginalError(null)
+      const err = await viewOriginal(selectedMessage.messageId, attachment)
+      if (err) setViewOriginalError(err)
+    },
+    [selectedMessage, viewOriginal],
+  )
 
   // ── Expose handle to parent ───────────────────────────
   React.useImperativeHandle(ref, () => ({
@@ -1056,6 +1220,9 @@ export const BeapMessageDetailPanel = React.forwardRef<
           composerState={composerState}
           composerActions={composerActions}
           onViewHandshake={onViewHandshake}
+          onViewOriginal={handleViewOriginal}
+          viewOriginalError={viewOriginalError}
+          onDismissViewOriginalError={() => setViewOriginalError(null)}
         />
       </div>
 

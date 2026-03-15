@@ -14,7 +14,8 @@ export default defineManifest({
     'system.display',
     'sidePanel',
     'tabs',
-    'alarms'
+    'alarms',
+    'notifications'
   ],
   side_panel: {
     default_path: 'src/sidepanel.html'

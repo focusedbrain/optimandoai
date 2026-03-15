@@ -5,13 +5,14 @@ import manifest from './manifest.config'
 import path from 'path'
 
 /**
- * Vite plugin: makes the preload-helper chunk safe for service workers.
+ * Vite plugin: makes the preload helper safe for service workers.
  *
- * Vite's default preload helper uses `document` and `window` which don't
- * exist in Chrome extension MV3 service workers.  This plugin patches the
- * generated helper to early-return from the import wrapper when `document`
- * is unavailable (i.e. in a service worker), while preserving full
- * preloading behaviour for content scripts, popups, and sidepanels.
+ * The background (service worker) imports the preload helper from the
+ * handshake-ui chunk, which contains React and DOM code. Loading that chunk
+ * in a service worker causes "document is not defined". This plugin:
+ * 1. Patches preload-helper chunks when they exist (legacy).
+ * 2. Replaces the background chunk's import of handshake-ui with an inline
+ *    SW-safe implementation so the background never loads DOM-dependent code.
  */
 function serviceWorkerSafePreload(): Plugin {
   return {
@@ -19,16 +20,32 @@ function serviceWorkerSafePreload(): Plugin {
     enforce: 'post',
     generateBundle(_options, bundle) {
       for (const [key, chunk] of Object.entries(bundle)) {
-        if (key.includes('preload-helper') && chunk.type === 'chunk') {
-          // Wrap the exported function so it skips DOM preloading when
-          // `document` is not available (service worker context).
+        if (chunk.type !== 'chunk') continue
+
+        // 1. Patch preload-helper chunks (if Vite emits a separate one)
+        if (key.includes('preload-helper')) {
           chunk.code = chunk.code.replace(
             /export\{(\w+) as _\}/,
             'const __swSafe = function(loader, deps, url) {' +
-            '  if (typeof document === "undefined") return loader();' +
-            '  return $1(loader, deps, url);' +
-            '};' +
-            'export { __swSafe as _ }'
+              '  if (typeof document === "undefined") return loader();' +
+              '  return $1(loader, deps, url);' +
+              '};' +
+              'export { __swSafe as _ }'
+          )
+          continue
+        }
+
+        // 2. Background chunk: replace handshake-ui import with SW-safe inline preload.
+        // The background imports { _ as J } from handshake-ui for dynamic import wrapping.
+        // handshake-ui contains React/DOM and fails in service workers.
+        const isBackground =
+          key.includes('background') &&
+          (key.endsWith('.js') || key.includes('background.ts'))
+        if (isBackground && chunk.code.includes('handshake-ui')) {
+          chunk.code = chunk.code.replace(
+            /import\{_ as (\w+)\}from["'][^"']*handshake-ui[^"']*["'];?/,
+            (_, localName) =>
+              `const ${localName}=(loader,deps,url)=>loader();`
           )
         }
       }
@@ -52,7 +69,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'build712',
+    outDir: 'build02',
     // Disable Vite's modulepreload polyfill — it references `document` and
     // `window` which don't exist in Chrome extension service workers (MV3).
     modulePreload: false,

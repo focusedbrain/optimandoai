@@ -12,6 +12,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Mock pdfjs-dist — it uses Promise.withResolvers (Node 22+) and fails in test env.
+// Browser extraction will fail, so tests exercise the Electron fallback path.
+vi.mock('pdfjs-dist', () => ({
+  getDocument: () => ({ promise: Promise.reject(new Error('PDF load failed (mocked)')) }),
+  GlobalWorkerOptions: {},
+  version: '4.4.168',
+}))
+
 import {
   isParseableFormat,
   assertNoSemanticContentInTransport,
@@ -360,8 +369,10 @@ describe('processAttachmentForRasterization', () => {
           width: 850,
           height: 1100,
           bytes: 45678,
-          sha256: 'abc123def456',
-          artefactRef: 'raster_test_p1_abc123.webp'
+          sha256: 'a'.repeat(64),
+          artefactRef: 'raster_test_p1_abc123.webp',
+          mime: 'image/webp',
+          base64: 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
         }],
         raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
       })
@@ -373,7 +384,7 @@ describe('processAttachmentForRasterization', () => {
     expect(result.error).toBeNull()
     expect(result.rasterProof).not.toBeNull()
     expect(result.rasterProof?.pagesRasterized).toBe(1)
-    expect(result.rasterProof?.pages[0].sha256).toBe('abc123def456')
+    expect(result.rasterProof?.pages[0].sha256).toBe('a'.repeat(64))
     expect(result.rasterProof?.pages[0].artefactRef).toBe('raster_test_p1_abc123.webp')
     expect(result.rasterProof?.pages[0].bytes).toBe(45678)
     expect(result.attachment.previewRef).toBe('raster_test_p1_abc123.webp')
@@ -392,8 +403,10 @@ describe('processAttachmentForRasterization', () => {
           width: 850,
           height: 1100,
           bytes: 45000 + i * 100,
-          sha256: `hash_page_${i + 1}`,
-          artefactRef: `raster_test_p${i + 1}_hash.webp`
+          sha256: 'a'.repeat(64),
+          artefactRef: `raster_test_p${i + 1}_hash.webp`,
+          mime: 'image/webp',
+          base64: 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
         })),
         raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
       })
@@ -419,9 +432,11 @@ describe('processAttachmentForRasterization', () => {
         width: 850,
         height: 1100,
         bytes: 45678,  // WEBP file size in bytes (not the actual image data)
-        sha256: 'abc123def456',
-        artefactRef: 'raster_test_p1_abc123.webp'
-        // Note: NO webpBytes, imageData, or any binary content
+        sha256: 'a'.repeat(64),
+        artefactRef: 'raster_test_p1_abc123.webp',
+        mime: 'image/webp',
+        base64: 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        // Note: NO webpBytes, imageData - base64 is raw base64 only
       }],
       raster: { engine: 'pdfjs', version: '4.10.38', dpi: 144 }
     }

@@ -53,10 +53,13 @@ import type { AiOutputEntry } from '../hooks/useBeapMessageAi'
 import { useBulkSend } from '../hooks/useBulkSend'
 import { useBulkClassification } from '../hooks/useBulkClassification'
 import { useReplyComposer } from '../hooks/useReplyComposer'
+import type { BeapAttachment } from '../beapInboxTypes'
 import { BeapReplyComposer } from './BeapReplyComposer'
 import { AiEntryContent } from './AiEntryContent'
+import { BeapAttachmentReader } from './BeapAttachmentReader'
 import { useMediaQuery, BULK_GRID_1COL, BULK_GRID_3COL } from '../hooks/useMediaQuery'
 import { useBeapInboxStore } from '../useBeapInboxStore'
+import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 
 // =============================================================================
 // Constants
@@ -91,6 +94,9 @@ const TRUST_BADGE: Record<TrustLevel, { label: string; color: string; bg: string
   standard:   { label: 'Standard',   color: '#16a34a', bg: 'rgba(34,197,94,0.15)'  },
   depackaged: { label: 'Email',      color: '#6b7280', bg: 'rgba(107,114,128,0.12)'},
 }
+
+const ORIGINAL_ACCESS_WARNING =
+  'This is an original artefact from outside the protected environment. Opening it carries inherent risk. The file will be opened outside the WRGuard™-protected boundary.'
 
 // =============================================================================
 // Public API types
@@ -574,6 +580,7 @@ interface MessagePairCellProps {
   onRetrySend?: (messageId: string) => void
   onViewHandshake?: (handshakeId: string) => void
   onViewInInbox?: (messageId: string) => void
+  onViewOriginal?: (messageId: string, attachment: BeapAttachment) => void
   replyComposerConfig?: import('../hooks/useReplyComposer').UseReplyComposerConfig
 }
 
@@ -592,8 +599,13 @@ const MessagePairCell: React.FC<MessagePairCellProps> = ({
   onRetrySend,
   onViewHandshake,
   onViewInInbox,
+  onViewOriginal,
   replyComposerConfig,
 }) => {
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
+  const [expandedAttachmentId, setExpandedAttachmentId] = useState<string | null>(null)
+  const [showWarningFor, setShowWarningFor] = useState<BeapAttachment | null>(null)
+
   const [composerState, composerActions] = useReplyComposer(
     message,
     replyComposerConfig ?? {},
@@ -780,28 +792,129 @@ const MessagePairCell: React.FC<MessagePairCellProps> = ({
               </div>
             )}
 
-            {/* Attachments */}
+            {/* Attachments — selection + reader + view original */}
             {message.attachments.length > 0 && (
-              <div style={{ marginTop: '8px' }}>
-                {message.attachments.slice(0, 3).map((att) => (
-                  <div
-                    key={att.attachmentId}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '5px',
-                      padding: '4px 6px', borderRadius: '5px', marginBottom: '3px',
-                      background: isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
-                      fontSize: '10px', color: mutedColor,
-                    }}
-                  >
-                    <span>📎</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                      {att.filename}
-                    </span>
-                  </div>
-                ))}
-                {message.attachments.length > 3 && (
+              <div style={{ marginTop: '8px' }} onClick={(e) => e.stopPropagation()}>
+                {message.attachments.slice(0, 5).map((att) => {
+                  const isSelected = att.attachmentId === selectedAttachmentId
+                  const isExpanded = att.attachmentId === expandedAttachmentId
+                  const hasSemantic = !!att.semanticContent?.trim()
+                  return (
+                    <div key={att.attachmentId} style={{ marginBottom: '4px' }}>
+                      <div
+                        onClick={() => setSelectedAttachmentId(isSelected ? null : att.attachmentId)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '5px',
+                          padding: '4px 6px', borderRadius: '5px',
+                          background: isSelected
+                            ? (isProfessional ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)')
+                            : (isProfessional ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)'),
+                          fontSize: '10px', color: mutedColor,
+                          cursor: 'pointer',
+                          border: isSelected ? `1px solid rgba(139,92,246,0.4)` : '1px solid transparent',
+                        }}
+                      >
+                        <span>📎</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {att.filename}
+                        </span>
+                        {hasSemantic && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setExpandedAttachmentId(isExpanded ? null : att.attachmentId) }}
+                            style={{
+                              padding: '1px 4px', fontSize: '9px', background: 'transparent',
+                              border: `1px solid ${borderColor}`, borderRadius: '3px',
+                              color: dimColor, cursor: 'pointer',
+                            }}
+                          >
+                            {isExpanded ? '▲' : '▼'}
+                          </button>
+                        )}
+                        {onViewOriginal && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowWarningFor(att) }}
+                            style={{
+                              padding: '1px 4px', fontSize: '9px',
+                              background: 'transparent', border: '1px solid rgba(245,158,11,0.5)',
+                              borderRadius: '3px', color: '#f59e0b', cursor: 'pointer',
+                            }}
+                          >
+                            Original
+                          </button>
+                        )}
+                      </div>
+                      {hasSemantic && isExpanded && (
+                        <div style={{ marginTop: '4px', marginLeft: '4px' }}>
+                          <BeapAttachmentReader
+                            attachment={att}
+                            isProfessional={isProfessional}
+                            maxHeight={120}
+                            showCopy={true}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {message.attachments.length > 5 && (
                   <div style={{ fontSize: '9px', color: dimColor, marginLeft: '6px' }}>
-                    +{message.attachments.length - 3} more
+                    +{message.attachments.length - 5} more
+                  </div>
+                )}
+                {/* Warning dialog */}
+                {showWarningFor && (
+                  <div
+                    style={{
+                      position: 'fixed', inset: 0, zIndex: 10000,
+                      background: 'rgba(0,0,0,0.5)', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}
+                    onClick={() => setShowWarningFor(null)}
+                  >
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        background: isProfessional ? '#fff' : '#1f2937',
+                        borderRadius: '8px', padding: '16px 20px', maxWidth: '340px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                        border: `1px solid ${borderColor}`,
+                      }}
+                    >
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+                        ⚠️ View original artefact
+                      </div>
+                      <p style={{ fontSize: '11px', color: mutedColor, margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                        {ORIGINAL_ACCESS_WARNING}
+                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                        <button
+                          onClick={() => setShowWarningFor(null)}
+                          style={{
+                            background: 'transparent', border: `1px solid ${borderColor}`,
+                            borderRadius: '6px', padding: '5px 10px', fontSize: '11px',
+                            color: mutedColor, cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            onViewOriginal?.(message.messageId, showWarningFor)
+                            setShowWarningFor(null)
+                          }}
+                          style={{
+                            background: isProfessional ? '#b45309' : '#f59e0b',
+                            border: 'none', borderRadius: '6px',
+                            padding: '5px 10px', fontSize: '11px',
+                            color: 'white', cursor: 'pointer',
+                          }}
+                        >
+                          Open Original
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1022,6 +1135,8 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     const isProfessional = theme === 'professional'
     const isDark = theme !== 'professional'
 
+    const { viewOriginal } = useViewOriginalArtefact()
+
     // Colors
     const textColor   = isProfessional ? '#1f2937' : 'white'
     const mutedColor  = isProfessional ? '#6b7280' : 'rgba(255,255,255,0.55)'
@@ -1062,6 +1177,10 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
       [getBulkViewPage, batchSize, pageIndex, selectedMessageId]
     )
     const { messages, totalPages, totalCount } = page
+
+    useEffect(() => {
+      console.log('[BEAP Bulk] Mounted')
+    }, [])
 
     // Ensure all visible message IDs have entries in aiState
     useEffect(() => {
@@ -1106,6 +1225,13 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     }))
 
     // ── Handlers ────────────────────────────────────────
+    const handleViewOriginal = useCallback(
+      async (messageId: string, attachment: BeapAttachment) => {
+        await viewOriginal(messageId, attachment)
+      },
+      [viewOriginal],
+    )
+
     const handleFocus = useCallback(
       (messageId: string) => {
         setFocusedMessageId(messageId)
@@ -1307,6 +1433,7 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
               onRetrySend={handleRetrySingle}
               onViewHandshake={onViewHandshake}
               onViewInInbox={onViewInInbox}
+              onViewOriginal={handleViewOriginal}
               replyComposerConfig={replyComposerConfig}
             />
           ))}

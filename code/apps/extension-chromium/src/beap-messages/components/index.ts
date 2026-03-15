@@ -24,6 +24,10 @@ export type { BeapMessageDetailPanelProps, BeapMessageDetailPanelHandle } from '
 export { BeapBulkInbox } from './BeapBulkInbox'
 export type { BeapBulkInboxProps, BeapBulkInboxHandle } from './BeapBulkInbox'
 
+// Attachment reader — shared semantic content viewer
+export { BeapAttachmentReader } from './BeapAttachmentReader'
+export type { BeapAttachmentReaderProps } from './BeapAttachmentReader'
+
 // Reply composer — shared component for inbox detail + bulk grid
 export { BeapReplyComposer } from './BeapReplyComposer'
 export type { BeapReplyComposerProps } from './BeapReplyComposer'
@@ -31,6 +35,9 @@ export type { BeapReplyComposerProps } from './BeapReplyComposer'
 // Inbox view orchestrator — full inbox UX with sidebar + detail + bulk + nav
 export { BeapInboxView } from './BeapInboxView'
 export type { BeapInboxViewProps, BeapInboxViewHandle } from './BeapInboxView'
+
+// Error boundary for inbox/builder (prevents blank panel on Linux or import failures)
+export { InboxErrorBoundary } from './InboxErrorBoundary'
 
 // Recipient selection components
 export { RecipientModeSwitch } from './RecipientModeSwitch'

@@ -377,7 +377,7 @@ export function useReplyComposer(
 
         // buildPackage validates config internally
         const buildResult = await buildPackage(packageConfig)
-        if (!buildResult.success || !buildResult.pkg) {
+        if (!buildResult.success || !buildResult.package) {
           throw new Error(buildResult.error ?? 'BEAP package build failed.')
         }
 
@@ -410,11 +410,11 @@ export function useReplyComposer(
         }
 
         const buildResult = await buildPackage(packageConfig)
-        if (!buildResult.success || !buildResult.pkg) {
+        if (!buildResult.success || !buildResult.package) {
           throw new Error(buildResult.error ?? 'Email package build failed.')
         }
 
-        const emailResult = await executeEmailAction(buildResult.pkg, packageConfig)
+        const emailResult = await executeEmailAction(buildResult.package, packageConfig)
         if (!emailResult.success) {
           throw new Error(emailResult.error ?? 'Email send failed.')
         }

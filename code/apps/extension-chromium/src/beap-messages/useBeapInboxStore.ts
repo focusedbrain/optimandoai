@@ -43,6 +43,12 @@ interface BeapInboxState {
    */
   messages: Map<string, BeapMessage>
 
+  /**
+   * Sanitised packages keyed by messageId.
+   * Used for retrieving original artefacts when user clicks "View Original".
+   */
+  packages: Map<string, SanitisedDecryptedPackage>
+
   /** Currently selected message ID (null when nothing is selected). */
   selectedMessageId: string | null
 
@@ -58,6 +64,9 @@ interface BeapInboxState {
 
   /** Get a single message by ID. O(1). */
   getMessageById: (messageId: string) => BeapMessage | null
+
+  /** Get the sanitised package for a message (for artefact retrieval). */
+  getPackageForMessage: (messageId: string) => SanitisedDecryptedPackage | null
 
   /** Get the currently selected message. */
   getSelectedMessage: () => BeapMessage | null
@@ -225,6 +234,7 @@ const NEW_MESSAGE_TTL_MS = 1000
 
 export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
   messages: new Map(),
+  packages: new Map(),
   selectedMessageId: null,
   newMessageIds: new Set(),
 
@@ -236,6 +246,10 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
 
   getMessageById: (messageId) => {
     return get().messages.get(messageId) ?? null
+  },
+
+  getPackageForMessage: (messageId) => {
+    return get().packages.get(messageId) ?? null
   },
 
   getSelectedMessage: () => {
@@ -297,9 +311,11 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
     set((state) => {
       const next = new Map(state.messages)
       next.set(msg.messageId, msg)
+      const nextPkgs = new Map(state.packages)
+      nextPkgs.set(msg.messageId, pkg)
       const nextNew = new Set(state.newMessageIds)
       nextNew.add(msg.messageId)
-      return { messages: next, newMessageIds: nextNew }
+      return { messages: next, packages: nextPkgs, newMessageIds: nextNew }
     })
     setTimeout(() => {
       set((state) => {
@@ -431,9 +447,13 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
     if (toDelete.length === 0) return toDelete
 
     set((state) => {
-      const next = new Map(state.messages)
-      for (const id of toDelete) next.delete(id)
-      return { messages: next }
+      const nextMessages = new Map(state.messages)
+      const nextPackages = new Map(state.packages)
+      for (const id of toDelete) {
+        nextMessages.delete(id)
+        nextPackages.delete(id)
+      }
+      return { messages: nextMessages, packages: nextPackages }
     })
 
     return toDelete

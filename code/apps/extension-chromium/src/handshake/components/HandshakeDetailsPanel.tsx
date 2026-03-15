@@ -17,6 +17,7 @@ import { useBeapInboxStore } from '../../beap-messages/useBeapInboxStore'
 import type { BeapMessage } from '../../beap-messages/beapInboxTypes'
 import { BeapMessageDetailPanel } from '../../beap-messages/components/BeapMessageDetailPanel'
 import type { BeapMessageDetailPanelHandle } from '../../beap-messages/components/BeapMessageDetailPanel'
+import { InboxErrorBoundary } from '../../beap-messages/components/InboxErrorBoundary'
 
 // =============================================================================
 // Types
@@ -380,11 +381,13 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
 
         {/* Split panel fills remaining space */}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-          <BeapMessageDetailPanel
-            ref={aiPanelRef}
-            theme={theme === 'default' ? 'dark' : theme}
-            replyComposerConfig={replyComposerConfig}
-          />
+          <InboxErrorBoundary componentName="HandshakeDetailsPanel-Messages" theme={theme === 'default' ? 'dark' : theme}>
+            <BeapMessageDetailPanel
+              ref={aiPanelRef}
+              theme={theme === 'default' ? 'dark' : theme}
+              replyComposerConfig={replyComposerConfig}
+            />
+          </InboxErrorBoundary>
         </div>
       </div>
     )
@@ -526,6 +529,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
       )}
 
       {activeTab === 'messages' && (
+        <InboxErrorBoundary componentName="HandshakeDetailsPanel-MessagesTab" theme={theme === 'default' ? 'dark' : theme}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {/* Messages tab content */}
           {messages.length === 0 ? (
@@ -578,6 +582,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
             </div>
           )}
         </div>
+        </InboxErrorBoundary>
       )}
 
       {/* ── Footer (always visible; message count clickable to switch to Messages) ── */}

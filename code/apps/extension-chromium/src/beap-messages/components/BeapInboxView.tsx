@@ -377,9 +377,14 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
 
     // Simulate initial load (real data arrives from store; just brief skeleton)
     useEffect(() => {
+      console.log('[BEAP Inbox] Mounted, subView:', subView)
       const timer = setTimeout(() => setIsLoading(false), 600)
       return () => clearTimeout(timer)
     }, [])
+
+    useEffect(() => {
+      console.log('[BEAP Inbox] subView changed:', subView)
+    }, [subView])
 
     const inboxMessages = getInboxMessages()
     const messageCount  = inboxMessages.length
