@@ -71,7 +71,7 @@ function shortId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 3)}…${id.slice(-6)}` : id
 }
 
-const SPECIAL_RESULT_IDS = ['vault-locked', 'no-embeddings', 'embedding-unavailable'] as const
+const SPECIAL_RESULT_IDS = ['vault-locked', 'no-embeddings', 'embedding-unavailable', 'degraded-no-match'] as const
 function isSpecialResult(r: SearchResult): boolean {
   return SPECIAL_RESULT_IDS.includes(r.id as typeof SPECIAL_RESULT_IDS[number])
 }
@@ -107,6 +107,24 @@ async function runSearch(query: string, scope: SearchScope | string): Promise<Se
         }]
       }
       return []
+    }
+    // Degraded mode: embedding unavailable, keyword fallback ran but no matches
+    if (result.degraded === 'keyword_fallback' && (!result.results || result.results.length === 0)) {
+      return [{
+        id: 'degraded-no-match',
+        title: 'Semantic search unavailable',
+        snippet: 'No keyword matches found. Ollama with an embedding model enables full semantic search.',
+        scope: 'context-graph',
+      }]
+    }
+    // Legacy: embedding_unavailable with empty results (pre-keyword-fallback)
+    if (result.degraded === 'embedding_unavailable' && (!result.results || result.results.length === 0)) {
+      return [{
+        id: 'degraded-no-match',
+        title: 'Structured search only',
+        snippet: 'Ollama with an embedding model enables full semantic search. No structured data matched your query.',
+        scope: 'context-graph',
+      }]
     }
     const raw = result.results ?? []
     return raw.map((r: Record<string, unknown>, i: number) => ({

@@ -67,6 +67,33 @@ import { vaultService } from '../vault/rpc'
 // ── Context Block Helpers ──
 
 const MAX_MESSAGE_BYTES = 32 * 1024
+
+/** Recursively collect string values from JSON for snippet display (avoids raw JSON in UI). */
+function collectStringsFromJson(val: unknown): string[] {
+  if (val == null) return []
+  if (typeof val === 'string') return [val]
+  if (typeof val === 'number' || typeof val === 'boolean') return [String(val)]
+  if (Array.isArray(val)) return val.flatMap((v) => collectStringsFromJson(v))
+  if (typeof val === 'object') return Object.values(val).flatMap((v) => collectStringsFromJson(v))
+  return []
+}
+
+/** Extract readable snippet from payload (JSON or plain text) for search result display. */
+function extractSnippetFromPayload(payload: string, maxLen = 200): string {
+  if (!payload || typeof payload !== 'string') return ''
+  const trimmed = payload.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed === 'string') return trimmed.length > maxLen ? trimmed.slice(0, maxLen) + '…' : trimmed
+    if (parsed && typeof parsed === 'object') {
+      const parts = collectStringsFromJson(parsed).filter(Boolean)
+      const text = parts.join(' ').replace(/\s+/g, ' ').trim()
+      return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
+    }
+  } catch { /* not JSON */ }
+  return trimmed.length > maxLen ? trimmed.slice(0, maxLen) + '…' : trimmed
+}
 const MAX_BLOCKS_PER_CAPSULE = 64
 
 /** Raw block from client; may include per-item policy (Phase 2) */
@@ -1190,13 +1217,94 @@ export async function handleHandshakeRPC(
       }
       const vs = (globalThis as any).__og_vault_service_ref as { getEmbeddingService?: () => any } | undefined
       const embeddingService = vs?.getEmbeddingService?.()
-      if (!embeddingService) {
-        return { success: false, error: 'embedding_unavailable' }
-      }
       const filter: { relationship_id?: string; handshake_id?: string } = {}
       if (typeof scope === 'string') {
         if (scope.startsWith('hs-')) filter.handshake_id = scope
         else if (scope.startsWith('rel-')) filter.relationship_id = scope
+      }
+      // Fallback scope: when no handshake selected, use most recent handshake with context
+      if (!filter.handshake_id && !filter.relationship_id && (scope === 'context-graph' || scope === 'all')) {
+        try {
+          const row = db.prepare(
+            `SELECT c.handshake_id FROM context_blocks c
+             INNER JOIN handshakes h ON h.handshake_id = c.handshake_id
+             WHERE h.state IN ('ACCEPTED','ACTIVE')
+             ORDER BY h.created_at DESC LIMIT 1`
+          ).get() as { handshake_id: string } | undefined
+          if (row?.handshake_id) filter.handshake_id = row.handshake_id
+        } catch { /* ignore */ }
+      }
+      // When embedding unavailable: run structured lookup, then keyword fallback
+      if (!embeddingService) {
+        try {
+          const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./structuredQuery')
+          const trimmed = (query ?? '').trim()
+          const classifierResult = queryClassifier(trimmed)
+          const pathForFetch = classifierResult.fieldPaths?.[0] ?? classifierResult.fieldPath
+          if (classifierResult.matched && pathForFetch) {
+            const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
+            if (blocks.length > 0) {
+              const structResult = classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0
+                ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
+                : structuredLookup(blocks, classifierResult.fieldPath!)
+              if (structResult.found && structResult.value && structResult.source) {
+                const label = pathForFetch.split('.').pop() ?? 'Structured Data'
+                const enriched = [{
+                  block_id: structResult.source.block_id,
+                  handshake_id: structResult.source.handshake_id,
+                  source: structResult.source.source ?? 'sent',
+                  snippet: structResult.value,
+                  payload_ref: structResult.value,
+                  score: 1,
+                  type: 'profile',
+                  governance_summary: 'No restrictions' as string,
+                }]
+                return { success: true, results: enriched, degraded: 'structured_only' }
+              }
+            }
+          }
+          // Keyword/text fallback when no structured match
+          const { keywordSearch } = await import('./keywordSearch')
+          const keywordResults = keywordSearch(db, trimmed, filter, limit ?? 20)
+          const { parseGovernanceJson, resolveEffectiveGovernance } = await import('./contextGovernance')
+          const enriched = keywordResults.map((r) => {
+            const row = db.prepare('SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?').get(r.handshake_id, r.block_id, r.block_hash) as { governance_json?: string } | undefined
+            const record = getHandshakeRecord(db, r.handshake_id)
+            let governance: ContextItemGovernance | null = null
+            if (record) {
+              const itemGov = parseGovernanceJson(row?.governance_json)
+              const legacy = {
+                block_id: r.block_id,
+                type: r.type,
+                data_classification: r.data_classification,
+                scope_id: r.scope_id,
+                sender_wrdesk_user_id: r.sender_wrdesk_user_id,
+                publisher_id: r.sender_wrdesk_user_id,
+                source: r.source,
+              }
+              governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+            }
+            const policy = governance?.usage_policy
+            let governance_summary: string
+            if (!policy) {
+              governance_summary = 'No restrictions'
+            } else if (policy.local_ai_allowed === false) {
+              governance_summary = 'No AI'
+            } else if (policy.cloud_ai_allowed === true) {
+              governance_summary = 'Cloud AI allowed'
+            } else if (policy.local_ai_allowed === true) {
+              governance_summary = 'Local AI only'
+            } else {
+              governance_summary = 'No restrictions'
+            }
+            const snippet = extractSnippetFromPayload(r.payload_ref ?? '')
+            return { ...r, governance_summary, snippet: snippet || r.payload_ref }
+          })
+          return { success: true, results: enriched, degraded: 'keyword_fallback' }
+        } catch (err: any) {
+          console.error('[IPC] semanticSearch degraded fallback error:', err?.message)
+          return { success: false, error: 'embedding_unavailable' }
+        }
       }
       try {
         const results = await semanticSearch(db, query ?? '', filter, limit ?? 20, embeddingService)

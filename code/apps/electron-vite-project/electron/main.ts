@@ -2791,10 +2791,16 @@ app.whenReady().then(async () => {
         const { scoredBlocksToRetrieved, buildRagPrompt, buildPrompt } = await import('./main/handshake/blockRetrieval')
 
         const embeddingUnavailable = !embeddingService
-        // When embedding unavailable: skip hybrid search, use empty context, still call LLM
+        // When embedding unavailable: use keyword fallback (same as Search) so Chat can answer from lexical matches
         let hybridResult: Awaited<ReturnType<typeof hybridSearch>>
         if (embeddingUnavailable) {
-          hybridResult = { mode: 'semantic', blocks: [], metrics: { classification_ms: 0, structured_ms: 0, semantic_ms: 0 } }
+          const { keywordSearch } = await import('./main/handshake/keywordSearch')
+          const keywordBlocks = keywordSearch(db, (params.query ?? '').trim(), filter, 5)
+          hybridResult = {
+            mode: 'semantic',
+            blocks: keywordBlocks,
+            metrics: { classification_ms: 0, structured_ms: 0, semantic_ms: 0 },
+          }
         } else {
           hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
         }
@@ -3087,7 +3093,12 @@ app.whenReady().then(async () => {
         }
 
         const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
-        const retrievalFailed = embeddingUnavailable || (retrievedBlocks.length === 0 && !allFiltered)
+        // retrievalFailed = true only when embedding/vector search failed (unavailable). When we could
+        // search but found nothing (or all filtered), use retrievalFailed=false → "retrieved blocks did
+        // not contain relevant information". When embedding unavailable but keyword fallback found
+        // matches, we have context → retrievalFailed=false. When embedding unavailable and no blocks →
+        // retrievalFailed=true → "contextual search unavailable".
+        const retrievalFailed = retrievedBlocks.length === 0 && embeddingUnavailable
         const followUpPatterns = [
           /what\s+does\s+(this|that|it)\s+mean/i,
           /explain\s+(this|that|it)/i,
