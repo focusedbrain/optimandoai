@@ -9,7 +9,7 @@ import BeapInboxDashboard from './components/BeapInboxDashboard'
 import BeapBulkInboxDashboard from './components/BeapBulkInboxDashboard'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 
-type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'bulk-inbox' | 'settings'
+type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
@@ -47,6 +47,7 @@ function App() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
+  const [bulkMode, setBulkMode] = useState(false)
 
   useEffect(() => {
     const root = document.documentElement
@@ -88,9 +89,9 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
-  // Clear selected message and attachment when switching away from inbox tabs
+  // Clear selected message and attachment when switching away from inbox
   useEffect(() => {
-    if (activeView !== 'beap-inbox' && activeView !== 'bulk-inbox') {
+    if (activeView !== 'beap-inbox') {
       setSelectedMessageId(null)
       setSelectedAttachmentId(null)
     }
@@ -118,14 +119,22 @@ function App() {
           <button
             className={`nav-tab${activeView === 'beap-inbox' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('beap-inbox')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            Inbox
-          </button>
-          <button
-            className={`nav-tab${activeView === 'bulk-inbox' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('bulk-inbox')}
-          >
-            Bulk Inbox
+            BEAP™ Inbox
+            <label
+              onClick={(e) => e.stopPropagation()}
+              style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer', fontSize: '12px' }}
+              title={bulkMode ? 'Switch to normal inbox' : 'Switch to bulk inbox'}
+            >
+              ⚡
+              <input
+                type="checkbox"
+                checked={bulkMode}
+                onChange={(e) => setBulkMode(e.target.checked)}
+                style={{ width: '14px', height: '14px', cursor: 'pointer', margin: 0 }}
+              />
+            </label>
           </button>
         </nav>
         <HybridSearch
@@ -152,33 +161,35 @@ function App() {
             onDocumentSelect={setSelectedDocumentId}
           />
         ) : activeView === 'beap-inbox' ? (
-          <BeapInboxDashboard
-            onMessageSelect={(id) => {
-              setSelectedMessageId(id)
-              if (!id) setSelectedAttachmentId(null)
-            }}
-            onAttachmentSelect={(_, attachmentId) => setSelectedAttachmentId(attachmentId)}
-            onSetSearchContext={() => {}}
-            selectedMessageId={selectedMessageId}
-            onNavigateToHandshake={(id) => {
-              setActiveView('handshakes')
-              setSelectedHandshakeId(id)
-              setSelectedHandshakeEmail(null)
-            }}
-          />
-        ) : activeView === 'bulk-inbox' ? (
-          <BeapBulkInboxDashboard
-            onSetSearchContext={() => {}}
-            onNavigateToHandshake={(id) => {
-              setActiveView('handshakes')
-              setSelectedHandshakeId(id)
-              setSelectedHandshakeEmail(null)
-            }}
-            onViewInInbox={(messageId) => {
-              setActiveView('beap-inbox')
-              setSelectedMessageId(messageId)
-            }}
-          />
+          bulkMode ? (
+            <BeapBulkInboxDashboard
+              onSetSearchContext={() => {}}
+              onNavigateToHandshake={(id) => {
+                setActiveView('handshakes')
+                setSelectedHandshakeId(id)
+                setSelectedHandshakeEmail(null)
+              }}
+              onViewInInbox={(messageId) => {
+                setBulkMode(false)
+                setSelectedMessageId(messageId)
+              }}
+            />
+          ) : (
+            <BeapInboxDashboard
+              onMessageSelect={(id) => {
+                setSelectedMessageId(id)
+                if (!id) setSelectedAttachmentId(null)
+              }}
+              onAttachmentSelect={(_, attachmentId) => setSelectedAttachmentId(attachmentId)}
+              onSetSearchContext={() => {}}
+              selectedMessageId={selectedMessageId}
+              onNavigateToHandshake={(id) => {
+                setActiveView('handshakes')
+                setSelectedHandshakeId(id)
+                setSelectedHandshakeEmail(null)
+              }}
+            />
+          )
         ) : activeView === 'settings' ? (
           <SettingsView />
         ) : (
