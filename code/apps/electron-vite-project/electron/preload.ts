@@ -437,6 +437,8 @@ contextBridge.exposeInMainWorld('relay', {
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) =>
+    ipcRenderer.invoke('email:sendEmail', accountId, payload),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

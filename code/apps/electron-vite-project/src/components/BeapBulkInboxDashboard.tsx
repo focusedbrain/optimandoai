@@ -2,12 +2,14 @@
  * BeapBulkInboxDashboard — Bulk inbox grid view for Electron dashboard.
  *
  * Full-width layout matching extension's BeapBulkInbox.
- * Toolbar with [+] Compose button. Same header bar, HybridSearch with pointing finger.
+ * Compose buttons [+] BEAP and [✉+] Email at bottom-right.
  */
 
 import { useState } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { BeapDraftComposer } from '@ext/beap-messages/components/BeapDraftComposer'
+import ComposeButtons from './ComposeButtons'
+import EmailComposeOverlay from './EmailComposeOverlay'
 
 const THEME = 'professional' as const
 
@@ -23,10 +25,11 @@ export default function BeapBulkInboxDashboard({
   onNavigateToHandshake,
   onViewInInbox,
 }: BeapBulkInboxDashboardProps) {
-  const [showComposeOverlay, setShowComposeOverlay] = useState(false)
+  const [showComposeOverlay, setShowComposeOverlay] = useState<'beap' | 'email' | null>(null)
 
   return (
     <div style={{
+      position: 'relative',
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
@@ -34,7 +37,7 @@ export default function BeapBulkInboxDashboard({
       background: 'var(--color-bg, #0f172a)',
       color: 'var(--color-text, #e2e8f0)',
     }}>
-      {/* Toolbar with + Compose */}
+      {/* Toolbar */}
       <div style={{
         padding: '10px 14px',
         borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
@@ -44,24 +47,9 @@ export default function BeapBulkInboxDashboard({
         flexShrink: 0,
       }}>
         <span style={{ fontSize: '13px', fontWeight: 700 }}>Bulk Inbox</span>
-        <button
-          onClick={() => setShowComposeOverlay(true)}
-          style={{
-            padding: '4px 10px',
-            fontSize: '11px',
-            fontWeight: 600,
-            background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
-            border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
-            borderRadius: '5px',
-            color: 'var(--color-accent, #a78bfa)',
-            cursor: 'pointer',
-          }}
-        >
-          + Compose
-        </button>
       </div>
 
-      {showComposeOverlay ? (
+      {showComposeOverlay === 'beap' ? (
         <div style={{
           flex: 1,
           display: 'flex',
@@ -77,7 +65,7 @@ export default function BeapBulkInboxDashboard({
           }}>
             <span style={{ fontSize: '13px', fontWeight: 700 }}>Compose</span>
             <button
-              onClick={() => setShowComposeOverlay(false)}
+              onClick={() => setShowComposeOverlay(null)}
               style={{
                 padding: '4px 10px',
                 fontSize: '11px',
@@ -97,12 +85,18 @@ export default function BeapBulkInboxDashboard({
               theme={THEME}
               onNotification={(msg, type) => {
                 if (type === 'success' && msg.toLowerCase().includes('sent')) {
-                  setShowComposeOverlay(false)
+                  setShowComposeOverlay(null)
                 }
               }}
             />
           </div>
         </div>
+      ) : showComposeOverlay === 'email' ? (
+        <EmailComposeOverlay
+          theme={THEME}
+          onClose={() => setShowComposeOverlay(null)}
+          onSent={() => setShowComposeOverlay(null)}
+        />
       ) : (
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <BeapBulkInbox
@@ -113,6 +107,12 @@ export default function BeapBulkInboxDashboard({
           />
         </div>
       )}
+
+      {/* Compose buttons — bottom-right */}
+      <ComposeButtons
+        onBeapClick={() => setShowComposeOverlay('beap')}
+        onEmailClick={() => setShowComposeOverlay('email')}
+      />
     </div>
   )
 }

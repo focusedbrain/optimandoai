@@ -17,6 +17,8 @@ import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
 import BeapMessageImportZone from './BeapMessageImportZone'
+import ComposeButtons from './ComposeButtons'
+import EmailComposeOverlay from './EmailComposeOverlay'
 
 const THEME = 'professional' as const
 
@@ -70,7 +72,7 @@ export default function BeapInboxDashboard({
   onSetSearchContext,
   onNavigateToHandshake,
 }: BeapInboxDashboardProps) {
-  const [showComposeOverlay, setShowComposeOverlay] = useState(false)
+  const [showComposeOverlay, setShowComposeOverlay] = useState<'beap' | 'email' | null>(null)
 
   usePendingP2PBeapIngestion()
 
@@ -110,6 +112,7 @@ export default function BeapInboxDashboard({
 
   return (
     <div style={{
+      position: 'relative',
       display: 'grid',
       gridTemplateColumns: gridCols,
       height: '100%',
@@ -280,7 +283,7 @@ export default function BeapInboxDashboard({
         minWidth: 320,
         minHeight: 0,
       }}>
-        {showComposeOverlay ? (
+        {showComposeOverlay === 'beap' ? (
           <>
             <div style={{
               padding: '8px 12px',
@@ -292,7 +295,7 @@ export default function BeapInboxDashboard({
             }}>
               <span style={{ fontSize: '13px', fontWeight: 700 }}>Compose</span>
               <button
-                onClick={() => setShowComposeOverlay(false)}
+                onClick={() => setShowComposeOverlay(null)}
                 style={{
                   padding: '4px 10px',
                   fontSize: '11px',
@@ -313,12 +316,18 @@ export default function BeapInboxDashboard({
                 onNotification={(msg, type) => {
                   console.log('[BeapInboxDashboard]', type, msg)
                   if (type === 'success' && msg.toLowerCase().includes('sent')) {
-                    setShowComposeOverlay(false)
+                    setShowComposeOverlay(null)
                   }
                 }}
               />
             </div>
           </>
+        ) : showComposeOverlay === 'email' ? (
+          <EmailComposeOverlay
+            theme={THEME}
+            onClose={() => setShowComposeOverlay(null)}
+            onSent={() => setShowComposeOverlay(null)}
+          />
         ) : effectiveSelectedId ? (
           <BeapMessageDetailPanel
             ref={detailPanelRef}
@@ -360,27 +369,15 @@ export default function BeapInboxDashboard({
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
             <BeapMessageImportZone />
-            <div style={{ marginTop: 16 }}>
-              <button
-                onClick={() => setShowComposeOverlay(true)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
-                  border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
-                  borderRadius: '8px',
-                  color: 'var(--color-accent, #a78bfa)',
-                  cursor: 'pointer',
-                }}
-              >
-                [+] New BEAP Message
-              </button>
-            </div>
           </div>
         </div>
       )}
+
+      {/* Compose buttons — bottom-right */}
+      <ComposeButtons
+        onBeapClick={() => setShowComposeOverlay('beap')}
+        onEmailClick={() => setShowComposeOverlay('email')}
+      />
     </div>
   )
 }

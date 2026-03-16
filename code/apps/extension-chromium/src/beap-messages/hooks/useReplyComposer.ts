@@ -47,7 +47,7 @@ import type { BeapPackageConfig, DeliveryResult } from '../services'
 // =============================================================================
 
 /** Mandatory WR Desk promotional email signature. */
-export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox with wrdesk.com\nhttps://wrdesk.com'
+export const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
 
 /** Derive a reply subject from a message. */
 export function deriveReplySubject(message: BeapMessage): string {
