@@ -1493,27 +1493,34 @@ function PopupChatApp() {
             <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, display: 'block', marginBottom: 4 }}>Body</label>
             <textarea value={emailComposeBody} onChange={(e) => setEmailComposeBody(e.target.value)} placeholder="Write your message..." rows={8} style={{ width: '100%', padding: '8px 10px', fontSize: 13, background: inputBg, border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, outline: 'none', resize: 'vertical' }} />
           </div>
-          {/* Attachments */}
+          {/* Attachments — same style as BEAP capsule builder (BeapDraftComposer) */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
               <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Attachments ({emailComposeAttachments.length})</label>
-              <button
-                onClick={() => emailComposeFileInputRef.current?.click()}
-                style={{
-                  padding: '4px 10px',
-                  background: isProTheme ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: isProTheme ? '#7c3aed' : '#c4b5fd',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                + Add File
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '11px', color: mutedColor }}>
+                  {emailComposeAttachments.length === 0 ? 'No file selected' : `${emailComposeAttachments.length} file(s) selected`}
+                </span>
+                <button
+                  onClick={() => emailComposeFileInputRef.current?.click()}
+                  style={{
+                    padding: '6px 12px',
+                    background: isStandard ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.25)',
+                    border: isStandard ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)',
+                    borderRadius: '6px',
+                    color: isStandard ? '#7c3aed' : '#c4b5fd',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Choose Files
+                </button>
+              </div>
             </div>
             <input ref={emailComposeFileInputRef} type="file" multiple onChange={handleEmailComposeFileSelect} style={{ display: 'none' }} />
             {emailComposeAttachments.length > 0 && (
@@ -1527,10 +1534,10 @@ function PopupChatApp() {
                     </div>
                     <button
                       onClick={() => removeEmailComposeAttachment(i)}
-                      style={{ background: 'none', border: 'none', borderRadius: 4, color: mutedColor, cursor: 'pointer', padding: '2px 6px', fontSize: 13 }}
+                      style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '14px', padding: '0 4px' }}
                       title="Remove"
                     >
-                      ✕
+                      ×
                     </button>
                   </div>
                 ))}
