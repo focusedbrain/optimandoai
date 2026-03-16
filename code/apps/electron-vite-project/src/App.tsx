@@ -121,7 +121,7 @@ function App() {
             onClick={() => setActiveView('beap-inbox')}
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            BEAP™ Inbox
+            Inbox
             <label
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer', fontSize: '12px' }}

@@ -994,55 +994,47 @@ async function createWindow() {
         })
       }
     })
-    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
-    ipcMain.on('OPEN_BEAP_INBOX', () => {
-      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
-      
+    // Helper: open BEAP popup with given launchMode (dashboard-beap | dashboard-beap-draft)
+    const openBeapPopup = (launchMode: 'dashboard-beap' | 'dashboard-beap-draft') => {
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
       let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
       if (win) {
         const dashBounds = win.getBounds()
-        bounds = {
-          x: dashBounds.x,
-          y: dashBounds.y,
-          width: dashBounds.width,
-          height: dashBounds.height
-        }
-        if (win.isFullScreen()) {
-          windowState = 'fullscreen'
-        } else if (win.isMaximized()) {
-          windowState = 'maximized'
-        }
+        bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
+        if (win.isFullScreen()) windowState = 'fullscreen'
+        else if (win.isMaximized()) windowState = 'maximized'
       }
-      
-      // Disable alwaysOnTop so the Chrome popup appears above the dashboard.
-      // The blur handler is also suppressed while popupIsOpen is true.
       popupIsOpen = true
       if (win && !win.isDestroyed()) {
         win.setAlwaysOnTop(false)
-        win.minimize()
       }
-      
-      // Send message to Chrome extension via WebSocket to open the popup.
-      // Only send to first client to avoid opening duplicate popups when multiple connections exist.
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
         theme: currentExtensionTheme,
-        launchMode: 'dashboard-beap',
-        bounds: bounds,
-        windowState: windowState
+        launchMode,
+        bounds,
+        windowState
       })
       const client = wsClients[0]
       if (client) {
         try {
           client.send(message)
-          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with bounds')
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with launchMode:', launchMode)
         } catch (e) {
           console.error('[MAIN] Error sending to extension:', e)
         }
       } else {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
+    }
+    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
+    ipcMain.on('OPEN_BEAP_INBOX', () => {
+      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
+      openBeapPopup('dashboard-beap')
+    })
+    ipcMain.on('OPEN_BEAP_DRAFT', () => {
+      console.log('[MAIN] 📨 BEAP Draft requested from dashboard')
+      openBeapPopup('dashboard-beap-draft')
     })
 
     ipcMain.on('OPEN_HANDSHAKE_REQUEST', () => {

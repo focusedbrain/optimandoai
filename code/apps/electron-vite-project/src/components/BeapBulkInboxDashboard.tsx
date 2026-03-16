@@ -5,11 +5,8 @@
  * Compose buttons [+] BEAP and [✉+] Email at bottom-right.
  */
 
-import { useState } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
-import { BeapDraftComposer } from '@ext/beap-messages/components/BeapDraftComposer'
 import ComposeButtons from './ComposeButtons'
-import EmailComposeOverlay from './EmailComposeOverlay'
 
 const THEME = 'professional' as const
 
@@ -25,8 +22,6 @@ export default function BeapBulkInboxDashboard({
   onNavigateToHandshake,
   onViewInInbox,
 }: BeapBulkInboxDashboardProps) {
-  const [showComposeOverlay, setShowComposeOverlay] = useState<'beap' | 'email' | null>(null)
-
   return (
     <div style={{
       position: 'relative',
@@ -110,8 +105,8 @@ export default function BeapBulkInboxDashboard({
 
       {/* Compose buttons — bottom-right */}
       <ComposeButtons
-        onBeapClick={() => setShowComposeOverlay('beap')}
-        onEmailClick={() => setShowComposeOverlay('email')}
+        onBeapClick={() => window.analysisDashboard?.openBeapDraft?.()}
+        onEmailClick={() => {}}
       />
     </div>
   )

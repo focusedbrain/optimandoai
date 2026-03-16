@@ -335,6 +335,9 @@ function PopupChatApp() {
     } else if (launchMode === 'dashboard-beap') {
       setDockedWorkspace('beap-messages')
       setBeapSubmode('inbox')
+    } else if (launchMode === 'dashboard-beap-draft') {
+      setDockedWorkspace('beap-messages')
+      setBeapSubmode('draft')
     } else if (launchMode === 'dashboard-handshake-request') {
       setDockedWorkspace('wr-chat')
       setDockedSubmode('handshake')
