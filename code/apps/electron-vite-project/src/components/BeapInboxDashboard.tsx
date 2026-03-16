@@ -13,6 +13,7 @@ import { useEffect, useCallback, useRef, useState } from 'react'
 import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
+import EmailConnectModal from './EmailConnectModal'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
@@ -83,6 +84,13 @@ export default function BeapInboxDashboard({
   const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
+  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
+
+  const notify = useCallback((msg: string, type: 'success' | 'error' | 'info') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3000)
+  }, [])
 
   const loadEmailAccounts = useCallback(async () => {
     if (typeof (window as any).emailAccounts?.listAccounts !== 'function') {
@@ -106,29 +114,21 @@ export default function BeapInboxDashboard({
     loadEmailAccounts()
   }, [loadEmailAccounts])
 
-  const handleConnectEmail = useCallback(async () => {
-    try {
-      if (typeof (window as any).emailAccounts?.connectGmail === 'function') {
-        const res = await (window as any).emailAccounts!.connectGmail('Gmail Account')
-        if (res?.ok) loadEmailAccounts()
-      } else {
-        window.analysisDashboard?.openEmailCompose?.()
-      }
-    } catch {
-      window.analysisDashboard?.openEmailCompose?.()
-    }
-  }, [loadEmailAccounts])
+  const handleConnectEmail = useCallback(() => {
+    setShowEmailConnectModal(true)
+  }, [])
 
   const handleDisconnectEmail = useCallback(async (id: string) => {
     try {
       if (typeof (window as any).emailAccounts?.deleteAccount === 'function') {
         await (window as any).emailAccounts!.deleteAccount(id)
         loadEmailAccounts()
+        notify('Email account disconnected', 'info')
       }
     } catch {
-      // ignore
+      notify('Failed to disconnect account', 'error')
     }
-  }, [loadEmailAccounts])
+  }, [loadEmailAccounts, notify])
   const effectiveSelectedId = storeSelectedId ?? selectedMessageIdProp
 
   // Sync prop to store (e.g. when navigating from Bulk Inbox)
@@ -384,6 +384,36 @@ export default function BeapInboxDashboard({
             <BeapMessageImportZone />
           </div>
         </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 12,
+            right: 16,
+            zIndex: 1001,
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            background: toast.type === 'success' ? '#d1fae5' : toast.type === 'error' ? '#fee2e2' : '#e0e7ff',
+            color: toast.type === 'success' ? '#065f46' : toast.type === 'error' ? '#991b1b' : '#3730a3',
+          }}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Email Connect Modal */}
+      {showEmailConnectModal && (
+        <EmailConnectModal
+          onClose={() => setShowEmailConnectModal(false)}
+          onConnected={loadEmailAccounts}
+          onNotify={notify}
+        />
       )}
 
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
