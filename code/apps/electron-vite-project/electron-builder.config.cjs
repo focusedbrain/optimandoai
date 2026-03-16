@@ -1,7 +1,7 @@
 /**
  * Electron Builder config with cross-platform output paths.
  * Auto-detects the OS at build time:
- *   - Windows: C:\build-output\build001
+ *   - Windows: C:\build-output\build002
  *   - Linux / macOS: dist/release (relative, avoids path errors)
  *
  * This file is the single source of truth for the output directory.
@@ -14,7 +14,7 @@ const fs = require('fs')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build001'
+    return 'C:\\build-output\\build003'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')
@@ -66,6 +66,15 @@ module.exports = {
     ...baseConfig.directories,
     output: getOutputDir(),
   },
+  // Unpack pg and sub-packages — asar path resolution fails for pg's dynamic requires
+  asarUnpack: [
+    ...(baseConfig.asarUnpack || []),
+    'node_modules/pg/**',
+    'node_modules/pg-*/**',
+    'node_modules/pgpass/**',
+    'node_modules/postgres-*/**',
+    'node_modules/pg-int8/**',
+  ],
   // Exclude the output dir itself from the packaged files to prevent nesting.
   // Include node_modules so pg and other runtime deps are bundled (files overrides default).
   files: [
