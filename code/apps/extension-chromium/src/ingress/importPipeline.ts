@@ -63,8 +63,9 @@ const BEAP_INSERT_PATTERN = /^📦\s*BEAP|^\[BEAP\]|^BEAP™|^---\s*beap/i
 
 /**
  * BEAP package file signature (minimal check)
+ * Includes header (qBEAP/pBEAP), envelope, beap
  */
-const BEAP_FILE_SIGNATURE = /^{"beap"|^\{[\s\n]*"envelope"/
+const BEAP_FILE_SIGNATURE = /^{"beap"|^\{[\s\n]*"envelope"|^\{[\s\n]*"header"/
 
 /**
  * Validate import payload with minimal parsing
@@ -246,7 +247,7 @@ export async function importBeapMessage(
     let identityHint: IdentityHint = 'unknown'
     if (source === 'email' && options?.emailSender) {
       identityHint = `email:${options.emailSender}`
-    } else if (source === 'messenger' || source === 'download') {
+    } else if (source === 'messenger' || source === 'download' || source === 'p2p') {
       identityHint = 'local'
     }
     
@@ -276,7 +277,7 @@ export async function importBeapMessage(
         ? envelope.senderFingerprint.slice(0, 12) + '...'
         : '—',
       fingerprintFull: envelope.senderFingerprint,
-      deliveryMethod: source === 'email' ? 'email' : source === 'messenger' ? 'messenger' : 'download',
+      deliveryMethod: source === 'email' ? 'email' : source === 'messenger' ? 'messenger' : source === 'p2p' ? 'p2p' : 'download',
       title: capsuleRef.titleHint || `Imported Package (${source})`,
       timestamp: Date.now(),
       bodyText: '[Encrypted - Verification Required]',

@@ -23,6 +23,8 @@ export interface HandshakeRecord {
   readonly peerX25519PublicKey?: string
   /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
   readonly peerPQPublicKey?: string
+  /** Counterparty's P2P endpoint (for P2P delivery) */
+  readonly p2pEndpoint?: string | null
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──
@@ -48,6 +50,8 @@ export interface SelectedHandshakeRecipient {
   readonly peerX25519PublicKey?: string
   /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */
   readonly peerPQPublicKey?: string
+  /** Counterparty's P2P endpoint (for P2P delivery) */
+  readonly p2pEndpoint?: string | null
 }
 
 /**

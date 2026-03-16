@@ -31,7 +31,8 @@ import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
-import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView } from './beap-messages'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox } from './beap-messages'
+import type { BeapBulkInboxHandle } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { BeapInboxView } from './beap-messages/components/BeapInboxView'
 import type { BeapInboxViewHandle } from './beap-messages/components/BeapInboxView'
@@ -130,7 +131,7 @@ function SidepanelOrchestrator() {
   // Command chat state - workspace + submode like popup
   const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'>('wr-chat')
   const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake' | 'beap-draft'>('command')
-  const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'>('draft')
+  const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected' | 'bulk-inbox'>('draft')
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
@@ -184,6 +185,7 @@ function SidepanelOrchestrator() {
   // message or handshake is selected. Used as the dynamic textarea placeholder.
   const [searchBarContext, setSearchBarContext] = React.useState<string>('')
   const inboxViewRef = React.useRef<BeapInboxViewHandle>(null)
+  const bulkInboxRef = React.useRef<BeapBulkInboxHandle>(null)
   const pendingInboxAiRef = React.useRef<{ messageId: string; query: string } | null>(null)
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
@@ -345,7 +347,7 @@ function SidepanelOrchestrator() {
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
   
   // BEAP Handshake Request delivery state (used in draft panels)
-  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
+  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('email')
   const [handshakeTo, setHandshakeTo] = useState('')
   const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
   const [handshakeMessage, setHandshakeMessage] = useState('')
@@ -523,7 +525,7 @@ function SidepanelOrchestrator() {
         
         if (result.success) {
           const actionLabel = handshakeDelivery === 'download' ? 'BEAP capsule downloaded' 
-            : handshakeDelivery === 'messenger' ? 'Payload copied to clipboard!' 
+            : handshakeDelivery === 'p2p' ? 'BEAP™ Message sent via P2P!' 
             : 'BEAP™ Message sent!'
           setNotification({ message: actionLabel, type: 'success' })
           setBeapDraftTo('')
@@ -550,7 +552,7 @@ function SidepanelOrchestrator() {
     if (isSendingBeap) return '⏳ Processing...'
     switch (handshakeDelivery) {
       case 'email': return '📧 Send'
-      case 'messenger': return '📋 Copy'
+      case 'p2p': return '🔗 Send'
       case 'download': return '💾 Download'
       default: return '📤 Send'
     }
@@ -2688,8 +2690,13 @@ function SidepanelOrchestrator() {
   const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
     const ctx = pendingInboxAiRef.current
     if (ctx) {
-      inboxViewRef.current?.appendAiEntry({ query: ctx.query, content: response, type: 'text', source: 'search' })
-      inboxViewRef.current?.stopGenerating()
+      if (ctx.isBulk) {
+        bulkInboxRef.current?.handleExternalAiQuery(ctx.query, ctx.messageId, response, 'text', 'search')
+        bulkInboxRef.current?.stopGenerating(ctx.messageId)
+      } else {
+        inboxViewRef.current?.appendAiEntry({ query: ctx.query, content: response, type: 'text', source: 'search' })
+        inboxViewRef.current?.stopGenerating()
+      }
       pendingInboxAiRef.current = null
     }
   }, [])
@@ -3000,8 +3007,13 @@ function SidepanelOrchestrator() {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
       }, 0)
     } finally {
-      if (pendingInboxAiRef.current) {
-        inboxViewRef.current?.stopGenerating()
+      const ctx = pendingInboxAiRef.current
+      if (ctx) {
+        if (ctx.isBulk) {
+          bulkInboxRef.current?.stopGenerating(ctx.messageId)
+        } else {
+          inboxViewRef.current?.stopGenerating()
+        }
         pendingInboxAiRef.current = null
       }
       setIsLlmLoading(false)
@@ -4113,6 +4125,7 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <option value="inbox">📥 Inbox</option>
+                      <option value="bulk-inbox">⚡ Bulk Inbox</option>
                       <option value="draft">✏️ Draft</option>
                       <option value="outbox">📤 Outbox</option>
                       <option value="archived">📁 Archived</option>
@@ -4847,6 +4860,38 @@ function SidepanelOrchestrator() {
                   )}
                   
                   {/* ========================================== */}
+                  {/* BULK INBOX VIEW */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'bulk-inbox' && (
+                    <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                      <BeapBulkInbox
+                        ref={bulkInboxRef}
+                        theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                        onSetSearchContext={setSearchBarContext}
+                        onAiQuery={(query, messageId) => {
+                          pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                          bulkInboxRef.current?.startGenerating(messageId)
+                          setChatInput(query)
+                          handleSendMessage()
+                        }}
+                        onViewHandshake={(handshakeId) => {
+                          setDockedWorkspace('wrguard')
+                          useWRGuardStore.getState().setActiveSection('handshakes')
+                          useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                        }}
+                        onViewInInbox={(messageId) => {
+                          setBeapSubmode('inbox')
+                          useBeapInboxStore.getState().selectMessage(messageId)
+                        }}
+                        replyComposerConfig={{
+                          senderFingerprint: ourFingerprint,
+                          senderFingerprintShort: ourFingerprintShort,
+                        }}
+                      />
+                    </InboxErrorBoundary>
+                  )}
+                  
+                  {/* ========================================== */}
                   {/* DRAFT VIEW - Main UI */}
                   {/* ========================================== */}
                   {beapSubmode === 'draft' && (
@@ -4858,7 +4903,7 @@ function SidepanelOrchestrator() {
                     </label>
                     <select
                       value={handshakeDelivery}
-                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')}
                       style={{
                         width: '100%',
                         padding: '10px 12px',
@@ -4871,7 +4916,7 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                       <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                     </select>
                   </div>
@@ -5416,7 +5461,7 @@ function SidepanelOrchestrator() {
                         gap: '6px'
                       }}
                     >
-                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'p2p' ? '🔗 Send' : '💾 Download'}
                     </button>
                   </div>
                     </>
@@ -5869,6 +5914,7 @@ function SidepanelOrchestrator() {
                     }}
                   >
                     <option value="inbox">📥 Inbox</option>
+                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
                     <option value="draft">✏️ Draft</option>
                     <option value="outbox">📤 Outbox</option>
                     <option value="archived">📁 Archived</option>
@@ -6394,6 +6440,34 @@ height: '28px',
                     onNavigateToDraft={() => setBeapSubmode('draft')}
                   />
                 )}
+                {beapSubmode === 'bulk-inbox' && (
+                  <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                    <BeapBulkInbox
+                      ref={bulkInboxRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId) => {
+                        pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                        bulkInboxRef.current?.startGenerating(messageId)
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      onViewHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onViewInInbox={(messageId) => {
+                        setBeapSubmode('inbox')
+                        useBeapInboxStore.getState().selectMessage(messageId)
+                      }}
+                      replyComposerConfig={{
+                        senderFingerprint: ourFingerprint,
+                        senderFingerprintShort: ourFingerprintShort,
+                      }}
+                    />
+                  </InboxErrorBoundary>
+                )}
                 
                 {/* Draft view - EMAIL ACCOUNTS + BEAP Message */}
                 {beapSubmode === 'draft' && (
@@ -6402,9 +6476,9 @@ height: '28px',
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
@@ -6987,6 +7061,7 @@ height: '28px',
                     }}
                   >
                     <option value="inbox">📥 Inbox</option>
+                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
                     <option value="draft">✏️ Draft</option>
                     <option value="outbox">📤 Outbox</option>
                     <option value="archived">📁 Archived</option>
@@ -7511,6 +7586,34 @@ height: '28px',
                     onNavigateToDraft={() => setBeapSubmode('draft')}
                   />
                 )}
+                {beapSubmode === 'bulk-inbox' && (
+                  <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                    <BeapBulkInbox
+                      ref={bulkInboxRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId) => {
+                        pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                        bulkInboxRef.current?.startGenerating(messageId)
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      onViewHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onViewInInbox={(messageId) => {
+                        setBeapSubmode('inbox')
+                        useBeapInboxStore.getState().selectMessage(messageId)
+                      }}
+                      replyComposerConfig={{
+                        senderFingerprint: ourFingerprint,
+                        senderFingerprintShort: ourFingerprintShort,
+                      }}
+                    />
+                  </InboxErrorBoundary>
+                )}
                 
                 {/* Draft view */}
                 {beapSubmode === 'draft' && (
@@ -7519,9 +7622,9 @@ height: '28px',
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>

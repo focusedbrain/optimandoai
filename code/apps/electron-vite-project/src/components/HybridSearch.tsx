@@ -34,6 +34,7 @@ interface HybridSearchProps {
   selectedHandshakeId?: string | null
   selectedHandshakeEmail?: string | null
   selectedDocumentId?: string | null
+  selectedMessageId?: string | null
 }
 
 // ── LLM Models (loaded from backend) ──
@@ -227,7 +228,7 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
 
 // ── Component ──
 
-export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null }: HybridSearchProps) {
+export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null, selectedMessageId = null }: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -451,6 +452,14 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           Scope: Handshake → {selectedHandshakeEmail}
         </div>
       )}
+      {selectedMessageId && !selectedHandshakeId && (
+        <div style={{
+          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px',
+        }}>
+          Scope: BEAP Message
+        </div>
+      )}
       <div className="hs-bar">
 
         {/* ── Left: mode toggle + scope ── */}
@@ -519,8 +528,8 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
         </div>
 
         {/* ── Centre: main input ── */}
-        {selectedHandshakeId && (
-          <span style={{ marginRight: '8px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0 }} title="Chat scoped to selected handshake">👉</span>
+        {(selectedHandshakeId || selectedMessageId) && (
+          <span style={{ marginRight: '8px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0 }} title={selectedHandshakeId ? 'Chat scoped to selected handshake' : 'Chat scoped to selected BEAP message'}>👉</span>
         )}
         <input
           ref={inputRef}
@@ -529,7 +538,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           placeholder={
             mode === 'actions'
               ? 'Describe an action to draft, analyze, or automate…'
-              : (selectedHandshakeId ? 'Ask a question about the context…' : 'AI Assistant across the BEAP Ecosystem')
+              : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
           }
           value={query}
           onChange={e => setQuery(e.target.value)}

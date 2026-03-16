@@ -8,7 +8,7 @@
 import http from 'http'
 import https from 'https'
 import { readFileSync } from 'fs'
-import { getHandshakeRecord } from '../handshake/db'
+import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion/persistenceDb'
@@ -57,6 +57,37 @@ function parseHandshakeIdMinimal(body: string): string | null {
   const parsed = JSON.parse(body) as Record<string, unknown>
   const id = parsed?.handshake_id
   return typeof id === 'string' ? id : null
+}
+
+/**
+ * Detect BEAP message package (qBEAP/pBEAP) vs handshake capsule.
+ * Handshake capsules have capsule_type. BEAP message packages have header + metadata, no capsule_type.
+ */
+function isBeapMessagePackage(body: unknown): boolean {
+  return (
+    body != null &&
+    typeof body === 'object' &&
+    'header' in (body as object) &&
+    'metadata' in (body as object) &&
+    !('capsule_type' in (body as object))
+  )
+}
+
+function getHandshakeIdForBeapMessage(
+  parsed: Record<string, unknown>,
+  headers: http.IncomingHttpHeaders
+): string | null {
+  const h = headers['x-beap-handshake']
+  if (typeof h === 'string' && h.trim().length > 0) return h.trim()
+  const header = parsed?.header
+  if (header && typeof header === 'object') {
+    const rb = (header as Record<string, unknown>)?.receiver_binding
+    if (rb && typeof rb === 'object' && 'handshake_id' in rb) {
+      const id = (rb as Record<string, unknown>).handshake_id
+      if (typeof id === 'string' && id.trim().length > 0) return id.trim()
+    }
+  }
+  return null
 }
 
 const STATUS_ERROR_MESSAGES: Record<number, string> = {
@@ -131,14 +162,18 @@ function createP2PRequestHandler(
     const body = Buffer.concat(chunks).toString('utf8')
 
     // Valid JSON
-    let handshakeId: string | null = null
+    let parsed: Record<string, unknown>
     try {
-      handshakeId = parseHandshakeIdMinimal(body)
+      parsed = JSON.parse(body) as Record<string, unknown>
     } catch {
       sendGenericError(res, 400, ip, 'invalid_json')
       return
     }
 
+    let handshakeId: string | null = parseHandshakeIdMinimal(body)
+    if (!handshakeId && isBeapMessagePackage(parsed)) {
+      handshakeId = getHandshakeIdForBeapMessage(parsed, req.headers)
+    }
     if (!handshakeId || typeof handshakeId !== 'string' || handshakeId.trim().length === 0) {
       sendGenericError(res, 400, ip, 'missing_handshake_id')
       return
@@ -171,7 +206,16 @@ function createP2PRequestHandler(
       return
     }
 
-    // Feed to ingestion pipeline
+    // BEAP message package (qBEAP/pBEAP): store in p2p_pending_beap for extension ingestion
+    if (isBeapMessagePackage(parsed)) {
+      ensureHandshakeMigration(db)
+      insertPendingP2PBeap(db, handshakeId, body)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ accepted: true }))
+      return
+    }
+
+    // Feed to ingestion pipeline (handshake capsules)
     const rawInput = {
       body,
       mime_type: 'application/vnd.beap+json' as const,

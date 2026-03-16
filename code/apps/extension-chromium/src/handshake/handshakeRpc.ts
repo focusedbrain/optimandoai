@@ -220,6 +220,49 @@ export async function deleteHandshake(handshakeId: string): Promise<{ success: b
 }
 
 /**
+ * Fetch pending P2P BEAP message packages (received via P2P, awaiting ingestion).
+ */
+export interface PendingP2PBeapEntry {
+  id: number
+  handshake_id: string
+  package_json: string
+  created_at: string
+}
+
+export async function getPendingP2PBeapMessages(): Promise<PendingP2PBeapEntry[]> {
+  const res = await sendHandshakeRpc<{ type: string; items: PendingP2PBeapEntry[] }>(
+    'handshake.getPendingP2PBeapMessages',
+    {}
+  )
+  return res?.items ?? []
+}
+
+/**
+ * Acknowledge a pending P2P BEAP message as processed (marks it in DB).
+ */
+export async function ackPendingP2PBeap(id: number): Promise<void> {
+  await sendHandshakeRpc<{ success: boolean; error?: string }>(
+    'handshake.ackPendingP2PBeap',
+    { id }
+  )
+}
+
+/**
+ * Send a BEAP package via P2P relay to the handshake counterparty.
+ * @param handshakeId - Handshake ID for the recipient
+ * @param packageJson - JSON string of the BEAP package
+ */
+export async function sendBeapViaP2P(
+  handshakeId: string,
+  packageJson: string
+): Promise<{ success: boolean; error?: string }> {
+  return sendHandshakeRpc<{ success: boolean; error?: string }>(
+    'handshake.sendBeapViaP2P',
+    { handshakeId, packageJson }
+  )
+}
+
+/**
  * Normalize a backend HandshakeRecord into the extension-side projection.
  * The backend stores initiator/acceptor as nested objects; we flatten to
  * counterparty_email / counterparty_user_id for the UI.
@@ -242,6 +285,7 @@ function normalizeRecord(raw: any): HandshakeRecord {
     activated_at: raw.activated_at ?? undefined,
     peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
     peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
+    p2pEndpoint: raw.p2p_endpoint ?? undefined,
   }
 }
 

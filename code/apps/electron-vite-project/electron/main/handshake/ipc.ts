@@ -14,6 +14,8 @@ import {
   listHandshakeRecords,
   deleteHandshakeRecord,
   updateHandshakeSigningKeys,
+  getPendingP2PBeapMessages,
+  markP2PPendingBeapProcessed,
 } from './db'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, isHandshakeActive } from './enforcement'
@@ -395,6 +397,19 @@ export async function handleHandshakeRPC(
       return { record }
     }
 
+    case 'handshake.getPendingP2PBeapMessages': {
+      const items = getPendingP2PBeapMessages(db)
+      return { type: 'p2p-pending-beap-list', items }
+    }
+
+    case 'handshake.ackPendingP2PBeap': {
+      const { id } = params as { id: number }
+      if (typeof id !== 'number') return { success: false, error: 'id is required' }
+      if (!db) return { success: false, error: 'Database unavailable' }
+      markP2PPendingBeapProcessed(db, id)
+      return { success: true }
+    }
+
     case 'handshake.requestContextBlocks': {
       const { handshakeId, scopes, purpose } = params
       const auth = authorizeAction(db, handshakeId, 'read-context', scopes ?? [], new Date())
@@ -543,6 +558,32 @@ export async function handleHandshakeRPC(
       if (!handshakeId) return { success: false, error: 'handshakeId is required' }
       const result = deleteHandshakeRecord(db, handshakeId)
       return result.success ? { success: true } : { success: false, error: result.error }
+    }
+
+    case 'handshake.sendBeapViaP2P': {
+      const { handshakeId, packageJson } = params as { handshakeId: string; packageJson: string }
+      if (!handshakeId || !packageJson) {
+        return { success: false, error: 'handshakeId and packageJson are required' }
+      }
+      if (!db) return { success: false, error: 'Database unavailable' }
+      const record = getHandshakeRecord(db, handshakeId)
+      if (!record) return { success: false, error: 'Handshake not found' }
+      if (!isHandshakeActive(db, handshakeId, new Date())) {
+        return { success: false, error: 'Handshake is not active' }
+      }
+      const targetEndpoint = record.p2p_endpoint?.trim()
+      if (!targetEndpoint) {
+        return { success: false, error: 'Recipient has no P2P endpoint' }
+      }
+      let pkg: object
+      try {
+        pkg = JSON.parse(packageJson) as object
+      } catch (err: any) {
+        return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
+      }
+      enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
+      await processOutboundQueue(db, _getOidcToken)
+      return { success: true }
     }
 
     case 'handshake.isActive': {

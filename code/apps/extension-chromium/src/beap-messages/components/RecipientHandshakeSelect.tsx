@@ -52,6 +52,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
       sharing_mode: hs.sharing_mode ?? 'receive-only',
       peerX25519PublicKey: hs.peerX25519PublicKey,
       peerPQPublicKey: hs.peerPQPublicKey,
+      p2pEndpoint: hs.p2pEndpoint,
     }
     onSelect(recipient)
   }

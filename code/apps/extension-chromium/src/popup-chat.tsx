@@ -62,7 +62,7 @@ function toPlaceholderTheme(t: Theme): 'default' | 'dark' | 'professional' {
 // Workspace types - MIRRORS docked sidepanel exactly
 type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
 type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
-type BeapSubmode = 'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
+type BeapSubmode = 'inbox' | 'bulk-inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
 
 // Enhanced type for draft attachments with parsing/rasterization state
 type DraftAttachment = {
@@ -746,7 +746,7 @@ function PopupChatApp() {
       if (result.success) {
         // Show success notification based on delivery method
         const actionLabel = beapDeliveryMethod === 'download' ? 'BEAP capsule downloaded' 
-          : beapDeliveryMethod === 'messenger' ? 'Payload copied to clipboard!' 
+          : beapDeliveryMethod === 'p2p' ? 'BEAP™ Message sent via P2P!' 
           : 'BEAP™ Message sent!'
         setToastMessage({ message: actionLabel, type: 'success' })
         
@@ -774,7 +774,7 @@ function PopupChatApp() {
     if (isSendingBeap) return '⏳ Processing...'
     switch (beapDeliveryMethod) {
       case 'email': return '📧 Send'
-      case 'messenger': return '📋 Copy'
+      case 'p2p': return '🔗 Send'
       case 'download': return '💾 Download'
       default: return '📤 Send'
     }
@@ -802,7 +802,7 @@ function PopupChatApp() {
   // BEAP Messages State (mirrors docked sidepanel)
   // =========================================================================
   // NOTE: Using beapDraftMessage and beapDraftTo from above for consistency with sidepanel
-  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'messenger' | 'download'>('email')
+  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('email')
   const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
   
   // =========================================================================
@@ -877,6 +877,19 @@ function PopupChatApp() {
         )}
         
         {/* ========================================== */}
+        {/* BULK INBOX VIEW - Placeholder (same as docked) */}
+        {/* ========================================== */}
+        {beapSubmode === 'bulk-inbox' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
+            <span style={{ fontSize: '48px', marginBottom: '16px' }}>⚡</span>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>Bulk Inbox</div>
+            <div style={{ fontSize: '13px', color: mutedColor, maxWidth: '280px' }}>
+              Open the side panel for full bulk inbox experience.
+            </div>
+          </div>
+        )}
+        
+        {/* ========================================== */}
         {/* OUTBOX VIEW - Placeholder (same as docked) */}
         {/* ========================================== */}
         {beapSubmode === 'outbox' && (
@@ -927,7 +940,7 @@ function PopupChatApp() {
               </label>
               <select
                 value={beapDeliveryMethod}
-                onChange={(e) => setBeapDeliveryMethod(e.target.value as 'email' | 'messenger' | 'download')}
+                onChange={(e) => setBeapDeliveryMethod(e.target.value as 'email' | 'download' | 'p2p')}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -940,7 +953,7 @@ function PopupChatApp() {
                 }}
               >
                 <option value="email" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>📧 Email</option>
-                <option value="messenger" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                <option value="p2p" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>🔗 P2P</option>
                 <option value="download" style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
               </select>
             </div>
@@ -1818,6 +1831,7 @@ function PopupChatApp() {
               }}
             >
               <option value="inbox" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Inbox</option>
+              <option value="bulk-inbox" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>⚡ Bulk Inbox</option>
               <option value="draft" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Draft</option>
               <option value="outbox" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Outbox</option>
               <option value="archived" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>Archived</option>

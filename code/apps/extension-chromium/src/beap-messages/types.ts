@@ -19,7 +19,7 @@ export type BeapFolder = 'inbox' | 'outbox' | 'archived' | 'rejected'
 /**
  * Delivery method for a message
  */
-export type BeapDeliveryMethod = 'email' | 'messenger' | 'download' | 'chat' | 'unknown'
+export type BeapDeliveryMethod = 'email' | 'messenger' | 'download' | 'p2p' | 'chat' | 'unknown'
 
 /**
  * Direction of message
@@ -355,6 +355,7 @@ export const DELIVERY_METHOD_CONFIG: Record<BeapDeliveryMethod, { label: string;
   email: { label: 'Email', icon: '📧' },
   messenger: { label: 'Messenger', icon: '💬' },
   download: { label: 'Download', icon: '💾' },
+  p2p: { label: 'P2P', icon: '🔗' },
   chat: { label: 'Chat', icon: '🗨️' },
   unknown: { label: 'Unknown', icon: '❓' }
 }

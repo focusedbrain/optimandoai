@@ -548,6 +548,28 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN peer_mlkem768_public_key_b64 TEXT`,
     ],
   },
+  {
+    version: 26,
+    description: 'Schema v26: p2p_pending_beap for P2P BEAP message package ingestion',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS p2p_pending_beap (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handshake_id TEXT NOT NULL,
+        package_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_handshake ON p2p_pending_beap(handshake_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_created ON p2p_pending_beap(created_at)`,
+    ],
+  },
+  {
+    version: 27,
+    description: 'Schema v27: p2p_pending_beap processed flag for ingestion tracking',
+    sql: [
+      `ALTER TABLE p2p_pending_beap ADD COLUMN processed INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_processed ON p2p_pending_beap(processed)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -884,6 +906,53 @@ export function insertAuditLogEntry(db: any, entry: AuditLogEntry): void {
     entry.actor_wrdesk_user_id ?? null,
     entry.metadata ? JSON.stringify(entry.metadata) : null,
   )
+}
+
+// ── P2P Pending BEAP ──
+
+export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: string): void {
+  const now = new Date().toISOString()
+  db.prepare(
+    'INSERT INTO p2p_pending_beap (handshake_id, package_json, created_at) VALUES (?, ?, ?)'
+  ).run(handshakeId, packageJson, now)
+}
+
+export interface PendingP2PBeapEntry {
+  id: number
+  handshake_id: string
+  package_json: string
+  created_at: string
+}
+
+export function getPendingP2PBeapMessages(db: any): PendingP2PBeapEntry[] {
+  if (!db) return []
+  try {
+    const rows = db.prepare(
+      'SELECT id, handshake_id, package_json, created_at FROM p2p_pending_beap WHERE processed = 0 ORDER BY created_at ASC'
+    ).all() as Array<{ id: number; handshake_id: string; package_json: string; created_at: string }>
+    return rows.map(r => ({
+      id: r.id,
+      handshake_id: r.handshake_id,
+      package_json: r.package_json,
+      created_at: r.created_at,
+    }))
+  } catch {
+    return []
+  }
+}
+
+export function markP2PPendingBeapProcessed(db: any, id: number): void {
+  if (!db) return
+  try {
+    db.prepare('UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?').run(id)
+  } catch { /* non-fatal */ }
+}
+
+export function deletePendingP2PBeap(db: any, id: number): void {
+  if (!db) return
+  try {
+    db.prepare('DELETE FROM p2p_pending_beap WHERE id = ?').run(id)
+  } catch { /* non-fatal */ }
 }
 
 // ── Expiry Helpers ──

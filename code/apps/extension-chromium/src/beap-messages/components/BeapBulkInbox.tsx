@@ -60,6 +60,7 @@ import { BeapAttachmentReader } from './BeapAttachmentReader'
 import { useMediaQuery, BULK_GRID_1COL, BULK_GRID_3COL } from '../hooks/useMediaQuery'
 import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
+import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
 
 // =============================================================================
 // Constants
@@ -1154,6 +1155,9 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     const setDraftReply      = useBeapInboxStore((s) => s.setDraftReply)
     const selectMessage      = useBeapInboxStore((s) => s.selectMessage)
     const selectedMessageId  = useBeapInboxStore((s) => s.selectedMessageId)
+
+    // P2P pending BEAP ingestion (polls, imports, verifies, acks)
+    usePendingP2PBeapIngestion()
 
     // Responsive grid columns: <900px → 1, 900–1600px → 2, >1600px → 3
     const is1Col = useMediaQuery(BULK_GRID_1COL)

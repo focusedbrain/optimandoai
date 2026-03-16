@@ -2017,6 +2017,60 @@ export async function executeDownloadAction(
 }
 
 /**
+ * P2P action - Send package via P2P relay
+ */
+export async function executeP2PAction(
+  pkg: BeapPackage,
+  config: BeapPackageConfig
+): Promise<DeliveryResult> {
+  const recipient = config.selectedRecipient
+  const handshakeId = recipient && 'handshake_id' in recipient
+    ? (recipient as { handshake_id: string }).handshake_id
+    : null
+  const p2pEndpoint = recipient && 'p2pEndpoint' in recipient
+    ? (recipient as { p2pEndpoint?: string | null }).p2pEndpoint
+    : null
+  if (!handshakeId) {
+    return {
+      success: false,
+      action: 'sent',
+      message: 'P2P delivery requires a handshake recipient'
+    }
+  }
+  if (!p2pEndpoint || typeof p2pEndpoint !== 'string' || p2pEndpoint.trim().length === 0) {
+    return {
+      success: false,
+      action: 'sent',
+      message: 'Recipient has no P2P endpoint'
+    }
+  }
+  try {
+    const { sendBeapViaP2P } = await import('../../handshake/handshakeRpc')
+    const packageJson = JSON.stringify(pkg)
+    const result = await sendBeapViaP2P(handshakeId, packageJson)
+    if (result?.success) {
+      return {
+        success: true,
+        action: 'sent',
+        message: 'BEAP™ package sent via P2P'
+      }
+    }
+    return {
+      success: false,
+      action: 'sent',
+      message: result?.error ?? 'P2P delivery failed'
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'P2P delivery failed'
+    return {
+      success: false,
+      action: 'sent',
+      message: msg
+    }
+  }
+}
+
+/**
  * Execute the appropriate action based on delivery method
  */
 export async function executeDeliveryAction(
@@ -2029,7 +2083,7 @@ export async function executeDeliveryAction(
     return {
       success: false,
       action: config.deliveryMethod === 'email' ? 'sent' : 
-              config.deliveryMethod === 'messenger' ? 'copied' : 'downloaded',
+              config.deliveryMethod === 'p2p' ? 'sent' : 'downloaded',
       message: buildResult.error || 'Failed to build package'
     }
   }
@@ -2040,10 +2094,10 @@ export async function executeDeliveryAction(
   switch (config.deliveryMethod) {
     case 'email':
       return executeEmailAction(pkg, config)
-    case 'messenger':
-      return executeMessengerAction(pkg, config)
     case 'download':
       return executeDownloadAction(pkg, config)
+    case 'p2p':
+      return executeP2PAction(pkg, config)
     default:
       return {
         success: false,

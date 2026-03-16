@@ -59,12 +59,11 @@ import React, {
 } from 'react'
 import { BeapInboxSidebar } from './BeapInboxSidebar'
 import { BeapMessageDetailPanel } from './BeapMessageDetailPanel'
-import { BeapBulkInbox } from './BeapBulkInbox'
 import type { BeapMessageDetailPanelHandle } from './BeapMessageDetailPanel'
-import type { BeapBulkInboxHandle } from './BeapBulkInbox'
 import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useInboxKeyboardNav } from '../hooks/useInboxKeyboardNav'
 import { useMediaQuery, NARROW_VIEWPORT } from '../hooks/useMediaQuery'
+import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
 
 // =============================================================================
 // Public API
@@ -122,12 +121,6 @@ export interface BeapInboxViewHandle {
 }
 
 // =============================================================================
-// Sub-view type
-// =============================================================================
-
-type InboxSubView = 'messages' | 'bulk'
-
-// =============================================================================
 // Skeleton loading placeholder
 // =============================================================================
 
@@ -158,157 +151,6 @@ const InboxSkeleton: React.FC<{ isProfessional: boolean }> = ({ isProfessional }
     ))}
   </div>
 )
-
-// =============================================================================
-// Empty state
-// =============================================================================
-
-const InboxEmptyState: React.FC<{
-  isProfessional: boolean
-  onImport?: () => void
-  onNavigateToDraft?: () => void
-}> = ({ isProfessional, onImport, onNavigateToDraft }) => {
-  const textColor  = isProfessional ? '#1f2937' : 'white'
-  const mutedColor = isProfessional ? '#6b7280' : 'rgba(255,255,255,0.55)'
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '32px 20px',
-        textAlign: 'center',
-        gap: '10px',
-      }}
-    >
-      <span style={{ fontSize: '44px', opacity: 0.35 }}>📥</span>
-      <div style={{ fontSize: '14px', fontWeight: 600, color: textColor }}>
-        No BEAP messages yet
-      </div>
-      <div style={{ fontSize: '12px', color: mutedColor, maxWidth: '240px', lineHeight: 1.5 }}>
-        Import a <code style={{ fontFamily: 'monospace' }}>.beap</code> file or wait for
-        incoming messages. All packages are verified before display.
-      </div>
-      <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-        {onImport && (
-          <button
-            onClick={onImport}
-            style={{
-              padding: '7px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '7px',
-              border: '1px solid rgba(168,85,247,0.4)',
-              background: 'rgba(168,85,247,0.12)',
-              color: '#a855f7',
-              cursor: 'pointer',
-            }}
-          >
-            📂 Import .beap
-          </button>
-        )}
-        {onNavigateToDraft && (
-          <button
-            onClick={onNavigateToDraft}
-            style={{
-              padding: '7px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '7px',
-              border: '1px solid rgba(255,255,255,0.15)',
-              background: 'transparent',
-              color: mutedColor,
-              cursor: 'pointer',
-            }}
-          >
-            ✏️ Compose
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// =============================================================================
-// Sub-view tab bar
-// =============================================================================
-
-const SubViewTabs: React.FC<{
-  activeView: InboxSubView
-  onSelect: (v: InboxSubView) => void
-  messageCount: number
-  isProfessional: boolean
-  textColor: string
-  mutedColor: string
-  borderColor: string
-}> = ({ activeView, onSelect, messageCount, isProfessional, textColor, mutedColor, borderColor }) => {
-  const tabs: { id: InboxSubView; label: string; icon: string }[] = [
-    { id: 'messages', label: 'Messages', icon: '📨' },
-    { id: 'bulk',     label: 'Bulk',     icon: '⚡' },
-  ]
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '2px',
-        padding: '8px 10px 0',
-        borderBottom: `1px solid ${borderColor}`,
-        flexShrink: 0,
-      }}
-    >
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeView
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onSelect(tab.id)}
-            style={{
-              padding: '6px 13px',
-              fontSize: '11px',
-              fontWeight: isActive ? 700 : 500,
-              borderRadius: '6px 6px 0 0',
-              border: `1px solid ${isActive ? borderColor : 'transparent'}`,
-              borderBottom: isActive ? `1px solid ${isProfessional ? 'white' : 'rgba(18,18,18,1)'}` : 'none',
-              background: isActive
-                ? (isProfessional ? 'white' : 'rgba(255,255,255,0.04)')
-                : 'transparent',
-              color: isActive ? (isProfessional ? '#7c3aed' : '#a855f7') : mutedColor,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              marginBottom: isActive ? '-1px' : '0',
-              position: 'relative',
-              zIndex: isActive ? 1 : 0,
-              transition: 'all 0.12s ease',
-            }}
-          >
-            <span>{tab.icon}</span>
-            <span>{tab.label}</span>
-            {tab.id === 'messages' && messageCount > 0 && (
-              <span
-                style={{
-                  fontSize: '9px',
-                  fontWeight: 700,
-                  padding: '1px 5px',
-                  borderRadius: '8px',
-                  background: isActive ? 'rgba(168,85,247,0.15)' : 'rgba(255,255,255,0.1)',
-                  color: isActive ? '#a855f7' : mutedColor,
-                }}
-              >
-                {messageCount}
-              </span>
-            )}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 // =============================================================================
 // Error banner
@@ -366,28 +208,23 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
     const getInboxMessages  = useBeapInboxStore((s) => s.getInboxMessages)
     const selectedMessageId = useBeapInboxStore((s) => s.selectedMessageId)
 
+    // P2P pending BEAP ingestion (polls, imports, verifies, acks)
+    usePendingP2PBeapIngestion()
+
     // Local state
-    const [subView, setSubView]       = useState<InboxSubView>('messages')
     const [isLoading, setIsLoading]   = useState(true)
     const [error, setError]           = useState<string | null>(null)
 
     // Refs to child handles
     const detailPanelRef = useRef<BeapMessageDetailPanelHandle>(null)
-    const bulkInboxRef   = useRef<BeapBulkInboxHandle>(null)
 
     // Simulate initial load (real data arrives from store; just brief skeleton)
     useEffect(() => {
-      console.log('[BEAP Inbox] Mounted, subView:', subView)
       const timer = setTimeout(() => setIsLoading(false), 600)
       return () => clearTimeout(timer)
     }, [])
 
-    useEffect(() => {
-      console.log('[BEAP Inbox] subView changed:', subView)
-    }, [subView])
-
     const inboxMessages = getInboxMessages()
-    const messageCount  = inboxMessages.length
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
     const isNarrow = useMediaQuery(NARROW_VIEWPORT)
 
@@ -399,31 +236,13 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
     // ── Expose handle to sidepanel ───────────────────────────────
     React.useImperativeHandle(ref, () => ({
       appendAiEntry: (entry) => {
-        if (subView === 'messages') {
-          detailPanelRef.current?.appendAiEntry(entry)
-        } else if (subView === 'bulk' && selectedMessageId) {
-          bulkInboxRef.current?.handleExternalAiQuery(
-            entry.query,
-            selectedMessageId,
-            entry.content,
-            entry.type,
-            entry.source,
-          )
-        }
+        detailPanelRef.current?.appendAiEntry(entry)
       },
       startGenerating: () => {
-        if (subView === 'messages') {
-          detailPanelRef.current?.startGenerating()
-        } else if (subView === 'bulk' && selectedMessageId) {
-          bulkInboxRef.current?.startGenerating(selectedMessageId)
-        }
+        detailPanelRef.current?.startGenerating()
       },
       stopGenerating: () => {
-        if (subView === 'messages') {
-          detailPanelRef.current?.stopGenerating()
-        } else if (subView === 'bulk' && selectedMessageId) {
-          bulkInboxRef.current?.stopGenerating(selectedMessageId)
-        }
+        detailPanelRef.current?.stopGenerating()
       },
     }))
 
@@ -446,7 +265,7 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
 
     // ── Keyboard navigation ───────────────────────────────────────
     useInboxKeyboardNav({
-      enabled: subView === 'messages',
+      enabled: true,
       messages: inboxMessages,
     })
 
@@ -470,26 +289,10 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
           />
         )}
 
-        {/* Sub-view tabs */}
-        <SubViewTabs
-          activeView={subView}
-          onSelect={setSubView}
-          messageCount={messageCount}
-          isProfessional={isProfessional}
-          textColor={textColor}
-          mutedColor={mutedColor}
-          borderColor={borderColor}
-        />
-
         {/* Content area */}
         {isLoading ? (
           <InboxSkeleton isProfessional={isProfessional} />
-        ) : messageCount === 0 && subView === 'messages' ? (
-          <InboxEmptyState
-            isProfessional={isProfessional}
-            onNavigateToDraft={onNavigateToDraft}
-          />
-        ) : subView === 'messages' ? (
+        ) : (
           /* ── Single-message split view (sidebar collapsible for responsive layout) ── */
           <div
             style={{
@@ -578,21 +381,6 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
               )}
             </div>
           </div>
-        ) : (
-          /* ── Bulk grid view ── */
-          <BeapBulkInbox
-            ref={bulkInboxRef}
-            theme={theme}
-            onSetSearchContext={handleSetSearchContext}
-            onAiQuery={onAiQuery}
-            onViewHandshake={handleViewHandshake}
-            replyComposerConfig={replyComposerConfig}
-            onViewInInbox={(messageId) => {
-              // Switch to messages view and select the message
-              setSubView('messages')
-              useBeapInboxStore.getState().selectMessage(messageId)
-            }}
-          />
         )}
       </div>
     )

@@ -308,7 +308,7 @@ describe('Workspace Structure Guard', () => {
   it('should have expected workspace mode values', () => {
     // These are the expected mode values used in the Draft Email path
     const expectedRecipientModes = ['private', 'public'] as const
-    const expectedDeliveryMethods = ['email', 'messenger', 'download'] as const
+    const expectedDeliveryMethods = ['email', 'download', 'p2p'] as const
     
     // Verify that 'private' and 'public' are valid recipient modes
     // by creating configs with each and ensuring they don't throw
