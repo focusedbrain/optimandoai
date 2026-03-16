@@ -46,6 +46,7 @@ function App() {
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -87,10 +88,11 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
-  // Clear selected message when switching away from inbox tabs
+  // Clear selected message and attachment when switching away from inbox tabs
   useEffect(() => {
     if (activeView !== 'beap-inbox' && activeView !== 'bulk-inbox') {
       setSelectedMessageId(null)
+      setSelectedAttachmentId(null)
     }
   }, [activeView])
 
@@ -132,6 +134,7 @@ function App() {
           selectedHandshakeEmail={selectedHandshakeEmail}
           selectedDocumentId={selectedDocumentId}
           selectedMessageId={selectedMessageId}
+          selectedAttachmentId={selectedAttachmentId}
         />
       </header>
 
@@ -150,7 +153,11 @@ function App() {
           />
         ) : activeView === 'beap-inbox' ? (
           <BeapInboxDashboard
-            onMessageSelect={setSelectedMessageId}
+            onMessageSelect={(id) => {
+              setSelectedMessageId(id)
+              if (!id) setSelectedAttachmentId(null)
+            }}
+            onAttachmentSelect={(_, attachmentId) => setSelectedAttachmentId(attachmentId)}
             onSetSearchContext={() => {}}
             selectedMessageId={selectedMessageId}
             onNavigateToHandshake={(id) => {

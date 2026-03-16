@@ -66,6 +66,11 @@ export interface BeapMessageDetailPanelProps {
    * matching handshake.
    */
   onViewHandshake?: (handshakeId: string) => void
+  /**
+   * Called when the user selects or deselects an attachment.
+   * Parent can update search bar scope (e.g. for HybridSearch pointing finger).
+   */
+  onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
 
   /**
    * Config for the shared BeapReplyComposer (sender fingerprint, AI provider, etc.).
@@ -432,6 +437,33 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 />
               ))}
             </div>
+            {/* Reader panel below list when selected attachment has semanticContent */}
+            {selectedAttachmentId && (() => {
+              const sel = message.attachments.find((a) => a.attachmentId === selectedAttachmentId)
+              if (!sel?.semanticContent?.trim()) return null
+              return (
+                <div style={{ marginTop: '12px' }}>
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: mutedColor,
+                      textTransform: 'uppercase' as const,
+                      letterSpacing: '0.4px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    📄 Extracted Text
+                  </div>
+                  <BeapAttachmentReader
+                    attachment={sel}
+                    isProfessional={isProfessional}
+                    maxHeight={280}
+                    showCopy={true}
+                  />
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
@@ -463,7 +495,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
 // =============================================================================
 
 const ORIGINAL_ACCESS_WARNING =
-  'This is an original artefact from outside the protected environment. Opening it carries inherent risk. The file will be opened outside the WRGuard™-protected boundary.'
+  'This is an original artefact from outside the protected environment. Opening it will download the file to your system. Proceed?'
 
 interface AttachmentRowProps {
   attachment: BeapAttachment
@@ -488,7 +520,6 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
   onViewOriginal,
 }) => {
   const [hovered, setHovered] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
 
   const hasSemanticContent = !!attachment.semanticContent?.trim()
@@ -518,7 +549,7 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        title={isSelected ? 'Click to deselect attachment' : 'Click to query this attachment via the search bar'}
+        title={isSelected ? 'Click to deselect attachment' : 'Click to select attachment (text reader below)'}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -557,22 +588,6 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} data-no-select>
-          {hasSemanticContent && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setExpanded((x) => !x) }}
-              style={{
-                background: 'transparent',
-                border: `1px solid ${borderColor}`,
-                borderRadius: '4px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                color: mutedColor,
-                cursor: 'pointer',
-              }}
-            >
-              {expanded ? '▲ Hide' : '▼ Read'}
-            </button>
-          )}
           {onViewOriginal && (
             <button
               onClick={handleViewOriginalClick}
@@ -586,7 +601,7 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
                 cursor: 'pointer',
               }}
             >
-              View original
+              View Original
             </button>
           )}
         </div>
@@ -606,18 +621,6 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
           </span>
         )}
       </div>
-
-      {/* Expandable semantic content reader (BeapAttachmentReader — matches HsContextDocumentReader style) */}
-      {hasSemanticContent && expanded && (
-        <div style={{ marginTop: '6px', marginLeft: '8px', minHeight: 120 }}>
-          <BeapAttachmentReader
-            attachment={attachment}
-            isProfessional={isProfessional}
-            maxHeight={200}
-            showCopy={true}
-          />
-        </div>
-      )}
 
       {/* Warning dialog before viewing original */}
       {showWarning && (
@@ -646,7 +649,7 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
             }}
           >
             <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-              ⚠️ View original artefact
+              ⚠️ Original artefact
             </div>
             <p style={{ fontSize: '12px', color: mutedColor, margin: '0 0 12px 0', lineHeight: 1.5 }}>
               {ORIGINAL_ACCESS_WARNING}
@@ -678,7 +681,7 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                Open Original
+                Download Original
               </button>
             </div>
           </div>
@@ -1050,7 +1053,7 @@ const NoMessageSelected: React.FC<{ theme: 'default' | 'dark' | 'professional' }
 export const BeapMessageDetailPanel = React.forwardRef<
   BeapMessageDetailPanelHandle,
   BeapMessageDetailPanelProps
->(({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, replyComposerConfig }, ref) => {
+>(({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, onAttachmentSelect, replyComposerConfig }, ref) => {
   const isProfessional = theme === 'professional'
 
   // Store
@@ -1109,17 +1112,20 @@ export const BeapMessageDetailPanel = React.forwardRef<
   useEffect(() => {
     if (!selectedMessage) {
       onSetSearchContext?.('')
+      onAttachmentSelect?.('', null)
       return
     }
     markAsRead(selectedMessage.messageId)
     onSetSearchContext?.(getSearchContextLabel(selectedMessage))
     // Reset attachment selection when message changes
     setSelectedAttachmentId(null)
+    onAttachmentSelect?.(selectedMessage.messageId, null)
   }, [
     selectedMessage?.messageId,
     markAsRead,
     onSetSearchContext,
     getSearchContextLabel,
+    onAttachmentSelect,
   ])
 
   // ── Resizable divider (horizontal) ───────────────────
@@ -1153,22 +1159,25 @@ export const BeapMessageDetailPanel = React.forwardRef<
     [],
   )
 
-  // ── Attachment selection → AI query context ───────────
+  // ── Attachment selection → AI query context + search bar scope ───────────
   const handleSelectAttachment = useCallback(
     (id: string | null) => {
       setSelectedAttachmentId(id)
-      if (selectedMessage && id) {
-        onAiQuery?.(
-          `Summarize attachment: ${
-            selectedMessage.attachments.find((a) => a.attachmentId === id)
-              ?.filename ?? id
-          }`,
-          selectedMessage.messageId,
-          id,
-        )
+      if (selectedMessage) {
+        onAttachmentSelect?.(selectedMessage.messageId, id)
+        if (id) {
+          onAiQuery?.(
+            `Summarize attachment: ${
+              selectedMessage.attachments.find((a) => a.attachmentId === id)
+                ?.filename ?? id
+            }`,
+            selectedMessage.messageId,
+            id,
+          )
+        }
       }
     },
-    [selectedMessage, onAiQuery],
+    [selectedMessage, onAiQuery, onAttachmentSelect],
   )
 
   // ── Colors ────────────────────────────────────────────

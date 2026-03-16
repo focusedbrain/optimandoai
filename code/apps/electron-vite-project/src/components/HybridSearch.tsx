@@ -35,6 +35,7 @@ interface HybridSearchProps {
   selectedHandshakeEmail?: string | null
   selectedDocumentId?: string | null
   selectedMessageId?: string | null
+  selectedAttachmentId?: string | null
 }
 
 // ── LLM Models (loaded from backend) ──
@@ -228,7 +229,7 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
 
 // ── Component ──
 
-export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null, selectedMessageId = null }: HybridSearchProps) {
+export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null, selectedMessageId = null, selectedAttachmentId = null }: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -417,7 +418,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 

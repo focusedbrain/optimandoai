@@ -57,6 +57,8 @@ function getContentPreview(msg: BeapMessage): string {
 interface BeapInboxDashboardProps {
   selectedMessageId: string | null
   onMessageSelect: (messageId: string | null) => void
+  /** Called when user selects/deselects an attachment. Parent can update search bar scope. */
+  onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
   onSetSearchContext?: (context: string) => void
   onNavigateToHandshake?: (handshakeId: string) => void
 }
@@ -64,6 +66,7 @@ interface BeapInboxDashboardProps {
 export default function BeapInboxDashboard({
   selectedMessageId: selectedMessageIdProp,
   onMessageSelect,
+  onAttachmentSelect,
   onSetSearchContext,
   onNavigateToHandshake,
 }: BeapInboxDashboardProps) {
@@ -322,6 +325,7 @@ export default function BeapInboxDashboard({
             theme={THEME}
             onSetSearchContext={onSetSearchContext}
             onViewHandshake={handleViewHandshake}
+            onAttachmentSelect={onAttachmentSelect}
           />
         ) : (
           <div style={{
