@@ -66,12 +66,14 @@ module.exports = {
     ...baseConfig.directories,
     output: getOutputDir(),
   },
-  // Exclude the output dir itself from the packaged files to prevent nesting
+  // Exclude the output dir itself from the packaged files to prevent nesting.
+  // Include node_modules so pg and other runtime deps are bundled (files overrides default).
   files: [
     'dist/**/*',
     '!dist/release{,/**/*}',
     'dist-electron/**/*',
     'package.json',
+    'node_modules/**/*',
   ],
   extraResources: [
     ...baseConfig.extraResources,
