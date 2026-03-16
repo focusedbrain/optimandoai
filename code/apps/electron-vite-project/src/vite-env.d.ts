@@ -27,6 +27,7 @@ interface AnalysisDashboardBridge {
   setTheme: (theme: string) => void
   openBeapInbox: () => void
   openBeapDraft: () => void
+  openEmailCompose: () => void
   openHandshakeRequest: () => void
 }
 

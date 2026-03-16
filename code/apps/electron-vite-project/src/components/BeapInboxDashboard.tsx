@@ -16,7 +16,6 @@ import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
 import BeapMessageImportZone from './BeapMessageImportZone'
-import ComposeButtons from './ComposeButtons'
 
 const THEME = 'professional' as const
 
@@ -325,10 +324,34 @@ export default function BeapInboxDashboard({
       )}
 
       {/* Compose buttons — bottom-right */}
-      <ComposeButtons
-        onBeapClick={() => window.analysisDashboard?.openBeapDraft?.()}
-        onEmailClick={() => {}}
-      />
+      <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button
+          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '10px 18px', borderRadius: '24px',
+            background: '#7c3aed', color: '#fff', border: 'none',
+            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(124,58,237,0.3)'
+          }}
+          title="New BEAP™ Message"
+        >
+          + BEAP
+        </button>
+        <button
+          onClick={() => window.analysisDashboard?.openEmailCompose?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '10px 14px', borderRadius: '24px',
+            background: '#2563eb', color: '#fff', border: 'none',
+            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.3)'
+          }}
+          title="New Email"
+        >
+          ✉️+
+        </button>
+      </div>
     </div>
   )
 }

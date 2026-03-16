@@ -2,13 +2,10 @@
  * BeapBulkInboxDashboard — Bulk inbox grid view for Electron dashboard.
  *
  * Full-width layout matching extension's BeapBulkInbox.
- * Compose buttons [+] BEAP and [✉+] Email at bottom-right.
+ * Compose buttons [+ BEAP] and [✉+] Email at bottom-right.
  */
 
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
-import ComposeButtons from './ComposeButtons'
-
-const THEME = 'professional' as const
 
 interface BeapBulkInboxDashboardProps {
   onMessageSelect?: (messageId: string | null) => void
@@ -44,70 +41,44 @@ export default function BeapBulkInboxDashboard({
         <span style={{ fontSize: '13px', fontWeight: 700 }}>Bulk Inbox</span>
       </div>
 
-      {showComposeOverlay === 'beap' ? (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '8px 12px',
-            borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <span style={{ fontSize: '13px', fontWeight: 700 }}>Compose</span>
-            <button
-              onClick={() => setShowComposeOverlay(null)}
-              style={{
-                padding: '4px 10px',
-                fontSize: '11px',
-                fontWeight: 600,
-                background: 'transparent',
-                border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-                borderRadius: 6,
-                color: 'var(--color-text-muted, #94a3b8)',
-                cursor: 'pointer',
-              }}
-            >
-              Close
-            </button>
-          </div>
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <BeapDraftComposer
-              theme={THEME}
-              onNotification={(msg, type) => {
-                if (type === 'success' && msg.toLowerCase().includes('sent')) {
-                  setShowComposeOverlay(null)
-                }
-              }}
-            />
-          </div>
-        </div>
-      ) : showComposeOverlay === 'email' ? (
-        <EmailComposeOverlay
-          theme={THEME}
-          onClose={() => setShowComposeOverlay(null)}
-          onSent={() => setShowComposeOverlay(null)}
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        <BeapBulkInbox
+          theme="professional"
+          onSetSearchContext={onSetSearchContext}
+          onViewHandshake={onNavigateToHandshake}
+          onViewInInbox={onViewInInbox}
         />
-      ) : (
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <BeapBulkInbox
-            theme={THEME}
-            onSetSearchContext={onSetSearchContext}
-            onViewHandshake={onNavigateToHandshake}
-            onViewInInbox={onViewInInbox}
-          />
-        </div>
-      )}
+      </div>
 
       {/* Compose buttons — bottom-right */}
-      <ComposeButtons
-        onBeapClick={() => window.analysisDashboard?.openBeapDraft?.()}
-        onEmailClick={() => {}}
-      />
+      <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button
+          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '10px 18px', borderRadius: '24px',
+            background: '#7c3aed', color: '#fff', border: 'none',
+            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(124,58,237,0.3)'
+          }}
+          title="New BEAP™ Message"
+        >
+          + BEAP
+        </button>
+        <button
+          onClick={() => window.analysisDashboard?.openEmailCompose?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '10px 14px', borderRadius: '24px',
+            background: '#2563eb', color: '#fff', border: 'none',
+            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.3)'
+          }}
+          title="New Email"
+        >
+          ✉️+
+        </button>
+      </div>
     </div>
   )
 }

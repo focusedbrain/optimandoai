@@ -177,6 +177,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openBeapDraft: () => {
     ipcRenderer.send('OPEN_BEAP_DRAFT')
   },
+  openEmailCompose: () => {
+    ipcRenderer.send('OPEN_EMAIL_COMPOSE')
+  },
   openHandshakeRequest: () => {
     ipcRenderer.send('OPEN_HANDSHAKE_REQUEST')
   },

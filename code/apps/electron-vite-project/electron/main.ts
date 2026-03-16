@@ -994,8 +994,8 @@ async function createWindow() {
         })
       }
     })
-    // Helper: open BEAP popup with given launchMode (dashboard-beap | dashboard-beap-draft)
-    const openBeapPopup = (launchMode: 'dashboard-beap' | 'dashboard-beap-draft') => {
+    // Helper: open popup with given launchMode (dashboard-beap | dashboard-beap-draft | dashboard-email-compose)
+    const openBeapPopup = (launchMode: 'dashboard-beap' | 'dashboard-beap-draft' | 'dashboard-email-compose') => {
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
       let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
       if (win) {
@@ -1035,6 +1035,10 @@ async function createWindow() {
     ipcMain.on('OPEN_BEAP_DRAFT', () => {
       console.log('[MAIN] 📨 BEAP Draft requested from dashboard')
       openBeapPopup('dashboard-beap-draft')
+    })
+    ipcMain.on('OPEN_EMAIL_COMPOSE', () => {
+      console.log('[MAIN] 📨 Email Compose requested from dashboard')
+      openBeapPopup('dashboard-email-compose')
     })
 
     ipcMain.on('OPEN_HANDSHAKE_REQUEST', () => {
@@ -7426,6 +7430,28 @@ app.whenReady().then(async () => {
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error testing connection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/send - Send a new email (used by extension popup)
+    httpApp.post('/api/email/send', async (req, res) => {
+      try {
+        const { accountId, to, subject, bodyText } = req.body
+        if (!accountId || !to || !Array.isArray(to)) {
+          res.status(400).json({ ok: false, error: 'accountId and to (array) are required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] POST /api/email/send', accountId)
+        const { emailGateway } = await import('./main/email/gateway')
+        const result = await emailGateway.sendEmail(accountId, {
+          to: Array.isArray(to) ? to : [String(to)],
+          subject: subject || '(No subject)',
+          bodyText: bodyText || ''
+        })
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error sending email:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })

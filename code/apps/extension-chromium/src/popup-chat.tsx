@@ -60,7 +60,7 @@ function toPlaceholderTheme(t: Theme): 'default' | 'dark' | 'professional' {
 }
 
 // Workspace types - MIRRORS docked sidepanel exactly
-type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'
+type DockedWorkspace = 'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard' | 'email-compose'
 type DockedSubmode = 'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'
 type BeapSubmode = 'inbox' | 'bulk-inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'
 
@@ -338,6 +338,8 @@ function PopupChatApp() {
     } else if (launchMode === 'dashboard-beap-draft') {
       setDockedWorkspace('beap-messages')
       setBeapSubmode('draft')
+    } else if (launchMode === 'dashboard-email-compose') {
+      setDockedWorkspace('email-compose')
     } else if (launchMode === 'dashboard-handshake-request') {
       setDockedWorkspace('wr-chat')
       setDockedSubmode('handshake')
@@ -519,7 +521,7 @@ function PopupChatApp() {
   
   // Reload email accounts when switching to relevant workspaces
   useEffect(() => {
-    if (dockedWorkspace === 'beap-messages' || dockedWorkspace === 'wrguard') {
+    if (dockedWorkspace === 'beap-messages' || dockedWorkspace === 'wrguard' || dockedWorkspace === 'email-compose') {
       loadEmailAccounts()
     }
   }, [dockedWorkspace])
@@ -807,6 +809,13 @@ function PopupChatApp() {
   // NOTE: Using beapDraftMessage and beapDraftTo from above for consistency with sidepanel
   const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('email')
   const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
+  
+  // Email compose form state (for email-compose workspace)
+  const [emailComposeTo, setEmailComposeTo] = useState('')
+  const [emailComposeSubject, setEmailComposeSubject] = useState('')
+  const [emailComposeBody, setEmailComposeBody] = useState('')
+  const [emailComposeSending, setEmailComposeSending] = useState(false)
+  const [emailComposeError, setEmailComposeError] = useState<string | null>(null)
   
   // =========================================================================
   // BEAP Messages Content - Mirrors docked sidepanel exactly
@@ -1347,6 +1356,105 @@ function PopupChatApp() {
     )
   }
 
+  // Email Compose Content - plain email form with Connected Accounts, To, Subject, Body, Signature
+  const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+  const renderEmailComposeContent = () => {
+    const isStandard = theme === 'standard'
+    const isPro = theme === 'pro'
+    const textColor = isStandard ? '#0f172a' : 'white'
+    const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
+    const borderColor = isStandard ? '#e1e8ed' : (isPro ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)')
+    const bgColor = isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.04)')
+    const inputBg = isStandard ? 'white' : (isPro ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)')
+    
+    const handleEmailSend = async () => {
+      setEmailComposeError(null)
+      const toTrimmed = emailComposeTo.trim()
+      if (!toTrimmed) {
+        setEmailComposeError('To is required')
+        return
+      }
+      const accountId = selectedEmailAccountId || emailAccounts[0]?.id
+      if (!accountId || emailAccounts.length === 0) {
+        setEmailComposeError('No email account connected')
+        return
+      }
+      setEmailComposeSending(true)
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'EMAIL_SEND',
+          accountId,
+          to: toTrimmed.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
+          subject: emailComposeSubject.trim() || '(No subject)',
+          bodyText: emailComposeBody.trim() + EMAIL_SIGNATURE
+        })
+        if (response?.ok && response?.data?.success) {
+          setEmailComposeTo('')
+          setEmailComposeSubject('')
+          setEmailComposeBody('')
+          setToastMessage({ message: 'Email sent', type: 'success' })
+          setTimeout(() => setToastMessage(null), 3000)
+        } else {
+          setEmailComposeError(response?.error || 'Failed to send')
+        }
+      } catch (err: unknown) {
+        setEmailComposeError(err instanceof Error ? err.message : 'Failed to send')
+      } finally {
+        setEmailComposeSending(false)
+      }
+    }
+    
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: bgColor, overflowY: 'auto' }}>
+        {/* Connected Email Accounts */}
+        <div style={{ padding: '16px 18px', borderBottom: `1px solid ${borderColor}`, background: isStandard ? 'white' : 'rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>🔗</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Connected Email Accounts</span>
+            </div>
+            <button type="button" onClick={handleConnectEmail} style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>+</span> Connect Email
+            </button>
+          </div>
+          {isLoadingEmailAccounts ? (
+            <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
+          ) : emailAccounts.length === 0 ? (
+            <div style={{ padding: '20px', background: isStandard ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+              <div style={{ fontSize: '13px', color: mutedColor }}>No email accounts connected. Connect your account to send emails.</div>
+            </div>
+          ) : (
+            <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: '13px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor, outline: 'none', cursor: 'pointer' }}>
+              {emailAccounts.map((a) => <option key={a.id} value={a.id}>{a.email || a.displayName} ({a.provider})</option>)}
+            </select>
+          )}
+        </div>
+        {/* Compose fields */}
+        <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, display: 'block', marginBottom: 4 }}>To</label>
+            <input type="email" value={emailComposeTo} onChange={(e) => setEmailComposeTo(e.target.value)} placeholder="recipient@example.com" style={{ width: '100%', padding: '8px 10px', fontSize: 13, background: inputBg, border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, display: 'block', marginBottom: 4 }}>Subject</label>
+            <input type="text" value={emailComposeSubject} onChange={(e) => setEmailComposeSubject(e.target.value)} placeholder="Subject" style={{ width: '100%', padding: '8px 10px', fontSize: 13, background: inputBg, border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, display: 'block', marginBottom: 4 }}>Body</label>
+            <textarea value={emailComposeBody} onChange={(e) => setEmailComposeBody(e.target.value)} placeholder="Write your message..." rows={8} style={{ width: '100%', padding: '8px 10px', fontSize: 13, background: inputBg, border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, outline: 'none', resize: 'vertical' }} />
+          </div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor }}>Signature (appended automatically)</div>
+          <pre style={{ fontSize: 11, color: mutedColor, background: 'rgba(0,0,0,0.05)', padding: 8, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap' }}>{EMAIL_SIGNATURE.trim()}</pre>
+          {emailComposeError && <div style={{ fontSize: 12, color: '#ef4444' }}>{emailComposeError}</div>}
+          <button onClick={handleEmailSend} disabled={emailComposeSending || isLoadingEmailAccounts || emailAccounts.length === 0} style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, background: '#2563eb', border: 'none', borderRadius: 8, color: 'white', cursor: emailComposeSending ? 'not-allowed' : 'pointer', opacity: emailComposeSending || emailAccounts.length === 0 ? 0.6 : 1 }}>
+            {emailComposeSending ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // Render the appropriate view based on workspace - MIRRORS docked exactly
   const renderContent = () => {
     const isStandard = theme === 'standard'
@@ -1374,6 +1482,11 @@ function PopupChatApp() {
     // BEAP Messages workspace - simple inline views
     if (dockedWorkspace === 'beap-messages') {
       return renderBeapMessagesContent()
+    }
+    
+    // Email Compose workspace - plain email compose form
+    if (dockedWorkspace === 'email-compose') {
+      return renderEmailComposeContent()
     }
     
     // Augmented Overlay workspace
@@ -1772,6 +1885,7 @@ function PopupChatApp() {
             <option value="wr-chat" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 WR Chat</option>
             <option value="augmented-overlay" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🎯 Augmented Overlay</option>
             <option value="beap-messages" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📦 BEAP Messages</option>
+            <option value="email-compose" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>✉️ Email Compose</option>
             <option value="wrguard" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔒 WRGuard</option>
           </select>
           

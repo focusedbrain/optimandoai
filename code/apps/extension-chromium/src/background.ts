@@ -3093,6 +3093,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true // Keep channel open for async response
     }
     
+    case 'EMAIL_SEND': {
+      console.log('[BG] 📧 Email send request')
+      
+      electronRequest('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: msg.accountId,
+          to: msg.to,
+          subject: msg.subject || '(No subject)',
+          bodyText: msg.bodyText || ''
+        })
+      })
+        .then(result => {
+          if (result.ok) {
+            sendResponse({ ok: true, data: result.data })
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      
+      return true
+    }
+    
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Check Gmail credentials')
       
