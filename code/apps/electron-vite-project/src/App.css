@@ -330,6 +330,20 @@ body {
   font-weight: 600;
 }
 
+/* Inbox tab checkbox — ensure visible (not nested in button) */
+.app-header__nav .nav-tab input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  margin: 0;
+  cursor: pointer;
+  opacity: 1;
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  accent-color: var(--purple-accent, #9333ea);
+}
+
 /* Pro theme nav tabs */
 [data-ui-theme="pro"] .nav-tab {
   border-color: rgba(255, 255, 255, 0.3);

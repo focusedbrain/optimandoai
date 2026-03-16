@@ -9,8 +9,9 @@
  * Right 320px: Import zone + [+] Compose (only when no selection)
  */
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessageDetailPanel'
+import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
@@ -77,6 +78,57 @@ export default function BeapInboxDashboard({
   const detailPanelRef = useRef<BeapMessageDetailPanelHandle>(null)
 
   const messages = getInboxMessages()
+
+  // Connected Email Accounts (for center panel empty state)
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
+  const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
+
+  const loadEmailAccounts = useCallback(async () => {
+    if (typeof (window as any).emailAccounts?.listAccounts !== 'function') {
+      setIsLoadingEmailAccounts(false)
+      return
+    }
+    try {
+      const res = await (window as any).emailAccounts!.listAccounts()
+      if (res?.ok && res?.data) {
+        setEmailAccounts(res.data)
+        setSelectedEmailAccountId((prev) => (prev && res.data.some((a: { id: string }) => a.id === prev)) ? prev : (res.data[0]?.id ?? null))
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingEmailAccounts(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadEmailAccounts()
+  }, [loadEmailAccounts])
+
+  const handleConnectEmail = useCallback(async () => {
+    try {
+      if (typeof (window as any).emailAccounts?.connectGmail === 'function') {
+        const res = await (window as any).emailAccounts!.connectGmail('Gmail Account')
+        if (res?.ok) loadEmailAccounts()
+      } else {
+        window.analysisDashboard?.openEmailCompose?.()
+      }
+    } catch {
+      window.analysisDashboard?.openEmailCompose?.()
+    }
+  }, [loadEmailAccounts])
+
+  const handleDisconnectEmail = useCallback(async (id: string) => {
+    try {
+      if (typeof (window as any).emailAccounts?.deleteAccount === 'function') {
+        await (window as any).emailAccounts!.deleteAccount(id)
+        loadEmailAccounts()
+      }
+    } catch {
+      // ignore
+    }
+  }, [loadEmailAccounts])
   const effectiveSelectedId = storeSelectedId ?? selectedMessageIdProp
 
   // Sync prop to store (e.g. when navigating from Bulk Inbox)
@@ -287,16 +339,27 @@ export default function BeapInboxDashboard({
             onAttachmentSelect={onAttachmentSelect}
           />
         ) : (
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--color-text-muted, #94a3b8)',
-          }}>
-            <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.3 }}>✉️</div>
-            <div style={{ fontSize: '13px' }}>Select a message to view details</div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 }}>
+            <EmailProvidersSection
+              theme="professional"
+              emailAccounts={emailAccounts}
+              isLoadingEmailAccounts={isLoadingEmailAccounts}
+              selectedEmailAccountId={selectedEmailAccountId}
+              onConnectEmail={handleConnectEmail}
+              onDisconnectEmail={handleDisconnectEmail}
+              onSelectEmailAccount={setSelectedEmailAccountId}
+            />
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-text-muted, #94a3b8)',
+            }}>
+              <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.3 }}>✉️</div>
+              <div style={{ fontSize: '13px' }}>Select a message to view details</div>
+            </div>
           </div>
         )}
       </div>
@@ -323,21 +386,8 @@ export default function BeapInboxDashboard({
         </div>
       )}
 
-      {/* Compose buttons — bottom-right */}
+      {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <button
-          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '10px 18px', borderRadius: '24px',
-            background: '#7c3aed', color: '#fff', border: 'none',
-            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(124,58,237,0.3)'
-          }}
-          title="New BEAP™ Message"
-        >
-          + BEAP
-        </button>
         <button
           onClick={() => window.analysisDashboard?.openEmailCompose?.()}
           style={{
@@ -350,6 +400,19 @@ export default function BeapInboxDashboard({
           title="New Email"
         >
           ✉️+
+        </button>
+        <button
+          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '10px 18px', borderRadius: '24px',
+            background: '#7c3aed', color: '#fff', border: 'none',
+            fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(124,58,237,0.3)'
+          }}
+          title="New BEAP™ Message"
+        >
+          + BEAP
         </button>
       </div>
     </div>

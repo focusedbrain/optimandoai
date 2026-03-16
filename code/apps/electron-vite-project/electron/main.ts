@@ -7437,18 +7437,26 @@ app.whenReady().then(async () => {
     // POST /api/email/send - Send a new email (used by extension popup)
     httpApp.post('/api/email/send', async (req, res) => {
       try {
-        const { accountId, to, subject, bodyText } = req.body
+        const { accountId, to, subject, bodyText, attachments } = req.body
         if (!accountId || !to || !Array.isArray(to)) {
           res.status(400).json({ ok: false, error: 'accountId and to (array) are required' })
           return
         }
         console.log('[HTTP-EMAIL] POST /api/email/send', accountId)
         const { emailGateway } = await import('./main/email/gateway')
-        const result = await emailGateway.sendEmail(accountId, {
+        const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
           to: Array.isArray(to) ? to : [String(to)],
           subject: subject || '(No subject)',
           bodyText: bodyText || ''
-        })
+        }
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+          payload.attachments = attachments.filter((a: any) => a?.filename && a?.contentBase64).map((a: any) => ({
+            filename: String(a.filename),
+            mimeType: a.mimeType || 'application/octet-stream',
+            contentBase64: String(a.contentBase64)
+          }))
+        }
+        const result = await emailGateway.sendEmail(accountId, payload)
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error sending email:', error)

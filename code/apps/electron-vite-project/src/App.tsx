@@ -116,15 +116,18 @@ function App() {
           >
             Handshakes
           </button>
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             className={`nav-tab${activeView === 'beap-inbox' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('beap-inbox')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveView('beap-inbox') } }}
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             Inbox
             <label
               onClick={(e) => e.stopPropagation()}
-              style={{ display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer', fontSize: '12px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}
               title={bulkMode ? 'Switch to normal inbox' : 'Switch to bulk inbox'}
             >
               ⚡
@@ -132,10 +135,9 @@ function App() {
                 type="checkbox"
                 checked={bulkMode}
                 onChange={(e) => setBulkMode(e.target.checked)}
-                style={{ width: '14px', height: '14px', cursor: 'pointer', margin: 0 }}
               />
             </label>
-          </button>
+          </div>
         </nav>
         <HybridSearch
           activeView={activeView}

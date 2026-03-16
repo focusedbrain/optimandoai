@@ -807,15 +807,17 @@ function PopupChatApp() {
   // BEAP Messages State (mirrors docked sidepanel)
   // =========================================================================
   // NOTE: Using beapDraftMessage and beapDraftTo from above for consistency with sidepanel
-  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('email')
+  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('p2p')
   const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
   
   // Email compose form state (for email-compose workspace)
   const [emailComposeTo, setEmailComposeTo] = useState('')
   const [emailComposeSubject, setEmailComposeSubject] = useState('')
   const [emailComposeBody, setEmailComposeBody] = useState('')
+  const [emailComposeAttachments, setEmailComposeAttachments] = useState<{ name: string; size: number; mimeType: string; contentBase64: string }[]>([])
   const [emailComposeSending, setEmailComposeSending] = useState(false)
   const [emailComposeError, setEmailComposeError] = useState<string | null>(null)
+  const emailComposeFileInputRef = useRef<HTMLInputElement>(null)
   
   // =========================================================================
   // BEAP Messages Content - Mirrors docked sidepanel exactly
@@ -1356,16 +1358,56 @@ function PopupChatApp() {
     )
   }
 
-  // Email Compose Content - plain email form with Connected Accounts, To, Subject, Body, Signature
+  // Email Compose Content - plain email form with Connected Accounts, To, Subject, Body, Attachments, Signature
   const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
   const renderEmailComposeContent = () => {
     const isStandard = theme === 'standard'
-    const isPro = theme === 'pro'
+    const isProTheme = theme === 'pro'
     const textColor = isStandard ? '#0f172a' : 'white'
     const mutedColor = isStandard ? '#64748b' : 'rgba(255,255,255,0.7)'
-    const borderColor = isStandard ? '#e1e8ed' : (isPro ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)')
-    const bgColor = isPro ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.04)')
-    const inputBg = isStandard ? 'white' : (isPro ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)')
+    const borderColor = isStandard ? '#e1e8ed' : (isProTheme ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)')
+    const bgColor = isProTheme ? 'rgba(118, 75, 162, 0.45)' : (isStandard ? '#f8f9fb' : 'rgba(255,255,255,0.04)')
+    const inputBg = isStandard ? 'white' : (isProTheme ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)')
+    
+    // Pro/paid users: no signature. Free/basic: show signature + upgrade CTA
+    const isProAccount = userTier !== 'free' && userTier !== 'basic'
+    
+    const formatFileSize = (bytes: number) => {
+      if (bytes < 1024) return `${bytes} B`
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    }
+    
+    const handleEmailComposeFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (!files?.length) return
+      const newAttachments: { name: string; size: number; mimeType: string; contentBase64: string }[] = []
+      for (const file of Array.from(files)) {
+        if (file.size > 10 * 1024 * 1024) continue // 10MB limit
+        if (emailComposeAttachments.length + newAttachments.length >= 10) break
+        const contentBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const res = String(reader.result ?? '')
+            resolve(res.includes(',') ? res.split(',')[1]! : res)
+          }
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        newAttachments.push({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type || 'application/octet-stream',
+          contentBase64
+        })
+      }
+      setEmailComposeAttachments(prev => [...prev, ...newAttachments])
+      e.target.value = ''
+    }
+    
+    const removeEmailComposeAttachment = (index: number) => {
+      setEmailComposeAttachments(prev => prev.filter((_, i) => i !== index))
+    }
     
     const handleEmailSend = async () => {
       setEmailComposeError(null)
@@ -1381,17 +1423,24 @@ function PopupChatApp() {
       }
       setEmailComposeSending(true)
       try {
+        const bodyText = emailComposeBody.trim() + (isProAccount ? '' : EMAIL_SIGNATURE)
         const response = await chrome.runtime.sendMessage({
           type: 'EMAIL_SEND',
           accountId,
           to: toTrimmed.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
           subject: emailComposeSubject.trim() || '(No subject)',
-          bodyText: emailComposeBody.trim() + EMAIL_SIGNATURE
+          bodyText,
+          attachments: emailComposeAttachments.map(a => ({
+            filename: a.name,
+            mimeType: a.mimeType,
+            contentBase64: a.contentBase64
+          }))
         })
         if (response?.ok && response?.data?.success) {
           setEmailComposeTo('')
           setEmailComposeSubject('')
           setEmailComposeBody('')
+          setEmailComposeAttachments([])
           setToastMessage({ message: 'Email sent', type: 'success' })
           setTimeout(() => setToastMessage(null), 3000)
         } else {
@@ -1444,8 +1493,62 @@ function PopupChatApp() {
             <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, display: 'block', marginBottom: 4 }}>Body</label>
             <textarea value={emailComposeBody} onChange={(e) => setEmailComposeBody(e.target.value)} placeholder="Write your message..." rows={8} style={{ width: '100%', padding: '8px 10px', fontSize: 13, background: inputBg, border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, outline: 'none', resize: 'vertical' }} />
           </div>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor }}>Signature (appended automatically)</div>
-          <pre style={{ fontSize: 11, color: mutedColor, background: 'rgba(0,0,0,0.05)', padding: 8, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap' }}>{EMAIL_SIGNATURE.trim()}</pre>
+          {/* Attachments */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Attachments ({emailComposeAttachments.length})</label>
+              <button
+                onClick={() => emailComposeFileInputRef.current?.click()}
+                style={{
+                  padding: '4px 10px',
+                  background: isProTheme ? 'rgba(139,92,246,0.1)' : 'rgba(139,92,246,0.2)',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: isProTheme ? '#7c3aed' : '#c4b5fd',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                + Add File
+              </button>
+            </div>
+            <input ref={emailComposeFileInputRef} type="file" multiple onChange={handleEmailComposeFileSelect} style={{ display: 'none' }} />
+            {emailComposeAttachments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px', background: isStandard ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                {emailComposeAttachments.map((att, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: inputBg, borderRadius: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px' }}>📄</span>
+                      <span style={{ fontSize: '12px', color: textColor }}>{att.name}</span>
+                      <span style={{ fontSize: '10px', color: mutedColor }}>({formatFileSize(att.size)})</span>
+                    </div>
+                    <button
+                      onClick={() => removeEmailComposeAttachment(i)}
+                      style={{ background: 'none', border: 'none', borderRadius: 4, color: mutedColor, cursor: 'pointer', padding: '2px 6px', fontSize: 13 }}
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Signature — free tier only; Pro tier shows "no signature" note */}
+          {isProAccount ? (
+            <div style={{ fontSize: 11, color: mutedColor }}>✓ Pro — no signature added</div>
+          ) : (
+            <>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor }}>Signature (appended automatically)</div>
+              <pre style={{ fontSize: 11, color: mutedColor, background: 'rgba(0,0,0,0.05)', padding: 8, borderRadius: 6, margin: 0, whiteSpace: 'pre-wrap', opacity: 0.6 }}>{EMAIL_SIGNATURE.trim()}</pre>
+              <a href="https://wrdesk.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#7c3aed', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
+                ✨ Upgrade to Pro to send without branding
+              </a>
+            </>
+          )}
           {emailComposeError && <div style={{ fontSize: 12, color: '#ef4444' }}>{emailComposeError}</div>}
           <button onClick={handleEmailSend} disabled={emailComposeSending || isLoadingEmailAccounts || emailAccounts.length === 0} style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, background: '#2563eb', border: 'none', borderRadius: 8, color: 'white', cursor: emailComposeSending ? 'not-allowed' : 'pointer', opacity: emailComposeSending || emailAccounts.length === 0 ? 0.6 : 1 }}>
             {emailComposeSending ? 'Sending...' : 'Send'}

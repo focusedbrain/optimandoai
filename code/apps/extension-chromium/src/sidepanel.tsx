@@ -347,7 +347,7 @@ function SidepanelOrchestrator() {
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
   
   // BEAP Handshake Request delivery state (used in draft panels)
-  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('email')
+  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('p2p')
   const [handshakeTo, setHandshakeTo] = useState('')
   const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
   const [handshakeMessage, setHandshakeMessage] = useState('')

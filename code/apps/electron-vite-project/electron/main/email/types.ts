@@ -432,6 +432,18 @@ export interface MessageSearchOptions {
 }
 
 /**
+ * Email attachment (base64-encoded content)
+ */
+export interface EmailAttachment {
+  /** File name */
+  filename: string
+  /** MIME type */
+  mimeType: string
+  /** Base64-encoded content */
+  contentBase64: string
+}
+
+/**
  * Reply/send payload
  */
 export interface SendEmailPayload {
@@ -449,6 +461,9 @@ export interface SendEmailPayload {
   
   /** Plain text body */
   bodyText: string
+  
+  /** Attachments (optional) */
+  attachments?: EmailAttachment[]
   
   /** Message ID being replied to (for threading) */
   inReplyTo?: string

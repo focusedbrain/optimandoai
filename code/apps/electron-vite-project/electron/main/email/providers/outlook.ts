@@ -298,7 +298,7 @@ export class OutlookProvider extends BaseEmailProvider {
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     try {
-      const message = {
+      const message: Record<string, unknown> = {
         subject: payload.subject,
         body: {
           contentType: 'Text',
@@ -310,6 +310,14 @@ export class OutlookProvider extends BaseEmailProvider {
         ccRecipients: payload.cc?.map(email => ({
           emailAddress: { address: email }
         })) || []
+      }
+      if (payload.attachments?.length) {
+        message.attachments = payload.attachments.map(a => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: a.filename,
+          contentType: a.mimeType || 'application/octet-stream',
+          contentBytes: a.contentBase64
+        }))
       }
       
       await this.graphApiRequest('POST', '/me/sendMail', {

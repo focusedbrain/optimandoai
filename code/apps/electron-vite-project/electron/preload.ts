@@ -445,6 +445,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
   sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
+  deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
+  connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
+  connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

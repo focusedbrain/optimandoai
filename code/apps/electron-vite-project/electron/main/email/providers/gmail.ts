@@ -651,6 +651,7 @@ export class GmailProvider extends BaseEmailProvider {
   
   private buildRfc2822Message(payload: SendEmailPayload): string {
     const lines: string[] = []
+    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`
     
     lines.push(`To: ${payload.to.join(', ')}`)
     if (payload.cc?.length) {
@@ -658,7 +659,6 @@ export class GmailProvider extends BaseEmailProvider {
     }
     lines.push(`Subject: ${payload.subject}`)
     lines.push('MIME-Version: 1.0')
-    lines.push('Content-Type: text/plain; charset=utf-8')
     
     if (payload.inReplyTo) {
       lines.push(`In-Reply-To: ${payload.inReplyTo}`)
@@ -667,8 +667,37 @@ export class GmailProvider extends BaseEmailProvider {
       lines.push(`References: ${payload.references.join(' ')}`)
     }
     
-    lines.push('')
-    lines.push(payload.bodyText)
+    const hasAttachments = payload.attachments?.length && payload.attachments.length > 0
+    
+    if (hasAttachments) {
+      lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
+      lines.push('')
+      lines.push(`--${boundary}`)
+      lines.push('Content-Type: text/plain; charset=utf-8')
+      lines.push('Content-Transfer-Encoding: 7bit')
+      lines.push('')
+      lines.push(payload.bodyText)
+      
+      for (const att of payload.attachments!) {
+        lines.push(`--${boundary}`)
+        const mime = att.mimeType || 'application/octet-stream'
+        const safeName = att.filename.replace(/[^\x20-\x7E]/g, '?')
+        lines.push(`Content-Type: ${mime}; name="${safeName}"`)
+        lines.push('Content-Transfer-Encoding: base64')
+        lines.push(`Content-Disposition: attachment; filename="${safeName}"`)
+        lines.push('')
+        // Split base64 into 76-char lines per RFC 2045
+        const b64 = att.contentBase64.replace(/\s/g, '')
+        for (let i = 0; i < b64.length; i += 76) {
+          lines.push(b64.slice(i, i + 76))
+        }
+      }
+      lines.push(`--${boundary}--`)
+    } else {
+      lines.push('Content-Type: text/plain; charset=utf-8')
+      lines.push('')
+      lines.push(payload.bodyText)
+    }
     
     return lines.join('\r\n')
   }

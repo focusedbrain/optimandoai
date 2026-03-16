@@ -3103,7 +3103,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           accountId: msg.accountId,
           to: msg.to,
           subject: msg.subject || '(No subject)',
-          bodyText: msg.bodyText || ''
+          bodyText: msg.bodyText || '',
+          attachments: msg.attachments || []
         })
       })
         .then(result => {
