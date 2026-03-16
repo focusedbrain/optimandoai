@@ -643,7 +643,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'OpenGiraffe desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'WR Desk™ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -673,7 +673,7 @@ async function electronRequest(
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'OpenGiraffe desktop app stopped unexpectedly. Please restart it.',
+            error: 'WR Desk™ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -745,7 +745,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to OpenGiraffe desktop app';
+        lastError = 'Cannot connect to WR Desk™ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -758,7 +758,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart OpenGiraffe.`,
+    error: `${lastError}. Please try again or restart WR Desk™.`,
     errorCode: lastErrorCode
   };
 }
@@ -2875,7 +2875,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to OpenGiraffe. Make sure the Electron app is running.' 
+              error: 'Could not connect to WR Desk™. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }
@@ -3164,7 +3164,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, tenantId: msg.tenantId })
       })
         .then(result => {
           console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)

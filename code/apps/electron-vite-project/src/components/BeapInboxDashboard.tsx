@@ -13,7 +13,7 @@ import { useEffect, useCallback, useRef, useState } from 'react'
 import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
-import EmailConnectModal from './EmailConnectModal'
+import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
@@ -112,6 +112,11 @@ export default function BeapInboxDashboard({
 
   useEffect(() => {
     loadEmailAccounts()
+  }, [loadEmailAccounts])
+
+  useEffect(() => {
+    const unsub = (window as any).emailAccounts?.onAccountConnected?.(() => loadEmailAccounts())
+    return () => unsub?.()
   }, [loadEmailAccounts])
 
   const handleConnectEmail = useCallback(() => {
@@ -407,14 +412,16 @@ export default function BeapInboxDashboard({
         </div>
       )}
 
-      {/* Email Connect Modal */}
-      {showEmailConnectModal && (
-        <EmailConnectModal
-          onClose={() => setShowEmailConnectModal(false)}
-          onConnected={loadEmailAccounts}
-          onNotify={notify}
-        />
-      )}
+      {/* Email Connect Wizard */}
+      <EmailConnectWizard
+        isOpen={showEmailConnectModal}
+        onClose={() => setShowEmailConnectModal(false)}
+        onConnected={() => {
+          loadEmailAccounts()
+          setShowEmailConnectModal(false)
+        }}
+        theme="professional"
+      />
 
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>

@@ -25,6 +25,7 @@ import {
 } from '../types'
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
+import { getCredentialsForOAuth } from '../credentials'
 
 /**
  * Microsoft Graph API scopes
@@ -50,7 +51,7 @@ function getOutlookOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials for Outlook
  */
-function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string; tenantId?: string } | null {
+export function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string; tenantId?: string } | null {
   try {
     const configPath = getOutlookOAuthConfigPath()
     console.log('[Outlook] Loading OAuth config from:', configPath)
@@ -349,7 +350,7 @@ export class OutlookProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
-    const oauthConfig = loadOutlookOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('outlook')
     if (!oauthConfig) {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
     }
@@ -531,7 +532,7 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = loadOutlookOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('outlook')
     if (!oauthConfig || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }

@@ -7183,15 +7183,23 @@ app.whenReady().then(async () => {
 
     // ===== EMAIL GATEWAY API Endpoints =====
     
-    // GET /api/email/credentials/gmail - Check if Gmail OAuth credentials are configured
+    // GET /api/email/credentials/gmail - Check Gmail credentials with honest source
     httpApp.get('/api/email/credentials/gmail', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
-        const fs = await import('fs')
-        const path = await import('path')
-        const configPath = path.join(app.getPath('userData'), 'email-oauth-config.json')
-        const exists = fs.existsSync(configPath)
-        res.json({ ok: true, data: { configured: exists } })
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('gmail')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Gmail credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -7207,24 +7215,32 @@ app.whenReady().then(async () => {
           res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
           return
         }
-        const { saveOAuthConfig } = await import('./main/email/providers/gmail')
-        saveOAuthConfig(clientId, clientSecret)
-        res.json({ ok: true })
+        const { saveCredentials } = await import('./main/email/credentials')
+        const result = await saveCredentials('gmail', { clientId, clientSecret })
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
     
-    // GET /api/email/credentials/outlook - Check if Outlook OAuth credentials are configured
+    // GET /api/email/credentials/outlook - Check Outlook credentials with honest source
     httpApp.get('/api/email/credentials/outlook', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/outlook')
-        const fs = await import('fs')
-        const path = await import('path')
-        const configPath = path.join(app.getPath('userData'), 'outlook-oauth-config.json')
-        const exists = fs.existsSync(configPath)
-        res.json({ ok: true, data: { configured: exists } })
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('outlook')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Outlook credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -7235,14 +7251,14 @@ app.whenReady().then(async () => {
     httpApp.post('/api/email/credentials/outlook', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/credentials/outlook')
-        const { clientId, clientSecret } = req.body
+        const { clientId, clientSecret, tenantId } = req.body
         if (!clientId) {
           res.status(400).json({ ok: false, error: 'clientId is required' })
           return
         }
-        const { saveOutlookOAuthConfig } = await import('./main/email/providers/outlook')
-        saveOutlookOAuthConfig(clientId, clientSecret)
-        res.json({ ok: true })
+        const { saveCredentials } = await import('./main/email/credentials')
+        const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId })
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Outlook credentials:', error)
         res.status(500).json({ ok: false, error: error.message })

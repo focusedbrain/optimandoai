@@ -222,9 +222,9 @@ class OAuthServerManager {
         })
       } else if (code) {
         console.log(`[OAuthServer] OAuth code received`)
-        this.sendHtmlResponse(res, 'Success', 
-          `<h1>Success!</h1><p>You can close this window and return to OpenGiraffe.</p>`, 
-          true)
+        this.sendHtmlResponse(res, 'WR Desk™', 
+          `<h1>✓ Authorization received</h1><p>Return to WR Desk™ to complete setup.</p><p style="font-size:12px;color:#64748b;">This window will close automatically.</p><script>setTimeout(function(){window.close();},4000)</script>`, 
+          'neutral')
         this.completeFlow({
           success: true,
           code,
@@ -253,12 +253,18 @@ class OAuthServerManager {
 
   /**
    * Send HTML response to browser
+   * @param variant 'success' | 'error' | 'neutral' — controls background and heading color
    */
-  private sendHtmlResponse(res: http.ServerResponse, title: string, body: string, success: boolean): void {
+  private sendHtmlResponse(res: http.ServerResponse, title: string, body: string, variant: boolean | 'neutral'): void {
+    const isSuccess = variant === true
+    const isNeutral = variant === 'neutral'
+    const bg = isNeutral ? 'linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)' : (isSuccess ? 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)' : 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)')
+    const h1Color = isNeutral ? '#334155' : (isSuccess ? '#2e7d32' : '#c62828')
     const html = `
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>${title}</title>
   <style>
     body {
@@ -268,7 +274,7 @@ class OAuthServerManager {
       align-items: center;
       min-height: 100vh;
       margin: 0;
-      background: ${success ? 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)' : 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)'};
+      background: ${bg};
     }
     .container {
       text-align: center;
@@ -279,7 +285,7 @@ class OAuthServerManager {
       max-width: 400px;
     }
     h1 {
-      color: ${success ? '#2e7d32' : '#c62828'};
+      color: ${h1Color};
       margin-bottom: 16px;
     }
     p {

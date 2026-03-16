@@ -7,8 +7,7 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import { emailGateway } from './gateway'
-import { saveOAuthConfig } from './providers/gmail'
-import { saveOutlookOAuthConfig } from './providers/outlook'
+import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
   MessageSearchOptions,
   SendEmailPayload,
@@ -25,6 +24,7 @@ export function registerEmailHandlers(): void {
   const channels = [
     'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
+    'email:checkGmailCredentials', 'email:checkOutlookCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
     'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail',
@@ -100,14 +100,58 @@ export function registerEmailHandlers(): void {
   })
   
   /**
-   * Set Gmail OAuth credentials
+   * Set Gmail OAuth credentials (vault if unlocked, else plain file)
    */
   ipcMain.handle('email:setGmailCredentials', async (_e, clientId: string, clientSecret: string) => {
     try {
-      saveOAuthConfig(clientId, clientSecret)
-      return { ok: true }
+      const result = await saveCredentials('gmail', { clientId, clientSecret })
+      return { ok: result.ok, savedToVault: result.savedToVault }
     } catch (error: any) {
       console.error('[Email IPC] setGmailCredentials error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /**
+   * Check Gmail credentials with honest source (vault / vault-migrated / temporary / none)
+   */
+  ipcMain.handle('email:checkGmailCredentials', async () => {
+    try {
+      const result = await checkExistingCredentials('gmail')
+      return {
+        ok: true,
+        data: {
+          configured: !!result.credentials,
+          clientId: result.clientId,
+          source: result.source,
+          credentials: result.credentials,
+          hasSecret: result.hasSecret,
+          vaultUnlocked: isVaultUnlocked(),
+        },
+      }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /**
+   * Check Outlook credentials with honest source (vault / vault-migrated / temporary / none)
+   */
+  ipcMain.handle('email:checkOutlookCredentials', async () => {
+    try {
+      const result = await checkExistingCredentials('outlook')
+      return {
+        ok: true,
+        data: {
+          configured: !!result.credentials,
+          clientId: result.clientId,
+          source: result.source,
+          credentials: result.credentials,
+          hasSecret: result.hasSecret,
+          vaultUnlocked: isVaultUnlocked(),
+        },
+      }
+    } catch (error: any) {
       return { ok: false, error: error.message }
     }
   })
@@ -118,6 +162,9 @@ export function registerEmailHandlers(): void {
   ipcMain.handle('email:connectGmail', async (_e, displayName?: string) => {
     try {
       const account = await emailGateway.connectGmailAccount(displayName)
+      BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email })
+      })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
@@ -138,12 +185,12 @@ export function registerEmailHandlers(): void {
   })
   
   /**
-   * Set Outlook OAuth credentials
+   * Set Outlook OAuth credentials (vault if unlocked, else plain file)
    */
   ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret?: string, tenantId?: string) => {
     try {
-      saveOutlookOAuthConfig(clientId, clientSecret, tenantId)
-      return { ok: true }
+      const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId })
+      return { ok: result.ok, savedToVault: result.savedToVault }
     } catch (error: any) {
       console.error('[Email IPC] setOutlookCredentials error:', error)
       return { ok: false, error: error.message }
@@ -156,6 +203,9 @@ export function registerEmailHandlers(): void {
   ipcMain.handle('email:connectOutlook', async (_e, displayName?: string) => {
     try {
       const account = await emailGateway.connectOutlookAccount(displayName)
+      BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('email:accountConnected', { provider: 'microsoft365', email: account.email })
+      })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectOutlook error:', error)

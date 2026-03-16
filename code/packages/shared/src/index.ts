@@ -1,4 +1,4 @@
-export const APP_NAME = "OpenGiraffe Orchestrator";
+export const APP_NAME = "WR Desk™ Orchestrator";
 
 // Security utilities
 export {

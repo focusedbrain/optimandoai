@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
-import EmailConnectModal from './EmailConnectModal'
+import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 
 interface BeapBulkInboxDashboardProps {
   onMessageSelect?: (messageId: string | null) => void
@@ -53,6 +53,11 @@ export default function BeapBulkInboxDashboard({
 
   useEffect(() => {
     loadEmailAccounts()
+  }, [loadEmailAccounts])
+
+  useEffect(() => {
+    const unsub = (window as any).emailAccounts?.onAccountConnected?.(() => loadEmailAccounts())
+    return () => unsub?.()
   }, [loadEmailAccounts])
 
   const handleConnectEmail = useCallback(() => {
@@ -114,14 +119,16 @@ export default function BeapBulkInboxDashboard({
         </div>
       )}
 
-      {/* Email Connect Modal */}
-      {showEmailConnectModal && (
-        <EmailConnectModal
-          onClose={() => setShowEmailConnectModal(false)}
-          onConnected={loadEmailAccounts}
-          onNotify={notify}
-        />
-      )}
+      {/* Email Connect Wizard */}
+      <EmailConnectWizard
+        isOpen={showEmailConnectModal}
+        onClose={() => setShowEmailConnectModal(false)}
+        onConnected={() => {
+          loadEmailAccounts()
+          setShowEmailConnectModal(false)
+        }}
+        theme="professional"
+      />
 
       {/* Connected Email Accounts */}
       <EmailProvidersSection

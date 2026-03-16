@@ -9,18 +9,18 @@ const ERROR_MESSAGES: Record<string, { title: string; message: string; action?: 
   // Connection errors
   'ELECTRON_NOT_RUNNING': {
     title: 'Desktop App Not Running',
-    message: 'The OpenGiraffe desktop app is not running.',
+    message: 'The WR Desk™ desktop app is not running.',
     action: 'Please start the desktop app and try again.'
   },
   'ELECTRON_STOPPED': {
     title: 'Desktop App Stopped',
     message: 'The desktop app stopped unexpectedly.',
-    action: 'Please restart OpenGiraffe and try again.'
+    action: 'Please restart WR Desk™ and try again.'
   },
   'NETWORK_ERROR': {
     title: 'Connection Error',
     message: 'Cannot connect to the desktop app.',
-    action: 'Make sure OpenGiraffe is running and try again.'
+    action: 'Make sure WR Desk™ is running and try again.'
   },
   'TIMEOUT': {
     title: 'Request Timed Out',
@@ -93,7 +93,7 @@ const ERROR_MESSAGES: Record<string, { title: string; message: string; action?: 
   'UNKNOWN': {
     title: 'Something Went Wrong',
     message: 'An unexpected error occurred.',
-    action: 'Please try again. If the problem persists, restart OpenGiraffe.'
+    action: 'Please try again. If the problem persists, restart WR Desk™.'
   },
   'INVALID_RESPONSE': {
     title: 'Invalid Response',

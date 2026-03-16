@@ -24,6 +24,7 @@ import {
   SendResult 
 } from '../types'
 import { oauthServerManager } from '../oauth-server'
+import { getCredentialsForOAuth } from '../credentials'
 
 /**
  * Gmail API scopes
@@ -44,7 +45,7 @@ function getOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials
  */
-function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
+export function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
   try {
     const configPath = getOAuthConfigPath()
     if (fs.existsSync(configPath)) {
@@ -314,7 +315,7 @@ export class GmailProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(email?: string): Promise<EmailAccountConfig['oauth']> {
-    const oauthConfig = loadOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('gmail')
     if (!oauthConfig) {
       throw new Error('OAuth client credentials not configured. Please set up Google Cloud Console credentials.')
     }
@@ -458,7 +459,7 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = loadOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('gmail')
     if (!oauthConfig || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }

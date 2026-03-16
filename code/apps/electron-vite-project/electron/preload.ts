@@ -452,6 +452,13 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret),
   setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string) =>
     ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId),
+  checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
+  onAccountConnected: (cb: (data: { provider: string; email: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string }) => cb(data)
+    ipcRenderer.on('email:accountConnected', handler)
+    return () => { ipcRenderer.removeListener('email:accountConnected', handler) }
+  },
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

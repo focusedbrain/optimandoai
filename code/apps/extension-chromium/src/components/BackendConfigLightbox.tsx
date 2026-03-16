@@ -289,7 +289,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
         if (result.error?.includes('timed out') || result.error?.includes('Abort')) {
           errorMsg = 'Connection timeout - Desktop app may not be responding';
         } else if (result.error?.includes('Network error') || result.error?.includes('Failed to fetch')) {
-          errorMsg = 'Cannot connect to desktop app - Check if OpenGiraffe is running';
+          errorMsg = 'Cannot connect to desktop app - Check if WR Desk™ is running';
         }
         
         setNotification({ message: errorMsg, type: 'error' });
@@ -398,7 +398,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                 <span style={{ fontWeight: 600, fontSize: '14px', color: t.warning }}>Desktop App Not Running</span>
               </div>
               <p style={{ fontSize: '13px', color: t.textMuted, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-                The OpenGiraffe desktop app is required for database and LLM connections. Please start it from:
+                The WR Desk™ desktop app is required for database and LLM connections. Please start it from:
               </p>
               <div style={{
                 background: 'rgba(0,0,0,0.2)',
@@ -409,7 +409,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                 color: t.textMuted,
                 marginBottom: '14px',
               }}>
-                Start Menu → OpenGiraffe<br />
+                Start Menu → WR Desk™<br />
                 <span style={{ opacity: 0.7 }}>or check your system tray (bottom-right corner)</span>
               </div>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -421,7 +421,7 @@ export function BackendConfigLightbox({ isOpen, onClose, theme = 'default' }: Ba
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {isLaunchingApp ? '⏳ Starting...' : '🚀 Launch OpenGiraffe'}
+                  {isLaunchingApp ? '⏳ Starting...' : '🚀 Launch WR Desk™'}
                 </button>
                 <span style={{ fontSize: '12px', color: t.textMuted }}>
                   {isLaunchingApp ? 'Waiting for app to start...' : 'Click to start the desktop app'}
