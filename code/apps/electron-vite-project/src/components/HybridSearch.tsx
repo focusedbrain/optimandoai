@@ -336,7 +336,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     setResultType(null)
 
     try {
-      const effectiveScope = selectedHandshakeId ?? scope
+      const effectiveScope = selectedHandshakeId ?? selectedMessageId ?? scope
       if (mode === 'search') {
         const r = await runSearch(trimmed, effectiveScope)
         setResults(r)
@@ -417,7 +417,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 
@@ -528,8 +528,11 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
         </div>
 
         {/* ── Centre: main input ── */}
-        {(selectedHandshakeId || selectedMessageId) && (
-          <span style={{ marginRight: '8px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0 }} title={selectedHandshakeId ? 'Chat scoped to selected handshake' : 'Chat scoped to selected BEAP message'}>👉</span>
+        {selectedHandshakeId && (
+          <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected handshake">👉</span>
+        )}
+        {selectedMessageId && !selectedHandshakeId && (
+          <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected BEAP message">👉</span>
         )}
         <input
           ref={inputRef}
