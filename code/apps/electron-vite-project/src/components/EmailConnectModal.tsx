@@ -1,6 +1,7 @@
 /**
- * EmailConnectModal — Provider selection for connecting email in Electron dashboard.
- * Gmail and Outlook use window.emailAccounts (preload IPC). IMAP shows a notice.
+ * EmailConnectModal — EXACT same modal as capsule builder (sidepanel/popup-chat).
+ * Blue header, explainer, provider list, security notice.
+ * Wired to window.emailAccounts (Electron preload IPC) for Gmail/Outlook.
  */
 
 import { useState } from 'react'
@@ -10,6 +11,8 @@ interface EmailConnectModalProps {
   onConnected: () => void
   onNotify: (msg: string, type: 'success' | 'error' | 'info') => void
 }
+
+const theme = 'standard' as const
 
 export default function EmailConnectModal({
   onClose,
@@ -68,124 +71,292 @@ export default function EmailConnectModal({
     }
   }
 
-  const borderColor = 'rgba(15,23,42,0.12)'
-  const mutedColor = '#64748b'
-  const textColor = '#0f172a'
+  const isConnecting = connecting !== null
 
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        background: 'rgba(0,0,0,0.7)',
+        zIndex: 2147483651,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        backdropFilter: 'blur(4px)',
       }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         style={{
-          background: 'white',
-          borderRadius: '12px',
-          padding: '24px',
-          maxWidth: '360px',
-          width: '90%',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-          border: `1px solid ${borderColor}`,
+          width: '380px',
+          maxHeight: '85vh',
+          background: theme === 'standard' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+          borderRadius: '16px',
+          border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+          boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-          <span style={{ fontSize: '16px', fontWeight: 700, color: textColor }}>Connect Email Account</span>
+        {/* Header — same as capsule builder */}
+        <div
+          style={{
+            padding: '20px',
+            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            color: 'white',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '24px' }}>📧</span>
+            <div>
+              <div style={{ fontSize: '16px', fontWeight: '600' }}>Connect Your Email</div>
+              <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via official API</div>
+            </div>
+          </div>
           <button
             onClick={onClose}
             style={{
-              background: 'none',
+              background: 'rgba(255,255,255,0.2)',
               border: 'none',
-              fontSize: '18px',
+              color: 'white',
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              color: mutedColor,
-              padding: '0 4px',
+              fontSize: '16px',
             }}
           >
             ×
           </button>
         </div>
 
-        {(!hasConnectGmail && !hasConnectOutlook) && (
-          <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '8px', marginBottom: '16px', fontSize: '12px', color: '#92400e' }}>
-            Email connection requires the desktop app. Ensure WR Desk™ is running.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <button
-            onClick={handleConnectGmail}
-            disabled={!hasConnectGmail || connecting !== null}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px 16px',
-              background: hasConnectGmail && !connecting ? 'white' : '#f8fafc',
-              border: `1px solid ${borderColor}`,
-              borderRadius: '8px',
-              cursor: hasConnectGmail && !connecting ? 'pointer' : 'not-allowed',
-              fontSize: '14px',
-              fontWeight: 600,
-              color: textColor,
-              textAlign: 'left',
-            }}
-          >
-            <span style={{ fontSize: '20px' }}>📧</span>
-            <span>Gmail</span>
-            {connecting === 'gmail' && <span style={{ marginLeft: 'auto', fontSize: '12px', color: mutedColor }}>Connecting…</span>}
-          </button>
-
-          <button
-            onClick={handleConnectOutlook}
-            disabled={!hasConnectOutlook || connecting !== null}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px 16px',
-              background: hasConnectOutlook && !connecting ? 'white' : '#f8fafc',
-              border: `1px solid ${borderColor}`,
-              borderRadius: '8px',
-              cursor: hasConnectOutlook && !connecting ? 'pointer' : 'not-allowed',
-              fontSize: '14px',
-              fontWeight: 600,
-              color: textColor,
-              textAlign: 'left',
-            }}
-          >
-            <span style={{ fontSize: '20px' }}>📨</span>
-            <span>Outlook</span>
-            {connecting === 'outlook' && <span style={{ marginLeft: 'auto', fontSize: '12px', color: mutedColor }}>Connecting…</span>}
-          </button>
-
+        {/* Content */}
+        <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(85vh - 80px)' }}>
+          {isConnecting ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '16px' }}>⏳</div>
+              <div
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: theme === 'standard' ? '#0f172a' : 'white',
+                  marginBottom: '8px',
+                }}
+              >
+                Connecting...
+              </div>
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+                }}
+              >
+                Please complete the OAuth flow in the browser window.
+              </div>
+            </div>
+          ) : (
+            <>
           <div
             style={{
+              fontSize: '13px',
+              color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
+              marginBottom: '16px',
+            }}
+          >
+            Choose your email provider to connect securely:
+          </div>
+
+          {!hasConnectGmail && !hasConnectOutlook && (
+            <div
+              style={{
+                padding: '12px',
+                background: theme === 'standard' ? '#fef3c7' : 'rgba(245,158,11,0.2)',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                fontSize: '12px',
+                color: theme === 'standard' ? '#92400e' : 'rgba(255,255,255,0.9)',
+              }}
+            >
+              Email connection requires the desktop app. Ensure WR Desk™ is running.
+            </div>
+          )}
+
+          {/* Gmail Option */}
+          <button
+            onClick={handleConnectGmail}
+            disabled={!hasConnectGmail || isConnecting}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+              border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '10px',
+              cursor: hasConnectGmail && !isConnecting ? 'pointer' : 'not-allowed',
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              padding: '14px 16px',
-              background: '#f8fafc',
-              border: `1px solid ${borderColor}`,
-              borderRadius: '8px',
-              fontSize: '13px',
-              color: mutedColor,
+              marginBottom: '10px',
+              textAlign: 'left',
+              transition: 'all 0.15s',
+              opacity: isConnecting ? 0.6 : 1,
             }}
           >
-            <span style={{ fontSize: '20px' }}>✉️</span>
+            <span style={{ fontSize: '24px' }}>📧</span>
             <div>
-              <div style={{ fontWeight: 600, color: textColor }}>IMAP (manual)</div>
-              <div style={{ fontSize: '11px', marginTop: 2 }}>Configure IMAP accounts via the WR Chat extension.</div>
+              <div
+                style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: theme === 'standard' ? '#0f172a' : 'white',
+                }}
+              >
+                Gmail
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                Connect via Google OAuth
+              </div>
+            </div>
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: '14px',
+                color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              →
+            </span>
+          </button>
+
+          {/* Microsoft 365 Option */}
+          <button
+            onClick={handleConnectOutlook}
+            disabled={!hasConnectOutlook || isConnecting}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
+              border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '10px',
+              cursor: hasConnectOutlook && !isConnecting ? 'pointer' : 'not-allowed',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              marginBottom: '10px',
+              textAlign: 'left',
+              transition: 'all 0.15s',
+              opacity: isConnecting ? 0.6 : 1,
+            }}
+          >
+            <span style={{ fontSize: '24px' }}>📨</span>
+            <div>
+              <div
+                style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: theme === 'standard' ? '#0f172a' : 'white',
+                }}
+              >
+                Microsoft 365 / Outlook
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                Connect via Microsoft OAuth
+              </div>
+            </div>
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: '14px',
+                color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              →
+            </span>
+          </button>
+
+          {/* Other (IMAP) — info only in desktop app */}
+          <div
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              background: theme === 'standard' ? '#f8fafc' : 'rgba(255,255,255,0.05)',
+              border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              marginBottom: '10px',
+              textAlign: 'left',
+            }}
+          >
+            <span style={{ fontSize: '24px' }}>✉️</span>
+            <div>
+              <div
+                style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: theme === 'standard' ? '#0f172a' : 'white',
+                }}
+              >
+                Other (IMAP)
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                Configure IMAP accounts via the WR Chat extension.
+              </div>
+            </div>
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: '12px',
+                color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              →
+            </span>
+          </div>
+
+          {/* Security note — same as capsule builder */}
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '12px',
+              background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
+              borderRadius: '8px',
+              border: '1px solid rgba(59,130,246,0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <span style={{ fontSize: '14px' }}>🔒</span>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)',
+                  lineHeight: '1.5',
+                }}
+              >
+                <strong>Security:</strong> Your emails are never rendered with scripts or tracking.
+                All content is sanitized locally before display.
+              </div>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
