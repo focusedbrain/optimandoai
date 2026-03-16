@@ -53,8 +53,13 @@ export { isSandboxSuccess, isSandboxFailure, isSandboxAck }
 // Constants
 // =============================================================================
 
-/** Path to the sandboxed page, relative to the extension root. */
-const SANDBOX_PAGE_URL = chrome.runtime.getURL('src/beap-messages/sandbox/sandbox.html')
+/** Path to the sandboxed page, relative to the extension root. Lazy to avoid crash in Electron (no chrome.runtime). */
+function getSandboxPageUrl(): string {
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+    return chrome.runtime.getURL('src/beap-messages/sandbox/sandbox.html')
+  }
+  throw new Error('sandboxClient: chrome.runtime.getURL not available (not in extension context)')
+}
 
 /** Time to wait for the sandbox iframe to load and become ready (ms). */
 const IFRAME_READY_TIMEOUT_MS = 8_000
@@ -113,7 +118,7 @@ export class SandboxClient {
   static async create(): Promise<SandboxClient> {
     const iframe = document.createElement('iframe')
     iframe.setAttribute(SANDBOX_IFRAME_ATTR, 'true')
-    iframe.src = SANDBOX_PAGE_URL
+    iframe.src = getSandboxPageUrl()
 
     // Hide the iframe — it has no visual content.
     iframe.style.cssText = [
