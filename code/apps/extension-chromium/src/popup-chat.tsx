@@ -493,8 +493,10 @@ function PopupChatApp() {
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
-  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'connecting'>('provider')
+  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'connecting' | 'gmail-credentials' | 'outlook-credentials'>('provider')
   const [isConnectingEmail, setIsConnectingEmail] = useState(false)
+  const [gmailCredentials, setGmailCredentials] = useState({ clientId: '', clientSecret: '' })
+  const [outlookCredentials, setOutlookCredentials] = useState({ clientId: '', clientSecret: '' })
   
   // Load email accounts from Electron via background script
   const loadEmailAccounts = async () => {
@@ -567,35 +569,46 @@ function PopupChatApp() {
     return error
   }
   
-  // Gmail OAuth connect
-  const connectGmailAccount = async () => {
-    // Prevent double-clicks
+  // Check credentials and either connect or show inline form (same flow as sidepanel)
+  const startGmailConnect = async () => {
     if (isConnectingEmail) return
-    
+    try {
+      const checkResponse = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
+      if (checkResponse?.ok && checkResponse?.data?.configured) {
+        connectGmailAccount()
+      } else {
+        setEmailSetupStep('gmail-credentials')
+      }
+    } catch {
+      setEmailSetupStep('gmail-credentials')
+    }
+  }
+
+  const doConnectGmail = async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' })
+    if (response?.ok && response?.data) {
+      await loadEmailAccounts()
+      setSelectedEmailAccountId(response.data.id)
+      setToastMessage({ message: 'Gmail connected successfully!', type: 'success' })
+      setShowEmailSetupWizard(false)
+      setEmailSetupStep('provider')
+      setGmailCredentials({ clientId: '', clientSecret: '' })
+    } else {
+      const errorMsg = response?.error || 'Failed to connect Gmail'
+      throw new Error(cleanErrorMessage(errorMsg))
+    }
+  }
+
+  const connectGmailAccount = async () => {
+    if (isConnectingEmail) return
     setIsConnectingEmail(true)
     setEmailSetupStep('connecting')
-    
-    // Small delay to show the connecting state before async operation
     await new Promise(resolve => setTimeout(resolve, 100))
-    
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' })
-      if (response?.ok && response?.data) {
-        // Reload accounts from backend to ensure consistency
-        await loadEmailAccounts()
-        setSelectedEmailAccountId(response.data.id)
-        setToastMessage({ message: 'Gmail connected successfully!', type: 'success' })
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-      } else {
-        const errorMsg = response?.error || 'Failed to connect Gmail'
-        throw new Error(cleanErrorMessage(errorMsg))
-      }
+      await doConnectGmail()
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : 'Failed to connect Gmail'
-      const message = cleanErrorMessage(rawMessage)
-      setToastMessage({ message, type: 'error' })
-      // Delay returning to provider to prevent flicker
+      setToastMessage({ message: cleanErrorMessage(rawMessage), type: 'error' })
       await new Promise(resolve => setTimeout(resolve, 500))
       setEmailSetupStep('provider')
     } finally {
@@ -603,36 +616,100 @@ function PopupChatApp() {
       setTimeout(() => setToastMessage(null), 4000)
     }
   }
-  
-  // Outlook OAuth connect
-  const connectOutlookAccount = async () => {
-    // Prevent double-clicks
-    if (isConnectingEmail) return
-    
+
+  const saveGmailCredentialsAndConnect = async () => {
+    if (!gmailCredentials.clientId?.trim() || !gmailCredentials.clientSecret?.trim()) {
+      setToastMessage({ message: 'Please enter both Client ID and Client Secret', type: 'error' })
+      setTimeout(() => setToastMessage(null), 3000)
+      return
+    }
     setIsConnectingEmail(true)
     setEmailSetupStep('connecting')
-    
-    // Small delay to show the connecting state before async operation
-    await new Promise(resolve => setTimeout(resolve, 100))
-    
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' })
-      if (response?.ok && response?.data) {
-        // Reload accounts from backend to ensure consistency
-        await loadEmailAccounts()
-        setSelectedEmailAccountId(response.data.id)
-        setToastMessage({ message: 'Microsoft 365 connected successfully!', type: 'success' })
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-      } else {
-        const errorMsg = response?.error || 'Failed to connect Outlook'
-        throw new Error(cleanErrorMessage(errorMsg))
+      const saveResponse = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SAVE_GMAIL_CREDENTIALS',
+        clientId: gmailCredentials.clientId,
+        clientSecret: gmailCredentials.clientSecret,
+      })
+      if (!saveResponse?.ok) {
+        throw new Error(saveResponse?.error || 'Failed to save credentials')
       }
+      await doConnectGmail()
+    } catch (err: any) {
+      setToastMessage({ message: err.message || 'Failed to save credentials', type: 'error' })
+      setTimeout(() => setToastMessage(null), 5000)
+      setEmailSetupStep('gmail-credentials')
+    } finally {
+      setIsConnectingEmail(false)
+    }
+  }
+
+  const startOutlookConnect = async () => {
+    if (isConnectingEmail) return
+    try {
+      const checkResponse = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_OUTLOOK_CREDENTIALS' })
+      if (checkResponse?.ok && checkResponse?.data?.configured) {
+        connectOutlookAccount()
+      } else {
+        setEmailSetupStep('outlook-credentials')
+      }
+    } catch {
+      setEmailSetupStep('outlook-credentials')
+    }
+  }
+
+  const doConnectOutlook = async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' })
+    if (response?.ok && response?.data) {
+      await loadEmailAccounts()
+      setSelectedEmailAccountId(response.data.id)
+      setToastMessage({ message: 'Microsoft 365 connected successfully!', type: 'success' })
+      setShowEmailSetupWizard(false)
+      setEmailSetupStep('provider')
+      setOutlookCredentials({ clientId: '', clientSecret: '' })
+    } else {
+      const errorMsg = response?.error || 'Failed to connect Outlook'
+      throw new Error(cleanErrorMessage(errorMsg))
+    }
+  }
+
+  const saveOutlookCredentialsAndConnect = async () => {
+    if (!outlookCredentials.clientId?.trim()) {
+      setToastMessage({ message: 'Please enter the Client ID', type: 'error' })
+      setTimeout(() => setToastMessage(null), 3000)
+      return
+    }
+    setIsConnectingEmail(true)
+    setEmailSetupStep('connecting')
+    try {
+      const saveResponse = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SAVE_OUTLOOK_CREDENTIALS',
+        clientId: outlookCredentials.clientId,
+        clientSecret: outlookCredentials.clientSecret,
+      })
+      if (!saveResponse?.ok) {
+        throw new Error(saveResponse?.error || 'Failed to save credentials')
+      }
+      await doConnectOutlook()
+    } catch (err: any) {
+      setToastMessage({ message: err.message || 'Failed to save credentials', type: 'error' })
+      setTimeout(() => setToastMessage(null), 5000)
+      setEmailSetupStep('outlook-credentials')
+    } finally {
+      setIsConnectingEmail(false)
+    }
+  }
+
+  const connectOutlookAccount = async () => {
+    if (isConnectingEmail) return
+    setIsConnectingEmail(true)
+    setEmailSetupStep('connecting')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    try {
+      await doConnectOutlook()
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : 'Failed to connect Outlook'
-      const message = cleanErrorMessage(rawMessage)
-      setToastMessage({ message, type: 'error' })
-      // Delay returning to provider to prevent flicker
+      setToastMessage({ message: cleanErrorMessage(rawMessage), type: 'error' })
       await new Promise(resolve => setTimeout(resolve, 500))
       setEmailSetupStep('provider')
     } finally {
@@ -2198,7 +2275,7 @@ function PopupChatApp() {
                   
                   {/* Gmail Option */}
                   <button
-                    onClick={connectGmailAccount}
+                    onClick={startGmailConnect}
                     disabled={isConnectingEmail}
                     style={{
                       width: '100%',
@@ -2225,7 +2302,7 @@ function PopupChatApp() {
                   
                   {/* Microsoft 365 Option */}
                   <button
-                    onClick={connectOutlookAccount}
+                    onClick={startOutlookConnect}
                     disabled={isConnectingEmail}
                     style={{
                       width: '100%',
@@ -2265,6 +2342,98 @@ function PopupChatApp() {
                     </div>
                   </div>
                 </>
+              )}
+
+              {emailSetupStep === 'gmail-credentials' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button
+                    onClick={() => setEmailSetupStep('provider')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: theme === 'standard' ? '#3b82f6' : '#60a5fa', fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px' }}
+                  >
+                    ← Back to providers
+                  </button>
+                  <div style={{ padding: '12px', background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)', borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span>⚙️</span>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                        <strong>One-time setup:</strong> You need a Google Cloud OAuth Client ID.{' '}
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>Get it here →</a>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>Client ID *</label>
+                    <input
+                      type="text"
+                      placeholder="xxxxxxxxx.apps.googleusercontent.com"
+                      value={gmailCredentials.clientId}
+                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientId: e.target.value }))}
+                      style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>Client Secret *</label>
+                    <input
+                      type="password"
+                      placeholder="GOCSPX-xxxxxxxxx"
+                      value={gmailCredentials.clientSecret}
+                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
+                      style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white' }}
+                    />
+                  </div>
+                  <button
+                    onClick={saveGmailCredentialsAndConnect}
+                    style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginTop: '8px' }}
+                  >
+                    Save & Connect Gmail
+                  </button>
+                </div>
+              )}
+
+              {emailSetupStep === 'outlook-credentials' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button
+                    onClick={() => setEmailSetupStep('provider')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: theme === 'standard' ? '#3b82f6' : '#60a5fa', fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px' }}
+                  >
+                    ← Back to providers
+                  </button>
+                  <div style={{ padding: '12px', background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)', borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <span>⚙️</span>
+                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
+                        <strong>One-time setup:</strong> You need an Azure AD App Registration.{' '}
+                        <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener noreferrer" style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>Get it here →</a>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>Application (Client) ID *</label>
+                    <input
+                      type="text"
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={outlookCredentials.clientId}
+                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientId: e.target.value }))}
+                      style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>Client Secret (optional for public clients)</label>
+                    <input
+                      type="password"
+                      placeholder="Leave empty for public client apps"
+                      value={outlookCredentials.clientSecret}
+                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
+                      style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white' }}
+                    />
+                  </div>
+                  <button
+                    onClick={saveOutlookCredentialsAndConnect}
+                    style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #0078d4 0%, #004578 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginTop: '8px' }}
+                  >
+                    Save & Connect Outlook
+                  </button>
+                </div>
               )}
               
               {emailSetupStep === 'connecting' && (

@@ -140,9 +140,9 @@ export function registerEmailHandlers(): void {
   /**
    * Set Outlook OAuth credentials
    */
-  ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret: string) => {
+  ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret?: string, tenantId?: string) => {
     try {
-      saveOutlookOAuthConfig(clientId, clientSecret)
+      saveOutlookOAuthConfig(clientId, clientSecret, tenantId)
       return { ok: true }
     } catch (error: any) {
       console.error('[Email IPC] setOutlookCredentials error:', error)
@@ -387,6 +387,7 @@ export function registerEmailHandlers(): void {
 
 /**
  * Show Gmail OAuth credentials setup dialog
+ * DEPRECATED: Inline setup in modal replaces this. Remove after confirming all paths work.
  */
 export async function showGmailSetupDialog(): Promise<{ success: boolean }> {
   return new Promise((resolve) => {
@@ -656,6 +657,7 @@ export async function showGmailSetupDialog(): Promise<{ success: boolean }> {
 
 /**
  * Show Outlook OAuth credentials setup dialog
+ * DEPRECATED: Inline setup in modal replaces this. Remove after confirming all paths work.
  */
 export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
   return new Promise((resolve) => {

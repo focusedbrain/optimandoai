@@ -448,6 +448,10 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
   connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
+  setGmailCredentials: (clientId: string, clientSecret: string) =>
+    ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret),
+  setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string) =>
+    ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────
