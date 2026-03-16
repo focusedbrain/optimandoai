@@ -3136,11 +3136,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronRequest('/api/email/credentials/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
           console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
         })
       
       return true
@@ -3164,11 +3164,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, tenantId: msg.tenantId })
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, tenantId: msg.tenantId, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
           console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
         })
       
       return true

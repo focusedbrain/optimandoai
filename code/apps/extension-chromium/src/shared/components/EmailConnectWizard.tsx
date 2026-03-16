@@ -29,10 +29,11 @@ declare global {
     emailAccounts?: {
       connectGmail?: (displayName?: string) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
       connectOutlook?: (displayName?: string) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      setGmailCredentials?: (clientId: string, clientSecret: string) => Promise<{ ok: boolean; error?: string }>
-      setOutlookCredentials?: (clientId: string, clientSecret?: string, tenantId?: string) => Promise<{ ok: boolean; error?: string }>
+      setGmailCredentials?: (clientId: string, clientSecret: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      setOutlookCredentials?: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
       checkGmailCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
       checkOutlookCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
+      checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
       listAccounts?: () => Promise<{ ok: boolean; data?: unknown[] }>
     }
   }
@@ -66,6 +67,8 @@ export function EmailConnectWizard({
   const [credError, setCredError] = useState<string | null>(null)
   const [showSecret, setShowSecret] = useState(false)
   const [vaultUnlocked, setVaultUnlocked] = useState<boolean | undefined>(undefined)
+  const [storeInVault, setStoreInVault] = useState(true)
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -88,6 +91,8 @@ export function EmailConnectWizard({
     setExistingGmail(null)
     setExistingOutlook(null)
     setVaultUnlocked(undefined)
+    setStoreInVault(true)
+    setSaveFeedback(null)
   }, [])
 
   useEffect(() => {
@@ -101,16 +106,23 @@ export function EmailConnectWizard({
     const fetchVaultStatus = async () => {
       try {
         if (isElectron()) {
-          const status = await (window as any).handshakeView?.getVaultStatus?.()
+          const status = (window as any).handshakeView?.getVaultStatus
+            ? await (window as any).handshakeView.getVaultStatus()
+            : (window as any).emailAccounts?.checkVaultStatus
+              ? await (window as any).emailAccounts.checkVaultStatus()
+              : undefined
+          console.log('[EmailConnectWizard] vault status (Electron):', status)
           if (!cancelled) setVaultUnlocked(status?.isUnlocked ?? false)
         } else if (isExtension()) {
           const { getVaultStatus } = await import('../../vault/api')
           const status = await getVaultStatus()
+          console.log('[EmailConnectWizard] vault status (extension):', status)
           if (!cancelled) setVaultUnlocked(status?.isUnlocked === true || (status && status.locked === false))
         } else {
           if (!cancelled) setVaultUnlocked(undefined)
         }
-      } catch {
+      } catch (err) {
+        console.warn('[EmailConnectWizard] vault status fetch failed:', err)
         if (!cancelled) setVaultUnlocked(undefined)
       }
     }
@@ -190,23 +202,23 @@ export function EmailConnectWizard({
     return { configured: false }
   }, [])
 
-  const saveGmailCreds = useCallback(async (clientId: string, clientSecret: string): Promise<boolean> => {
+  const saveGmailCreds = useCallback(async (clientId: string, clientSecret: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
     if (isElectron()) {
-      const res = await (window as any).emailAccounts?.setGmailCredentials?.(clientId, clientSecret)
-      return !!res?.ok
+      const res = await (window as any).emailAccounts?.setGmailCredentials?.(clientId, clientSecret, storeInVaultOpt ?? true)
+      return { ok: !!res?.ok, savedToVault: res?.savedToVault }
     }
     if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({ type: 'EMAIL_SAVE_GMAIL_CREDENTIALS', clientId, clientSecret })
-      return !!res?.ok
+      const res = await chrome.runtime.sendMessage({ type: 'EMAIL_SAVE_GMAIL_CREDENTIALS', clientId, clientSecret, storeInVault: storeInVaultOpt ?? true })
+      return { ok: !!res?.ok, savedToVault: res?.savedToVault }
     }
-    return false
+    return { ok: false }
   }, [])
 
   const saveOutlookCreds = useCallback(
-    async (clientId: string, clientSecret?: string, tenantId?: string): Promise<boolean> => {
+    async (clientId: string, clientSecret?: string, tenantId?: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
       if (isElectron()) {
-        const res = await (window as any).emailAccounts?.setOutlookCredentials?.(clientId, clientSecret, tenantId)
-        return !!res?.ok
+        const res = await (window as any).emailAccounts?.setOutlookCredentials?.(clientId, clientSecret, tenantId, storeInVaultOpt ?? true)
+        return { ok: !!res?.ok, savedToVault: res?.savedToVault }
       }
       if (isExtension()) {
         const res = await chrome.runtime.sendMessage({
@@ -214,10 +226,11 @@ export function EmailConnectWizard({
           clientId,
           clientSecret,
           tenantId,
+          storeInVault: storeInVaultOpt ?? true,
         })
-        return !!res?.ok
+        return { ok: !!res?.ok, savedToVault: res?.savedToVault }
       }
-      return false
+      return { ok: false }
     },
     [],
   )
@@ -305,36 +318,51 @@ export function EmailConnectWizard({
   const handleSaveAndConnect = useCallback(async () => {
     if (!provider) return
     setCredError(null)
+    setSaveFeedback(null)
     if (provider === 'gmail') {
-      const c = existingGmail ? { clientId: existingGmail.clientId, clientSecret: gmailCreds.clientSecret } : gmailCreds
+      const c = gmailCreds
       if (!c.clientId?.trim() || !c.clientSecret?.trim()) {
         setCredError('Please enter both Client ID and Client Secret')
         return
       }
-      const ok = await saveGmailCreds(c.clientId.trim(), c.clientSecret.trim())
-      if (!ok) {
+      const res = await saveGmailCreds(c.clientId.trim(), c.clientSecret.trim(), storeInVault)
+      if (!res.ok) {
         setCredError('Failed to save credentials')
         return
       }
+      setSaveFeedback(
+        res.savedToVault
+          ? '🔐 Credentials stored in vault'
+          : storeInVault
+            ? '⚠️ Vault save failed — credentials stored temporarily in file'
+            : '💾 Credentials saved to file'
+      )
+      setTimeout(() => setSaveFeedback(null), 4000)
     } else {
-      const c = existingOutlook
-        ? { clientId: existingOutlook.clientId, clientSecret: outlookCreds.clientSecret, tenantId: outlookCreds.tenantId }
-        : outlookCreds
+      const c = outlookCreds
       if (!c.clientId?.trim()) {
         setCredError('Please enter the Application (Client) ID')
         return
       }
-      const ok = await saveOutlookCreds(c.clientId.trim(), c.clientSecret?.trim() || undefined, c.tenantId?.trim() || undefined)
-      if (!ok) {
+      const res = await saveOutlookCreds(c.clientId.trim(), c.clientSecret?.trim() || undefined, c.tenantId?.trim() || undefined, storeInVault)
+      if (!res.ok) {
         setCredError('Failed to save credentials')
         return
       }
+      setSaveFeedback(
+        res.savedToVault
+          ? '🔐 Credentials stored in vault'
+          : storeInVault
+            ? '⚠️ Vault save failed — credentials stored temporarily in file'
+            : '💾 Credentials saved to file'
+      )
+      setTimeout(() => setSaveFeedback(null), 4000)
     }
     setStep('connecting')
     setConnecting(true)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
-  }, [provider, existingGmail, existingOutlook, gmailCreds, outlookCreds, saveGmailCreds, saveOutlookCreds])
+  }, [provider, gmailCreds, outlookCreds, storeInVault, saveGmailCreds, saveOutlookCreds])
 
   const handleConnectWithExisting = useCallback(() => {
     setCredError(null)
@@ -616,14 +644,14 @@ export function EmailConnectWizard({
                       )}
                       {existingGmail.source === 'temporary' && (
                         <div style={{ fontSize: '12px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)', marginBottom: '8px' }}>
-                          ⚠️ Credentials found in temporary storage (not vault-protected). Unlock your vault to secure them.
+                          ⚠️ Credentials loaded from temporary storage. Check &quot;Store in Vault&quot; and reconnect to secure them.
                         </div>
                       )}
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client ID</label>
                         <input
                           type="text"
-                          value={existingGmail.clientId || gmailCreds.clientId}
+                          value={gmailCreds.clientId}
                           onChange={(e) => setGmailCreds((p) => ({ ...p, clientId: e.target.value }))}
                           placeholder="xxxxxxxxx.apps.googleusercontent.com"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
@@ -646,6 +674,16 @@ export function EmailConnectWizard({
                           {showSecret ? 'Hide' : 'Reveal'} and edit
                         </button>
                       </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', color: textColor, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span style={{ fontSize: '11px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)' }}>
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && <div style={{ fontSize: '12px', marginTop: '8px', color: saveFeedback.startsWith('🔐') ? '#22c55e' : (isPro ? '#92400e' : 'rgba(245,158,11,0.95)') }}>{saveFeedback}</div>}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                         <button
                           onClick={handleConnectWithExisting}
@@ -715,6 +753,16 @@ export function EmailConnectWizard({
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                         />
                       </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', color: textColor, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span style={{ fontSize: '11px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)' }}>
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && <div style={{ fontSize: '12px', marginTop: '8px', color: saveFeedback.startsWith('🔐') ? '#22c55e' : (isPro ? '#92400e' : 'rgba(245,158,11,0.95)') }}>{saveFeedback}</div>}
                       {credError && <div style={{ fontSize: '12px', color: '#dc2626' }}>{credError}</div>}
                       <button
                         onClick={handleSaveAndConnect}
@@ -750,14 +798,14 @@ export function EmailConnectWizard({
                       )}
                       {existingOutlook.source === 'temporary' && (
                         <div style={{ fontSize: '12px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)', marginBottom: '8px' }}>
-                          ⚠️ Credentials found in temporary storage (not vault-protected). Unlock your vault to secure them.
+                          ⚠️ Credentials loaded from temporary storage. Check &quot;Store in Vault&quot; and reconnect to secure them.
                         </div>
                       )}
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Application (Client) ID</label>
                         <input
                           type="text"
-                          value={existingOutlook.clientId || outlookCreds.clientId}
+                          value={outlookCreds.clientId}
                           onChange={(e) => setOutlookCreds((p) => ({ ...p, clientId: e.target.value }))}
                           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
@@ -784,13 +832,23 @@ export function EmailConnectWizard({
                         <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Tenant ID (Directory ID) *</label>
                         <input
                           type="text"
-                          value={outlookCreds.tenantId || existingOutlook.tenantId || ''}
+                          value={outlookCreds.tenantId}
                           onChange={(e) => setOutlookCreds((p) => ({ ...p, tenantId: e.target.value }))}
                           placeholder="e.g., 12345678-abcd-... or organizations"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                         />
                         <div style={{ fontSize: '11px', color: mutedColor, marginTop: '4px' }}>Azure Portal → App Registration → Overview → Verzeichnis-ID (Mandanten-ID)</div>
                       </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', color: textColor, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span style={{ fontSize: '11px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)' }}>
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && <div style={{ fontSize: '12px', marginTop: '8px', color: saveFeedback.startsWith('🔐') ? '#22c55e' : (isPro ? '#92400e' : 'rgba(245,158,11,0.95)') }}>{saveFeedback}</div>}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                         <button
                           onClick={handleConnectWithExisting}
@@ -869,6 +927,16 @@ export function EmailConnectWizard({
                         />
                         <div style={{ fontSize: '11px', color: mutedColor, marginTop: '4px' }}>Azure Portal → App Registration → Overview → Verzeichnis-ID (Mandanten-ID)</div>
                       </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '13px', color: textColor, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span style={{ fontSize: '11px', color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)' }}>
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && <div style={{ fontSize: '12px', marginTop: '8px', color: saveFeedback.startsWith('🔐') ? '#22c55e' : (isPro ? '#92400e' : 'rgba(245,158,11,0.95)') }}>{saveFeedback}</div>}
                       {credError && <div style={{ fontSize: '12px', color: '#dc2626' }}>{credError}</div>}
                       <button
                         onClick={handleSaveAndConnect}

@@ -7216,7 +7216,8 @@ app.whenReady().then(async () => {
           return
         }
         const { saveCredentials } = await import('./main/email/credentials')
-        const result = await saveCredentials('gmail', { clientId, clientSecret })
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
         res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
@@ -7257,7 +7258,8 @@ app.whenReady().then(async () => {
           return
         }
         const { saveCredentials } = await import('./main/email/credentials')
-        const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId })
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId }, storeInVault)
         res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Outlook credentials:', error)

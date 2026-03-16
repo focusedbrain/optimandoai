@@ -7,8 +7,22 @@
  */
 
 import { app } from 'electron'
+import { appendFileSync } from 'fs'
 import * as fs from 'fs'
 import * as path from 'path'
+
+// Temporary: log to C drive for easy finding during debug. Change back to userData after debugging.
+const LOG_FILE = 'C:\\wrdesk-debug.log'
+
+function debugLog(...args: unknown[]): void {
+  const line = `[${new Date().toISOString()}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`
+  try {
+    appendFileSync(LOG_FILE, line)
+  } catch {
+    /* ignore */
+  }
+  console.log('[Email Credentials]', ...args)
+}
 import { loadOAuthConfig, saveOAuthConfig } from './providers/gmail'
 import { loadOutlookOAuthConfig, saveOutlookOAuthConfig } from './providers/outlook'
 
@@ -85,45 +99,68 @@ export async function loadFromVault(provider: 'gmail' | 'outlook'): Promise<Gmai
     if (!clientId) return null
     return { clientId, clientSecret: clientSecret || undefined, tenantId }
   } catch (err) {
-    console.error('[Email Credentials] loadFromVault error:', err)
+    debugLog('loadFromVault error:', err)
     return null
   }
 }
 
 /** Save credentials to vault */
 export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCreds | OutlookCreds): Promise<boolean> {
+  debugLog('saveToVault called for:', provider)
+  debugLog('userData path:', app.getPath('userData'))
   try {
     const { vaultService } = await import('../vault/rpc')
     const status = vaultService.getStatus()
-    if (!status.isUnlocked) return false
+    debugLog('vault status:', { isUnlocked: status.isUnlocked, currentVaultId: status.currentVaultId })
+
+    if (!status.isUnlocked) {
+      debugLog('vault is LOCKED — skipping vault save')
+      return false
+    }
 
     const tier = DEFAULT_TIER
-    const title = provider === 'gmail' ? GMAIL_VAULT_TITLE : OUTLOOK_VAULT_TITLE
-
     const gmailCreds = creds as GmailCreds
     const outlookCreds = creds as OutlookCreds
+
+    // Use vault's expected field names (AUTOMATION_SECRET_STANDARD_FIELDS) for display in Secrets & API Keys,
+    // plus internal fields (client_id, client_secret, tenant_id) for loadFromVault.
+    const title = provider === 'gmail' ? GMAIL_VAULT_TITLE : OUTLOOK_VAULT_TITLE
+    const tenantId = outlookCreds.tenantId || 'organizations'
 
     const fields =
       provider === 'gmail'
         ? [
+            { key: 'service_name', value: 'Google Gmail', encrypted: false, type: 'text' as const },
+            { key: 'key_name', value: gmailCreds.clientId, encrypted: false, type: 'text' as const },
+            { key: 'secret', value: gmailCreds.clientSecret, encrypted: true, type: 'password' as const },
+            { key: 'endpoint', value: 'https://accounts.google.com', encrypted: false, type: 'text' as const },
+            { key: 'notes', value: 'Auto-saved by WR Desk Email Connect Wizard', encrypted: false, type: 'text' as const },
             { key: 'client_id', value: gmailCreds.clientId, encrypted: false, type: 'text' as const },
             { key: 'client_secret', value: gmailCreds.clientSecret, encrypted: true, type: 'password' as const },
           ]
         : [
+            { key: 'service_name', value: 'Microsoft 365 / Outlook', encrypted: false, type: 'text' as const },
+            { key: 'key_name', value: outlookCreds.clientId, encrypted: false, type: 'text' as const },
+            { key: 'secret', value: outlookCreds.clientSecret || '', encrypted: true, type: 'password' as const },
+            { key: 'endpoint', value: `https://login.microsoftonline.com/${tenantId}`, encrypted: false, type: 'text' as const },
+            { key: 'notes', value: `Tenant ID: ${tenantId}\nAuto-saved by WR Desk Email Connect Wizard`, encrypted: false, type: 'text' as const },
             { key: 'client_id', value: outlookCreds.clientId, encrypted: false, type: 'text' as const },
             { key: 'client_secret', value: outlookCreds.clientSecret || '', encrypted: true, type: 'password' as const },
-            { key: 'tenant_id', value: outlookCreds.tenantId || 'organizations', encrypted: false, type: 'text' as const },
+            { key: 'tenant_id', value: tenantId, encrypted: false, type: 'text' as const },
           ]
 
     const items = vaultService.search(title, 'automation_secret', tier)
+    debugLog('calling vaultService', items.length > 0 ? 'updateItem' : 'createItem', 'with:', { category: 'automation_secret', title, fieldCount: fields.length })
+
     if (items.length > 0) {
-      await vaultService.updateItem(
+      const result = await vaultService.updateItem(
         items[0].id,
         { title, fields },
         tier
       )
+      debugLog('vault updateItem result:', result?.id)
     } else {
-      await vaultService.createItem(
+      const result = await vaultService.createItem(
         {
           category: 'automation_secret',
           title,
@@ -132,10 +169,11 @@ export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCre
         },
         tier
       )
+      debugLog('vault createItem result:', result?.id)
     }
     return true
   } catch (err) {
-    console.error('[Email Credentials] saveToVault error:', err)
+    debugLog('saveToVault ERROR:', err)
     return false
   }
 }
@@ -146,10 +184,10 @@ export function deletePlainFile(provider: 'gmail' | 'outlook'): void {
     const configPath = provider === 'gmail' ? getGmailConfigPath() : getOutlookConfigPath()
     if (fs.existsSync(configPath)) {
       fs.unlinkSync(configPath)
-      console.log('[Email Credentials] Deleted plain file:', configPath)
+      debugLog('Deleted plain file:', configPath)
     }
   } catch (err) {
-    console.error('[Email Credentials] deletePlainFile error:', err)
+    debugLog('deletePlainFile error:', err)
   }
 }
 
@@ -212,17 +250,23 @@ export async function getCredentialsForOAuth(
 }
 
 /**
- * Save credentials — to vault if unlocked, else plain file.
+ * Save credentials — to vault if storeInVault and unlocked, else plain file.
+ * @param storeInVault When true (default): try vault first, fall back to file if locked.
+ *                     When false: save to plain file only.
  */
 export async function saveCredentials(
   provider: 'gmail' | 'outlook',
-  creds: GmailCreds | OutlookCreds
+  creds: GmailCreds | OutlookCreds,
+  storeInVault: boolean = true
 ): Promise<{ ok: boolean; savedToVault: boolean }> {
-  if (isVaultUnlocked()) {
+  const vaultUnlocked = isVaultUnlocked()
+  if (storeInVault && vaultUnlocked) {
     const ok = await saveToVault(provider, creds)
     if (ok) {
       deletePlainFile(provider)
-      return { ok: true, savedToVault: true }
+      const result = { ok: true, savedToVault: true }
+      debugLog('saveCredentials result:', { ...result, storeInVault, vaultUnlocked })
+      return result
     }
   }
   if (provider === 'gmail') {
@@ -234,5 +278,7 @@ export async function saveCredentials(
       (creds as OutlookCreds).tenantId
     )
   }
-  return { ok: true, savedToVault: false }
+  const result = { ok: true, savedToVault: false }
+  debugLog('saveCredentials result:', { ...result, storeInVault, vaultUnlocked })
+  return result
 }

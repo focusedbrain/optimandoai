@@ -2219,6 +2219,12 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
 }
 
 function initializeExtension() {
+  // OAuth callback pages: never inject — prevents extension from breaking
+  // http://localhost:51249/callback, etc. (Electron OAuth server)
+  const host = window.location.hostname
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return
+  }
 
   try {
 

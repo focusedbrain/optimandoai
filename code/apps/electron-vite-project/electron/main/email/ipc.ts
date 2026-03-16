@@ -102,9 +102,9 @@ export function registerEmailHandlers(): void {
   /**
    * Set Gmail OAuth credentials (vault if unlocked, else plain file)
    */
-  ipcMain.handle('email:setGmailCredentials', async (_e, clientId: string, clientSecret: string) => {
+  ipcMain.handle('email:setGmailCredentials', async (_e, clientId: string, clientSecret: string, storeInVault: boolean = true) => {
     try {
-      const result = await saveCredentials('gmail', { clientId, clientSecret })
+      const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
       return { ok: result.ok, savedToVault: result.savedToVault }
     } catch (error: any) {
       console.error('[Email IPC] setGmailCredentials error:', error)
@@ -187,9 +187,9 @@ export function registerEmailHandlers(): void {
   /**
    * Set Outlook OAuth credentials (vault if unlocked, else plain file)
    */
-  ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret?: string, tenantId?: string) => {
+  ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret?: string, tenantId?: string, storeInVault: boolean = true) => {
     try {
-      const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId })
+      const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId }, storeInVault)
       return { ok: result.ok, savedToVault: result.savedToVault }
     } catch (error: any) {
       console.error('[Email IPC] setOutlookCredentials error:', error)

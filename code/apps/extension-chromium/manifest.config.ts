@@ -28,6 +28,10 @@ export default defineManifest({
   content_scripts: [
     {
       matches: ['<all_urls>'],
+      exclude_matches: [
+        'http://localhost/*',
+        'http://127.0.0.1/*'
+      ],
       js: ['src/content-script.tsx'],
       css: [],
       run_at: 'document_end'
@@ -38,6 +42,10 @@ export default defineManifest({
         'https://outlook.live.com/*',
         'https://outlook.office.com/*',
         'https://outlook.office365.com/*'
+      ],
+      exclude_matches: [
+        'http://localhost/*',
+        'http://127.0.0.1/*'
       ],
       js: ['src/mailguard-content-script.ts'],
       css: [],

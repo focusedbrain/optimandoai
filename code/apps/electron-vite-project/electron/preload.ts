@@ -448,12 +448,13 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
   connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
-  setGmailCredentials: (clientId: string, clientSecret: string) =>
-    ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret),
-  setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string) =>
-    ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId),
+  setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
+    ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
+  setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>
+    ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId, storeInVault ?? true),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
+  checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),
   onAccountConnected: (cb: (data: { provider: string; email: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string }) => cb(data)
     ipcRenderer.on('email:accountConnected', handler)
