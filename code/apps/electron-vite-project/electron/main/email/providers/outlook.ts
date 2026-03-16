@@ -482,9 +482,22 @@ export class OutlookProvider extends BaseEmailProvider {
       if (oauthConfig.clientSecret) {
         postParams.client_secret = oauthConfig.clientSecret
       }
-      
+
       const postData = new URLSearchParams(postParams).toString()
-      
+      const tokenUrl = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`
+
+      // TEMPORARY DEBUG - remove after debugging
+      console.log('=== OUTLOOK TOKEN EXCHANGE DEBUG ===')
+      console.log('Token URL:', tokenUrl)
+      console.log('Client ID:', oauthConfig.clientId)
+      console.log('Client Secret (first 4 chars):', oauthConfig.clientSecret ? oauthConfig.clientSecret.substring(0, 4) + '...' : '(none)')
+      console.log('Tenant ID:', tenant)
+      console.log('Redirect URI:', redirectUri)
+      console.log('Grant type:', 'authorization_code')
+      console.log('Code (first 10 chars):', code?.substring(0, 10) + '...')
+      console.log('Scopes:', OUTLOOK_SCOPES.join(' '))
+      console.log('=== END DEBUG ===')
+
       const options = {
         hostname: 'login.microsoftonline.com',
         path: `/${tenant}/oauth2/v2.0/token`,
@@ -494,11 +507,24 @@ export class OutlookProvider extends BaseEmailProvider {
           'Content-Length': Buffer.byteLength(postData)
         }
       }
-      
+
       const req = https.request(options, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          // TEMPORARY DEBUG - remove after debugging
+          try {
+            const responseBody = JSON.parse(data)
+            console.log('=== OUTLOOK TOKEN RESPONSE ===')
+            console.log('Status:', res.statusCode)
+            console.log('Body:', JSON.stringify(responseBody))
+            console.log('=== END RESPONSE ===')
+          } catch {
+            console.log('=== OUTLOOK TOKEN RESPONSE ===')
+            console.log('Status:', res.statusCode)
+            console.log('Body (raw):', data)
+            console.log('=== END RESPONSE ===')
+          }
           try {
             const json = JSON.parse(data)
             if (json.error) {
