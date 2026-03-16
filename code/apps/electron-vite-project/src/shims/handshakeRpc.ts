@@ -93,4 +93,30 @@ export async function revokeHandshake(_handshakeId: string): Promise<{ status: s
   throw new Error('revokeHandshake not available in Electron')
 }
 
+export async function deleteHandshake(handshakeId: string): Promise<{ success: boolean; error?: string }> {
+  const res = await window.handshakeView?.deleteHandshake(handshakeId)
+  return res ?? { success: false, error: 'Handshake IPC not available' }
+}
+
+export interface PendingP2PBeapEntry {
+  id: number
+  handshake_id: string
+  package_json: string
+  created_at: string
+}
+
+export async function getPendingP2PBeapMessages(): Promise<PendingP2PBeapEntry[]> {
+  const fn = (window.handshakeView as any)?.getPendingP2PBeapMessages
+  if (typeof fn === 'function') {
+    const res = await fn()
+    return res?.items ?? res ?? []
+  }
+  return []
+}
+
+export async function ackPendingP2PBeap(id: number): Promise<void> {
+  const fn = (window.handshakeView as any)?.ackPendingP2PBeap
+  if (typeof fn === 'function') await fn(id)
+}
+
 export { listHandshakes as _sendHandshakeRpc }

@@ -2,10 +2,12 @@
  * BeapBulkInboxDashboard — Bulk inbox grid view for Electron dashboard.
  *
  * Full-width layout matching extension's BeapBulkInbox.
- * Same header bar, HybridSearch with pointing finger when message focused.
+ * Toolbar with [+] Compose button. Same header bar, HybridSearch with pointing finger.
  */
 
+import { useState } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
+import { BeapDraftComposer } from '@ext/beap-messages/components/BeapDraftComposer'
 
 const THEME = 'professional' as const
 
@@ -21,6 +23,8 @@ export default function BeapBulkInboxDashboard({
   onNavigateToHandshake,
   onViewInInbox,
 }: BeapBulkInboxDashboardProps) {
+  const [showComposeOverlay, setShowComposeOverlay] = useState(false)
+
   return (
     <div style={{
       flex: 1,
@@ -30,12 +34,85 @@ export default function BeapBulkInboxDashboard({
       background: 'var(--color-bg, #0f172a)',
       color: 'var(--color-text, #e2e8f0)',
     }}>
-      <BeapBulkInbox
-        theme={THEME}
-        onSetSearchContext={onSetSearchContext}
-        onViewHandshake={onNavigateToHandshake}
-        onViewInInbox={onViewInInbox}
-      />
+      {/* Toolbar with + Compose */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: '13px', fontWeight: 700 }}>Bulk Inbox</span>
+        <button
+          onClick={() => setShowComposeOverlay(true)}
+          style={{
+            padding: '4px 10px',
+            fontSize: '11px',
+            fontWeight: 600,
+            background: 'var(--color-accent-bg, rgba(139,92,246,0.12))',
+            border: '1px solid var(--color-accent-border, rgba(139,92,246,0.3))',
+            borderRadius: '5px',
+            color: 'var(--color-accent, #a78bfa)',
+            cursor: 'pointer',
+          }}
+        >
+          + Compose
+        </button>
+      </div>
+
+      {showComposeOverlay ? (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <span style={{ fontSize: '13px', fontWeight: 700 }}>Compose</span>
+            <button
+              onClick={() => setShowComposeOverlay(false)}
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                background: 'transparent',
+                border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+                borderRadius: 6,
+                color: 'var(--color-text-muted, #94a3b8)',
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <BeapDraftComposer
+              theme={THEME}
+              onNotification={(msg, type) => {
+                if (type === 'success' && msg.toLowerCase().includes('sent')) {
+                  setShowComposeOverlay(false)
+                }
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <BeapBulkInbox
+            theme={THEME}
+            onSetSearchContext={onSetSearchContext}
+            onViewHandshake={onNavigateToHandshake}
+            onViewInInbox={onViewInInbox}
+          />
+        </div>
+      )}
     </div>
   )
 }

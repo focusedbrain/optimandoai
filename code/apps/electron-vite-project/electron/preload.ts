@@ -221,6 +221,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
   deleteHandshake: (id: unknown) => {
     return ipcRenderer.invoke('handshake:delete', assertString(id, 'id'))
   },
+  getPendingP2PBeapMessages: () => {
+    return ipcRenderer.invoke('handshake:getPendingP2PBeapMessages')
+  },
+  ackPendingP2PBeap: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:ackPendingP2PBeap', typeof id === 'number' ? id : 0)
+  },
   requestUnlockVault: () => {
     return ipcRenderer.invoke('vault:unlockForHandshake')
   },

@@ -2317,6 +2317,27 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:getPendingP2PBeapMessages', async () => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { items: [] }
+        const result = await handleHandshakeRPC('handshake.getPendingP2PBeapMessages', {}, db)
+        return { items: result?.items ?? [] }
+      } catch {
+        return { items: [] }
+      }
+    })
+
+    ipcMain.handle('handshake:ackPendingP2PBeap', async (_e, id: number) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false }
+        return await handleHandshakeRPC('handshake.ackPendingP2PBeap', { id }, db)
+      } catch {
+        return { success: false }
+      }
+    })
+
     // Force-revoke: bypasses state checks and directly marks the record REVOKED locally,
     // then delivers a signed revoke capsule to the counterparty best-effort.
     ipcMain.handle('handshake:forceRevoke', async (_e, id: string) => {
