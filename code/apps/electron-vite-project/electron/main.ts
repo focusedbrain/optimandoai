@@ -2338,6 +2338,22 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:importBeapMessage', async (_e, packageJson: string) => {
+      try {
+        if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
+          return { success: false, error: 'Invalid package: expected non-empty string (max 512KB)' }
+        }
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, error: 'Database unavailable. Please log in first.' }
+        const { insertPendingP2PBeap } = await import('./main/handshake/db')
+        insertPendingP2PBeap(db, '__file_import__', packageJson)
+        return { success: true }
+      } catch (err: any) {
+        console.error('[BEAP:IMPORT]', err?.message)
+        return { success: false, error: err?.message ?? 'Import failed' }
+      }
+    })
+
     // Force-revoke: bypasses state checks and directly marks the record REVOKED locally,
     // then delivers a signed revoke capsule to the counterparty best-effort.
     ipcMain.handle('handshake:forceRevoke', async (_e, id: string) => {

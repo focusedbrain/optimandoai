@@ -15,7 +15,8 @@ import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components
 import { BeapDraftComposer } from '@ext/beap-messages/components/BeapDraftComposer'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
-import BeapMessageUploadZone from './BeapMessageUploadZone'
+import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
+import BeapMessageImportZone from './BeapMessageImportZone'
 
 const THEME = 'professional' as const
 
@@ -67,6 +68,8 @@ export default function BeapInboxDashboard({
   onNavigateToHandshake,
 }: BeapInboxDashboardProps) {
   const [showComposeOverlay, setShowComposeOverlay] = useState(false)
+
+  usePendingP2PBeapIngestion()
 
   const getInboxMessages = useBeapInboxStore((s) => s.getInboxMessages)
   const storeSelectedId = useBeapInboxStore((s) => s.selectedMessageId)
@@ -352,7 +355,7 @@ export default function BeapInboxDashboard({
             Import & Compose
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-            <BeapMessageUploadZone />
+            <BeapMessageImportZone />
             <div style={{ marginTop: 16 }}>
               <button
                 onClick={() => setShowComposeOverlay(true)}
@@ -368,7 +371,7 @@ export default function BeapInboxDashboard({
                   cursor: 'pointer',
                 }}
               >
-                + Compose New Message
+                [+] New BEAP Message
               </button>
             </div>
           </div>

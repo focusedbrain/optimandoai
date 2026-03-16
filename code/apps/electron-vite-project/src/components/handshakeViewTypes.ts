@@ -56,6 +56,9 @@ declare global {
       initiateHandshake?: (receiverEmail: string, fromAccountId: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       buildForDownload?: (receiverEmail: string, contextOpts?: { message?: string; context_blocks?: any[] }) => Promise<any>
       downloadCapsule?: (capsuleJson: string, suggestedFilename: string) => Promise<any>
+      getPendingP2PBeapMessages?: () => Promise<{ items: Array<{ id: number; handshake_id: string; package_json: string; created_at: string }> }>
+      ackPendingP2PBeap?: (id: number) => Promise<{ success?: boolean }>
+      importBeapMessage?: (packageJson: string) => Promise<{ success: boolean; error?: string }>
     }
     emailAccounts?: {
       listAccounts: () => Promise<{ ok: boolean; data?: Array<{ id: string; displayName: string; email: string; provider: string; status: string; lastError?: string }>; error?: string }>
