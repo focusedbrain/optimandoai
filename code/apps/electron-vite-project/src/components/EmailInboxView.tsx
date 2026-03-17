@@ -3,7 +3,7 @@
  * Left: toolbar + message list. Right: EmailMessageDetail when selected.
  */
 
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import EmailMessageDetail from './EmailMessageDetail'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
@@ -25,6 +25,65 @@ function formatRelativeDate(isoString: string): string {
   if (diffH < 24) return `${diffH}h`
   if (diffD < 7) return `${diffD}d`
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
+}
+
+// ── InboxDetailAiPanel (right column: AI output or empty state) ──
+
+function InboxDetailAiPanel({ messageId }: { messageId: string }) {
+  const [aiOutput, setAiOutput] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleSummarize = useCallback(async () => {
+    if (!window.emailInbox?.aiSummarize) return
+    setLoading(true)
+    setAiOutput(null)
+    try {
+      const res = await window.emailInbox.aiSummarize(messageId)
+      if (res.ok && res.data?.summary) setAiOutput(res.data.summary)
+    } finally {
+      setLoading(false)
+    }
+  }, [messageId])
+
+  const handleDraftReply = useCallback(async () => {
+    if (!window.emailInbox?.aiDraftReply) return
+    setLoading(true)
+    setAiOutput(null)
+    try {
+      const res = await window.emailInbox.aiDraftReply(messageId)
+      if (res.ok && res.data?.draft) setAiOutput(res.data.draft)
+    } finally {
+      setLoading(false)
+    }
+  }, [messageId])
+
+  const isEmpty = !aiOutput && !loading
+
+  return (
+    <div className="inbox-detail-ai-inner">
+      <div className="inbox-detail-ai-actions">
+        <button type="button" onClick={handleSummarize} disabled={loading}>
+          Summarize
+        </button>
+        <button type="button" onClick={handleDraftReply} disabled={loading}>
+          Draft Reply
+        </button>
+      </div>
+      <div className="inbox-detail-ai-output">
+        {loading ? (
+          <div className="inbox-detail-ai-loading">Loading…</div>
+        ) : isEmpty ? (
+          <div className="inbox-detail-ai-empty">
+            <span className="inbox-detail-ai-empty-icon">✨</span>
+            <p>Summarize, draft reply, or augment this message.</p>
+            <p className="inbox-detail-ai-empty-hint">Use the buttons above to get started.</p>
+          </div>
+        ) : (
+          <div className="inbox-detail-ai-content">{aiOutput}</div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── InboxMessageRow ──
@@ -61,16 +120,13 @@ function InboxMessageRow({
   return (
     <div
       onClick={handleClick}
+      className={`inbox-message-row ${selected && !bulkMode ? 'inbox-message-row--selected' : ''} ${bulkMode && multiSelected ? 'inbox-message-row--multi' : ''}`}
       style={{
         display: 'flex',
         alignItems: 'flex-start',
         gap: 10,
         padding: '12px 14px',
         borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        background:
-          selected || multiSelected
-            ? 'var(--purple-accent-light)'
-            : 'transparent',
         cursor: 'pointer',
         minWidth: 0,
       }}
@@ -257,10 +313,11 @@ export default function EmailInboxView({
 
   const handleSelectMessage = useCallback(
     (id: string) => {
-      selectMessage(id)
-      onSelectMessage?.(id)
+      const next = selectedMessageId === id ? null : id
+      selectMessage(next)
+      onSelectMessage?.(next)
     },
-    [selectMessage, onSelectMessage]
+    [selectedMessageId, selectMessage, onSelectMessage]
   )
 
   const handleSelectAttachment = useCallback(
@@ -418,20 +475,18 @@ export default function EmailInboxView({
         </div>
       </div>
 
-      {/* Right panel: detail (only when message selected) */}
+      {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
       {selectedMessageId && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            minWidth: 320,
-          }}
-        >
-          <EmailMessageDetail
-            message={selectedMessage}
-            onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
-          />
+        <div className="inbox-detail-workspace">
+          <div className="inbox-detail-message">
+            <EmailMessageDetail
+              message={selectedMessage}
+              onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
+            />
+          </div>
+          <div className="inbox-detail-ai">
+            <InboxDetailAiPanel messageId={selectedMessageId} />
+          </div>
         </div>
       )}
     </div>

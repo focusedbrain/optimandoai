@@ -211,13 +211,7 @@ function App() {
           />
         ) : activeView === 'beap-inbox' ? (
           inboxBulkMode ? (
-            <EmailInboxBulkView
-              accounts={emailAccounts}
-              onSelectMessage={(id) => {
-                setInboxBulkMode(false)
-                setSelectedMessageId(id)
-              }}
-            />
+            <EmailInboxBulkView accounts={emailAccounts} />
           ) : (
             <EmailInboxView
               accounts={emailAccounts}

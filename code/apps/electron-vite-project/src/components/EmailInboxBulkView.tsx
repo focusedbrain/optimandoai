@@ -9,10 +9,10 @@ import {
   type InboxMessage,
   type InboxSourceType,
 } from '../stores/useEmailInboxStore'
+import EmailMessageDetail from './EmailMessageDetail'
 import '../components/handshakeViewTypes'
 
 const BODY_PREVIEW_LEN = 200
-const ACCENT = '#8b5cf6'
 const MUTED = 'var(--color-text-muted, #94a3b8)'
 
 function formatDate(isoString: string | null): string {
@@ -43,12 +43,13 @@ function formatSourceBadge(sourceType: InboxSourceType): string {
 
 export interface EmailInboxBulkViewProps {
   accounts: Array<{ id: string; email: string }>
+  /** No longer used: expansion stays inside bulk mode via modal */
   onSelectMessage?: (messageId: string | null) => void
 }
 
 export default function EmailInboxBulkView({
   accounts,
-  onSelectMessage,
+  onSelectMessage: _onSelectMessage,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -58,9 +59,12 @@ export default function EmailInboxBulkView({
     bulkPage,
     bulkBatchSize,
     multiSelectIds,
+    selectedMessage,
+    selectedMessageId,
     fetchMessages,
     setBulkMode,
     setBulkPage,
+    selectMessage,
     toggleMultiSelect,
     clearMultiSelect,
     markRead,
@@ -68,6 +72,8 @@ export default function EmailInboxBulkView({
     deleteMessages,
     setCategory,
   } = useEmailInboxStore()
+
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
 
   const [aiOutputs, setAiOutputs] = useState<
     Record<string, { summary?: string; draft?: string; loading?: string }>
@@ -180,36 +186,26 @@ export default function EmailInboxBulkView({
     []
   )
 
-  const handleMessageClick = useCallback(
+  const handleExpandMessage = useCallback(
     (msg: InboxMessage) => {
-      onSelectMessage?.(msg.id)
+      setExpandedMessageId(msg.id)
+      selectMessage(msg.id)
     },
-    [onSelectMessage]
+    [selectMessage]
   )
 
+  const handleCloseExpand = useCallback(() => {
+    setExpandedMessageId(null)
+    selectMessage(null)
+  }, [selectMessage])
+
+  const expandedMessage =
+    expandedMessageId && selectedMessageId === expandedMessageId ? selectedMessage : null
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        overflow: 'hidden',
-        background: 'var(--color-bg, #0f172a)',
-        color: 'var(--color-text, #e2e8f0)',
-      }}
-    >
+    <div className="bulk-view-root">
       {/* Toolbar */}
-      <div
-        style={{
-          padding: '10px 14px',
-          borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          flexShrink: 0,
-        }}
-      >
+      <div className="bulk-view-toolbar">
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
           <input
             type="checkbox"
@@ -356,21 +352,17 @@ export default function EmailInboxBulkView({
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+      <div className="bulk-view-content">
         {loading ? (
-          <div style={{ padding: 24, textAlign: 'center', color: MUTED, fontSize: 12 }}>
-            Loading…
-          </div>
+          <div className="bulk-view-empty-state">Loading…</div>
         ) : error ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#ef4444', fontSize: 12 }}>
+          <div className="bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}
           </div>
         ) : messages.length === 0 ? (
-          <div style={{ padding: 28, textAlign: 'center', color: MUTED, fontSize: 13 }}>
-            No messages in this batch.
-          </div>
+          <div className="bulk-view-empty-state">No messages in this batch.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="bulk-view-grid">
             {messages.map((msg) => {
               const isSelected = multiSelectIds.has(msg.id)
               const output = aiOutputs[msg.id]
@@ -384,12 +376,7 @@ export default function EmailInboxBulkView({
               return (
                 <div
                   key={msg.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 16,
-                    minHeight: 180,
-                  }}
+                  className={`bulk-view-row ${isSelected ? 'bulk-view-row--selected' : ''}`}
                 >
                   {/* Left: Message card */}
                   <div
@@ -397,26 +384,17 @@ export default function EmailInboxBulkView({
                     tabIndex={0}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return
-                      handleMessageClick(msg)
+                      handleExpandMessage(msg)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        handleMessageClick(msg)
+                        handleExpandMessage(msg)
                       }
                     }}
-                    style={{
-                      padding: 14,
-                      background: 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${isSelected ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
+                    className={`bulk-view-message ${isSelected ? 'bulk-view-message--selected' : ''}`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -427,17 +405,17 @@ export default function EmailInboxBulkView({
                         onClick={(e) => e.stopPropagation()}
                       />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
                           {msg.from_name || msg.from_address || '—'}
                         </div>
-                        <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
                           {msg.subject || '(No subject)'}
                         </div>
                         <div
                           style={{
-                            fontSize: 11,
+                            fontSize: 12,
                             color: MUTED,
-                            lineHeight: 1.4,
+                            lineHeight: 1.5,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             display: '-webkit-box',
@@ -447,15 +425,15 @@ export default function EmailInboxBulkView({
                         >
                           {bodyPreview || '(No body)'}
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }}>
                           {hasAttachments && (
-                            <span style={{ fontSize: 10, color: MUTED }}>📎 {msg.attachment_count}</span>
+                            <span style={{ fontSize: 11, color: MUTED }}>📎 {msg.attachment_count}</span>
                           )}
                           {msg.sort_category && (
                             <span
                               style={{
-                                fontSize: 9,
-                                padding: '2px 6px',
+                                fontSize: 10,
+                                padding: '3px 8px',
                                 borderRadius: 4,
                                 background: 'rgba(255,255,255,0.06)',
                                 color: MUTED,
@@ -467,10 +445,10 @@ export default function EmailInboxBulkView({
                           {isDeleted && (
                             <span
                               style={{
-                                fontSize: 9,
-                                padding: '2px 6px',
+                                fontSize: 10,
+                                padding: '3px 8px',
                                 borderRadius: 4,
-                                background: 'rgba(239,68,68,0.2)',
+                                background: 'rgba(239,68,68,0.15)',
                                 color: '#fca5a5',
                               }}
                             >
@@ -479,10 +457,10 @@ export default function EmailInboxBulkView({
                           )}
                           <span
                             style={{
-                              fontSize: 9,
-                              padding: '2px 6px',
+                              fontSize: 10,
+                              padding: '3px 8px',
                               borderRadius: 4,
-                              background: 'rgba(139,92,246,0.15)',
+                              background: 'rgba(147,51,234,0.12)',
                               color: '#a78bfa',
                             }}
                           >
@@ -493,33 +471,27 @@ export default function EmailInboxBulkView({
                     </div>
                   </div>
 
-                  {/* Right: AI output */}
+                  {/* Right: AI output — click toggles pair selection */}
                   <div
-                    style={{
-                      padding: 14,
-                      background: 'rgba(0,0,0,0.2)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 8,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10,
+                    className="bulk-view-ai"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return
+                      toggleMultiSelect(msg.id)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleMultiSelect(msg.id)
+                      }
                     }}
                   >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <div className="bulk-view-ai-actions">
                       <button
                         type="button"
                         onClick={() => handleSummarize(msg.id)}
                         disabled={!!output?.loading}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: 10,
-                          fontWeight: 600,
-                          background: 'rgba(139,92,246,0.2)',
-                          border: '1px solid rgba(139,92,246,0.3)',
-                          borderRadius: 4,
-                          color: '#a78bfa',
-                          cursor: output?.loading ? 'not-allowed' : 'pointer',
-                        }}
                       >
                         ✨ Summarize
                       </button>
@@ -527,53 +499,14 @@ export default function EmailInboxBulkView({
                         type="button"
                         onClick={() => handleDraftReply(msg.id)}
                         disabled={!!output?.loading}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: 10,
-                          fontWeight: 600,
-                          background: 'rgba(139,92,246,0.2)',
-                          border: '1px solid rgba(139,92,246,0.3)',
-                          borderRadius: 4,
-                          color: '#a78bfa',
-                          cursor: output?.loading ? 'not-allowed' : 'pointer',
-                        }}
                       >
                         ✍ Draft Reply
                       </button>
-                      <button
-                        type="button"
-                        disabled
-                        title="Augment (coming soon)"
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: 10,
-                          fontWeight: 600,
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: 4,
-                          color: MUTED,
-                          cursor: 'not-allowed',
-                          opacity: 0.7,
-                        }}
-                      >
+                      <button type="button" className="bulk-view-ai-btn-muted" disabled title="Augment (coming soon)">
                         🔍 Augment
                       </button>
                     </div>
-                    <div
-                      style={{
-                        flex: 1,
-                        minHeight: 80,
-                        padding: 10,
-                        background: 'rgba(0,0,0,0.2)',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        lineHeight: 1.5,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        overflowY: 'auto',
-                        color: 'var(--color-text, #e2e8f0)',
-                      }}
-                    >
+                    <div className="bulk-view-ai-output">
                       {output?.loading ? (
                         <span style={{ color: MUTED }}>Loading…</span>
                       ) : output?.summary ? (
@@ -581,7 +514,10 @@ export default function EmailInboxBulkView({
                       ) : output?.draft ? (
                         output.draft
                       ) : (
-                        <span style={{ color: MUTED }}>AI output will appear here</span>
+                        <div className="bulk-view-ai-empty">
+                          <span className="bulk-view-ai-empty-icon">✨</span>
+                          Summarize or draft a reply to see output here.
+                        </div>
                       )}
                     </div>
                   </div>
@@ -591,6 +527,41 @@ export default function EmailInboxBulkView({
           </div>
         )}
       </div>
+
+      {/* Full message modal — stays inside bulk mode */}
+      {expandedMessageId && (
+        <div
+          className="bulk-view-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-view-modal-title"
+          onClick={(e) => e.target === e.currentTarget && handleCloseExpand()}
+          onKeyDown={(e) => e.key === 'Escape' && handleCloseExpand()}
+        >
+          <div className="bulk-view-modal">
+            <div className="bulk-view-modal-header">
+              <h2 id="bulk-view-modal-title" className="bulk-view-modal-title">
+                Message
+              </h2>
+              <button
+                type="button"
+                className="bulk-view-modal-close"
+                onClick={handleCloseExpand}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="bulk-view-modal-body">
+              {expandedMessage ? (
+                <EmailMessageDetail message={expandedMessage} />
+              ) : (
+                <div className="bulk-view-modal-loading">Loading…</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,7 +3,7 @@
  * Header (From, To, date, subject, actions), source badge, body, attachments, deletion notice.
  */
 
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
@@ -67,19 +67,7 @@ function renderDepackagedJson(jsonStr: string | null): React.ReactNode {
     const parsed = JSON.parse(jsonStr)
     if (typeof parsed !== 'object' || parsed === null) return null
     return (
-      <div
-        style={{
-          padding: 12,
-          background: 'rgba(139,92,246,0.08)',
-          border: '1px solid rgba(139,92,246,0.2)',
-          borderRadius: 8,
-          fontSize: 12,
-          fontFamily: "'SF Mono', 'Fira Code', monospace",
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          color: 'var(--color-text, #e2e8f0)',
-        }}
-      >
+      <div className="msg-detail-beap-json">
         {JSON.stringify(parsed, null, 2)}
       </div>
     )
@@ -89,6 +77,7 @@ function renderDepackagedJson(jsonStr: string | null): React.ReactNode {
 }
 
 export default function EmailMessageDetail({ message, onSelectAttachment }: EmailMessageDetailProps) {
+  const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const {
     selectedAttachmentId,
     selectAttachment,
@@ -101,6 +90,7 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
   if (!message) return null
 
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
+  const hasDepackaged = !!message.depackaged_json
   const hasAttachments = message.has_attachments === 1
   const attachments = message.attachments ?? []
   const isDeleted = message.deleted === 1
@@ -277,46 +267,9 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
           </span>
         </div>
 
-        {/* Body */}
+        {/* Body — human-readable by default */}
         <div style={{ marginBottom: 20 }}>
-          {message.depackaged_json ? (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)', marginBottom: 8, textTransform: 'uppercase' }}>
-                BEAP Content
-              </div>
-              {renderDepackagedJson(message.depackaged_json)}
-              {(message.body_html || message.body_text) && (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)', marginBottom: 8, textTransform: 'uppercase' }}>
-                    Message Body
-                  </div>
-                  {message.body_html ? (
-                    <div
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
-                      style={{
-                        fontSize: 13,
-                        lineHeight: 1.6,
-                        color: 'var(--color-text, #e2e8f0)',
-                      }}
-                    />
-                  ) : (
-                    <pre
-                      style={{
-                        margin: 0,
-                        fontSize: 13,
-                        lineHeight: 1.6,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      {message.body_text || '(No body)'}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </>
-          ) : message.body_html ? (
+          {message.body_html ? (
             <div
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
               style={{
@@ -338,6 +291,24 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
             >
               {message.body_text || '(No body)'}
             </pre>
+          )}
+
+          {/* BEAP content — collapsed by default, low-emphasis toggle */}
+          {hasDepackaged && (
+            <div style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className="msg-detail-beap-toggle"
+                onClick={() => setBeapPanelOpen((o) => !o)}
+              >
+                BEAP content
+              </button>
+              {beapPanelOpen && (
+                <div className="msg-detail-beap-panel">
+                  {renderDepackagedJson(message.depackaged_json)}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
