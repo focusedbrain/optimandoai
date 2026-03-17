@@ -758,6 +758,15 @@ body {
   padding: 20px;
 }
 
+/* --- Inbox No-Selection Workspace (provider + capsule drop, handshake-style) --- */
+.inbox-no-selection-center {
+  min-width: 320px;
+}
+
+.inbox-no-selection-right {
+  min-width: 280px;
+}
+
 /* --- Inbox Detail 50/50 Workspace (boxed split, light enterprise) --- */
 .inbox-detail-workspace {
   display: grid;
@@ -949,6 +958,38 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Collapsible provider section — minimal when collapsed */
+.bulk-view-provider-section {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bulk-view-provider-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--color-text, #e2e8f0);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.bulk-view-provider-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bulk-view-provider-body {
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  max-height: 280px;
+  overflow-y: auto;
+}
+
 .bulk-view-content {
   flex: 1;
   overflow-y: auto;
@@ -958,7 +999,8 @@ body {
 .bulk-view-grid {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 24px;
+  min-height: 0;
 }
 
 .bulk-view-row {
@@ -966,7 +1008,7 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  min-height: 320px;
+  min-height: 480px;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 10px;
   overflow: hidden;
@@ -992,6 +1034,13 @@ body {
   min-height: 0;
   overflow: hidden;
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.bulk-view-message-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .bulk-view-message:hover {
@@ -1081,6 +1130,7 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-y: auto;
+  overflow-x: hidden;
   color: var(--color-text, #e2e8f0);
 }
 

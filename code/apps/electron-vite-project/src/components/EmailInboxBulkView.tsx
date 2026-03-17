@@ -1,6 +1,7 @@
 /**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
  * Toolbar: Select all, bulk actions, pagination. Uses bulkPage + bulkBatchSize from store.
+ * Collapsible provider section at top for account management.
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -10,9 +11,10 @@ import {
   type InboxSourceType,
 } from '../stores/useEmailInboxStore'
 import EmailMessageDetail from './EmailMessageDetail'
+import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
+import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import '../components/handshakeViewTypes'
 
-const BODY_PREVIEW_LEN = 200
 const MUTED = 'var(--color-text-muted, #94a3b8)'
 
 function formatDate(isoString: string | null): string {
@@ -77,6 +79,12 @@ export default function EmailInboxBulkView({
   } = useEmailInboxStore()
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
+  const [providerSectionExpanded, setProviderSectionExpanded] = useState(false)
+
+  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
+  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
 
   const [aiOutputs, setAiOutputs] = useState<
     Record<string, { summary?: string; draft?: string; loading?: string }>
@@ -146,6 +154,60 @@ export default function EmailInboxBulkView({
       }
     }
   }, [multiSelectIds, clearMultiSelect, fetchMessages])
+
+  const loadProviderAccounts = useCallback(async () => {
+    if (typeof window.emailAccounts?.listAccounts !== 'function') {
+      setIsLoadingProviderAccounts(false)
+      return
+    }
+    try {
+      const res = await window.emailAccounts.listAccounts()
+      if (res?.ok && res?.data) {
+        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
+        setProviderAccounts(data.map((a) => ({
+          id: a.id,
+          displayName: a.displayName ?? a.email,
+          email: a.email,
+          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
+          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
+          lastError: a.lastError,
+        })))
+        setSelectedProviderAccountId((prev) =>
+          prev && data.some((a: { id: string }) => a.id === prev) ? prev : data[0]?.id ?? null
+        )
+      } else {
+        setProviderAccounts([])
+      }
+    } catch {
+      setProviderAccounts([])
+    } finally {
+      setIsLoadingProviderAccounts(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadProviderAccounts()
+  }, [loadProviderAccounts])
+
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onAccountConnected?.(() => loadProviderAccounts())
+    return () => unsub?.()
+  }, [loadProviderAccounts])
+
+  const handleConnectEmail = useCallback(() => setShowEmailConnectModal(true), [])
+  const handleDisconnectEmail = useCallback(
+    async (id: string) => {
+      try {
+        if (typeof window.emailAccounts?.deleteAccount === 'function') {
+          await window.emailAccounts.deleteAccount(id)
+          loadProviderAccounts()
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [loadProviderAccounts]
+  )
 
   const handleSummarize = useCallback(
     async (messageId: string) => {
@@ -362,6 +424,45 @@ export default function EmailInboxBulkView({
         </div>
       </div>
 
+      {/* Collapsible provider/account section */}
+      <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>
+        <button
+          type="button"
+          className="bulk-view-provider-toggle"
+          onClick={() => setProviderSectionExpanded((v) => !v)}
+          aria-expanded={providerSectionExpanded}
+        >
+          <span style={{ fontSize: 14 }}>🔗</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Email Accounts</span>
+          {providerAccounts.length > 0 && (
+            <span style={{ fontSize: 11, color: MUTED }}>({providerAccounts.length})</span>
+          )}
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: 10,
+              transform: providerSectionExpanded ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.2s',
+            }}
+          >
+            ▼
+          </span>
+        </button>
+        {providerSectionExpanded && (
+          <div className="bulk-view-provider-body">
+            <EmailProvidersSection
+              theme="dark"
+              emailAccounts={providerAccounts}
+              isLoadingEmailAccounts={isLoadingProviderAccounts}
+              selectedEmailAccountId={selectedProviderAccountId}
+              onConnectEmail={handleConnectEmail}
+              onDisconnectEmail={handleDisconnectEmail}
+              onSelectEmailAccount={setSelectedProviderAccountId}
+            />
+          </div>
+        )}
+      </div>
+
       {/* Content */}
       <div className="bulk-view-content">
         {loading ? (
@@ -378,10 +479,9 @@ export default function EmailInboxBulkView({
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const output = aiOutputs[msg.id]
-              const bodyPreview = (msg.body_text || '')
-                .slice(0, BODY_PREVIEW_LEN)
+              const bodyContent = (msg.body_text || '')
                 .replace(/\s+/g, ' ')
-                .trim()
+                .trim() || '(No body)'
               const hasAttachments = msg.has_attachments === 1
               const isDeleted = msg.deleted === 1
 
@@ -452,12 +552,9 @@ export default function EmailInboxBulkView({
                             fontSize: 12,
                             color: MUTED,
                             lineHeight: 1.5,
-                            overflowY: 'auto',
-                            flex: 1,
-                            minHeight: 0,
                           }}
                         >
-                          {bodyPreview || '(No body)'}
+                          {bodyContent}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center', flexShrink: 0 }}>
                           {hasAttachments && (
@@ -561,6 +658,16 @@ export default function EmailInboxBulkView({
           </div>
         )}
       </div>
+
+      <EmailConnectWizard
+        isOpen={showEmailConnectModal}
+        onClose={() => setShowEmailConnectModal(false)}
+        onConnected={() => {
+          loadProviderAccounts()
+          setShowEmailConnectModal(false)
+        }}
+        theme="dark"
+      />
 
       {/* Full message modal — stays inside bulk mode */}
       {expandedMessageId && (

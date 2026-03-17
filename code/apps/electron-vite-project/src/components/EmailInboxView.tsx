@@ -1,11 +1,16 @@
 /**
  * EmailInboxView — Main inbox view matching HandshakeView layout.
- * Left: toolbar + message list. Right: EmailMessageDetail when selected.
+ * Left: toolbar + message list.
+ * When no message selected: center = provider area, right = capsule drop.
+ * When message selected: right = 50/50 message + AI workspace.
  */
 
 import { useEffect, useCallback, useState } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import EmailMessageDetail from './EmailMessageDetail'
+import BeapMessageImportZone from './BeapMessageImportZone'
+import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
+import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
 import '../components/handshakeViewTypes'
 
@@ -312,6 +317,66 @@ export default function EmailInboxView({
 
   const primaryAccountId = accounts[0]?.id
 
+  // Provider/account state for no-selection workspace
+  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
+  const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
+  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
+
+  const loadProviderAccounts = useCallback(async () => {
+    if (typeof window.emailAccounts?.listAccounts !== 'function') {
+      setIsLoadingProviderAccounts(false)
+      return
+    }
+    try {
+      const res = await window.emailAccounts.listAccounts()
+      if (res?.ok && res?.data) {
+        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
+        setProviderAccounts(data.map((a) => ({
+          id: a.id,
+          displayName: a.displayName ?? a.email,
+          email: a.email,
+          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
+          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
+          lastError: a.lastError,
+        })))
+        setSelectedProviderAccountId((prev) =>
+          prev && data.some((a: { id: string }) => a.id === prev) ? prev : data[0]?.id ?? null
+        )
+      } else {
+        setProviderAccounts([])
+      }
+    } catch {
+      setProviderAccounts([])
+    } finally {
+      setIsLoadingProviderAccounts(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedMessageId) loadProviderAccounts()
+  }, [selectedMessageId, loadProviderAccounts])
+
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onAccountConnected?.(() => loadProviderAccounts())
+    return () => unsub?.()
+  }, [loadProviderAccounts])
+
+  const handleConnectEmail = useCallback(() => setShowEmailConnectModal(true), [])
+  const handleDisconnectEmail = useCallback(
+    async (id: string) => {
+      try {
+        if (typeof window.emailAccounts?.deleteAccount === 'function') {
+          await window.emailAccounts.deleteAccount(id)
+          loadProviderAccounts()
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [loadProviderAccounts]
+  )
+
   // Sync App-level selection to store when props change
   useEffect(() => {
     if (selectedMessageIdProp !== undefined && selectedMessageIdProp !== selectedMessageId) {
@@ -376,11 +441,13 @@ export default function EmailInboxView({
     return () => unsub?.()
   }, [fetchMessages])
 
+  const gridCols = selectedMessageId ? '320px 1fr' : '320px 1fr 320px'
+
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: selectedMessageId ? '320px 1fr' : '1fr',
+        gridTemplateColumns: gridCols,
         height: '100%',
         overflow: 'hidden',
         background: 'var(--color-bg, #0f172a)',
@@ -390,7 +457,7 @@ export default function EmailInboxView({
       {/* Left panel: toolbar + message list */}
       <div
         style={{
-          borderRight: selectedMessageId ? '1px solid var(--color-border, rgba(255,255,255,0.08))' : 'none',
+          borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -489,6 +556,76 @@ export default function EmailInboxView({
         </div>
       </div>
 
+      {/* Center + Right when no message selected: provider area + capsule drop */}
+      {!selectedMessageId && (
+        <>
+          <div
+            className="inbox-no-selection-center"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              minWidth: 0,
+              minHeight: 0,
+              borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+            }}
+          >
+            <EmailProvidersSection
+              theme="dark"
+              emailAccounts={providerAccounts}
+              isLoadingEmailAccounts={isLoadingProviderAccounts}
+              selectedEmailAccountId={selectedProviderAccountId}
+              onConnectEmail={handleConnectEmail}
+              onDisconnectEmail={handleDisconnectEmail}
+              onSelectEmailAccount={setSelectedProviderAccountId}
+            />
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--color-text-muted, #94a3b8)',
+                padding: 24,
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>✉</div>
+              <div style={{ fontSize: 13, textAlign: 'center' }}>
+                {messages.length === 0
+                  ? 'Connect an email account or import a .beap file to get started'
+                  : 'Select a message to view details'}
+              </div>
+            </div>
+          </div>
+          <div
+            className="inbox-no-selection-right"
+            style={{
+              borderLeft: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                padding: '14px 12px',
+                borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              Import & Compose
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+              <BeapMessageImportZone onSubmitted={fetchMessages} />
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
       {selectedMessageId && (
         <div className="inbox-detail-workspace">
@@ -503,6 +640,16 @@ export default function EmailInboxView({
           </div>
         </div>
       )}
+
+      <EmailConnectWizard
+        isOpen={showEmailConnectModal}
+        onClose={() => setShowEmailConnectModal(false)}
+        onConnected={() => {
+          loadProviderAccounts()
+          setShowEmailConnectModal(false)
+        }}
+        theme="dark"
+      />
     </div>
   )
 }
