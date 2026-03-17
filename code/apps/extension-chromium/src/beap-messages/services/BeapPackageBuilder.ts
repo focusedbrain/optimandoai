@@ -1895,32 +1895,56 @@ export async function executeEmailAction(
   // SECURITY: Validate no encrypted content leaks via email transport
   validateEmailTransportContract(emailContract, config)
 
-  // Stub: In production, would integrate with email provider
-  // NOTE: Intentionally NOT logging messageBody or encryptedMessage content
-  console.log('[BEAP Email] Sending package:', {
+  const sendPayload = {
     to: toAddress,
-    encoding: pkg.header.encoding,
-    filename: emailContract.attachments[0]?.name,
     subject: emailContract.subject,
-    bodyLength: emailContract.body.length,
-    // SECURITY: Never log body content or encryptedMessage
-  })
+    body: emailContract.body,
+    attachments: emailContract.attachments
+  }
 
-  // Simulate email send
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // Try real email send via Electron IPC (window.email) or extension background (chrome.runtime)
+  let sendResult: { ok: boolean; error?: string } | null = null
 
-  const recipientLabel = config.recipientMode === 'private'
-    ? `${config.selectedRecipient?.receiver_display_name} (${config.selectedRecipient?.receiver_fingerprint_short})`
-    : toAddress
-
-  return {
-    success: true,
-    action: 'sent',
-    message: `BEAP™ ${pkg.header.encoding} package sent to ${recipientLabel}`,
-    details: {
-      to: toAddress,
-      filename: emailContract.attachments[0]?.name
+  if (typeof window !== 'undefined' && typeof (window as any).email?.sendBeapEmail === 'function') {
+    try {
+      sendResult = await (window as any).email.sendBeapEmail(sendPayload)
+    } catch (err) {
+      sendResult = { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
+  } else if (typeof (globalThis as any).chrome !== 'undefined' && (globalThis as any).chrome?.runtime?.sendMessage) {
+    try {
+      sendResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        ;(globalThis as any).chrome.runtime.sendMessage(
+          { type: 'EMAIL_SEND_BEAP', ...sendPayload },
+          (response: { ok?: boolean; error?: string } | undefined) => {
+            resolve(response ? { ok: !!response.ok, error: response.error } : { ok: false, error: 'No response' })
+          }
+        )
+      })
+    } catch (err) {
+      sendResult = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  if (sendResult?.ok) {
+    const recipientLabel = config.recipientMode === 'private'
+      ? `${config.selectedRecipient?.receiver_display_name} (${config.selectedRecipient?.receiver_fingerprint_short})`
+      : toAddress
+    return {
+      success: true,
+      action: 'sent',
+      message: `BEAP™ ${pkg.header.encoding} package sent to ${recipientLabel}`,
+      details: { to: toAddress, filename: emailContract.attachments[0]?.name }
+    }
+  }
+
+  // Fallback: email not available — download instead
+  const downloadResult = await executeDownloadAction(pkg, config)
+  return {
+    ...downloadResult,
+    message: sendResult?.error
+      ? `Email not available (${sendResult.error}) — downloading instead`
+      : 'Email not available — downloading instead'
   }
 }
 

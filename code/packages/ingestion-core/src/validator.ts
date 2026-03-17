@@ -26,6 +26,8 @@ const VALID_CAPSULE_TYPES = new Set([
   'revoke',
 ]);
 
+const MESSAGE_PACKAGE_REQUIRED_TOP_LEVEL = ['header', 'metadata'] as const;
+
 const VALID_SHARING_MODES = new Set(['receive-only', 'reciprocal']);
 
 const VALID_EXTERNAL_PROCESSING = new Set(['none', 'local_only']);
@@ -163,6 +165,71 @@ export function validateCapsule(candidate: CandidateCapsuleEnvelope): Validation
   }
 }
 
+function isMessagePackageShape(obj: Record<string, unknown>): boolean {
+  const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
+  const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
+  const hasEnvelope = 'envelope' in obj;
+  const hasPayload = 'payload' in obj;
+  const noCapsuleType = !('capsule_type' in obj);
+  return hasHeader && hasMetadata && (hasEnvelope || hasPayload) && noCapsuleType;
+}
+
+function runValidationMessagePackage(
+  candidate: CandidateCapsuleEnvelope,
+  obj: Record<string, unknown>,
+): ValidationResult {
+  const depth = measureJsonDepth(obj);
+  if (depth > INGESTION_CONSTANTS.MAX_JSON_DEPTH) {
+    return fail('STRUCTURAL_INTEGRITY_FAILURE', `JSON depth ${depth} exceeds limit ${INGESTION_CONSTANTS.MAX_JSON_DEPTH}`);
+  }
+
+  const fieldCount = { n: 0 };
+  if (!countFields(obj, INGESTION_CONSTANTS.MAX_FIELDS, fieldCount)) {
+    return fail('STRUCTURAL_INTEGRITY_FAILURE', `Field count exceeds limit ${INGESTION_CONSTANTS.MAX_FIELDS}`);
+  }
+
+  for (const field of MESSAGE_PACKAGE_REQUIRED_TOP_LEVEL) {
+    if (!(field in obj) || obj[field] === undefined) {
+      return fail('MISSING_REQUIRED_FIELD', `Message package missing required field: ${field}`);
+    }
+    if (typeof obj[field] !== 'object' || obj[field] === null) {
+      return fail('MISSING_REQUIRED_FIELD', `Message package field ${field} must be a non-empty object`);
+    }
+  }
+
+  if (!('envelope' in obj) && !('payload' in obj)) {
+    return fail('MISSING_REQUIRED_FIELD', 'Message package must have envelope or payload');
+  }
+
+  const payloadSize = Buffer.byteLength(JSON.stringify(obj));
+  if (payloadSize > INGESTION_CONSTANTS.MAX_PAYLOAD_BYTES) {
+    return fail('PAYLOAD_SIZE_EXCEEDED', `Payload size ${payloadSize} exceeds limit ${INGESTION_CONSTANTS.MAX_PAYLOAD_BYTES}`);
+  }
+
+  const safeObj = sanitizeObject(obj);
+  const validatedPayload: ValidatedCapsulePayload = {
+    capsule_type: 'message_package',
+    schema_version: 2,
+    handshake_id: extractHandshakeIdFromMessagePackage(safeObj),
+    ...safeObj,
+  };
+
+  const validated = createValidatedCapsule(candidate, validatedPayload);
+  return { success: true, validated };
+}
+
+function extractHandshakeIdFromMessagePackage(obj: Record<string, unknown>): string | undefined {
+  const header = obj.header;
+  if (header && typeof header === 'object') {
+    const rb = (header as Record<string, unknown>)?.receiver_binding;
+    if (rb && typeof rb === 'object' && 'handshake_id' in rb) {
+      const id = (rb as Record<string, unknown>).handshake_id;
+      if (typeof id === 'string' && id.trim().length > 0) return id.trim();
+    }
+  }
+  return undefined;
+}
+
 function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
   if (candidate.ingestion_error_flag) {
     return fail('INGESTION_ERROR_PROPAGATED', candidate.ingestion_error_details ?? 'Ingestion error propagated');
@@ -180,6 +247,10 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
     Object.prototype.hasOwnProperty.call(obj, 'prototype')
   ) {
     return fail('STRUCTURAL_INTEGRITY_FAILURE', 'Prototype pollution attempt detected');
+  }
+
+  if (isMessagePackageShape(obj)) {
+    return runValidationMessagePackage(candidate, obj);
   }
 
   const depth = measureJsonDepth(obj);

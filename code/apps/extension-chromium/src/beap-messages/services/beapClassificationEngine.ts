@@ -31,7 +31,7 @@
  * Boundary and scope enforcement
  * ─────────────────────────────────
  *   Messages where:
- *     • processingEvents is null             → boundary = NONE, gate BLOCKED
+ *     • processingEvents is null             → heuristic-only (no gate; local pattern matching, no AI dispatch)
  *     • semantic declaration boundary = NONE → gate BLOCKED
  *     • decision = BLOCKED (any reason)      → skipped, classified as 'unclassified'
  *
@@ -529,18 +529,20 @@ async function classifySingleMessage(
   config: Required<ClassificationEngineConfig>,
   gateContext: GateContext,
 ): Promise<ClassificationResult> {
-  // ── 1. Quick pre-check: no processingEvents means NONE boundary ────
+  // ── 1. No processingEvents: run heuristic-only (safe — local pattern matching, no AI dispatch) ────
   if (!message.processingEvents) {
+    const projected = projectContent(message, 'FULL')
+    const heuristicResult = heuristicClassify(message, projected.text)
     return {
       messageId: message.messageId,
       classification: {
-        urgency: 'normal',
-        summary: `Message from ${message.senderEmail} — no processing declaration.`,
-        suggestedAction: 'Review at your convenience.',
-        confidence: 0.3,
+        urgency: heuristicResult.urgency,
+        summary: heuristicResult.summary,
+        suggestedAction: heuristicResult.suggestedAction,
+        confidence: heuristicResult.confidence,
       },
-      reasoning: 'No ProcessingEventOffer present; boundary treated as NONE.',
-      source: 'no-declaration',
+      reasoning: `No ProcessingEventOffer; heuristic-only classification (${heuristicResult.reasoning})`,
+      source: 'heuristic',
       gateDecision: 'SKIPPED',
       gatingArtefacts: [],
     }

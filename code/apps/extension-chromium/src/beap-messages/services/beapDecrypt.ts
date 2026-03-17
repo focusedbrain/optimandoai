@@ -1208,8 +1208,10 @@ export async function decryptBeapPackage(
      * Falls back to `handshakeId` string match for v1.0 packages.
      */
     handshakes?: LocalHandshake[]
-    /** Sender's X25519 public key for key agreement (required for qBEAP) */
+    /** Sender's X25519 public key for key agreement (required for qBEAP). Fallback: pkg.header.crypto.senderX25519PublicKeyB64 */
     senderX25519PublicKey?: string
+    /** Receiver's ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation. Required when package has pq.kemCiphertextB64 */
+    mlkemSecretKeyB64?: string
     /** Skip signature verification (NOT recommended) */
     skipSignatureVerification?: boolean
 
@@ -1310,6 +1312,7 @@ export async function decryptBeapPackage(
     knownSenders: options.knownSenders,
     knownReceiver: options.knownReceiver,
     senderX25519PublicKey: options.senderX25519PublicKey,
+    mlkemSecretKeyB64: options.mlkemSecretKeyB64,
     skipSignatureVerification: options.skipSignatureVerification,
     knownTemplateHashes: options.knownTemplateHashes,
     expectedContentHash: options.expectedContentHash,

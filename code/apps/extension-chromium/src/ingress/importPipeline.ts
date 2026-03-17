@@ -427,17 +427,37 @@ export async function importFromMessenger(
 
 /**
  * Import from file
+ *
+ * After import, auto-verifies via sandbox depackaging (same flow as Electron
+ * p2p_pending_beap path). Message appears in inbox when verification succeeds.
  */
 export async function importFromFile(
   file: File
 ): Promise<ImportResult> {
   try {
     const rawData = await file.text()
-    
-    return importBeapMessage(rawData, 'download', {
+
+    const importResult = await importBeapMessage(rawData, 'download', {
       originalFilename: file.name,
       mimeType: file.type
     })
+
+    if (!importResult.success || !importResult.messageId) {
+      return importResult
+    }
+
+    const verifyResult = await verifyImportedMessage(importResult.messageId, {
+      handshakeId: '__file_import__'
+    })
+
+    if (verifyResult.success) {
+      return importResult
+    }
+
+    return {
+      success: false,
+      error: verifyResult.nonDisclosingError ?? 'Verification failed'
+    }
   } catch (error) {
     return {
       success: false,

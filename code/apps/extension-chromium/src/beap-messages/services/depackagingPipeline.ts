@@ -39,6 +39,8 @@ import {
   aeadDecrypt,
   stringToBytes,
   hkdfSha256,
+  pqDecapsulate,
+  PQNotAvailableError,
   type CapsulePayloadEnc,
 } from './beapCrypto'
 import { deriveSharedSecretX25519 } from './x25519KeyAgreement'
@@ -270,8 +272,19 @@ export interface PipelineInput {
    */
   knownReceiver?: KnownReceiver
 
-  /** Sender's X25519 public key for Gate 4 key agreement (required for qBEAP). */
+  /**
+   * Sender's X25519 public key for Gate 4 key agreement (required for qBEAP).
+   * When absent, Gate 4 falls back to pkg.header.crypto.senderX25519PublicKeyB64
+   * (packages carry their own sender key). Handshake-provided key is preferred when available.
+   */
   senderX25519PublicKey?: string
+
+  /**
+   * Receiver's ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation.
+   * Required when package has header.crypto.pq.kemCiphertextB64 (hybrid mode).
+   * When absent and package is hybrid, Gate 4 fails with PQ-not-available.
+   */
+  mlkemSecretKeyB64?: string
 
   /**
    * Whether to bypass Gate 5 signature verification.
@@ -752,31 +765,38 @@ export async function gate3CiphertextIntegrity(
  * Gate 4 — Post-Quantum Decryption (if qBEAP) + Key Derivation
  *
  * For qBEAP packages:
- *   1. ECDH X25519 key agreement with sender's public key.
- *   2. Derive capsuleKey, artefactKey, innerEnvelopeKey via HKDF.
- *   3. AEAD-decrypt the capsule payload.
- *   4. Verify decrypted plaintext size ≤ MAX_CAPSULE_BYTES.
- *   5. Verify `sha256Plain` of decrypted plaintext matches declared value (if present).
+ *   1. Resolve sender X25519 key: options.senderX25519PublicKey ?? pkg.header.crypto.senderX25519PublicKeyB64
+ *   2. ECDH X25519 key agreement with sender's public key.
+ *   3. If hybrid (header.crypto.pq.kemCiphertextB64): ML-KEM decapsulate → concatenate PQ||X25519 (64 bytes)
+ *   4. Derive capsuleKey, artefactKey, innerEnvelopeKey via HKDF.
+ *   5. AEAD-decrypt the capsule payload.
+ *   6. Verify decrypted plaintext size ≤ MAX_CAPSULE_BYTES.
+ *   7. Verify `sha256Plain` of decrypted plaintext matches declared value (if present).
  *
  * For pBEAP packages:
  *   - No key derivation or decryption needed.
  *   - Decode base64 payload to plaintext.
  *   - Verify size bound.
  *
- * @param pkg                  - Package to verify
- * @param gate3ctx             - Chain-of-custody from Gate 3
- * @param senderX25519PublicKey - Sender's X25519 public key (required for qBEAP)
+ * @param pkg                   - Package to verify
+ * @param gate3ctx              - Chain-of-custody from Gate 3
+ * @param senderX25519PublicKey - Sender's X25519 public key (preferred from handshake; fallback to package header)
+ * @param mlkemSecretKeyB64     - Receiver's ML-KEM-768 secret key for hybrid decapsulation (required when pq present)
  */
 export async function gate4Decryption(
   pkg: BeapPackage,
   gate3ctx: Gate3Context,
-  senderX25519PublicKey?: string
+  senderX25519PublicKey?: string,
+  mlkemSecretKeyB64?: string
 ): Promise<GateResult<Gate4Context>> {
   const GATE = 4 as const
 
   if (gate3ctx.encoding === 'qBEAP') {
-    if (!senderX25519PublicKey) {
-      return { passed: false, gate: GATE, error: 'GATE4: senderX25519PublicKey required for qBEAP.', nonDisclosingError: nonDisclosingError(GATE) }
+    // FIX A: Fallback to package header when options don't provide sender key
+    const resolvedSenderKey = senderX25519PublicKey?.trim() ||
+      (typeof pkg.header.crypto?.senderX25519PublicKeyB64 === 'string' && pkg.header.crypto.senderX25519PublicKeyB64.trim())
+    if (!resolvedSenderKey) {
+      return { passed: false, gate: GATE, error: 'GATE4: senderX25519PublicKey required for qBEAP (not in options or package header).', nonDisclosingError: nonDisclosingError(GATE) }
     }
 
     const salt = pkg.header.crypto?.salt
@@ -784,15 +804,69 @@ export async function gate4Decryption(
       return { passed: false, gate: GATE, error: 'GATE4: Missing envelope salt for key derivation.', nonDisclosingError: nonDisclosingError(GATE) }
     }
 
+    const pq = pkg.header.crypto?.pq
+    const isHybrid = pq && typeof pq === 'object' && pq.kemCiphertextB64 && typeof pq.kemCiphertextB64 === 'string' && pq.kemCiphertextB64.length > 0
+
     let capsuleKey: Uint8Array
     let artefactKey: Uint8Array
     let innerEnvelopeKey: Uint8Array
     let capsulePlaintext: string
 
     try {
-      const ecdhResult = await deriveSharedSecretX25519(senderX25519PublicKey)
+      let sharedSecret: Uint8Array
+      const ecdhResult = await deriveSharedSecretX25519(resolvedSenderKey)
+      if (isHybrid) {
+        // FIX B: Hybrid ML-KEM + X25519 — builder order: PQ first, then X25519 (64 bytes total)
+        if (!mlkemSecretKeyB64?.trim()) {
+          return {
+            passed: false,
+            gate: GATE,
+            error: 'GATE4: Hybrid package requires ML-KEM decapsulation; mlkemSecretKeyB64 not provided.',
+            nonDisclosingError: nonDisclosingError(GATE)
+          }
+        }
+        const kemCiphertextB64 = pq.kemCiphertextB64
+        if (!kemCiphertextB64) {
+          return {
+            passed: false,
+            gate: GATE,
+            error: 'GATE4: Hybrid package missing pq.kemCiphertextB64.',
+            nonDisclosingError: nonDisclosingError(GATE)
+          }
+        }
+        let mlkemSecret: Uint8Array
+        try {
+          const decap = await pqDecapsulate(kemCiphertextB64, mlkemSecretKeyB64.trim())
+          mlkemSecret = decap.sharedSecretBytes
+        } catch (err) {
+          if (err instanceof PQNotAvailableError) {
+            return {
+              passed: false,
+              gate: GATE,
+              error: 'GATE4: ML-KEM decapsulation not available (Electron PQ service required).',
+              nonDisclosingError: nonDisclosingError(GATE)
+            }
+          }
+          return {
+            passed: false,
+            gate: GATE,
+            error: `GATE4: ML-KEM decapsulation failed: ${err instanceof Error ? err.message : String(err)}`,
+            nonDisclosingError: nonDisclosingError(GATE)
+          }
+        }
+        const hybridSecret = new Uint8Array(mlkemSecret.length + ecdhResult.sharedSecret.length)
+        hybridSecret.set(mlkemSecret, 0)
+        hybridSecret.set(ecdhResult.sharedSecret, mlkemSecret.length)
+        sharedSecret = hybridSecret
+      } else {
+        sharedSecret = ecdhResult.sharedSecret
+      }
+
       const saltBytes = fromBase64(salt)
-      ;({ capsuleKey, artefactKey, innerEnvelopeKey } = await deriveBeapKeys(ecdhResult.sharedSecret, saltBytes))
+      const derived = await deriveBeapKeys(sharedSecret, saltBytes)
+      capsuleKey = derived.capsuleKey
+      artefactKey = derived.artefactKey
+      innerEnvelopeKey = derived.innerEnvelopeKey
     } catch (err) {
       return {
         passed: false,
@@ -1159,7 +1233,7 @@ export async function runDepackagingPipeline(
   }
 
   // Gate 4 — PQ/Key Derivation + Decryption
-  const g4 = await gate4Decryption(input.pkg, g3.context, input.senderX25519PublicKey)
+  const g4 = await gate4Decryption(input.pkg, g3.context, input.senderX25519PublicKey, input.mlkemSecretKeyB64)
   gateResults.push(g4)
   if (!g4.passed || !g4.context) {
     return { success: false, failedGate: 4, internalError: g4.error, nonDisclosingError: g4.nonDisclosingError, gateResults }

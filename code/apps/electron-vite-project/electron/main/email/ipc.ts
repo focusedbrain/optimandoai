@@ -27,7 +27,7 @@ export function registerEmailHandlers(): void {
     'email:checkGmailCredentials', 'email:checkOutlookCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
-    'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail',
+    'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail', 'email:sendBeapEmail',
     'email:syncAccount', 'email:getSyncStatus',
   ] as const
   channels.forEach(ch => ipcMain.removeHandler(ch))
@@ -401,7 +401,40 @@ export function registerEmailHandlers(): void {
       return { ok: false, error: error.message }
     }
   })
-  
+
+  /**
+   * Send BEAP package via email (uses first connected account).
+   * Contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }
+   */
+  ipcMain.handle('email:sendBeapEmail', async (
+    _e,
+    contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }
+  ) => {
+    try {
+      const accounts = await emailGateway.listAccounts()
+      const active = accounts.filter((a: any) => a.status === 'active')
+      if (active.length === 0) {
+        return { ok: false, error: 'No connected email account. Connect an account to send BEAP packages.' }
+      }
+      const accountId = active[0].id
+      const payload: SendEmailPayload = {
+        to: [contract.to],
+        subject: contract.subject || 'BEAP™ Secure Message',
+        bodyText: contract.body || '',
+        attachments: (contract.attachments || []).map((a) => ({
+          filename: a.name,
+          mimeType: a.mime || 'application/json',
+          contentBase64: Buffer.from(a.data, 'utf-8').toString('base64')
+        }))
+      }
+      const result = await emailGateway.sendEmail(accountId, payload)
+      return { ok: true, data: result }
+    } catch (error: any) {
+      console.error('[Email IPC] sendBeapEmail error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
   // =================================================================
   // Sync Operations
   // =================================================================

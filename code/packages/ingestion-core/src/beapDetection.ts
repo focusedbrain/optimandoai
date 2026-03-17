@@ -23,6 +23,9 @@ export function detectBeapCapsule(input: RawInput): BeapDetectionResult {
   const jsonResult = checkJsonStructure(input);
   if (jsonResult) return jsonResult;
 
+  const messagePackageResult = checkJsonStructureMessagePackage(input);
+  if (messagePackageResult) return messagePackageResult;
+
   const attachResult = checkAttachmentMetadata(input);
   if (attachResult) return attachResult;
 
@@ -65,6 +68,38 @@ function checkJsonStructure(input: RawInput): BeapDetectionResult | null {
   return null;
 }
 
+/** Detect qBEAP/pBEAP message packages: header + metadata + (envelope or payload), no capsule_type */
+export function isMessagePackageStructure(parsed: unknown): boolean {
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const obj = parsed as Record<string, unknown>;
+  const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
+  const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
+  const hasEnvelope = 'envelope' in obj;
+  const hasPayload = 'payload' in obj;
+  const noCapsuleType = !('capsule_type' in obj);
+  return hasHeader && hasMetadata && (hasEnvelope || hasPayload) && noCapsuleType;
+}
+
+function checkJsonStructureMessagePackage(input: RawInput): BeapDetectionResult | null {
+  const text = typeof input.body === 'string' ? input.body : input.body.toString('utf-8');
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (isMessagePackageStructure(parsed)) {
+      return {
+        detected: true,
+        raw_capsule_json: parsed,
+        detection_method: 'json_structure',
+        is_message_package: true,
+      };
+    }
+  } catch {
+    // Not valid JSON
+  }
+  return null;
+}
+
 function checkAttachmentMetadata(input: RawInput): BeapDetectionResult | null {
   if (input.filename && input.filename.endsWith('.beap')) {
     return tryParseBeapJson(input.body, 'attachment_metadata');
@@ -84,7 +119,13 @@ function tryParseBeapJson(body: string | Buffer, method: DetectionMethod): BeapD
   const text = typeof body === 'string' ? body : body.toString('utf-8');
   try {
     const parsed = JSON.parse(text.trim());
-    return { detected: true, raw_capsule_json: parsed, detection_method: method };
+    const isMessagePackage = isMessagePackageStructure(parsed);
+    return {
+      detected: true,
+      raw_capsule_json: parsed,
+      detection_method: method,
+      ...(isMessagePackage ? { is_message_package: true as const } : {}),
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'JSON parse failed';
     return { detected: false, malformed: true, detection_error: msg };

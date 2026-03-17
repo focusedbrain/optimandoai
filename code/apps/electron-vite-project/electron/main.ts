@@ -2476,6 +2476,23 @@ app.whenReady().then(async () => {
       }
     })
 
+    /** Generate a draft reply via LLM (no RAG). Used by BEAP "Draft with AI". */
+    ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        if (models.length === 0) {
+          return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
+        }
+        const modelId = models[0].name
+        const response = await ollamaManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
+        return { success: true, answer: response?.content ?? '' }
+      } catch (err: any) {
+        console.error('[MAIN] handshake:generateDraft error:', err?.message)
+        return { success: false, error: err?.message ?? 'Draft generation failed' }
+      }
+    })
+
     ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean }) => {
       try {
         const db = await getHandshakeDb()
@@ -7478,6 +7495,43 @@ app.whenReady().then(async () => {
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error sending email:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/email/send-beap - Send BEAP package via email (uses first connected account)
+    httpApp.post('/api/email/send-beap', async (req, res) => {
+      try {
+        const { to, subject, body, attachments } = req.body
+        if (!to || typeof to !== 'string') {
+          res.status(400).json({ ok: false, error: 'to (recipient email) is required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] POST /api/email/send-beap', to)
+        const { emailGateway } = await import('./main/email/gateway')
+        const accounts = await emailGateway.listAccounts()
+        const active = accounts.filter((a: any) => a.status === 'active')
+        if (active.length === 0) {
+          res.status(400).json({ ok: false, error: 'No connected email account. Connect an account to send BEAP packages.' })
+          return
+        }
+        const accountId = active[0].id
+        const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
+          to: [String(to)],
+          subject: subject || 'BEAP™ Secure Message',
+          bodyText: body || ''
+        }
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+          payload.attachments = attachments.filter((a: any) => a?.name && a?.data != null).map((a: any) => ({
+            filename: String(a.name),
+            mimeType: a.mime || 'application/json',
+            contentBase64: Buffer.from(String(a.data), 'utf-8').toString('base64')
+          }))
+        }
+        const result = await emailGateway.sendEmail(accountId, payload)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error sending BEAP email:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })

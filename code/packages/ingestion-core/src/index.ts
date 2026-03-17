@@ -10,7 +10,7 @@ export { validateInput } from './pipeline.js';
 export type { PipelineResult } from './pipeline.js';
 
 // Individual steps
-export { detectBeapCapsule } from './beapDetection.js';
+export { detectBeapCapsule, isMessagePackageStructure } from './beapDetection.js';
 export { ingestInput } from './ingestor.js';
 export { validateCapsule } from './validator.js';
 export { routeValidatedCapsule } from './distributionGate.js';

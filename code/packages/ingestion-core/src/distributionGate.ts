@@ -11,6 +11,14 @@ export function routeValidatedCapsule(capsule: ValidatedCapsule): DistributionDe
   const { capsule_type } = capsule.capsule;
   const { origin_classification } = capsule.provenance;
 
+  if (capsule_type === 'message_package') {
+    return {
+      target: 'message_relay',
+      validated_capsule: capsule,
+      reason: 'BEAP message package (qBEAP/pBEAP) routes to message relay',
+    };
+  }
+
   if (
     capsule_type === 'initiate' ||
     capsule_type === 'accept' ||

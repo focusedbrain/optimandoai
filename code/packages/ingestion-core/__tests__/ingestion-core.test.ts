@@ -5,9 +5,10 @@ import {
   validateCapsule,
   detectBeapCapsule,
   routeValidatedCapsule,
+  isMessagePackageStructure,
   type RawInput,
   type TransportMetadata,
-} from '../src/index.js';
+} from '@repo/ingestion-core';
 
 const emptyTransport: TransportMetadata = {};
 
@@ -21,6 +22,8 @@ function validBeapPayload(): Record<string, unknown> {
     timestamp: new Date().toISOString(),
     wrdesk_policy_hash: 'b'.repeat(64),
     seq: 1,
+    sender_public_key: 'c'.repeat(64),
+    sender_signature: 'd'.repeat(128),
   };
 }
 
@@ -91,6 +94,64 @@ describe('ingestion-core', () => {
     if (validation.success) {
       const distribution = routeValidatedCapsule(validation.validated);
       expect(distribution.target).toBe('handshake_pipeline');
+    }
+  });
+
+  test('validateInput: message package (qBEAP/pBEAP) → success, message_relay', () => {
+    const messagePackage = {
+      header: {
+        receiver_binding: { handshake_id: 'hs-msg-001' },
+      },
+      metadata: { created_at: new Date().toISOString() },
+      envelope: { encrypted: 'base64...' },
+    };
+    const rawInput: RawInput = { body: JSON.stringify(messagePackage) };
+    const result = validateInput(rawInput, 'coordination_service', emptyTransport);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.validated).toBeDefined();
+      expect(result.distribution).toBeDefined();
+      expect(result.distribution!.target).toBe('message_relay');
+      expect(result.validated!.capsule.capsule_type).toBe('message_package');
+      expect(result.validated!.capsule.handshake_id).toBe('hs-msg-001');
+    }
+  });
+
+  test('isMessagePackageStructure: detects header+metadata+envelope', () => {
+    expect(isMessagePackageStructure({ header: {}, metadata: {}, envelope: {} })).toBe(true);
+    expect(isMessagePackageStructure({ header: {}, metadata: {}, payload: {} })).toBe(true);
+    expect(isMessagePackageStructure({ header: {}, metadata: {} })).toBe(false); // no envelope/payload
+    expect(isMessagePackageStructure({ schema_version: 1, capsule_type: 'initiate' })).toBe(false);
+  });
+
+  test('detectBeapCapsule: message package structure (json_structure path)', () => {
+    const messagePackage = {
+      header: {},
+      metadata: {},
+      envelope: {},
+    };
+    const input: RawInput = { body: JSON.stringify(messagePackage) };
+    const result = detectBeapCapsule(input);
+    expect(result.detected).toBe(true);
+    if (result.detected) {
+      expect(result.is_message_package).toBe(true);
+    }
+  });
+
+  test('detectBeapCapsule: message package via mime_type', () => {
+    const messagePackage = {
+      header: { receiver_binding: { handshake_id: 'hs-x' } },
+      metadata: {},
+      envelope: {},
+    };
+    const input: RawInput = {
+      body: JSON.stringify(messagePackage),
+      mime_type: 'application/vnd.beap+json',
+    };
+    const result = detectBeapCapsule(input);
+    expect(result.detected).toBe(true);
+    if (result.detected) {
+      expect(result.is_message_package).toBe(true);
     }
   });
 

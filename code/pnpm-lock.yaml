@@ -277,6 +277,18 @@ importers:
         specifier: ^5.4.20
         version: 5.4.20(@types/node@24.3.0)
 
+  packages/beap-pod:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.11
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.2
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.11)(jsdom@26.1.0(canvas@3.2.0))
+
   packages/coordination-service:
     dependencies:
       '@repo/ingestion-core':

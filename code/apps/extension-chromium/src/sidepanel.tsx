@@ -37,6 +37,7 @@ import type { BeapBulkInboxHandle } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { BeapInboxView } from './beap-messages/components/BeapInboxView'
 import type { BeapInboxViewHandle } from './beap-messages/components/BeapInboxView'
+import { createBeapReplyAiProvider } from './beap-messages/services/beapReplyAiProvider'
 import { InboxErrorBoundary } from './beap-messages/components/InboxErrorBoundary'
 import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
@@ -346,6 +347,33 @@ function SidepanelOrchestrator() {
   // Derived fingerprint values
   const ourFingerprint = identity?.fingerprint || ''
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
+
+  const replyComposerConfig = useMemo(() => {
+    const generate = async (prompt: string): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'BEAP_GENERATE_DRAFT', prompt },
+          (response: { ok?: boolean; data?: { content?: string }; error?: string } | undefined) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError?.message ?? 'Draft generation failed'))
+              return
+            }
+            if (response?.ok && response?.data?.content != null) {
+              resolve(response.data.content)
+            } else {
+              reject(new Error(response?.error ?? 'Draft generation failed'))
+            }
+          }
+        )
+      })
+    }
+    return {
+      senderFingerprint: ourFingerprint,
+      senderFingerprintShort: ourFingerprintShort,
+      aiProvider: createBeapReplyAiProvider(generate),
+      policy: { allowSemanticProcessing: true, allowActuatingProcessing: false },
+    }
+  }, [ourFingerprint, ourFingerprintShort])
   
   // BEAP Handshake Request delivery state (used in draft panels)
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('p2p')
@@ -4819,10 +4847,7 @@ function SidepanelOrchestrator() {
                         setChatInput(query)
                         handleSendMessage()
                       }}
-                      replyComposerConfig={{
-                        senderFingerprint: ourFingerprint,
-                        senderFingerprintShort: ourFingerprintShort,
-                      }}
+                      replyComposerConfig={replyComposerConfig}
                     />
                     </InboxErrorBoundary>
                   )}
@@ -4884,10 +4909,7 @@ function SidepanelOrchestrator() {
                           setBeapSubmode('inbox')
                           useBeapInboxStore.getState().selectMessage(messageId)
                         }}
-                        replyComposerConfig={{
-                          senderFingerprint: ourFingerprint,
-                          senderFingerprintShort: ourFingerprintShort,
-                        }}
+                        replyComposerConfig={replyComposerConfig}
                       />
                     </InboxErrorBoundary>
                   )}
@@ -5575,10 +5597,7 @@ function SidepanelOrchestrator() {
                   setBeapSubmode('inbox')
                   useBeapInboxStore.getState().selectMessage(messageId)
                 }}
-                replyComposerConfig={{
-                  senderFingerprint: ourFingerprint,
-                  senderFingerprintShort: ourFingerprintShort,
-                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
         
@@ -6413,10 +6432,7 @@ height: '28px',
                       setChatInput(query)
                       handleSendMessage()
                     }}
-                    replyComposerConfig={{
-                      senderFingerprint: ourFingerprint,
-                      senderFingerprintShort: ourFingerprintShort,
-                    }}
+                    replyComposerConfig={replyComposerConfig}
                   />
                   </InboxErrorBoundary>
                 )}
@@ -6462,10 +6478,7 @@ height: '28px',
                         setBeapSubmode('inbox')
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
-                      replyComposerConfig={{
-                        senderFingerprint: ourFingerprint,
-                        senderFingerprintShort: ourFingerprintShort,
-                      }}
+                      replyComposerConfig={replyComposerConfig}
                     />
                   </InboxErrorBoundary>
                 )}
@@ -6686,10 +6699,7 @@ height: '28px',
                   setBeapSubmode('inbox')
                   useBeapInboxStore.getState().selectMessage(messageId)
                 }}
-                replyComposerConfig={{
-                  senderFingerprint: ourFingerprint,
-                  senderFingerprintShort: ourFingerprintShort,
-                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
           </div>
@@ -7559,10 +7569,7 @@ height: '28px',
                       setChatInput(query)
                       handleSendMessage()
                     }}
-                    replyComposerConfig={{
-                      senderFingerprint: ourFingerprint,
-                      senderFingerprintShort: ourFingerprintShort,
-                    }}
+                    replyComposerConfig={replyComposerConfig}
                   />
                   </InboxErrorBoundary>
                 )}
@@ -7608,10 +7615,7 @@ height: '28px',
                         setBeapSubmode('inbox')
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
-                      replyComposerConfig={{
-                        senderFingerprint: ourFingerprint,
-                        senderFingerprintShort: ourFingerprintShort,
-                      }}
+                      replyComposerConfig={replyComposerConfig}
                     />
                   </InboxErrorBoundary>
                 )}
@@ -7833,10 +7837,7 @@ height: '28px',
                   setBeapSubmode('inbox')
                   useBeapInboxStore.getState().selectMessage(messageId)
                 }}
-                replyComposerConfig={{
-                  senderFingerprint: ourFingerprint,
-                  senderFingerprintShort: ourFingerprintShort,
-                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
 

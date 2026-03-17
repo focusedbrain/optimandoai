@@ -1,0 +1,51 @@
+# BEAP Pod — Kubernetes Pod manifest
+# For RAM-only operation, mount tmpfs at /tmp (or use emptyDir with memory medium).
+# Key storage is injected via request body (no chrome.* dependencies).
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: wrdesk-beap-pod
+  labels:
+    app: beap-pod
+spec:
+  containers:
+    - name: beap-pod
+      image: wrdesk-pod:latest
+      ports:
+        - containerPort: 17180
+          name: http
+      env:
+        - name: POD_PORT
+          value: "17180"
+        - name: POD_VERSION
+          value: "1.0.0"
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "50m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 17180
+        initialDelaySeconds: 5
+        periodSeconds: 30
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 17180
+        initialDelaySeconds: 3
+        periodSeconds: 10
+      # Uncomment for tmpfs (RAM-only ephemeral storage):
+      # volumeMounts:
+      #   - name: tmp
+      #     mountPath: /tmp
+  # Optional: tmpfs for RAM-only operation
+  # volumes:
+  #   - name: tmp
+  #     emptyDir:
+  #       medium: Memory
+  #       sizeLimit: 64Mi

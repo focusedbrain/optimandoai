@@ -9,8 +9,9 @@
  * Right 320px: Import zone + [+] Compose (only when no selection)
  */
 
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessageDetailPanel'
+import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
@@ -159,6 +160,22 @@ export default function BeapInboxDashboard({
     (handshakeId: string) => onNavigateToHandshake?.(handshakeId),
     [onNavigateToHandshake],
   )
+
+  const replyComposerConfig = useMemo(() => {
+    const generate = async (prompt: string): Promise<string> => {
+      const fn = (window as any).handshakeView?.generateDraft
+      if (typeof fn !== 'function') throw new Error('Draft generation not available')
+      const result = await fn(prompt)
+      if (!result?.success) throw new Error(result?.error ?? 'Draft generation failed')
+      return result?.answer ?? ''
+    }
+    return {
+      senderFingerprint: '',
+      senderFingerprintShort: '',
+      aiProvider: createBeapReplyAiProvider(generate),
+      policy: { allowSemanticProcessing: true, allowActuatingProcessing: false },
+    }
+  }, [])
 
   const gridCols = effectiveSelectedId ? '280px 1fr' : '280px 1fr 320px'
 
@@ -342,6 +359,7 @@ export default function BeapInboxDashboard({
             onSetSearchContext={onSetSearchContext}
             onViewHandshake={handleViewHandshake}
             onAttachmentSelect={onAttachmentSelect}
+            replyComposerConfig={replyComposerConfig}
           />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 }}>

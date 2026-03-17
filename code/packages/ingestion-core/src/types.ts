@@ -91,14 +91,15 @@ export type CapsuleType =
   | 'refresh'
   | 'revoke'
   | 'context_sync'
-  | 'internal_draft';
+  | 'internal_draft'
+  | 'message_package';
 
 // ── BEAP Detection ──
 
 export type DetectionMethod = 'mime_type' | 'header_marker' | 'json_structure' | 'attachment_metadata';
 
 export type BeapDetectionResult =
-  | { readonly detected: true; readonly raw_capsule_json: unknown; readonly detection_method: DetectionMethod }
+  | { readonly detected: true; readonly raw_capsule_json: unknown; readonly detection_method: DetectionMethod; readonly is_message_package?: true }
   | { readonly detected: false; readonly malformed: boolean; readonly detection_error?: string };
 
 // ── Validation Result ──
@@ -126,7 +127,8 @@ export type ValidationReasonCode =
 export type DistributionTarget =
   | 'handshake_pipeline'
   | 'sandbox_sub_orchestrator'
-  | 'quarantine';
+  | 'quarantine'
+  | 'message_relay';
 
 export interface DistributionDecision {
   readonly target: DistributionTarget;

@@ -2,15 +2,18 @@
  * BEAP Email Sync — Incoming Email → Ingestion Pipeline Bridge
  *
  * Periodically polls connected email accounts for new messages containing
- * BEAP capsules, extracts them, and submits them to the ingestion pipeline.
+ * BEAP capsules or message packages, extracts them, and submits them.
  *
- * Detection heuristics (in order):
- *   1. Subject contains "BEAP Handshake:" (from our email transport)
- *   2. Body parses as JSON with `schema_version` + `capsule_type` at top level
+ * Detection heuristics:
+ *   - Handshake capsules: JSON with `schema_version` + `capsule_type` (initiate/accept/refresh/revoke)
+ *     → ingestion-core via handleIngestionRPC
+ *   - qBEAP/pBEAP message packages: JSON with `header` + `metadata` + (`envelope` or `payload`)
+ *     → p2p_pending_beap → extension sandbox depackaging (same as P2P path)
  *
  * Non-BEAP emails are ignored. Duplicate message IDs are not reprocessed.
  */
 
+import { insertPendingP2PBeap } from '../handshake/db'
 import type { SSOSession } from '../handshake/types'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import type { SanitizedMessage, SanitizedMessageDetail, AttachmentMeta, ExtractedAttachmentText } from './types'
@@ -100,6 +103,38 @@ export function detectBeapInBody(bodyText: string): { detected: boolean; capsule
 }
 
 /**
+ * Check if text is a qBEAP/pBEAP message package (header + metadata + envelope/payload).
+ * Unlike handshake capsules, message packages have no capsule_type.
+ */
+export function detectBeapMessagePackage(text: string): { detected: boolean; packageJson?: string } {
+  if (!text || typeof text !== 'string') return { detected: false }
+
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) return { detected: false }
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'header' in parsed &&
+      parsed.header != null &&
+      typeof parsed.header === 'object' &&
+      'metadata' in parsed &&
+      parsed.metadata != null &&
+      typeof parsed.metadata === 'object' &&
+      ('envelope' in parsed || 'payload' in parsed)
+    ) {
+      return { detected: true, packageJson: trimmed }
+    }
+  } catch {
+    // Not valid JSON — not a BEAP message package
+  }
+
+  return { detected: false }
+}
+
+/**
  * Check if an email subject suggests it contains a BEAP capsule.
  */
 export function detectBeapInSubject(subject: string): boolean {
@@ -129,7 +164,7 @@ export async function processEmailForBeap(
     return { submitted: false }
   }
 
-  // Strategy 1: Detect BEAP capsule in email body
+  // Strategy 1: Detect BEAP handshake capsule in email body
   const detection = detectBeapInBody(message.bodyText)
   if (detection.detected && detection.capsuleJson) {
     try {
@@ -162,6 +197,19 @@ export async function processEmailForBeap(
     }
   }
 
+  // Strategy 1b: Detect qBEAP/pBEAP message package in email body (route to p2p_pending_beap)
+  const msgPkgDetection = detectBeapMessagePackage(message.bodyText)
+  if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
+    try {
+      insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
+      processedMessageIds.add(messageKey)
+      return { submitted: true }
+    } catch (err: any) {
+      processedMessageIds.add(messageKey)
+      return { submitted: false, error: err?.message ?? 'Failed to queue message package' }
+    }
+  }
+
   // Strategy 2: Detect .beap file attachments (process ALL matching attachments)
   if (message.hasAttachments && _emailListAttachmentsFn && _emailExtractAttachmentTextFn) {
     try {
@@ -178,31 +226,40 @@ export async function processEmailForBeap(
           // Size guard before parsing — reject oversized attachments early
           if (extracted.text.length > 65536) continue
 
+          // Try handshake capsule first (ingestion-core)
           const attDetection = detectBeapInBody(extracted.text)
-          if (!attDetection.detected || !attDetection.capsuleJson) continue
+          if (attDetection.detected && attDetection.capsuleJson) {
+            lastResult = await handleIngestionRPC(
+              'ingestion.ingest',
+              {
+                rawInput: {
+                  body: attDetection.capsuleJson,
+                  mime_type: 'application/vnd.beap+json',
+                  headers: { 'content-type': 'application/vnd.beap+json' },
+                  filename: att.filename,
+                },
+                sourceType: 'email',
+                transportMeta: {
+                  channel_id: `email:${accountId}`,
+                  message_id: `${message.id}:attachment:${att.id}`,
+                  sender_address: message.from.email,
+                  recipient_address: message.to?.[0]?.email,
+                  mime_type: 'application/vnd.beap+json',
+                },
+              },
+              db,
+              ssoSession,
+            )
+            anySubmitted = true
+            continue
+          }
 
-          lastResult = await handleIngestionRPC(
-            'ingestion.ingest',
-            {
-              rawInput: {
-                body: attDetection.capsuleJson,
-                mime_type: 'application/vnd.beap+json',
-                headers: { 'content-type': 'application/vnd.beap+json' },
-                filename: att.filename,
-              },
-              sourceType: 'email',
-              transportMeta: {
-                channel_id: `email:${accountId}`,
-                message_id: `${message.id}:attachment:${att.id}`,
-                sender_address: message.from.email,
-                recipient_address: message.to?.[0]?.email,
-                mime_type: 'application/vnd.beap+json',
-              },
-            },
-            db,
-            ssoSession,
-          )
-          anySubmitted = true
+          // Try qBEAP/pBEAP message package (p2p_pending_beap → extension sandbox)
+          const msgPkgDetection = detectBeapMessagePackage(extracted.text)
+          if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
+            insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
+            anySubmitted = true
+          }
         } catch (attErr: any) {
           console.warn(`[BEAP Sync] Attachment ${att.id} processing error:`, attErr?.message)
         }

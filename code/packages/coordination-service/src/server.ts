@@ -181,13 +181,33 @@ function createRequestHandler(
           return
         }
         let handshakeId: string
+        let parsed: Record<string, unknown>
         try {
-          const parsed = JSON.parse(body) as Record<string, unknown>
+          parsed = JSON.parse(body) as Record<string, unknown>
           handshakeId = typeof parsed?.handshake_id === 'string' ? parsed.handshake_id : ''
         } catch {
           sendError(res, 400)
           return
         }
+
+        const isMessagePackage =
+          parsed != null &&
+          typeof parsed === 'object' &&
+          'header' in parsed &&
+          'metadata' in parsed &&
+          !('capsule_type' in parsed)
+
+        if (isMessagePackage) {
+          const header = parsed?.header
+          if (header && typeof header === 'object') {
+            const rb = (header as Record<string, unknown>)?.receiver_binding
+            if (rb && typeof rb === 'object' && 'handshake_id' in rb) {
+              const id = (rb as Record<string, unknown>).handshake_id
+              if (typeof id === 'string' && id.trim().length > 0) handshakeId = id.trim()
+            }
+          }
+        }
+
         if (!handshakeId?.trim()) {
           sendError(res, 400)
           return
@@ -200,20 +220,17 @@ function createRequestHandler(
         }
 
         // Reject initiate capsules — must be delivered out-of-band (file/email/USB)
-        const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke']
-        let capsuleType: string
-        try {
-          const capsuleData = JSON.parse(body) as { capsule_type?: string }
-          capsuleType = typeof capsuleData?.capsule_type === 'string' ? capsuleData.capsule_type : ''
-        } catch {
-          capsuleType = ''
-        }
-        if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
-          sendError(res, 400, {
-            error: 'capsule_type_not_allowed',
-            detail: `Type '${capsuleType || 'unknown'}' must be delivered out-of-band (file, email, USB). Relay accepts: ${RELAY_ALLOWED_TYPES.join(', ')}`,
-          })
-          return
+        // Message packages (qBEAP/pBEAP) are allowed and bypass capsule_type check
+        if (!isMessagePackage) {
+          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke']
+          const capsuleType = typeof parsed?.capsule_type === 'string' ? parsed.capsule_type : ''
+          if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
+            sendError(res, 400, {
+              error: 'capsule_type_not_allowed',
+              detail: `Type '${capsuleType || 'unknown'}' must be delivered out-of-band (file, email, USB). Relay accepts: ${RELAY_ALLOWED_TYPES.join(', ')}`,
+            })
+            return
+          }
         }
 
         const recipientUserId = handshakeRegistry.getRecipientForSender(handshakeId, identity.userId)

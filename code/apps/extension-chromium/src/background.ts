@@ -3118,6 +3118,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
     
+    case 'BEAP_GENERATE_DRAFT': {
+      console.log('[BG] 📝 BEAP draft generation request')
+      electronRequest('/api/llm/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: msg.prompt || '' }]
+        })
+      })
+        .then(result => {
+          if (result.ok && result.data?.content != null) {
+            sendResponse({ ok: true, data: { content: result.data.content } })
+          } else {
+            sendResponse({ ok: false, error: result.error || 'Draft generation failed' })
+          }
+        })
+        .catch(err => {
+          sendResponse({ ok: false, error: err?.message || 'Draft generation failed' })
+        })
+      return true
+    }
+    
+    case 'EMAIL_SEND_BEAP': {
+      console.log('[BG] 📧 BEAP email send request')
+      
+      electronRequest('/api/email/send-beap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: msg.to,
+          subject: msg.subject || 'BEAP™ Secure Message',
+          body: msg.body || '',
+          attachments: msg.attachments || []
+        })
+      })
+        .then(result => {
+          if (result.ok) {
+            sendResponse({ ok: true, data: result.data })
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      
+      return true
+    }
+    
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
       console.log('[BG] 📧 Check Gmail credentials')
       

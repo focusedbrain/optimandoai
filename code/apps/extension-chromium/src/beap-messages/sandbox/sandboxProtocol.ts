@@ -68,8 +68,11 @@ export interface SandboxDecryptOptions {
    */
   handshakes?: SerializedLocalHandshake[]
 
-  /** Sender's X25519 public key (base64). */
+  /** Sender's X25519 public key (base64). Fallback: package header.crypto.senderX25519PublicKeyB64 */
   senderX25519PublicKey?: string
+
+  /** Receiver's ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation. Required when package has pq.kemCiphertextB64 */
+  mlkemSecretKeyB64?: string
 
   /** Skip signature verification (NOT recommended; documented for test use only). */
   skipSignatureVerification?: boolean

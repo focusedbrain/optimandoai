@@ -317,6 +317,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
     return ipcRenderer.invoke('handshake:semanticSearch', query, scope, limit)
   },
   getAvailableModels: () => ipcRenderer.invoke('handshake:getAvailableModels'),
+  generateDraft: (prompt: string) => ipcRenderer.invoke('handshake:generateDraft', prompt),
   chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
     if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {
       throw new Error('systemMessage: expected string (max 4KB)')
@@ -438,6 +439,12 @@ contextBridge.exposeInMainWorld('relay', {
     if (!fp) throw new Error('fingerprint: required for acceptCertFingerprint')
     return ipcRenderer.invoke('relay:acceptCertFingerprint', fp)
   },
+})
+
+// ── Email (BEAP send) ─────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('email', {
+  sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) =>
+    ipcRenderer.invoke('email:sendBeapEmail', contract),
 })
 
 // ── Email Accounts ─────────────────────────────────────────────────────────

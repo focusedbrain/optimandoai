@@ -8,7 +8,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@repo/ingestion-core': resolve(__dirname, './src/index.ts'),
+      // Use dist so tests run against built output; ensures consistency with consumers
+      '@repo/ingestion-core': resolve(__dirname, './dist/index.js'),
     },
   },
 });
