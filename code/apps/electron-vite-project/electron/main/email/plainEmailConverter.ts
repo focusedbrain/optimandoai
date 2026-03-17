@@ -146,6 +146,117 @@ export function plainEmailToBeapMessage(
 }
 
 /**
+ * BEAP-compatible depackaged structure for inbox_messages.depackaged_json.
+ * Used by plainEmailIngestion when processing plain_email_inbox.
+ */
+export interface PlainEmailDepackagedFormat {
+  schema_version: string
+  format: 'plain_email_converted'
+  header: {
+    message_id: string
+    from: string | { address: string; name?: string }
+    to: string[] | Array<{ address: string; name?: string }>
+    cc?: string[] | Array<{ address: string; name?: string }>
+    subject: string
+    date: string
+  }
+  body: { text: string; html?: string }
+  attachments: Array<{ filename: string; content_type: string; size: number; content_id?: string }>
+  metadata: { converted_at: string; source: 'plain_email' }
+}
+
+/**
+ * Convert raw message (PlainEmailBeapMessage or RawEmailMessage-like) to BEAP-compatible
+ * depackaged format for inbox_messages.depackaged_json.
+ */
+export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedFormat {
+  const now = new Date().toISOString()
+  const empty = {
+    schema_version: '1.0.0',
+    format: 'plain_email_converted' as const,
+    header: {
+      message_id: '',
+      from: '',
+      to: [] as string[],
+      cc: [] as string[],
+      subject: '',
+      date: now,
+    },
+    body: { text: '', html: undefined as string | undefined },
+    attachments: [] as Array<{ filename: string; content_type: string; size: number; content_id?: string }>,
+    metadata: { converted_at: now, source: 'plain_email' as const },
+  }
+
+  if (!rawMsg || typeof rawMsg !== 'object') return empty
+  const m = rawMsg as Record<string, unknown>
+
+  // PlainEmailBeapMessage shape (from messageRouter / beapSync)
+  if (typeof m.emailMessageId === 'string' || typeof m.messageId === 'string') {
+    const msgId = (m.emailMessageId as string) || (m.messageId as string) || ''
+    const from = (m.senderEmail as string) || ''
+    const subject = (m.subject as string) || ''
+    const bodyText = (m.messageBody as string) || (m.canonicalContent as string) || ''
+    const timestamp = typeof m.timestamp === 'number' ? m.timestamp : Date.now()
+    const atts = (m.attachments as Array<{ filename?: string; mimeType?: string; sizeBytes?: number; attachmentId?: string }>) || []
+    return {
+      schema_version: '1.0.0',
+      format: 'plain_email_converted',
+      header: {
+        message_id: msgId,
+        from,
+        to: [],
+        cc: [],
+        subject,
+        date: new Date(timestamp).toISOString(),
+      },
+      body: { text: bodyText },
+      attachments: atts.map((a) => ({
+        filename: a.filename || 'attachment',
+        content_type: a.mimeType || 'application/octet-stream',
+        size: a.sizeBytes ?? 0,
+        content_id: a.attachmentId,
+      })),
+      metadata: { converted_at: now, source: 'plain_email' },
+    }
+  }
+
+  // RawEmailMessage-like shape (from, to, subject, text, html, attachments)
+  const fromObj = m.from as { address?: string; email?: string; name?: string } | undefined
+  const fromAddr = fromObj?.address ?? fromObj?.email ?? ''
+  const toList = (m.to as Array<{ address?: string; email?: string }>) || []
+  const ccList = (m.cc as Array<{ address?: string; email?: string }>) || []
+  const toAddrs = toList.map((r) => r?.address ?? r?.email ?? '')
+  const ccAddrs = ccList.map((r) => r?.address ?? r?.email ?? '')
+  const msgId = (m.messageId ?? m.id ?? m.uid ?? '') as string
+  const date = (m.date as string) || now
+  const atts = (m.attachments as Array<{ filename?: string; contentType?: string; size?: number; contentId?: string }>) || []
+
+  return {
+    schema_version: '1.0.0',
+    format: 'plain_email_converted',
+    header: {
+      message_id: String(msgId),
+      from: fromAddr,
+      to: toAddrs,
+      cc: ccAddrs,
+      subject: (m.subject as string) || '',
+      date: typeof date === 'string' ? date : now,
+    },
+    body: {
+      text: (m.text as string) || '',
+      html: (m.html as string) || undefined,
+    },
+    attachments: atts.map((a) => ({
+      filename: a.filename || 'attachment',
+      content_type: a.contentType || 'application/octet-stream',
+      size: a.size ?? 0,
+      content_id: a.contentId,
+    })),
+    metadata: { converted_at: now, source: 'plain_email' },
+  }
+}
+
+/**
  * Enrich with attachment metadata when available.
  * Call this after listAttachments if the email has attachments.
  */

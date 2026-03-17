@@ -36,7 +36,7 @@ declare global {
       getAvailableModels?: () => Promise<{ success: boolean; error?: string; models?: Array<{ id: string; name: string; provider: string; type: 'local' | 'cloud' }> }>
       generateDraft?: (prompt: string) => Promise<{ success: boolean; answer?: string; error?: string }>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
-      chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string }) => Promise<{
+      chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string; selectedMessageId?: string }) => Promise<{
         success: boolean
         error?: string
         provider?: string
@@ -64,9 +64,43 @@ declare global {
     emailAccounts?: {
       listAccounts: () => Promise<{ ok: boolean; data?: Array<{ id: string; displayName: string; email: string; provider: string; status: string; lastError?: string }>; error?: string }>
       sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
+      onAccountConnected?: (callback: (data: { provider: string; email: string }) => void | Promise<void>) => () => void
     }
     email?: {
       sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
     }
+    /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
+    emailInbox?: EmailInboxBridge
   }
+}
+
+/** Email Inbox IPC bridge interface */
+export interface EmailInboxBridge {
+  syncAccount: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
+  getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  onNewMessages: (handler: (data: unknown) => void) => () => void
+  listMessages: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => Promise<{ ok: boolean; data?: { messages: unknown[]; total: number }; error?: string }>
+  getMessage: (messageId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  markRead: (ids: string[], read: boolean) => Promise<{ ok: boolean; error?: string }>
+  toggleStar: (id: string) => Promise<{ ok: boolean; data?: { starred: boolean }; error?: string }>
+  archiveMessages: (ids: string[]) => Promise<{ ok: boolean; error?: string }>
+  setCategory: (ids: string[], category: string) => Promise<{ ok: boolean; error?: string }>
+  deleteMessages: (ids: string[], gracePeriodHours?: number) => Promise<{ ok: boolean; data?: { queued: number; failed: number }; error?: string }>
+  cancelDeletion: (id: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
+  getDeletedMessages: () => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
+  getAttachment: (id: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  getAttachmentText: (id: string) => Promise<{ ok: boolean; data?: { text: string; status: string }; error?: string }>
+  openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
+  aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
+  aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
+  aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { categorized: number }; error?: string }>
 }

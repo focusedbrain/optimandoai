@@ -160,6 +160,12 @@ class EmailGateway implements IEmailGateway {
     const account = this.accounts.find(a => a.id === id)
     return account ? this.toAccountInfo(account) : null
   }
+
+  /** Synchronous provider lookup for use in DB transactions. */
+  getProviderSync(id: string): string {
+    const account = this.accounts.find(a => a.id === id)
+    return account?.provider ?? 'imap'
+  }
   
   async addAccount(config: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<EmailAccountInfo> {
     const now = Date.now()
@@ -297,6 +303,16 @@ class EmailGateway implements IEmailGateway {
     const provider = await this.getConnectedProvider(account)
     await provider.setFlagged(messageId, flagged)
   }
+
+  async deleteMessage(accountId: string, messageId: string): Promise<void> {
+    const account = this.findAccount(accountId)
+    const provider = await this.getConnectedProvider(account)
+    if (typeof provider.deleteMessage === 'function') {
+      await provider.deleteMessage(messageId)
+    } else {
+      throw new Error(`Provider ${account.provider} does not support message deletion`)
+    }
+  }
   
   // =================================================================
   // Attachment Operations
@@ -319,6 +335,16 @@ class EmailGateway implements IEmailGateway {
     }))
   }
   
+  async fetchAttachmentBuffer(
+    accountId: string,
+    messageId: string,
+    attachmentId: string,
+  ): Promise<Buffer | null> {
+    const account = this.findAccount(accountId)
+    const provider = await this.getConnectedProvider(account)
+    return provider.fetchAttachment(messageId, attachmentId)
+  }
+
   async extractAttachmentText(
     accountId: string, 
     messageId: string, 

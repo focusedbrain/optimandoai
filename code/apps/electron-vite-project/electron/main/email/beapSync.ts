@@ -155,6 +155,27 @@ export function detectBeapInSubject(subject: string): boolean {
 function isBeapAttachment(att: AttachmentMeta): boolean {
   if (att.filename?.toLowerCase().endsWith('.beap')) return true
   if (att.mimeType === 'application/vnd.beap+json') return true
+  if (att.mimeType === 'application/x-beap') return true
+  return false
+}
+
+/**
+ * Check if an attachment might contain BEAP JSON (e.g. .json or application/json).
+ */
+function isJsonAttachment(att: AttachmentMeta): boolean {
+  if (att.filename?.toLowerCase().endsWith('.json')) return true
+  if (att.mimeType === 'application/json') return true
+  return false
+}
+
+/**
+ * Check if parsed JSON has BEAP structure (handshake capsule or message package).
+ */
+function detectBeapInParsedJson(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false
+  const p = parsed as Record<string, unknown>
+  if (p.capsule_type && typeof p.schema_version === 'number') return true
+  if (p.header && typeof p.header === 'object' && (p.envelope != null || p.payload != null)) return true
   return false
 }
 
@@ -231,13 +252,25 @@ export async function processEmailForBeap(
       let lastResult: any = null
 
       for (const att of attachments) {
-        if (!isBeapAttachment(att)) continue
+        const isBeap = isBeapAttachment(att)
+        const isJson = isJsonAttachment(att)
+        if (!isBeap && !isJson) continue
 
         try {
           const extracted = await _emailExtractAttachmentTextFn(accountId, message.id, att.id)
 
           // Size guard before parsing — reject oversized attachments early
           if (extracted.text.length > 65536) continue
+
+          // For JSON attachments: verify it contains BEAP structure before processing
+          if (isJson && !isBeap) {
+            try {
+              const parsed = JSON.parse(extracted.text)
+              if (!detectBeapInParsedJson(parsed)) continue
+            } catch {
+              continue
+            }
+          }
 
           // Try handshake capsule first (ingestion-core)
           const attDetection = detectBeapInBody(extracted.text)
@@ -270,7 +303,7 @@ export async function processEmailForBeap(
           // Try qBEAP/pBEAP message package (p2p_pending_beap → extension sandbox)
           const msgPkgDetection = detectBeapMessagePackage(extracted.text)
           if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
-            console.log('[BEAP Sync] Message package detected in .beap attachment:', {
+            console.log('[BEAP Sync] Message package detected in attachment:', {
               sender: message.from?.email,
               subject: message.subject?.slice(0, 80),
               attachment: att.filename,

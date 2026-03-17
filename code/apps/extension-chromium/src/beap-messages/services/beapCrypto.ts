@@ -286,15 +286,26 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Convert base64 string to Uint8Array
+ * Convert base64 string to Uint8Array.
+ * Throws with a clear error if input is not valid base64 (e.g. null, empty, or malformed).
  */
 export function fromBase64(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
+  if (typeof base64 !== 'string' || base64.length === 0) {
+    throw new Error('Invalid base64 input: expected non-empty string')
   }
-  return bytes
+  try {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
+  } catch (e) {
+    throw new Error(
+      `Invalid base64 input: the string to be decoded is not correctly encoded. ` +
+      `Original: ${e instanceof Error ? e.message : String(e)}`
+    )
+  }
 }
 
 /**

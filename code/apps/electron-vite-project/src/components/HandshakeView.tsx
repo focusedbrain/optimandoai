@@ -93,9 +93,23 @@ interface HandshakeViewProps {
   selectedDocumentId?: string | null
   onHandshakeScopeChange: (id: string | null, email?: string) => void
   onDocumentSelect?: (documentId: string | null) => void
+  selectedMessageId?: string | null
+  onSelectMessage?: (messageId: string | null) => void
+  selectedAttachmentId?: string | null
+  onSelectAttachment?: (attachmentId: string | null) => void
 }
 
-export default function HandshakeView({ onNewHandshake, selectedHandshakeId, selectedDocumentId = null, onHandshakeScopeChange, onDocumentSelect }: HandshakeViewProps) {
+export default function HandshakeView({
+  onNewHandshake,
+  selectedHandshakeId,
+  selectedDocumentId = null,
+  onHandshakeScopeChange,
+  onDocumentSelect,
+  selectedMessageId = null,
+  onSelectMessage,
+  selectedAttachmentId = null,
+  onSelectAttachment,
+}: HandshakeViewProps) {
   const [handshakes, setHandshakes] = useState<HandshakeRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [contextBlockCounts, setContextBlockCounts] = useState<Record<string, number>>({})
@@ -402,6 +416,10 @@ export default function HandshakeView({ onNewHandshake, selectedHandshakeId, sel
                 onCapsuleSubmitted={handleCapsuleSubmitted}
                 selectedDocumentId={selectedDocumentId}
                 onDocumentSelect={onDocumentSelect}
+                selectedMessageId={selectedMessageId}
+                onSelectMessage={onSelectMessage}
+                selectedAttachmentId={selectedAttachmentId}
+                onSelectAttachment={onSelectAttachment}
               />
             </div>
             <div style={{ flex: '0 0 100px', minHeight: 0, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))' }}>

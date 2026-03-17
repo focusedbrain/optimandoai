@@ -71,7 +71,7 @@ export * from './types'
 export { emailGateway } from './gateway'
 
 // Export IPC registration
-export { registerEmailHandlers } from './ipc'
+export { registerEmailHandlers, registerInboxHandlers } from './ipc'
 
 // Export sanitizer utilities (for use in other modules)
 export {

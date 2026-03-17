@@ -3864,8 +3864,10 @@ app.whenReady().then(async () => {
     
     // Register Email Gateway handlers
     try {
-      const { registerEmailHandlers } = await import('./main/email/ipc')
+      const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
       registerEmailHandlers()
+      const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+      registerInboxHandlers(getInboxDb, null)
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
       console.error('[MAIN] Failed to register email handlers:', emailErr)

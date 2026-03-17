@@ -17,6 +17,7 @@ import {
   mergeWithNoneDefaults,
   validateProcessingEventOffer,
   validateOfferSet,
+  isProcessingPermitted,
   type ProcessingEventOffer,
   type ProcessingEventDeclaration,
   type ProcessingProvider,
@@ -1501,26 +1502,31 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // ==========================================================================
   // PoAE Record Generation (A.3.054.12 — Normative)
   // ==========================================================================
-  // MUST be called ONLY after full capsule finalization (encrypted, signed,
-  // inner envelope committed). Fail-closed: any PoAE generation failure
-  // aborts package emission with no partial output disclosed.
-  let poaeRecord: PoAERecord
-  try {
-    poaeRecord = await generatePoAERecord({
-      capsuleHash: payloadEnc.sha256Plain,
-      policyFingerprint: header.policy_hash,
-      envelopeAADBytes: aadBytes,
-      packageSignature: signature,
-      anchorRequired: false,
-    })
-  } catch (poaeErr) {
-    return {
-      success: false,
-      error: `POAE: Failed to generate PoAE record: ${poaeErr instanceof Error ? poaeErr.message : String(poaeErr)}`
+  // PoAE is generated ONLY when the package carries automation/execution content
+  // (actuating processing events with boundary !== NONE). Simple messages
+  // (text + attachments, no automation) do not require PoAE per canon.
+  const shouldGeneratePoAE = isProcessingPermitted(processingEventOffer, 'actuating')
+  let poaeRecord: PoAERecord | undefined
+  if (shouldGeneratePoAE) {
+    try {
+      poaeRecord = await generatePoAERecord({
+        capsuleHash: payloadEnc.sha256Plain,
+        policyFingerprint: header.policy_hash,
+        envelopeAADBytes: aadBytes,
+        packageSignature: signature,
+        anchorRequired: false,
+      })
+    } catch (poaeErr) {
+      return {
+        success: false,
+        error: poaeErr instanceof Error && /atob|base64/i.test(poaeErr.message)
+          ? 'Could not create execution proof. Check your session configuration.'
+          : `POAE: Failed to generate PoAE record: ${poaeErr instanceof Error ? poaeErr.message : String(poaeErr)}`
+      }
     }
   }
 
-  pkg.poae = poaeRecord
+  pkg.poae = poaeRecord ?? undefined
 
   // ==========================================================================
   // Dev-Only Build Validation (gated behind BEAP_DEBUG_VALIDATE)
@@ -1662,22 +1668,24 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
   // ==========================================================================
   // PoAE Record Generation (A.3.054.12 — Normative)
   // ==========================================================================
-  // pBEAP: use content_hash as capsule hash (no encrypted payload).
-  // Envelope commitment binds to canonical header fields.
-  const pbeapAadFields = buildEnvelopeAadFields(header as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
-  const pbeapAadBytes = canonicalSerializeAAD(pbeapAadFields)
+  // pBEAP: PoAE only when actuating processing is declared. Otherwise skip.
+  // pBEAP PoAE is best-effort — public packages are not fail-closed on PoAE.
+  const pbeapShouldGeneratePoAE = isProcessingPermitted(processingEventOffer, 'actuating')
   let pbeapPoaeRecord: PoAERecord | undefined
-  try {
-    pbeapPoaeRecord = await generatePoAERecord({
-      capsuleHash: contentHash,
-      policyFingerprint: header.policy_hash,
-      envelopeAADBytes: pbeapAadBytes,
-      packageSignature: signature,
-      anchorRequired: false,
-    })
-  } catch {
-    // pBEAP PoAE is best-effort — public packages are not fail-closed on PoAE
-    // (PoAE is normative for qBEAP only per A.3.054.12)
+  if (pbeapShouldGeneratePoAE) {
+    try {
+      const pbeapAadFields = buildEnvelopeAadFields(header as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
+      const pbeapAadBytes = canonicalSerializeAAD(pbeapAadFields)
+      pbeapPoaeRecord = await generatePoAERecord({
+        capsuleHash: contentHash,
+        policyFingerprint: header.policy_hash,
+        envelopeAADBytes: pbeapAadBytes,
+        packageSignature: signature,
+        anchorRequired: false,
+      })
+    } catch {
+      // pBEAP PoAE is best-effort — anchor failures do not invalidate the package
+    }
   }
 
   return {

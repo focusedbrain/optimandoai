@@ -46,6 +46,8 @@
   --purple-accent: #9333ea;
   --purple-accent-hover: #7c3aed;
   --purple-accent-muted: rgba(147, 51, 234, 0.2);
+  --purple-accent-light: rgba(147, 51, 234, 0.12);
+  --card-bg: var(--color-surface);
 
   /* Fallback before theme is applied — use Standard (light) as default */
   --bg-base: var(--bg-base-prof);

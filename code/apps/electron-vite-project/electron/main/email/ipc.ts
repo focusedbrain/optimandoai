@@ -1,11 +1,12 @@
 /**
  * Email Gateway IPC Handlers
- * 
+ *
  * Electron IPC interface for the email gateway.
  * These handlers expose email operations to the renderer process.
  */
 
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, shell } from 'electron'
+import * as fs from 'fs'
 import { emailGateway } from './gateway'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
@@ -13,6 +14,13 @@ import {
   SendEmailPayload,
   IMAP_PRESETS
 } from './types'
+import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchestrator'
+import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions } from './remoteDeletion'
+import { processPendingPlainEmails } from './plainEmailIngestion'
+import { extractPdfText, isPdfFile } from './pdf-extractor'
+
+// ── Inbox: active auto-sync loops ──
+const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 
 /**
  * Register all email-related IPC handlers.
@@ -466,6 +474,368 @@ export function registerEmailHandlers(): void {
   })
   
   console.log('[Email IPC] Handlers registered')
+}
+
+/**
+ * Register inbox IPC handlers.
+ * Requires db (or getter) and optional mainWindow for sending events.
+ * Call from main.ts alongside registerEmailHandlers.
+ */
+export function registerInboxHandlers(
+  getDb: () => Promise<any> | any,
+  mainWindow?: BrowserWindow | null,
+): void {
+  const channels = [
+    'inbox:syncAccount', 'inbox:toggleAutoSync', 'inbox:getSyncState',
+    'inbox:listMessages', 'inbox:getMessage',
+    'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
+    'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
+    'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiCategorize',
+  ] as const
+  channels.forEach((ch) => ipcMain.removeHandler(ch))
+
+  const sendToRenderer = (channel: string, data: any) => {
+    const wins = mainWindow ? [mainWindow] : BrowserWindow.getAllWindows()
+    wins.forEach((w) => {
+      if (!w.isDestroyed() && w.webContents) w.webContents.send(channel, data)
+    })
+  }
+
+  const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+
+  // ── Sync ──
+  ipcMain.handle('inbox:syncAccount', async (_e, accountId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const result = await syncAccountEmails(db, { accountId })
+      processPendingPlainEmails(db)
+      if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
+      return { ok: true, data: result }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Sync failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:toggleAutoSync', async (_e, accountId: string, enabled: boolean) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      updateSyncState(db, accountId, { auto_sync_enabled: enabled ? 1 : 0 })
+      const existing = activeAutoSyncLoops.get(accountId)
+      if (existing) {
+        existing.stop()
+        activeAutoSyncLoops.delete(accountId)
+      }
+      if (enabled) {
+        const row = db.prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?').get(accountId) as { sync_interval_ms?: number } | undefined
+        const intervalMs = row?.sync_interval_ms ?? 30_000
+        const loop = startAutoSync(db, accountId, intervalMs, (result) => {
+          if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
+        })
+        activeAutoSyncLoops.set(accountId, loop)
+      }
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Toggle failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:getSyncState', async (_e, accountId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId)
+      return { ok: true, data: row ?? null }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Failed' }
+    }
+  })
+
+  // ── Messages ──
+  ipcMain.handle('inbox:listMessages', async (_e, options: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  } = {}) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const { filter, sourceType, handshakeId, category, limit = 50, offset = 0, search } = options ?? {}
+      const conditions: string[] = []
+      const params: any[] = []
+
+      if (filter === 'deleted') conditions.push('deleted = 1')
+      else if (filter === 'unread') {
+        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0')
+      } else if (filter === 'starred') {
+        conditions.push('deleted = 0', 'archived = 0', 'starred = 1')
+      } else if (filter === 'archived') {
+        conditions.push('archived = 1', 'deleted = 0')
+      } else {
+        conditions.push('deleted = 0')
+      }
+      if (sourceType) {
+        conditions.push('source_type = ?')
+        params.push(sourceType)
+      }
+      if (handshakeId) {
+        conditions.push('handshake_id = ?')
+        params.push(handshakeId)
+      }
+      if (category) {
+        conditions.push('sort_category = ?')
+        params.push(category)
+      }
+      if (search && search.trim()) {
+        const q = `%${search.trim()}%`
+        conditions.push('(subject LIKE ? OR body_text LIKE ? OR from_address LIKE ? OR from_name LIKE ?)')
+        params.push(q, q, q, q)
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+      const countRow = db.prepare(`SELECT COUNT(*) as total FROM inbox_messages ${where}`).get(...params) as { total: number }
+      const total = countRow?.total ?? 0
+
+      params.push(limit, offset)
+      const rows = db.prepare(
+        `SELECT * FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
+      ).all(...params) as any[]
+
+      for (const m of rows) {
+        if (m.has_attachments === 1) {
+          const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(m.id) as any[]
+          m.attachments = atts
+        } else {
+          m.attachments = []
+        }
+      }
+
+      return { ok: true, data: { messages: rows, total } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'List failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:getMessage', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(messageId) as any
+      if (!row) return { ok: false, error: 'Message not found' }
+      const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(messageId) as any[]
+      row.attachments = atts
+      db.prepare('UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
+      return { ok: true, data: row }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Get failed' }
+    }
+  })
+
+  // ── Actions ──
+  ipcMain.handle('inbox:markRead', async (_e, messageIds: string[], read: boolean) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const stmt = db.prepare('UPDATE inbox_messages SET read_status = ? WHERE id = ?')
+      for (const id of messageIds ?? []) stmt.run(read ? 1 : 0, id)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Mark failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:toggleStar', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT starred FROM inbox_messages WHERE id = ?').get(messageId) as { starred?: number } | undefined
+      const next = row?.starred === 1 ? 0 : 1
+      db.prepare('UPDATE inbox_messages SET starred = ? WHERE id = ?').run(next, messageId)
+      return { ok: true, data: { starred: next === 1 } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Toggle failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:archiveMessages', async (_e, messageIds: string[]) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const stmt = db.prepare('UPDATE inbox_messages SET archived = 1 WHERE id = ?')
+      for (const id of messageIds ?? []) stmt.run(id)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Archive failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:setCategory', async (_e, messageIds: string[], category: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const stmt = db.prepare('UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
+      for (const id of messageIds ?? []) stmt.run(category ?? null, id)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Set category failed' }
+    }
+  })
+
+  // ── Deletion ──
+  ipcMain.handle('inbox:deleteMessages', async (_e, messageIds: string[], gracePeriodHours?: number) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const result = bulkQueueDeletion(db, messageIds ?? [], gracePeriodHours ?? 72)
+      return { ok: true, data: result }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Delete failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:cancelDeletion', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const cancelled = cancelRemoteDeletion(db, messageId)
+      return { ok: true, data: { cancelled } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Cancel failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:getDeletedMessages', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const rows = db.prepare(
+        `SELECT m.*, dq.grace_period_ends, dq.executed, dq.cancelled, dq.execution_error
+         FROM inbox_messages m
+         LEFT JOIN deletion_queue dq ON dq.message_id = m.id
+         WHERE m.deleted = 1
+         ORDER BY m.deleted_at DESC`
+      ).all() as any[]
+      return { ok: true, data: rows }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Get failed' }
+    }
+  })
+
+  // ── Attachments ──
+  ipcMain.handle('inbox:getAttachment', async (_e, attachmentId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
+      if (!row) return { ok: false, error: 'Attachment not found' }
+      return { ok: true, data: row }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Get failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:getAttachmentText', async (_e, attachmentId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
+      if (!row) return { ok: false, error: 'Attachment not found' }
+      if (row.text_extraction_status === 'done' && row.extracted_text) {
+        return { ok: true, data: { text: row.extracted_text, status: 'done' } }
+      }
+      if (row.text_extraction_status === 'done' && !row.extracted_text) {
+        return { ok: true, data: { text: '', status: 'done' } }
+      }
+      if (row.text_extraction_status === 'skipped' || row.text_extraction_status === 'failed') {
+        return { ok: true, data: { text: '', status: row.text_extraction_status } }
+      }
+      if (row.storage_path && fs.existsSync(row.storage_path) && isPdfFile(row.content_type || '', row.filename)) {
+        const buf = fs.readFileSync(row.storage_path)
+        const result = await extractPdfText(buf)
+        const text = result?.text ?? ''
+        const status = result?.success ? 'done' : 'failed'
+        db.prepare('UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ? WHERE id = ?')
+          .run(text, status, attachmentId)
+        return { ok: true, data: { text, status } }
+      }
+      db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
+      return { ok: true, data: { text: '', status: 'skipped' } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Extract failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:openAttachmentOriginal', async (_e, attachmentId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT storage_path FROM inbox_attachments WHERE id = ?').get(attachmentId) as { storage_path?: string } | undefined
+      if (!row?.storage_path || !fs.existsSync(row.storage_path)) {
+        return { ok: false, error: 'Attachment file not found' }
+      }
+      const result = await shell.openPath(row.storage_path)
+      return { ok: true, data: { opened: result === '' } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Open failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:rasterAttachment', async (_e, attachmentId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
+      if (!row) return { ok: false, error: 'Attachment not found' }
+      return { ok: true, data: { rasterPageData: [], status: 'placeholder' } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Raster failed' }
+    }
+  })
+
+  // ── AI (placeholders) ──
+  ipcMain.handle('inbox:aiSummarize', async (_e, messageId: string) => {
+    try {
+      return { ok: true, data: { summary: '[AI summary]' } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Summarize failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string) => {
+    try {
+      return { ok: true, data: { draft: '[AI draft]' } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Draft failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {
+    try {
+      const count = messageIds?.length ?? 0
+      return { ok: true, data: { categorized: count } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Categorize failed' }
+    }
+  })
+
+  // ── Periodic: execute pending deletions every 5 minutes ──
+  let deletionInterval: ReturnType<typeof setInterval> | null = null
+  deletionInterval = setInterval(async () => {
+    try {
+      const db = await resolveDb()
+      if (db) await executePendingDeletions(db)
+    } catch (err: any) {
+      console.error('[Inbox IPC] executePendingDeletions error:', err?.message)
+    }
+  }, 5 * 60 * 1000)
+
+  console.log('[Inbox IPC] Handlers registered')
 }
 
 /**

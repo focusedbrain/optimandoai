@@ -271,6 +271,10 @@ export class GmailProvider extends BaseEmailProvider {
       })
     }
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.apiRequest('POST', `/users/me/messages/${messageId}/trash`)
+  }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     try {

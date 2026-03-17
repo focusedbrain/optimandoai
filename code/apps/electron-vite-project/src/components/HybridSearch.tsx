@@ -5,14 +5,14 @@ import './handshakeViewTypes'
 // ── Types ──
 
 type SearchMode = 'chat' | 'search' | 'actions'
-type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'all'
+type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'inbox-messages' | 'all'
 type DashboardView = string
 
 interface SearchResult {
   id: string
   title: string
   snippet: string
-  scope: 'context-graph' | 'capsules' | 'attachments'
+  scope: 'context-graph' | 'capsules' | 'attachments' | 'inbox-message'
   timestamp?: string
   /** Handshake attribution */
   handshake_id?: string
@@ -36,6 +36,7 @@ interface HybridSearchProps {
   selectedDocumentId?: string | null
   selectedMessageId?: string | null
   selectedAttachmentId?: string | null
+  onClearMessageSelection?: () => void
 }
 
 // ── LLM Models (loaded from backend) ──
@@ -54,6 +55,7 @@ function getModelLabel(id: string, models: AvailableModel[]): string {
 function defaultScope(view: DashboardView): SearchScope {
   if (view === 'handshakes') return 'context-graph'
   if (view === 'beap') return 'capsules'
+  if (view === 'beap-inbox') return 'inbox-messages'
   return 'all'
 }
 
@@ -118,9 +120,68 @@ function isSpecialResult(r: SearchResult): boolean {
   return SPECIAL_RESULT_IDS.includes(r.id as typeof SPECIAL_RESULT_IDS[number])
 }
 
-// ── Search backend (semantic search via handshake IPC) ──
+// ── Search backend (semantic search + inbox) ──
 
-async function runSearch(query: string, scope: SearchScope | string): Promise<SearchResult[]> {
+async function runInboxSearch(
+  query: string,
+  selectedHandshakeId: string | null
+): Promise<SearchResult[]> {
+  if (!window.emailInbox?.listMessages) return []
+  try {
+    const res = await window.emailInbox.listMessages({
+      search: query || undefined,
+      handshakeId: selectedHandshakeId ?? undefined,
+      filter: 'all',
+      limit: 20,
+    })
+    if (!res.ok || !res.data?.messages) return []
+    const messages = res.data.messages as Array<{
+      id: string
+      subject?: string | null
+      from_name?: string | null
+      from_address?: string | null
+      body_text?: string | null
+      received_at?: string
+    }>
+    return messages.map((m) => ({
+      id: m.id,
+      title: m.subject || m.from_address || '(No subject)',
+      snippet: truncate((m.body_text || '').replace(/\s+/g, ' ').trim(), 200),
+      scope: 'inbox-message' as const,
+      handshake_id: undefined,
+    }))
+  } catch {
+    return []
+  }
+}
+
+async function runSearch(
+  query: string,
+  scope: SearchScope | string,
+  selectedHandshakeId?: string | null
+): Promise<SearchResult[]> {
+  const includeInbox = scope === 'inbox-messages' || scope === 'all'
+  const includeSemantic = scope !== 'inbox-messages'
+
+  if (includeInbox && !includeSemantic) {
+    return runInboxSearch(query, selectedHandshakeId ?? null)
+  }
+
+  const [semanticResults, inboxResults] = await Promise.all([
+    includeSemantic ? runSearchSemantic(query, scope) : Promise.resolve([]),
+    includeInbox ? runInboxSearch(query, selectedHandshakeId ?? null) : Promise.resolve([]),
+  ])
+
+  if (scope === 'all') {
+    return [...semanticResults, ...inboxResults]
+  }
+  if (includeSemantic) {
+    return semanticResults
+  }
+  return inboxResults
+}
+
+async function runSearchSemantic(query: string, scope: SearchScope | string): Promise<SearchResult[]> {
   try {
     const result = await window.handshakeView?.semanticSearch?.(query, scope, 20)
     if (!result?.success) {
@@ -224,12 +285,21 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
   'context-graph': 'Context Graph',
   'capsules': 'Capsules',
   'attachments': 'Attachments',
+  'inbox-messages': 'Inbox',
   'all': 'All (Global)',
 }
 
 // ── Component ──
 
-export default function HybridSearch({ activeView, selectedHandshakeId = null, selectedHandshakeEmail = null, selectedDocumentId = null, selectedMessageId = null, selectedAttachmentId = null }: HybridSearchProps) {
+export default function HybridSearch({
+  activeView,
+  selectedHandshakeId = null,
+  selectedHandshakeEmail = null,
+  selectedDocumentId = null,
+  selectedMessageId = null,
+  selectedAttachmentId = null,
+  onClearMessageSelection,
+}: HybridSearchProps) {
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('chat')
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
@@ -339,7 +409,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
     try {
       const effectiveScope = selectedHandshakeId ?? selectedMessageId ?? scope
       if (mode === 'search') {
-        const r = await runSearch(trimmed, effectiveScope)
+        const r = await runSearch(trimmed, effectiveScope, selectedHandshakeId)
         setResults(r)
       } else if (mode === 'actions') {
         setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
@@ -354,16 +424,40 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           setResponse(prev => (prev ?? '') + (data.token ?? ''))
         })
 
+        let inboxContext = ''
+        if (selectedMessageId && window.emailInbox?.getMessage) {
+          try {
+            const msgRes = await window.emailInbox.getMessage(selectedMessageId)
+            if (msgRes.ok && msgRes.data) {
+              const msg = msgRes.data as { subject?: string; body_text?: string; body_html?: string }
+              inboxContext = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
+              if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
+                const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
+                if (attRes.ok && attRes.data?.text) {
+                  inboxContext += `[Selected Attachment]\n${attRes.data.text.slice(0, 4000)}\n`
+                }
+              }
+              inboxContext += '\n'
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        const chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
           result = await window.handshakeView?.chatWithContextRag?.({
-            query: trimmed,
+            query: chatQuery,
             scope: effectiveScope,
             model: selectedModel || 'llama3',
             provider: modelInfo?.provider || 'ollama',
             stream: true,
             conversationContext: previousAnswer?.trim() ? { lastAnswer: previousAnswer } : undefined,
             selectedDocumentId: selectedDocumentId ?? undefined,
+            selectedAttachmentId: selectedAttachmentId ?? undefined,
+            selectedMessageId: selectedMessageId ?? undefined,
           })
         } finally {
           unsubStart?.()
@@ -453,12 +547,32 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
           Scope: Handshake → {selectedHandshakeEmail}
         </div>
       )}
-      {selectedMessageId && !selectedHandshakeId && (
+      {selectedMessageId && (
         <div style={{
           fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
-          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px',
         }}>
-          Scope: BEAP Message
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '4px',
+            padding: '2px 8px', borderRadius: '6px',
+            background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+          }}>
+            📨 Focused: Message
+            {selectedAttachmentId && <span>→ Attachment</span>}
+            {onClearMessageSelection && (
+              <button
+                type="button"
+                onClick={onClearMessageSelection}
+                aria-label="Clear message selection"
+                style={{
+                  marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                  cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </span>
         </div>
       )}
       <div className="hs-bar">
@@ -505,6 +619,7 @@ export default function HybridSearch({ activeView, selectedHandshakeId = null, s
               <option value="context-graph">Context Graph</option>
               <option value="capsules">Capsules</option>
               <option value="attachments">Attachments</option>
+              <option value="inbox-messages">Inbox</option>
               <option value="all">All (Global)</option>
             </select>
           )}

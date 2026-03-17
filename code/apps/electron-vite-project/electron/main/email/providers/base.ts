@@ -148,6 +148,12 @@ export interface IEmailProvider {
   setFlagged(messageId: string, flagged: boolean): Promise<void>
   
   /**
+   * Delete/trash a message from the remote mailbox
+   * @param messageId - Message ID
+   */
+  deleteMessage?(messageId: string): Promise<void>
+  
+  /**
    * Send an email
    * @param payload - Email content
    */

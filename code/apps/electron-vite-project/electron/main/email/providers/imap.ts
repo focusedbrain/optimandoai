@@ -399,6 +399,23 @@ export class ImapProvider extends BaseEmailProvider {
       })
     })
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    if (!this.client) throw new Error('Not connected')
+    const folder = this.config?.folders.inbox || 'INBOX'
+    await new Promise<void>((resolve, reject) => {
+      this.client!.openBox(folder, false, (err) => {
+        if (err) { reject(err); return }
+        this.client!.addFlags(messageId, ['\\Deleted'], (addErr) => {
+          if (addErr) { reject(addErr); return }
+          this.client!.expunge((expErr) => {
+            if (expErr) reject(expErr)
+            else resolve()
+          })
+        })
+      })
+    })
+  }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     if (!this.config?.smtp) {

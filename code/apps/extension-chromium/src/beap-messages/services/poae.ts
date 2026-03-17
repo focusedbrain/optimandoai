@@ -496,7 +496,7 @@ export async function generatePoAERecord(params: {
   const commitmentBytes = stringToBytes(commitment)
 
   // Ed25519 sign the commitment bytes
-  const signatureBytes = await ed25519Sign(signingKeyPair, commitmentBytes)
+  const signatureBytes = await ed25519Sign(signingKeyPair.privateKey, commitmentBytes)
   const signature = toBase64(signatureBytes)
 
   const record: PoAERecord = {
@@ -691,7 +691,7 @@ export async function generatePoAERLog(params: GeneratePoAERLogParams): Promise<
 
   const commitment = await computePoAECommitment(fieldsToSign)
   const commitmentBytes = stringToBytes(commitment)
-  const signatureBytes = await ed25519Sign(signingKeyPair, commitmentBytes)
+  const signatureBytes = await ed25519Sign(signingKeyPair.privateKey, commitmentBytes)
   const signature = toBase64(signatureBytes)
 
   const log: PoAERLog = {

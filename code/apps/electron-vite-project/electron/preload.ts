@@ -475,6 +475,41 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   },
 })
 
+// ── Email Inbox ───────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('emailInbox', {
+  syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
+  toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
+  getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),
+  onNewMessages: (handler: (data: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
+    ipcRenderer.on('inbox:newMessages', fn)
+    return () => { ipcRenderer.removeListener('inbox:newMessages', fn) }
+  },
+  listMessages: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => ipcRenderer.invoke('inbox:listMessages', options),
+  getMessage: (messageId: string) => ipcRenderer.invoke('inbox:getMessage', messageId),
+  markRead: (ids: string[], read: boolean) => ipcRenderer.invoke('inbox:markRead', ids, read),
+  toggleStar: (id: string) => ipcRenderer.invoke('inbox:toggleStar', id),
+  archiveMessages: (ids: string[]) => ipcRenderer.invoke('inbox:archiveMessages', ids),
+  setCategory: (ids: string[], category: string) => ipcRenderer.invoke('inbox:setCategory', ids, category),
+  deleteMessages: (ids: string[], gracePeriodHours?: number) => ipcRenderer.invoke('inbox:deleteMessages', ids, gracePeriodHours),
+  cancelDeletion: (id: string) => ipcRenderer.invoke('inbox:cancelDeletion', id),
+  getDeletedMessages: () => ipcRenderer.invoke('inbox:getDeletedMessages'),
+  getAttachment: (id: string) => ipcRenderer.invoke('inbox:getAttachment', id),
+  getAttachmentText: (id: string) => ipcRenderer.invoke('inbox:getAttachmentText', id),
+  openAttachmentOriginal: (id: string) => ipcRenderer.invoke('inbox:openAttachmentOriginal', id),
+  aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
+  aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
+  aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
+})
+
 // ── Build Integrity (offline verification) ────────────────────────────────
 contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),

@@ -13,6 +13,7 @@ import { parsePolicyToMode } from '@shared/handshake/policyUtils'
 import { validateHsContextLink, linkEntityId } from '@shared/handshake/linkValidation'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import StructuredHsContextPanel, { KNOWN_HS_CONTEXT_LINK_FIELDS } from './StructuredHsContextPanel'
+import HandshakeBeapMessages from './HandshakeBeapMessages'
 
 // ── Types ──
 
@@ -75,6 +76,10 @@ interface HandshakeWorkspaceProps {
   onCapsuleSubmitted?: () => void
   selectedDocumentId?: string | null
   onDocumentSelect?: (documentId: string | null) => void
+  selectedMessageId?: string | null
+  onSelectMessage?: (messageId: string | null) => void
+  selectedAttachmentId?: string | null
+  onSelectAttachment?: (attachmentId: string | null) => void
 }
 
 // ── Helpers ──
@@ -683,6 +688,10 @@ export default function HandshakeWorkspace({
   onCapsuleSubmitted,
   selectedDocumentId = null,
   onDocumentSelect,
+  selectedMessageId = null,
+  onSelectMessage,
+  selectedAttachmentId = null,
+  onSelectAttachment,
 }: HandshakeWorkspaceProps) {
   const vaultUnlocked = vaultStatus?.isUnlocked ?? false
   const showVaultIndicator = ((record.state === 'PENDING_ACCEPT' || record.state === 'PENDING_REVIEW') && record.local_role === 'acceptor') || record.state === 'ACCEPTED'
@@ -691,7 +700,6 @@ export default function HandshakeWorkspace({
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<ContextGraphFilter>({ visibility: 'all', direction: 'received', type: 'all' })
   const [contextGraphExpanded, setContextGraphExpanded] = useState(false)
-  const [showAllBeapMessages, setShowAllBeapMessages] = useState(false)
   const [cryptoModalOpen, setCryptoModalOpen] = useState(false)
   const [policyModalOpen, setPolicyModalOpen] = useState(false)
   const cryptoModalRef = useRef<HTMLDivElement>(null)
@@ -784,10 +792,6 @@ export default function HandshakeWorkspace({
   // HS Context blocks (vault_profile) → structured panel. All others → generic BlockCard.
   const hsContextBlocks = filteredBlocks.filter((b) => b.type === 'vault_profile')
   const genericBlocks = filteredBlocks.filter((b) => b.type !== 'vault_profile')
-
-  const INITIAL_MESSAGE_COUNT = 15
-  const beapMessages: any[] = [] // Placeholder until BEAP messages are loaded
-  const visibleBeapMessages = showAllBeapMessages ? beapMessages : beapMessages.slice(0, INITIAL_MESSAGE_COUNT)
 
   const publicCount = blocks.filter(b => b.visibility === 'public').length
   const privateCount = blocks.filter(b => b.visibility === 'private').length
@@ -1083,68 +1087,14 @@ export default function HandshakeWorkspace({
               )}
             </div>
 
-            {/* BEAP Messages — always open, non-collapsible */}
-            <div style={{
-              marginBottom: '16px',
-              background: 'var(--color-surface, rgba(255,255,255,0.03))',
-              border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-              borderRadius: '8px',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                padding: '12px 16px',
-                background: 'rgba(255,255,255,0.02)',
-                borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.06))',
-                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minWidth: 0,
-              }}>
-                <span style={{ fontSize: '18px' }}>📨</span>
-                <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--color-text, #e2e8f0)' }}>BEAP Messages</span>
-                <span style={{ fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)' }}>({beapMessages.length})</span>
-              </div>
-              <div style={{ padding: '12px 16px' }}>
-                {beapMessages.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-text-muted, #94a3b8)', fontSize: '13px' }}>
-                    No messages in this relationship yet.
-                  </div>
-                ) : (
-                  <>
-                    {visibleBeapMessages.map((msg: any, i: number) => (
-                      <div key={msg?.id ?? i} style={{
-                        padding: '12px', marginBottom: '8px',
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.06)',
-                        borderRadius: '8px',
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
-                            {msg?.date ?? '—'} · {msg?.time ?? '—'}
-                          </span>
-                          <span style={{ fontSize: '10px', fontWeight: 600, color: msg?.direction === 'incoming' ? '#a78bfa' : '#22c55e' }}>
-                            {msg?.direction === 'incoming' ? 'Incoming' : 'Outgoing'}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{msg?.title ?? 'Message'}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)' }}>{msg?.body ?? ''}</div>
-                      </div>
-                    ))}
-                    {!showAllBeapMessages && beapMessages.length > INITIAL_MESSAGE_COUNT && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAllBeapMessages(true)}
-                        style={{
-                          width: '100%', padding: '12px', textAlign: 'center', fontSize: '13px',
-                          color: '#a78bfa', backgroundColor: 'transparent',
-                          border: '1px dashed rgba(255,255,255,0.2)', borderRadius: '8px',
-                          cursor: 'pointer', marginTop: '8px',
-                        }}
-                      >
-                        Show {beapMessages.length - INITIAL_MESSAGE_COUNT} more messages
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+            {/* BEAP Messages — collapsible, fetches from emailInbox by handshakeId */}
+            <HandshakeBeapMessages
+              handshakeId={record.handshake_id}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={onSelectMessage ?? (() => {})}
+              selectedAttachmentId={selectedAttachmentId}
+              onSelectAttachment={onSelectAttachment ?? (() => {})}
+            />
           </>
         )}
       </div>

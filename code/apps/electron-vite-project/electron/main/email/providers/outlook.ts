@@ -296,6 +296,12 @@ export class OutlookProvider extends BaseEmailProvider {
       }
     })
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
+      destinationId: 'deleteditems'
+    })
+  }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     try {

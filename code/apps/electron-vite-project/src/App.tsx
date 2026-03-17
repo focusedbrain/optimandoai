@@ -7,7 +7,10 @@ import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
 import BeapInboxDashboard from './components/BeapInboxDashboard'
 import BeapBulkInboxDashboard from './components/BeapBulkInboxDashboard'
+import EmailInboxView from './components/EmailInboxView'
+import EmailInboxBulkView from './components/EmailInboxBulkView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
+import './components/handshakeViewTypes'
 
 type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
@@ -47,7 +50,8 @@ function App() {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
-  const [bulkMode, setBulkMode] = useState(false)
+  const [inboxBulkMode, setInboxBulkMode] = useState(false)
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string }>>([])
 
   useEffect(() => {
     const root = document.documentElement
@@ -97,6 +101,39 @@ function App() {
     }
   }, [activeView])
 
+  // Load email accounts and listen for onAccountConnected
+  useEffect(() => {
+    async function loadEmailAccounts() {
+      if (typeof window.emailAccounts?.listAccounts !== 'function') return
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res?.data) {
+          setEmailAccounts(
+            res.data.map((a: { id: string; email: string }) => ({ id: a.id, email: a.email }))
+          )
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    loadEmailAccounts()
+    const unsub = window.emailAccounts?.onAccountConnected?.(async (data?: { provider?: string; email?: string }) => {
+      const res = await window.emailAccounts?.listAccounts?.()
+      if (res?.ok && res?.data && res.data.length > 0 && window.emailInbox) {
+        const accounts = res.data as Array<{ id: string; email: string }>
+        const match = data?.email
+          ? accounts.find((a) => a.email?.toLowerCase() === data.email?.toLowerCase())
+          : accounts[accounts.length - 1]
+        if (match?.id) {
+          await window.emailInbox.toggleAutoSync(match.id, true)
+          await window.emailInbox.syncAccount(match.id)
+        }
+      }
+      await loadEmailAccounts()
+    })
+    return () => unsub?.()
+  }, [])
+
   return (
     <div className="app-root">
       <header className="app-header">
@@ -128,13 +165,13 @@ function App() {
             <label
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}
-              title={bulkMode ? 'Switch to normal inbox' : 'Switch to bulk inbox'}
+              title={inboxBulkMode ? 'Switch to normal inbox' : 'Switch to bulk inbox'}
             >
               ⚡
               <input
                 type="checkbox"
-                checked={bulkMode}
-                onChange={(e) => setBulkMode(e.target.checked)}
+                checked={inboxBulkMode}
+                onChange={(e) => setInboxBulkMode(e.target.checked)}
               />
             </label>
           </div>
@@ -146,6 +183,10 @@ function App() {
           selectedDocumentId={selectedDocumentId}
           selectedMessageId={selectedMessageId}
           selectedAttachmentId={selectedAttachmentId}
+          onClearMessageSelection={() => {
+            setSelectedMessageId(null)
+            setSelectedAttachmentId(null)
+          }}
         />
       </header>
 
@@ -159,38 +200,34 @@ function App() {
               setSelectedHandshakeId(id)
               setSelectedHandshakeEmail(email ?? null)
               setSelectedDocumentId(null)
+              setSelectedMessageId(null)
+              setSelectedAttachmentId(null)
             }}
             onDocumentSelect={setSelectedDocumentId}
+            selectedMessageId={selectedMessageId}
+            onSelectMessage={setSelectedMessageId}
+            selectedAttachmentId={selectedAttachmentId}
+            onSelectAttachment={setSelectedAttachmentId}
           />
         ) : activeView === 'beap-inbox' ? (
-          bulkMode ? (
-            <BeapBulkInboxDashboard
-              onSetSearchContext={() => {}}
-              onNavigateToHandshake={(id) => {
-                setActiveView('handshakes')
-                setSelectedHandshakeId(id)
-                setSelectedHandshakeEmail(null)
-              }}
-              onViewInInbox={(messageId) => {
-                setBulkMode(false)
-                setSelectedMessageId(messageId)
+          inboxBulkMode ? (
+            <EmailInboxBulkView
+              accounts={emailAccounts}
+              onSelectMessage={(id) => {
+                setInboxBulkMode(false)
+                setSelectedMessageId(id)
               }}
             />
           ) : (
-            <BeapInboxDashboard
-              onMessageSelect={(id) => {
+            <EmailInboxView
+              accounts={emailAccounts}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={(id) => {
                 setSelectedMessageId(id)
                 if (!id) setSelectedAttachmentId(null)
               }}
-              onAttachmentSelect={(_, attachmentId) => setSelectedAttachmentId(attachmentId)}
-              onSetSearchContext={() => {}}
-              selectedMessageId={selectedMessageId}
-              onNavigateToHandshake={(id) => {
-                setActiveView('handshakes')
-                setSelectedHandshakeId(id)
-                setSelectedHandshakeEmail(null)
-              }}
-              onNavigateToHandshakesTab={() => setActiveView('handshakes')}
+              selectedAttachmentId={selectedAttachmentId}
+              onSelectAttachment={setSelectedAttachmentId}
             />
           )
         ) : activeView === 'settings' ? (
