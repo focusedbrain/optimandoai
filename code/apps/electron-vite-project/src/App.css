@@ -1250,6 +1250,127 @@ body {
   font-size: 13px;
 }
 
+/* --- Link warning dialog (safe link confirmation) --- */
+.link-warning-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.link-warning-dialog {
+  width: 90%;
+  max-width: 440px;
+  padding: 20px 24px;
+  background: var(--color-bg, #0f172a);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.link-warning-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text, #e2e8f0);
+}
+
+.link-warning-body {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-muted, #94a3b8);
+  white-space: pre-wrap;
+}
+
+.link-warning-url {
+  margin: 0 0 16px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  color: var(--color-text-muted, #94a3b8);
+  word-break: break-all;
+}
+
+.link-warning-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.link-warning-btn-cancel {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text, #e2e8f0);
+  cursor: pointer;
+}
+
+.link-warning-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.link-warning-btn-confirm {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(147, 51, 234, 0.4);
+  background: rgba(147, 51, 234, 0.2);
+  color: #a78bfa;
+  cursor: pointer;
+}
+
+.link-warning-btn-confirm:hover {
+  background: rgba(147, 51, 234, 0.3);
+}
+
+/* Safe link button (replaces raw URLs in message body) */
+.msg-safe-link-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid rgba(147, 51, 234, 0.35);
+  background: rgba(147, 51, 234, 0.12);
+  color: #a78bfa;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.msg-safe-link-btn:hover {
+  background: rgba(147, 51, 234, 0.22);
+}
+
+/* HTML body links — style like safe buttons, click intercepted by parent */
+.msg-detail-body-html a[href] {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid rgba(147, 51, 234, 0.35);
+  background: rgba(147, 51, 234, 0.12);
+  color: #a78bfa;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.msg-detail-body-html a[href]:hover {
+  background: rgba(147, 51, 234, 0.22);
+}
+
 /* --- Scrollbar Styling --- */
 ::-webkit-scrollbar {
   width: 8px;

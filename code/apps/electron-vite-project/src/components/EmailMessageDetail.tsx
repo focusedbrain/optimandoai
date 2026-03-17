@@ -7,9 +7,13 @@ import { useCallback, useState } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
+import LinkWarningDialog from './LinkWarningDialog'
+import { extractLinkParts } from '../utils/safeLinks'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
+  /** When provided, used instead of store for attachment focus (e.g. bulk inbox → Hybrid Search) */
+  selectedAttachmentId?: string | null
   /** When provided, called when user selects/deselects an attachment (for HybridSearch scope) */
   onSelectAttachment?: (attachmentId: string | null) => void
 }
@@ -76,10 +80,11 @@ function renderDepackagedJson(jsonStr: string | null): React.ReactNode {
   }
 }
 
-export default function EmailMessageDetail({ message, onSelectAttachment }: EmailMessageDetailProps) {
+export default function EmailMessageDetail({ message, selectedAttachmentId: selectedAttachmentIdProp, onSelectAttachment }: EmailMessageDetailProps) {
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
+  const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const {
-    selectedAttachmentId,
+    selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
     toggleStar,
     archiveMessages,
@@ -111,12 +116,28 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
     cancelDeletion(message.id)
   }, [message.id, cancelDeletion])
 
+  const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
+  const handleLinkConfirm = useCallback(() => {
+    if (pendingLinkUrl) {
+      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
+      setPendingLinkUrl(null)
+    }
+  }, [pendingLinkUrl])
+  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
+
   const fromDisplay = message.from_name
     ? `${message.from_name} <${message.from_address || ''}>`
     : message.from_address || '—'
   const toDisplay = message.to_addresses || '—'
 
   return (
+    <>
+      <LinkWarningDialog
+        isOpen={!!pendingLinkUrl}
+        url={pendingLinkUrl || ''}
+        onConfirm={handleLinkConfirm}
+        onCancel={handleLinkCancel}
+      />
     <div
       className="inbox-detail-message-inner"
       style={{
@@ -269,17 +290,31 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
           </span>
         </div>
 
-        {/* Body — human-readable by default */}
+        {/* Body — human-readable by default, links as safe buttons */}
         <div style={{ marginBottom: 20 }}>
           {message.body_html ? (
             <div
-              dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
+              className="msg-detail-body-html"
+              onClick={(e) => {
+                const a = (e.target as HTMLElement).closest('a[href]')
+                if (a) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const href = (a as HTMLAnchorElement).href
+                  if (href && !href.startsWith('mailto:')) handleLinkClick(href)
+                }
+              }}
               style={{
                 fontSize: 13,
                 lineHeight: 1.6,
                 color: 'var(--color-text, #e2e8f0)',
               }}
-            />
+            >
+              <div
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
+                style={{ fontSize: 'inherit', lineHeight: 'inherit', color: 'inherit' }}
+              />
+            </div>
           ) : (
             <pre
               style={{
@@ -291,7 +326,20 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
                 fontFamily: 'inherit',
               }}
             >
-              {message.body_text || '(No body)'}
+              {extractLinkParts(message.body_text || '(No body)').map((part, i) =>
+                part.type === 'text' ? (
+                  <span key={i}>{part.text}</span>
+                ) : (
+                  <button
+                    key={i}
+                    type="button"
+                    className="msg-safe-link-btn"
+                    onClick={() => handleLinkClick(part.url!)}
+                  >
+                    {part.text}
+                  </button>
+                )
+              )}
             </pre>
           )}
 
@@ -333,7 +381,7 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
               <InboxAttachmentRow
                 key={att.id}
                 attachment={att}
-                selectedAttachmentId={selectedAttachmentId}
+                selectedAttachmentId={selectedAttachmentIdProp ?? storeSelectedAttachmentId}
                 onSelectAttachment={onSelectAttachment ?? selectAttachment}
               />
             ))}
@@ -341,5 +389,6 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
         )}
       </div>
     </div>
+    </>
   )
 }

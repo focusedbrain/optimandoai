@@ -18,6 +18,7 @@ import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchest
 import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions } from './remoteDeletion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
+import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
 
 // ── Inbox: active auto-sync loops ──
 const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
@@ -476,14 +477,19 @@ export function registerEmailHandlers(): void {
   console.log('[Email IPC] Handlers registered')
 }
 
+/** Optional: retrieve Anthropic API key for Vision fallback when extraction fails. */
+export type GetAnthropicApiKey = () => Promise<string | null>
+
 /**
  * Register inbox IPC handlers.
  * Requires db (or getter) and optional mainWindow for sending events.
  * Call from main.ts alongside registerEmailHandlers.
+ * When getAnthropicApiKey is provided, PDF extraction will try Vision API fallback when basic extraction fails.
  */
 export function registerInboxHandlers(
   getDb: () => Promise<any> | any,
   mainWindow?: BrowserWindow | null,
+  getAnthropicApiKey?: GetAnthropicApiKey,
 ): void {
   const channels = [
     'inbox:syncAccount', 'inbox:toggleAutoSync', 'inbox:getSyncState',
@@ -757,11 +763,59 @@ export function registerInboxHandlers(
       }
       if (row.storage_path && fs.existsSync(row.storage_path) && isPdfFile(row.content_type || '', row.filename)) {
         const buf = fs.readFileSync(row.storage_path)
-        const result = await extractPdfText(buf)
-        const text = result?.text ?? ''
-        const status = result?.success ? 'done' : 'failed'
+        let result = await extractPdfText(buf)
+        let text = result?.text ?? ''
+        let status = result?.success ? 'done' : 'failed'
+
+        // Vision fallback: when basic extraction fails or yields unusable text, try Anthropic Vision if API key available
+        const minUsableChars = 30
+        const needsFallback = !result?.success || (text.replace(/\s/g, '').length < minUsableChars)
+        if (needsFallback && getAnthropicApiKey) {
+          const apiKey = await getAnthropicApiKey()
+          if (apiKey?.trim()?.startsWith('sk-ant-')) {
+            try {
+              const visionResult = await extractPdfTextWithVisionApi(buf, apiKey.trim())
+              if (visionResult.success && visionResult.text) {
+                text = visionResult.text
+                status = 'done'
+                result = { ...result, success: true, text }
+              }
+            } catch (visionErr: any) {
+              console.warn('[Inbox IPC] Vision fallback failed:', visionErr?.message)
+            }
+          }
+        }
+
         db.prepare('UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ? WHERE id = ?')
           .run(text, status, attachmentId)
+
+        // Merge extracted_text into depackaged_json so BEAP/depackaged attachment structure includes it
+        const messageId = row.message_id
+        if (messageId && text) {
+          try {
+            const msgRow = db.prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?').get(messageId) as { depackaged_json?: string } | undefined
+            const depackaged = msgRow?.depackaged_json
+            if (depackaged) {
+              const parsed = JSON.parse(depackaged) as { attachments?: Array<{ content_id?: string; extracted_text?: string }> }
+              if (Array.isArray(parsed.attachments)) {
+                let updated = false
+                for (const att of parsed.attachments) {
+                  if (att.content_id === attachmentId) {
+                    att.extracted_text = text
+                    updated = true
+                    break
+                  }
+                }
+                if (updated) {
+                  db.prepare('UPDATE inbox_messages SET depackaged_json = ? WHERE id = ?').run(JSON.stringify(parsed), messageId)
+                }
+              }
+            }
+          } catch (mergeErr: any) {
+            console.warn('[Inbox IPC] Failed to merge extracted_text into depackaged:', mergeErr?.message)
+          }
+        }
+
         return { ok: true, data: { text, status } }
       }
       db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)

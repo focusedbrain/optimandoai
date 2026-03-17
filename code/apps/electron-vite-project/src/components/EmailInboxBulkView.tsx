@@ -13,6 +13,8 @@ import {
 import EmailMessageDetail from './EmailMessageDetail'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
+import LinkWarningDialog from './LinkWarningDialog'
+import { extractLinkParts } from '../utils/safeLinks'
 import '../components/handshakeViewTypes'
 
 const MUTED = 'var(--color-text-muted, #94a3b8)'
@@ -49,12 +51,18 @@ export interface EmailInboxBulkViewProps {
   selectedMessageId?: string | null
   /** Toggle focus; does not switch views */
   onSelectMessage?: (messageId: string | null) => void
+  /** Focused attachment for chat/search scope; syncs with Hybrid Search */
+  selectedAttachmentId?: string | null
+  /** Toggle attachment focus */
+  onSelectAttachment?: (attachmentId: string | null) => void
 }
 
 export default function EmailInboxBulkView({
   accounts,
   selectedMessageId: focusedMessageId,
   onSelectMessage,
+  selectedAttachmentId,
+  onSelectAttachment,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -89,6 +97,7 @@ export default function EmailInboxBulkView({
   const [aiOutputs, setAiOutputs] = useState<
     Record<string, { summary?: string; draft?: string; loading?: string }>
   >({})
+  const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
 
   const selectedCount = multiSelectIds.size
   const totalPages = Math.max(1, Math.ceil(total / bulkBatchSize))
@@ -271,6 +280,19 @@ export default function EmailInboxBulkView({
     setExpandedMessageId(null)
     selectMessage(null)
   }, [selectMessage])
+
+  const handleLinkClick = useCallback((url: string) => {
+    setPendingLinkUrl(url)
+  }, [])
+
+  const handleLinkConfirm = useCallback(() => {
+    if (pendingLinkUrl) {
+      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
+      setPendingLinkUrl(null)
+    }
+  }, [pendingLinkUrl])
+
+  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
 
   const expandedMessage =
     expandedMessageId && selectedMessageId === expandedMessageId ? selectedMessage : null
@@ -488,9 +510,7 @@ export default function EmailInboxBulkView({
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const output = aiOutputs[msg.id]
-              const bodyContent = (msg.body_text || '')
-                .replace(/\s+/g, ' ')
-                .trim() || '(No body)'
+              const bodyContent = (msg.body_text || '').trim() || '(No body)'
               const hasAttachments = msg.has_attachments === 1
               const isDeleted = msg.deleted === 1
 
@@ -516,7 +536,7 @@ export default function EmailInboxBulkView({
                     }}
                     className={`bulk-view-message ${isMultiSelected ? 'bulk-view-message--multi' : ''} ${isFocused ? 'bulk-view-message--focused' : ''}`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
                       <input
                         type="checkbox"
                         checked={isMultiSelected}
@@ -525,17 +545,18 @@ export default function EmailInboxBulkView({
                           toggleMultiSelect(msg.id)
                         }}
                         onClick={(e) => e.stopPropagation()}
+                        style={{ alignSelf: 'flex-start' }}
                       />
                       {isFocused && (
                         <span
-                          style={{ flexShrink: 0, fontSize: 14, color: 'var(--purple-accent, #a78bfa)', lineHeight: 1 }}
+                          style={{ flexShrink: 0, alignSelf: 'flex-start', fontSize: 14, color: 'var(--purple-accent, #a78bfa)', lineHeight: 1 }}
                           title="Focused — chat/search scoped to this message"
                           aria-hidden
                         >
                           👉
                         </span>
                       )}
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
                           <span style={{ fontSize: 14, fontWeight: 600 }}>
                             {msg.from_name || msg.from_address || '—'}
@@ -561,9 +582,27 @@ export default function EmailInboxBulkView({
                             fontSize: 12,
                             color: MUTED,
                             lineHeight: 1.5,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
                           }}
                         >
-                          {bodyContent}
+                          {extractLinkParts(bodyContent).map((part, i) =>
+                            part.type === 'text' ? (
+                              <span key={i}>{part.text}</span>
+                            ) : (
+                              <button
+                                key={i}
+                                type="button"
+                                className="msg-safe-link-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleLinkClick(part.url!)
+                                }}
+                              >
+                                {part.text}
+                              </button>
+                            )
+                          )}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center', flexShrink: 0 }}>
                           {hasAttachments && (
@@ -668,6 +707,13 @@ export default function EmailInboxBulkView({
         )}
       </div>
 
+      <LinkWarningDialog
+        isOpen={!!pendingLinkUrl}
+        url={pendingLinkUrl || ''}
+        onConfirm={handleLinkConfirm}
+        onCancel={handleLinkCancel}
+      />
+
       <EmailConnectWizard
         isOpen={showEmailConnectModal}
         onClose={() => setShowEmailConnectModal(false)}
@@ -704,7 +750,11 @@ export default function EmailInboxBulkView({
             </div>
             <div className="bulk-view-modal-body">
               {expandedMessage ? (
-                <EmailMessageDetail message={expandedMessage} />
+                <EmailMessageDetail
+                  message={expandedMessage}
+                  selectedAttachmentId={selectedAttachmentId}
+                  onSelectAttachment={onSelectAttachment}
+                />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>
               )}

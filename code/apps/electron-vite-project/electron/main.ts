@@ -3867,7 +3867,15 @@ app.whenReady().then(async () => {
       const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
       registerEmailHandlers()
       const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
-      registerInboxHandlers(getInboxDb, null)
+      const getAnthropicApiKey = async () => {
+        try {
+          const { vaultService } = await import('./main/vault/rpc')
+          return await vaultService.getAnthropicApiKeyForInbox()
+        } catch {
+          return null
+        }
+      }
+      registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
       console.error('[MAIN] Failed to register email handlers:', emailErr)

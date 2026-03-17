@@ -491,6 +491,24 @@ async function extractTextVision(
   }
 }
 
+/**
+ * Extract PDF text using Anthropic Vision API (standalone, for inbox/other consumers).
+ * Reuses the same Vision extraction logic as HS Context BYOK retry.
+ * Call when basic extraction fails and user has configured an API key.
+ */
+export async function extractPdfTextWithVisionApi(
+  pdfBuffer: Buffer,
+  anthropicApiKey: string,
+): Promise<{ success: boolean; text: string; extractorName: string }> {
+  const pdfjs = await loadPdfjs()
+  const result = await extractTextVision(pdfjs, pdfBuffer, anthropicApiKey)
+  return {
+    success: result.success,
+    text: result.extracted_text ?? '',
+    extractorName: result.extractor_name ?? 'anthropic-vision',
+  }
+}
+
 // ── Main extraction entrypoint ───────────────────────────────────────────────
 
 /**

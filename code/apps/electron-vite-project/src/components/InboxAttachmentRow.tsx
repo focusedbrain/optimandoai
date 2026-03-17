@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { InboxAttachment } from '../stores/useEmailInboxStore'
+import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import '../components/handshakeViewTypes'
 
 const ACCENT = '#8b5cf6'
@@ -45,6 +46,7 @@ export default function InboxAttachmentRow({
   const [text, setText] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [showOriginalWarning, setShowOriginalWarning] = useState(false)
 
   const isSelected = selectedAttachmentId === attachment.id
   const icon = getFileIcon(attachment.content_type, attachment.filename)
@@ -89,13 +91,30 @@ export default function InboxAttachmentRow({
     URL.revokeObjectURL(url)
   }, [text, attachment.filename])
 
-  const handleOpenOriginal = useCallback(() => {
+  const handleOpenOriginalClick = useCallback(() => {
+    setShowOriginalWarning(true)
+  }, [])
+
+  const handleOriginalAcknowledge = useCallback(() => {
     window.emailInbox?.openAttachmentOriginal(attachment.id)
+    setShowOriginalWarning(false)
   }, [attachment.id])
+
+  const handleOriginalCancel = useCallback(() => {
+    setShowOriginalWarning(false)
+  }, [])
 
   const lines = (text ?? '').split('\n')
 
   return (
+    <>
+      <ProtectedAccessWarningDialog
+        kind="original"
+        targetLabel={attachment.filename || 'Attachment'}
+        open={showOriginalWarning}
+        onClose={handleOriginalCancel}
+        onAcknowledge={handleOriginalAcknowledge}
+      />
     <div
       style={{
         padding: '12px',
@@ -147,7 +166,7 @@ export default function InboxAttachmentRow({
           </button>
           <button
             type="button"
-            onClick={handleOpenOriginal}
+            onClick={handleOpenOriginalClick}
             style={{
               fontSize: '10px',
               padding: '4px 8px',
@@ -300,5 +319,6 @@ export default function InboxAttachmentRow({
         </div>
       )}
     </div>
+    </>
   )
 }

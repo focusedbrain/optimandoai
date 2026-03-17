@@ -218,6 +218,8 @@ function App() {
                 setSelectedMessageId(id)
                 if (!id) setSelectedAttachmentId(null)
               }}
+              selectedAttachmentId={selectedAttachmentId}
+              onSelectAttachment={setSelectedAttachmentId}
             />
           ) : (
             <EmailInboxView

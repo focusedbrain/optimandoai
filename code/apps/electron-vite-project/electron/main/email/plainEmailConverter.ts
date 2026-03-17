@@ -161,7 +161,7 @@ export interface PlainEmailDepackagedFormat {
     date: string
   }
   body: { text: string; html?: string }
-  attachments: Array<{ filename: string; content_type: string; size: number; content_id?: string }>
+  attachments: Array<{ filename: string; content_type: string; size: number; content_id?: string; extracted_text?: string }>
   metadata: { converted_at: string; source: 'plain_email' }
 }
 
@@ -183,7 +183,7 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
       date: now,
     },
     body: { text: '', html: undefined as string | undefined },
-    attachments: [] as Array<{ filename: string; content_type: string; size: number; content_id?: string }>,
+    attachments: [] as Array<{ filename: string; content_type: string; size: number; content_id?: string; extracted_text?: string }>,
     metadata: { converted_at: now, source: 'plain_email' as const },
   }
 
@@ -215,6 +215,7 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
         content_type: a.mimeType || 'application/octet-stream',
         size: a.sizeBytes ?? 0,
         content_id: a.attachmentId,
+        extracted_text: (a as { extracted_text?: string }).extracted_text,
       })),
       metadata: { converted_at: now, source: 'plain_email' },
     }
@@ -251,6 +252,7 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
       content_type: a.contentType || 'application/octet-stream',
       size: a.size ?? 0,
       content_id: a.contentId,
+      extracted_text: (a as { extracted_text?: string }).extracted_text,
     })),
     metadata: { converted_at: now, source: 'plain_email' },
   }

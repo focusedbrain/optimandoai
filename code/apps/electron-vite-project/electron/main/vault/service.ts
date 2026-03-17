@@ -1416,6 +1416,19 @@ export class VaultService {
     return { status: 'pending' }
   }
 
+  /**
+   * Get Anthropic API key for inbox PDF Vision fallback (BYOK).
+   * Returns null if vault is locked or no key is configured.
+   */
+  async getAnthropicApiKeyForInbox(): Promise<string | null> {
+    if (!this.session?.kek || !this.db) return null
+    try {
+      return await _getAnthropicApiKeyAsync(this.db, this.session.kek)
+    } catch {
+      return null
+    }
+  }
+
   requestLinkOpenApproval(
     linkEntityId: string,
     actorUserId: string,
