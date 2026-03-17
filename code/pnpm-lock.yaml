@@ -100,6 +100,9 @@ importers:
       imap:
         specifier: ^0.8.19
         version: 0.8.19
+      is-electron:
+        specifier: ^2.2.2
+        version: 2.2.2
       jose:
         specifier: ^5.2.0
         version: 5.10.0
@@ -112,6 +115,9 @@ importers:
       mailparser:
         specifier: ^3.9.0
         version: 3.9.1
+      node-fetch:
+        specifier: 2.7.0
+        version: 2.7.0(encoding@0.1.13)
       nodemailer:
         specifier: ^7.0.11
         version: 7.0.12
@@ -130,9 +136,15 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
+      regenerator-runtime:
+        specifier: ^0.14.1
+        version: 0.14.1
       tesseract.js:
         specifier: ^5.1.1
         version: 5.1.1(encoding@0.1.13)
+      whatwg-url:
+        specifier: ^5.0.0
+        version: 5.0.0
       zod:
         specifier: ^3.22.4
         version: 3.25.76
@@ -3821,6 +3833,9 @@ packages:
   regenerator-runtime@0.13.11:
     resolution: {integrity: sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==}
 
+  regenerator-runtime@0.14.1:
+    resolution: {integrity: sha512-dYnhHh0nJoMfnkZs6GmmhFknAGRrLznOu5nc9ML+EJxGvrx6H7teuevqVqCuPcPK//3eDrrjQhehXVx9cnkGdw==}
+
   remark-parse@11.0.0:
     resolution: {integrity: sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA==}
 
@@ -6410,6 +6425,14 @@ snapshots:
       '@vitest/utils': 2.1.9
       chai: 5.3.3
       tinyrainbow: 1.2.0
+
+  '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@20.19.11))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.18
+    optionalDependencies:
+      vite: 5.4.20(@types/node@20.19.11)
 
   '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@24.3.0))':
     dependencies:
@@ -9028,6 +9051,8 @@ snapshots:
 
   regenerator-runtime@0.13.11: {}
 
+  regenerator-runtime@0.14.1: {}
+
   remark-parse@11.0.0:
     dependencies:
       '@types/mdast': 4.0.4
@@ -9703,7 +9728,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.11)(jsdom@26.1.0(canvas@3.2.0)):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@24.3.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@20.19.11))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

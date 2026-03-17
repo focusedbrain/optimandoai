@@ -14,7 +14,7 @@ const fs = require('fs')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build33'
+    return 'C:\\build-output\\build71'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')
@@ -67,6 +67,8 @@ module.exports = {
     output: getOutputDir(),
   },
   // Unpack pg and sub-packages — asar path resolution fails for pg's dynamic requires
+  // Unpack tesseract.js and node-fetch — tesseract uses node-fetch which requires whatwg-url;
+  // with pnpm isolated layout, transitive deps live in .pnpm; unpacking ensures runtime resolution.
   asarUnpack: [
     ...(baseConfig.asarUnpack || []),
     'node_modules/pg/**',
@@ -74,9 +76,16 @@ module.exports = {
     'node_modules/pgpass/**',
     'node_modules/postgres-*/**',
     'node_modules/pg-int8/**',
+    'node_modules/tesseract.js/**',
+    'node_modules/node-fetch/**',
+    'node_modules/whatwg-url/**',
+    'node_modules/tr46/**',
+    'node_modules/webidl-conversions/**',
   ],
   // Exclude the output dir itself from the packaged files to prevent nesting.
   // Include node_modules so pg and other runtime deps are bundled (files overrides default).
+  // Transitive deps (whatwg-url for node-fetch) are copied by scripts/copy-pnpm-transitive-deps.cjs
+  // before build — electron-builder rejects "from" paths with "..".
   files: [
     'dist/**/*',
     '!dist/release{,/**/*}',
