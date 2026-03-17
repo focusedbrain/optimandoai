@@ -118,15 +118,17 @@ export default function EmailMessageDetail({ message, onSelectAttachment }: Emai
 
   return (
     <div
+      className="inbox-detail-message-inner"
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
+        flex: 1,
+        minHeight: 0,
         overflow: 'hidden',
         color: 'var(--color-text, #e2e8f0)',
       }}
     >
-      <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }}>
         {/* Deletion notice */}
         {isDeleted && (
           <div

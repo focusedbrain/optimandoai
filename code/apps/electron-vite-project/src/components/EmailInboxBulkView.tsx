@@ -43,13 +43,16 @@ function formatSourceBadge(sourceType: InboxSourceType): string {
 
 export interface EmailInboxBulkViewProps {
   accounts: Array<{ id: string; email: string }>
-  /** No longer used: expansion stays inside bulk mode via modal */
+  /** Focused message for chat/search scope; syncs with Hybrid Search */
+  selectedMessageId?: string | null
+  /** Toggle focus; does not switch views */
   onSelectMessage?: (messageId: string | null) => void
 }
 
 export default function EmailInboxBulkView({
   accounts,
-  onSelectMessage: _onSelectMessage,
+  selectedMessageId: focusedMessageId,
+  onSelectMessage,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -184,6 +187,14 @@ export default function EmailInboxBulkView({
       }
     },
     []
+  )
+
+  const handleFocusPair = useCallback(
+    (msg: InboxMessage) => {
+      const next = focusedMessageId === msg.id ? null : msg.id
+      onSelectMessage?.(next)
+    },
+    [focusedMessageId, onSelectMessage]
   )
 
   const handleExpandMessage = useCallback(
@@ -364,7 +375,8 @@ export default function EmailInboxBulkView({
         ) : (
           <div className="bulk-view-grid">
             {messages.map((msg) => {
-              const isSelected = multiSelectIds.has(msg.id)
+              const isMultiSelected = multiSelectIds.has(msg.id)
+              const isFocused = focusedMessageId === msg.id
               const output = aiOutputs[msg.id]
               const bodyPreview = (msg.body_text || '')
                 .slice(0, BODY_PREVIEW_LEN)
@@ -376,56 +388,78 @@ export default function EmailInboxBulkView({
               return (
                 <div
                   key={msg.id}
-                  className={`bulk-view-row ${isSelected ? 'bulk-view-row--selected' : ''}`}
+                  data-msg-id={msg.id}
+                  className={`bulk-view-row ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''}`}
                 >
-                  {/* Left: Message card */}
+                  {/* Left: Message card — click toggles focus */}
                   <div
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return
-                      handleExpandMessage(msg)
+                      if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('.bulk-view-expand-btn')) return
+                      handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        handleExpandMessage(msg)
+                        handleFocusPair(msg)
                       }
                     }}
-                    className={`bulk-view-message ${isSelected ? 'bulk-view-message--selected' : ''}`}
+                    className={`bulk-view-message ${isMultiSelected ? 'bulk-view-message--multi' : ''} ${isFocused ? 'bulk-view-message--focused' : ''}`}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                       <input
                         type="checkbox"
-                        checked={isSelected}
+                        checked={isMultiSelected}
                         onChange={(e) => {
                           e.stopPropagation()
                           toggleMultiSelect(msg.id)
                         }}
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                          {msg.from_name || msg.from_address || '—'}
+                      {isFocused && (
+                        <span
+                          style={{ flexShrink: 0, fontSize: 14, color: 'var(--purple-accent, #a78bfa)', lineHeight: 1 }}
+                          title="Focused — chat/search scoped to this message"
+                          aria-hidden
+                        >
+                          👉
+                        </span>
+                      )}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600 }}>
+                            {msg.from_name || msg.from_address || '—'}
+                          </span>
+                          <button
+                            type="button"
+                            className="bulk-view-expand-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleExpandMessage(msg)
+                            }}
+                            title="View full message"
+                          >
+                            View full
+                          </button>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6, flexShrink: 0 }}>
                           {msg.subject || '(No subject)'}
                         </div>
                         <div
+                          className="bulk-view-message-body"
                           style={{
                             fontSize: 12,
                             color: MUTED,
                             lineHeight: 1.5,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
+                            overflowY: 'auto',
+                            flex: 1,
+                            minHeight: 0,
                           }}
                         >
                           {bodyPreview || '(No body)'}
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center', flexShrink: 0 }}>
                           {hasAttachments && (
                             <span style={{ fontSize: 11, color: MUTED }}>📎 {msg.attachment_count}</span>
                           )}
@@ -471,19 +505,19 @@ export default function EmailInboxBulkView({
                     </div>
                   </div>
 
-                  {/* Right: AI output — click toggles pair selection */}
+                  {/* Right: AI output — click toggles focus */}
                   <div
                     className="bulk-view-ai"
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('button')) return
-                      toggleMultiSelect(msg.id)
+                      handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        toggleMultiSelect(msg.id)
+                        handleFocusPair(msg)
                       }
                     }}
                   >

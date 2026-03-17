@@ -143,6 +143,20 @@ function InboxMessageRow({
           }}
         />
       )}
+      {!bulkMode && selected && (
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 14,
+            lineHeight: 1,
+            color: 'var(--purple-accent, #a78bfa)',
+          }}
+          title="Focused message — chat/search scoped to this BEAP message"
+          aria-hidden
+        >
+          👉
+        </span>
+      )}
 
       {/* Source badge */}
       <div

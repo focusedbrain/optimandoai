@@ -758,33 +758,47 @@ body {
   padding: 20px;
 }
 
-/* --- Inbox Detail 50/50 Workspace --- */
+/* --- Inbox Detail 50/50 Workspace (boxed split, light enterprise) --- */
 .inbox-detail-workspace {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 0;
   min-width: 0;
   overflow: hidden;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  margin: 12px;
 }
 
 .inbox-detail-message {
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  border-right: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px 0 0 10px;
 }
 
 .inbox-detail-ai {
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg, #0f172a);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 10px 10px 0;
 }
 
 .inbox-detail-ai-inner {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 16px;
+  overflow: hidden;
 }
 
 .inbox-detail-ai-actions {
@@ -816,7 +830,7 @@ body {
 
 .inbox-detail-ai-output {
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
@@ -948,42 +962,78 @@ body {
 }
 
 .bulk-view-row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  min-height: 240px;
+  gap: 0;
+  min-height: 320px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bulk-view-row--multi {
+  border-color: rgba(147, 51, 234, 0.25);
+}
+
+.bulk-view-row--focused {
+  border-color: rgba(147, 51, 234, 0.4);
+  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.2);
 }
 
 .bulk-view-message {
-  padding: 20px 22px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .bulk-view-message:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.bulk-view-message.bulk-view-message--selected {
-  border-color: rgba(147, 51, 234, 0.35);
+.bulk-view-message.bulk-view-message--multi {
+  border-color: rgba(147, 51, 234, 0.3);
   background: rgba(147, 51, 234, 0.05);
 }
 
+.bulk-view-message.bulk-view-message--focused {
+  border-color: rgba(147, 51, 234, 0.35);
+  background: rgba(147, 51, 234, 0.06);
+}
+
+.bulk-view-expand-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--color-text-muted, #94a3b8);
+  cursor: pointer;
+}
+
+.bulk-view-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text, #e2e8f0);
+}
+
 .bulk-view-ai {
-  padding: 20px 22px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
   cursor: pointer;
 }
 
@@ -1021,7 +1071,7 @@ body {
 
 .bulk-view-ai-output {
   flex: 1;
-  min-height: 100px;
+  min-height: 0;
   padding: 16px 18px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -1061,12 +1111,8 @@ body {
   line-height: 1.6;
 }
 
-/* Bulk row pair selected indicator */
-.bulk-view-row--selected {
-  position: relative;
-}
-
-.bulk-view-row--selected::before {
+/* Bulk row multi-select indicator */
+.bulk-view-row--multi::before {
   content: '';
   position: absolute;
   left: 0;
@@ -1076,6 +1122,7 @@ body {
   background: var(--purple-accent, #9333ea);
   border-radius: 0 2px 2px 0;
 }
+
 
 /* Bulk full-view modal (stays inside bulk mode) */
 .bulk-view-modal-overlay {

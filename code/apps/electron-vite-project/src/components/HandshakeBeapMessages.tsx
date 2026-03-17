@@ -211,8 +211,19 @@ export default function HandshakeBeapMessages({
                       style={{ cursor: 'pointer' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
-                          {msg.subject || msg.from_address || '—'}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {isSelected && (
+                            <span
+                              style={{ fontSize: 12, color: 'var(--purple-accent, #a78bfa)', lineHeight: 1 }}
+                              title="Focused — chat/search scoped to this message"
+                              aria-hidden
+                            >
+                              👉
+                            </span>
+                          )}
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)' }}>
+                            {msg.subject || msg.from_address || '—'}
+                          </span>
                         </span>
                         <span style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
                           {formatDate(msg.received_at)}

@@ -93,9 +93,9 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
-  // Clear selected message and attachment when switching away from inbox
+  // Clear selected message and attachment when switching to views that don't support message focus
   useEffect(() => {
-    if (activeView !== 'beap-inbox') {
+    if (activeView === 'analysis' || activeView === 'settings') {
       setSelectedMessageId(null)
       setSelectedAttachmentId(null)
     }
@@ -211,7 +211,14 @@ function App() {
           />
         ) : activeView === 'beap-inbox' ? (
           inboxBulkMode ? (
-            <EmailInboxBulkView accounts={emailAccounts} />
+            <EmailInboxBulkView
+              accounts={emailAccounts}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={(id) => {
+                setSelectedMessageId(id)
+                if (!id) setSelectedAttachmentId(null)
+              }}
+            />
           ) : (
             <EmailInboxView
               accounts={emailAccounts}
