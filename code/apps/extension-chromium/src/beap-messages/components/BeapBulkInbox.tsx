@@ -61,6 +61,7 @@ import { useMediaQuery, BULK_GRID_1COL, BULK_GRID_3COL } from '../hooks/useMedia
 import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
+import { usePendingPlainEmailIngestion } from '../../handshake/usePendingPlainEmailIngestion'
 
 // =============================================================================
 // Constants
@@ -115,6 +116,10 @@ export interface BeapBulkInboxProps {
   onViewInInbox?: (messageId: string) => void
   /** Config for the shared BeapReplyComposer (sender fingerprint, AI provider, etc.). */
   replyComposerConfig?: import('../hooks/useReplyComposer').UseReplyComposerConfig
+  /** Called after batch AI classification completes (for toast feedback). */
+  onClassificationComplete?: (count: number) => void
+  /** Called after archive-all-irrelevant completes (for toast feedback). */
+  onArchiveComplete?: (count: number) => void
 }
 
 /** Ref handle for parent to push AI responses into a specific pair. */
@@ -1132,7 +1137,7 @@ const AiEntryMini: React.FC<{
 // =============================================================================
 
 export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInboxProps>(
-  ({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, onViewInInbox, replyComposerConfig }, ref) => {
+  ({ theme = 'default', onSetSearchContext, onAiQuery, onViewHandshake, onViewInInbox, replyComposerConfig, onClassificationComplete, onArchiveComplete }, ref) => {
     const isProfessional = theme === 'professional'
     const isDark = theme !== 'professional'
 
@@ -1158,6 +1163,7 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
 
     // P2P pending BEAP ingestion (polls, imports, verifies, acks)
     usePendingP2PBeapIngestion()
+    usePendingPlainEmailIngestion()
 
     // Responsive grid columns: <900px → 1, 900–1600px → 2, >1600px → 3
     const is1Col = useMediaQuery(BULK_GRID_1COL)
@@ -1209,10 +1215,22 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     }, [purgeExpiredDeletions])
 
     // Bulk classification (must be before handlers that use it)
-    const { startClassification, cancelClassification } = useBulkClassification({
+    // Pass aiProvider for LLM-enhanced classification when capsules permit it
+    const { isClassifying, classifiedCount, startClassification, cancelClassification } = useBulkClassification({
       policy: { allowSemanticProcessing: true, allowActuatingProcessing: false },
       irrelevanceGracePeriodMs: IRRELEVANT_GRACE_MS,
+      providers: replyComposerConfig?.aiProvider ? [replyComposerConfig.aiProvider] : [],
     })
+
+    // Classification complete → toast feedback
+    const wasClassifyingRef = React.useRef(false)
+    useEffect(() => {
+      if (isClassifying) wasClassifyingRef.current = true
+      else if (wasClassifyingRef.current && classifiedCount > 0) {
+        wasClassifyingRef.current = false
+        onClassificationComplete?.(classifiedCount)
+      } else if (!isClassifying) wasClassifyingRef.current = false
+    }, [isClassifying, classifiedCount, onClassificationComplete])
 
     // ── Expose handle to parent ──────────────────────────
     React.useImperativeHandle(ref, () => ({
@@ -1305,10 +1323,15 @@ export const BeapBulkInbox = React.forwardRef<BeapBulkInboxHandle, BeapBulkInbox
     )
 
     const handleArchiveAllIrrelevant = useCallback(() => {
+      let count = 0
       for (const msg of messages) {
-        if (msg.urgency === 'irrelevant') archiveMessage(msg.messageId)
+        if (msg.urgency === 'irrelevant') {
+          archiveMessage(msg.messageId)
+          count++
+        }
       }
-    }, [messages, archiveMessage])
+      if (count > 0) onArchiveComplete?.(count)
+    }, [messages, archiveMessage, onArchiveComplete])
 
     const getMessageById = useBeapInboxStore((s) => s.getMessageById)
     const { sendAllDrafts, retryFailed, isSending, progress, items } = useBulkSend({

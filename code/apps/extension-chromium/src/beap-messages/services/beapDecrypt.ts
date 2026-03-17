@@ -1212,6 +1212,8 @@ export async function decryptBeapPackage(
     senderX25519PublicKey?: string
     /** Receiver's ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation. Required when package has pq.kemCiphertextB64 */
     mlkemSecretKeyB64?: string
+    /** Pre-derived 64-byte hybrid secret (host-side decapsulation); when present, skips ECDH+ML-KEM */
+    hybridSharedSecretB64?: string
     /** Skip signature verification (NOT recommended) */
     skipSignatureVerification?: boolean
 
@@ -1313,6 +1315,7 @@ export async function decryptBeapPackage(
     knownReceiver: options.knownReceiver,
     senderX25519PublicKey: options.senderX25519PublicKey,
     mlkemSecretKeyB64: options.mlkemSecretKeyB64,
+    hybridSharedSecretB64: options.hybridSharedSecretB64,
     skipSignatureVerification: options.skipSignatureVerification,
     knownTemplateHashes: options.knownTemplateHashes,
     expectedContentHash: options.expectedContentHash,

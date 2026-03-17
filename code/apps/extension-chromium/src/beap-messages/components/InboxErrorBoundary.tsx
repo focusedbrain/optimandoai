@@ -84,7 +84,11 @@ export class InboxErrorBoundary extends Component<
             Something went wrong loading this view
           </div>
           <p style={{ fontSize: '12px', color: mutedColor, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-            {this.state.error?.message ?? 'An unexpected error occurred.'}
+            {(() => {
+              const msg = this.state.error?.message ?? ''
+              const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(msg)
+              return isTechnical ? 'An unexpected error occurred. Please try again.' : (msg || 'An unexpected error occurred.')
+            })()}
           </p>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button

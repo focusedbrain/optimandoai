@@ -414,7 +414,7 @@ export function registerEmailHandlers(): void {
       const accounts = await emailGateway.listAccounts()
       const active = accounts.filter((a: any) => a.status === 'active')
       if (active.length === 0) {
-        return { ok: false, error: 'No connected email account. Connect an account to send BEAP packages.' }
+        return { ok: false, error: 'No email account connected. Connect in Settings or use Download.' }
       }
       const accountId = active[0].id
       const payload: SendEmailPayload = {

@@ -248,6 +248,38 @@ export async function ackPendingP2PBeap(id: number): Promise<void> {
 }
 
 /**
+ * Pending plain email entry (Canon §6 depackaged emails).
+ */
+export interface PendingPlainEmailEntry {
+  id: number
+  message_json: string
+  account_id: string
+  email_message_id: string
+  created_at: string
+}
+
+/**
+ * Fetch pending plain emails for inbox ingestion.
+ */
+export async function getPendingPlainEmails(): Promise<PendingPlainEmailEntry[]> {
+  const res = await sendHandshakeRpc<{ type: string; items: PendingPlainEmailEntry[] }>(
+    'handshake.getPendingPlainEmails',
+    {}
+  )
+  return res?.items ?? []
+}
+
+/**
+ * Acknowledge a pending plain email as ingested.
+ */
+export async function ackPendingPlainEmail(id: number): Promise<void> {
+  await sendHandshakeRpc<{ success: boolean; error?: string }>(
+    'handshake.ackPendingPlainEmail',
+    { id }
+  )
+}
+
+/**
  * Send a BEAP package via P2P relay to the handshake counterparty.
  * @param handshakeId - Handshake ID for the recipient
  * @param packageJson - JSON string of the BEAP package

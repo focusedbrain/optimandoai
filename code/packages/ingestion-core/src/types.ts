@@ -75,8 +75,12 @@ export interface ValidatedCapsule {
   readonly schema_version: number;
 }
 
+export type ContentTypeDiscriminator = 'handshake_capsule' | 'beap_message_package';
+
 export interface ValidatedCapsulePayload {
   readonly capsule_type: CapsuleType;
+  /** Discriminator: handshake capsules vs BEAP message packages (qBEAP/pBEAP). */
+  readonly content_type?: ContentTypeDiscriminator;
   readonly handshake_id?: string;
   readonly schema_version: number;
   readonly sender_public_key?: string;

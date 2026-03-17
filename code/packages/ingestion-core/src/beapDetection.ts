@@ -68,7 +68,12 @@ function checkJsonStructure(input: RawInput): BeapDetectionResult | null {
   return null;
 }
 
-/** Detect qBEAP/pBEAP message packages: header + metadata + (envelope or payload), no capsule_type */
+const VALID_MESSAGE_PACKAGE_ENCODINGS = new Set(['qBEAP', 'pBEAP', 'qbeap', 'pbeap']);
+
+/**
+ * Detect qBEAP/pBEAP message packages: header + metadata + (envelope or payload), no capsule_type.
+ * Optional strictness: header.encoding in ['qBEAP', 'pBEAP'].
+ */
 export function isMessagePackageStructure(parsed: unknown): boolean {
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
   const obj = parsed as Record<string, unknown>;
@@ -77,7 +82,36 @@ export function isMessagePackageStructure(parsed: unknown): boolean {
   const hasEnvelope = 'envelope' in obj;
   const hasPayload = 'payload' in obj;
   const noCapsuleType = !('capsule_type' in obj);
-  return hasHeader && hasMetadata && (hasEnvelope || hasPayload) && noCapsuleType;
+  if (!hasHeader || !hasMetadata || !(hasEnvelope || hasPayload) || !noCapsuleType) return false;
+  return true;
+}
+
+/**
+ * Detect BEAP message package and return classification.
+ * Checks: header + metadata + (envelope or payload), no capsule_type.
+ * Optional: header.encoding in ['qBEAP', 'pBEAP'] for strictness.
+ */
+export function detectBeapMessagePackage(input: { body: string | Buffer }): 
+  | { detected: true; classification: 'beap_message_package'; parsed: Record<string, unknown> }
+  | { detected: false } {
+  const text = typeof input.body === 'string' ? input.body : input.body.toString('utf-8');
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return { detected: false };
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (!isMessagePackageStructure(parsed)) return { detected: false };
+    // Optional strictness: if header.encoding is present, must be qBEAP or pBEAP
+    const header = parsed?.header;
+    if (header && typeof header === 'object') {
+      const enc = (header as Record<string, unknown>).encoding;
+      if (typeof enc === 'string' && enc.trim().length > 0 && !VALID_MESSAGE_PACKAGE_ENCODINGS.has(enc)) {
+        return { detected: false };
+      }
+    }
+    return { detected: true, classification: 'beap_message_package', parsed };
+  } catch {
+    return { detected: false };
+  }
 }
 
 function checkJsonStructureMessagePackage(input: RawInput): BeapDetectionResult | null {

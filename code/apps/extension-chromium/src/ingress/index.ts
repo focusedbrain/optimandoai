@@ -35,6 +35,7 @@ export {
   // Stage 5: Sandbox isolation verification (Annex I §I.2 — Normative)
   verifyImportedMessage,
   type VerifyImportedMessageResult,
+  type ImportFileProgressPhase,
 } from './importPipeline'
 
 // Components

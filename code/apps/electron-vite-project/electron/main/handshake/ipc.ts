@@ -16,6 +16,8 @@ import {
   updateHandshakeSigningKeys,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
+  getPendingPlainEmails,
+  markPlainEmailProcessed,
 } from './db'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, isHandshakeActive } from './enforcement'
@@ -407,6 +409,19 @@ export async function handleHandshakeRPC(
       if (typeof id !== 'number') return { success: false, error: 'id is required' }
       if (!db) return { success: false, error: 'Database unavailable' }
       markP2PPendingBeapProcessed(db, id)
+      return { success: true }
+    }
+
+    case 'handshake.getPendingPlainEmails': {
+      const items = getPendingPlainEmails(db)
+      return { type: 'plain-email-list', items }
+    }
+
+    case 'handshake.ackPendingPlainEmail': {
+      const { id } = params as { id: number }
+      if (typeof id !== 'number') return { success: false, error: 'id is required' }
+      if (!db) return { success: false, error: 'Database unavailable' }
+      markPlainEmailProcessed(db, id)
       return { success: true }
     }
 

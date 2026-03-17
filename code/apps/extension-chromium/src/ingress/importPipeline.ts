@@ -33,6 +33,10 @@ import {
   type SandboxDecryptOptions,
 } from '../beap-messages/sandbox'
 import type { SanitisedDecryptedPackage, RejectionReasonUI } from '../beap-messages/sandbox'
+import { getHandshake } from '../handshake/handshakeRpc'
+import { parseBeapFile } from '../beap-messages/services/beapDecrypt'
+import { deriveSharedSecretX25519 } from '../beap-messages/services/x25519KeyAgreement'
+import { pqDecapsulate } from '../beap-messages/services/beapCrypto'
 
 // =============================================================================
 // Verification Result
@@ -425,16 +429,24 @@ export async function importFromMessenger(
 // Download/File Import
 // =============================================================================
 
+/** Progress phases during file import + auto-verify. */
+export type ImportFileProgressPhase = 'importing' | 'verifying'
+
 /**
  * Import from file
  *
  * After import, auto-verifies via sandbox depackaging (same flow as Electron
  * p2p_pending_beap path). Message appears in inbox when verification succeeds.
+ *
+ * @param file - The .beap file to import
+ * @param options.onProgress - Called when phase changes (for loading UI)
  */
 export async function importFromFile(
-  file: File
+  file: File,
+  options?: { onProgress?: (phase: ImportFileProgressPhase) => void }
 ): Promise<ImportResult> {
   try {
+    options?.onProgress?.('importing')
     const rawData = await file.text()
 
     const importResult = await importBeapMessage(rawData, 'download', {
@@ -446,6 +458,7 @@ export async function importFromFile(
       return importResult
     }
 
+    options?.onProgress?.('verifying')
     const verifyResult = await verifyImportedMessage(importResult.messageId, {
       handshakeId: '__file_import__'
     })
@@ -546,11 +559,18 @@ export async function verifyImportedMessage(
   updateVerificationStatus(messageId, 'verifying')
 
   // ------------------------------------------------------------------
+  // Step 2b: Augment options for qBEAP (Fix A + host-side hybrid pre-decapsulation)
+  // - File import: resolve handshake from package.receiver_binding.handshake_id
+  // - Hybrid packages: when mlkemSecretKeyB64 available, compute hybridSharedSecretB64 in host
+  // ------------------------------------------------------------------
+  const augmentedOptions = await augmentVerifyOptionsForQBeap(payload.rawData, options)
+
+  // ------------------------------------------------------------------
   // Step 3: Route to Stage 5 sandbox
   // ------------------------------------------------------------------
   let sandboxResponse
   try {
-    sandboxResponse = await sandboxDepackage(payload.rawData, options)
+    sandboxResponse = await sandboxDepackage(payload.rawData, augmentedOptions)
   } catch (err) {
     // sandboxDepackage is designed to never throw — this is a belt-and-braces
     // catch for unexpected errors. Fail-closed.
@@ -587,7 +607,7 @@ export async function verifyImportedMessage(
       pkg.allGatesPassed &&
       pkg.authorizedProcessing?.decision === 'AUTHORIZED'
     ) {
-      const handshakeId = resolveHandshakeId(pkg, options)
+      const handshakeId = resolveHandshakeId(pkg, augmentedOptions)
       useBeapInboxStore.getState().addMessage(pkg, handshakeId)
     }
 
@@ -639,6 +659,71 @@ export async function verifyImportedMessage(
     nonDisclosingError: 'Package verification failed',
     failureStage: 'INTERNAL',
   }
+}
+
+// =============================================================================
+// Options Augmentation for qBEAP (Fix A + host-side hybrid pre-decapsulation)
+// =============================================================================
+
+/**
+ * Augment sandbox options for qBEAP packages.
+ * - File import: resolve handshake from package.receiver_binding.handshake_id, add senderX25519PublicKey
+ * - Hybrid packages: when mlkemSecretKeyB64 available, compute hybridSharedSecretB64 in host (sandbox has no network)
+ */
+async function augmentVerifyOptionsForQBeap(
+  rawData: string,
+  options: SandboxDecryptOptions
+): Promise<SandboxDecryptOptions> {
+  const parsed = parseBeapFile(rawData)
+  if (!parsed.success) return options
+
+  const pkg = parsed.package
+  if (pkg.header?.encoding !== 'qBEAP') return options
+
+  let handshakeId = options.handshakeId
+  let senderX25519PublicKey = options.senderX25519PublicKey
+  let hybridSharedSecretB64 = options.hybridSharedSecretB64
+  const mlkemSecretKeyB64 = options.mlkemSecretKeyB64
+
+  // Fix A: File import — resolve handshake from package.receiver_binding.handshake_id
+  if (handshakeId === '__file_import__' || handshakeId === '__email_import__') {
+    const pkgHandshakeId = pkg.header.receiver_binding?.handshake_id
+    if (pkgHandshakeId) {
+      try {
+        const hs = await getHandshake(pkgHandshakeId)
+        if (hs.peerX25519PublicKey) {
+          handshakeId = pkgHandshakeId
+          senderX25519PublicKey = hs.peerX25519PublicKey
+        }
+      } catch {
+        // Handshake lookup failed — continue with original options (Gate 4 will use package header fallback)
+      }
+    }
+  }
+
+  // Host-side hybrid pre-decapsulation: sandbox cannot reach PQ service (127.0.0.1:51248)
+  const pq = pkg.header.crypto?.pq
+  const isHybrid = pq && typeof pq === 'object' && pq.kemCiphertextB64 && typeof pq.kemCiphertextB64 === 'string' && pq.kemCiphertextB64.length > 0
+  if (isHybrid && mlkemSecretKeyB64?.trim() && !hybridSharedSecretB64) {
+    const resolvedSenderKey = senderX25519PublicKey?.trim() ||
+      (typeof pkg.header.crypto?.senderX25519PublicKeyB64 === 'string' ? pkg.header.crypto.senderX25519PublicKeyB64.trim() : '')
+    if (resolvedSenderKey) {
+      try {
+        const ecdhResult = await deriveSharedSecretX25519(resolvedSenderKey)
+        const decap = await pqDecapsulate(pq.kemCiphertextB64, mlkemSecretKeyB64.trim())
+        const hybridSecret = new Uint8Array(decap.sharedSecretBytes.length + ecdhResult.sharedSecret.length)
+        hybridSecret.set(decap.sharedSecretBytes, 0)
+        hybridSecret.set(ecdhResult.sharedSecret, decap.sharedSecretBytes.length)
+        hybridSharedSecretB64 = btoa(String.fromCharCode(...hybridSecret))
+      } catch {
+        // Pre-decapsulation failed — sandbox will try with mlkemSecretKeyB64 (will fail if no network)
+      }
+    }
+  }
+
+  const changed = handshakeId !== options.handshakeId || senderX25519PublicKey !== options.senderX25519PublicKey || hybridSharedSecretB64 !== options.hybridSharedSecretB64
+  if (!changed) return options
+  return { ...options, handshakeId, senderX25519PublicKey, hybridSharedSecretB64 }
 }
 
 // =============================================================================

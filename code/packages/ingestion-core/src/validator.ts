@@ -27,6 +27,7 @@ const VALID_CAPSULE_TYPES = new Set([
 ]);
 
 const MESSAGE_PACKAGE_REQUIRED_TOP_LEVEL = ['header', 'metadata'] as const;
+const VALID_MESSAGE_PACKAGE_ENCODINGS = new Set(['qBEAP', 'pBEAP', 'qbeap', 'pbeap']);
 
 const VALID_SHARING_MODES = new Set(['receive-only', 'reciprocal']);
 
@@ -201,6 +202,18 @@ function runValidationMessagePackage(
     return fail('MISSING_REQUIRED_FIELD', 'Message package must have envelope or payload');
   }
 
+  // Validate header.encoding if present (qBEAP or pBEAP, case-insensitive)
+  const header = obj.header;
+  if (header && typeof header === 'object') {
+    const enc = (header as Record<string, unknown>).encoding;
+    if (typeof enc === 'string' && enc.trim().length > 0) {
+      const encNorm = enc.toUpperCase();
+      if (encNorm !== 'QBEAP' && encNorm !== 'PBEAP') {
+        return fail('INVALID_ENUM_VALUE', `Message package header.encoding must be qBEAP or pBEAP, got: ${enc}`);
+      }
+    }
+  }
+
   const payloadSize = Buffer.byteLength(JSON.stringify(obj));
   if (payloadSize > INGESTION_CONSTANTS.MAX_PAYLOAD_BYTES) {
     return fail('PAYLOAD_SIZE_EXCEEDED', `Payload size ${payloadSize} exceeds limit ${INGESTION_CONSTANTS.MAX_PAYLOAD_BYTES}`);
@@ -209,6 +222,7 @@ function runValidationMessagePackage(
   const safeObj = sanitizeObject(obj);
   const validatedPayload: ValidatedCapsulePayload = {
     capsule_type: 'message_package',
+    content_type: 'beap_message_package',
     schema_version: 2,
     handshake_id: extractHandshakeIdFromMessagePackage(safeObj),
     ...safeObj,
@@ -378,6 +392,7 @@ function runValidation(candidate: CandidateCapsuleEnvelope): ValidationResult {
   const safeObj = sanitizeObject(obj);
   const validatedPayload: ValidatedCapsulePayload = {
     capsule_type: capsuleType,
+    content_type: 'handshake_capsule',
     schema_version: (obj.schema_version as number) ?? 2,
     handshake_id: typeof safeObj.handshake_id === 'string' ? safeObj.handshake_id : undefined,
     ...safeObj,

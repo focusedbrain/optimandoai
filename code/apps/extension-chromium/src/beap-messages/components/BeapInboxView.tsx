@@ -64,6 +64,7 @@ import { useBeapInboxStore } from '../useBeapInboxStore'
 import { useInboxKeyboardNav } from '../hooks/useInboxKeyboardNav'
 import { useMediaQuery, NARROW_VIEWPORT } from '../hooks/useMediaQuery'
 import { usePendingP2PBeapIngestion } from '../../handshake/usePendingP2PBeapIngestion'
+import { usePendingPlainEmailIngestion } from '../../handshake/usePendingPlainEmailIngestion'
 
 // =============================================================================
 // Public API
@@ -210,6 +211,7 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
 
     // P2P pending BEAP ingestion (polls, imports, verifies, acks)
     usePendingP2PBeapIngestion()
+    usePendingPlainEmailIngestion()
 
     // Local state
     const [isLoading, setIsLoading]   = useState(true)

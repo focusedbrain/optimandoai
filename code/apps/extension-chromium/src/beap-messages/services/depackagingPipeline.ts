@@ -287,6 +287,13 @@ export interface PipelineInput {
   mlkemSecretKeyB64?: string
 
   /**
+   * Pre-derived hybrid shared secret (64 bytes, base64) when host performs ML-KEM
+   * decapsulation before sandbox. Sandbox has no network access; when present,
+   * Gate 4 skips ECDH + pqDecapsulate and uses this directly for deriveBeapKeys.
+   */
+  hybridSharedSecretB64?: string
+
+  /**
    * Whether to bypass Gate 5 signature verification.
    *
    * NOT RECOMMENDED. Present only for test environments or debugging.
@@ -782,19 +789,21 @@ export async function gate3CiphertextIntegrity(
  * @param gate3ctx              - Chain-of-custody from Gate 3
  * @param senderX25519PublicKey - Sender's X25519 public key (preferred from handshake; fallback to package header)
  * @param mlkemSecretKeyB64     - Receiver's ML-KEM-768 secret key for hybrid decapsulation (required when pq present)
+ * @param hybridSharedSecretB64 - Pre-derived 64-byte hybrid secret (host-side decapsulation); when present, skips ECDH+ML-KEM
  */
 export async function gate4Decryption(
   pkg: BeapPackage,
   gate3ctx: Gate3Context,
   senderX25519PublicKey?: string,
-  mlkemSecretKeyB64?: string
+  mlkemSecretKeyB64?: string,
+  hybridSharedSecretB64?: string
 ): Promise<GateResult<Gate4Context>> {
   const GATE = 4 as const
 
   if (gate3ctx.encoding === 'qBEAP') {
-    // FIX A: Fallback to package header when options don't provide sender key
-    const resolvedSenderKey = senderX25519PublicKey?.trim() ||
-      (typeof pkg.header.crypto?.senderX25519PublicKeyB64 === 'string' && pkg.header.crypto.senderX25519PublicKeyB64.trim())
+    // FIX A: Prefer options (handshake), fallback to package header (sender's embedded key)
+    const resolvedSenderKey = (senderX25519PublicKey?.trim()) ||
+      (typeof pkg.header.crypto?.senderX25519PublicKeyB64 === 'string' ? pkg.header.crypto.senderX25519PublicKeyB64.trim() : '')
     if (!resolvedSenderKey) {
       return { passed: false, gate: GATE, error: 'GATE4: senderX25519PublicKey required for qBEAP (not in options or package header).', nonDisclosingError: nonDisclosingError(GATE) }
     }
@@ -814,8 +823,21 @@ export async function gate4Decryption(
 
     try {
       let sharedSecret: Uint8Array
-      const ecdhResult = await deriveSharedSecretX25519(resolvedSenderKey)
-      if (isHybrid) {
+      // FIX B: When host pre-derived hybrid secret (sandbox has no network), use it directly
+      if (hybridSharedSecretB64?.trim() && isHybrid) {
+        const preDerived = fromBase64(hybridSharedSecretB64.trim())
+        if (preDerived.length !== 64) {
+          return {
+            passed: false,
+            gate: GATE,
+            error: 'GATE4: hybridSharedSecretB64 must be 64 bytes (ML-KEM 32 + X25519 32).',
+            nonDisclosingError: nonDisclosingError(GATE)
+          }
+        }
+        sharedSecret = preDerived
+      } else {
+        const ecdhResult = await deriveSharedSecretX25519(resolvedSenderKey)
+        if (isHybrid) {
         // FIX B: Hybrid ML-KEM + X25519 — builder order: PQ first, then X25519 (64 bytes total)
         if (!mlkemSecretKeyB64?.trim()) {
           return {
@@ -860,6 +882,7 @@ export async function gate4Decryption(
         sharedSecret = hybridSecret
       } else {
         sharedSecret = ecdhResult.sharedSecret
+      }
       }
 
       const saltBytes = fromBase64(salt)
@@ -1233,7 +1256,7 @@ export async function runDepackagingPipeline(
   }
 
   // Gate 4 — PQ/Key Derivation + Decryption
-  const g4 = await gate4Decryption(input.pkg, g3.context, input.senderX25519PublicKey, input.mlkemSecretKeyB64)
+  const g4 = await gate4Decryption(input.pkg, g3.context, input.senderX25519PublicKey, input.mlkemSecretKeyB64, input.hybridSharedSecretB64)
   gateResults.push(g4)
   if (!g4.passed || !g4.context) {
     return { success: false, failedGate: 4, internalError: g4.error, nonDisclosingError: g4.nonDisclosingError, gateResults }

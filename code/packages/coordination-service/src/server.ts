@@ -195,6 +195,7 @@ function createRequestHandler(
           typeof parsed === 'object' &&
           'header' in parsed &&
           'metadata' in parsed &&
+          ('envelope' in parsed || 'payload' in parsed) &&
           !('capsule_type' in parsed)
 
         if (isMessagePackage) {

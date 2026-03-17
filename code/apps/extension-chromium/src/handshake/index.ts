@@ -13,6 +13,7 @@ export * from './handshakeRpc'
 // New hook (reads from backend RPC)
 export { useHandshakes } from './useHandshakes'
 export { usePendingP2PBeapIngestion } from './usePendingP2PBeapIngestion'
+export { usePendingPlainEmailIngestion } from './usePendingPlainEmailIngestion'
 
 // Legacy types (kept for non-handshake uses like fingerprint utilities)
 export * from './types'

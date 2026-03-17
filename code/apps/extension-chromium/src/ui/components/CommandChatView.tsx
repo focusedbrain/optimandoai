@@ -151,8 +151,8 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
         // Log audit event
         await logImportEvent(result.messageId, 'download', {})
         
-        // Show success toast
-        setToastMessage('BEAP™ Message imported to Inbox (pending verification).')
+        // Show success toast (auto-verified, message is in inbox)
+        setToastMessage('BEAP™ Message imported and verified. Check your inbox.')
         setTimeout(() => setToastMessage(null), 4000)
       } else {
         // Show error toast

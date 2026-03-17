@@ -570,6 +570,22 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_processed ON p2p_pending_beap(processed)`,
     ],
   },
+  {
+    version: 28,
+    description: 'Schema v28: plain_email_inbox for depackaged plain emails (Canon §6)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS plain_email_inbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_json TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        email_message_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        processed INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_plain_email_inbox_dedup ON plain_email_inbox(account_id, email_message_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_plain_email_inbox_processed ON plain_email_inbox(processed)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
@@ -952,6 +968,53 @@ export function deletePendingP2PBeap(db: any, id: number): void {
   if (!db) return
   try {
     db.prepare('DELETE FROM p2p_pending_beap WHERE id = ?').run(id)
+  } catch { /* non-fatal */ }
+}
+
+// ── Plain Email Inbox (Canon §6 depackaged emails) ──
+
+export interface PendingPlainEmailEntry {
+  id: number
+  message_json: string
+  account_id: string
+  email_message_id: string
+  created_at: string
+}
+
+export function insertPendingPlainEmail(
+  db: any,
+  accountId: string,
+  emailMessageId: string,
+  messageJson: string,
+): void {
+  if (!db) return
+  try {
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT OR IGNORE INTO plain_email_inbox (message_json, account_id, email_message_id, created_at, processed)
+       VALUES (?, ?, ?, ?, 0)`
+    ).run(messageJson, accountId, emailMessageId, now)
+  } catch (e) {
+    console.warn('[DB] insertPendingPlainEmail error:', (e as Error)?.message)
+  }
+}
+
+export function getPendingPlainEmails(db: any): PendingPlainEmailEntry[] {
+  if (!db) return []
+  try {
+    const rows = db.prepare(
+      'SELECT id, message_json, account_id, email_message_id, created_at FROM plain_email_inbox WHERE processed = 0 ORDER BY created_at ASC'
+    ).all() as PendingPlainEmailEntry[]
+    return rows
+  } catch {
+    return []
+  }
+}
+
+export function markPlainEmailProcessed(db: any, id: number): void {
+  if (!db) return
+  try {
+    db.prepare('UPDATE plain_email_inbox SET processed = 1 WHERE id = ?').run(id)
   } catch { /* non-fatal */ }
 }
 

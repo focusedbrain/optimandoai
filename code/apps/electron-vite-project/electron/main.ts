@@ -2334,6 +2334,27 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:getPendingPlainEmails', async () => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { items: [] }
+        const result = await handleHandshakeRPC('handshake.getPendingPlainEmails', {}, db)
+        return { items: result?.items ?? [] }
+      } catch {
+        return { items: [] }
+      }
+    })
+
+    ipcMain.handle('handshake:ackPendingPlainEmail', async (_e, id: number) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false }
+        return await handleHandshakeRPC('handshake.ackPendingPlainEmail', { id }, db)
+      } catch {
+        return { success: false }
+      }
+    })
+
     ipcMain.handle('handshake:importBeapMessage', async (_e, packageJson: string) => {
       try {
         if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
@@ -7512,7 +7533,7 @@ app.whenReady().then(async () => {
         const accounts = await emailGateway.listAccounts()
         const active = accounts.filter((a: any) => a.status === 'active')
         if (active.length === 0) {
-          res.status(400).json({ ok: false, error: 'No connected email account. Connect an account to send BEAP packages.' })
+          res.status(400).json({ ok: false, error: 'No email account connected. Connect in Settings or use Download.' })
           return
         }
         const accountId = active[0].id

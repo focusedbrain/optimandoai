@@ -16,6 +16,7 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
+import { insertPendingP2PBeap } from '../handshake/db'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
 import {
@@ -149,6 +150,28 @@ async function processCapsuleInternal(
     }
 
     const { distribution } = result
+    if (distribution.target === 'message_relay') {
+      // BEAP message package (qBEAP/pBEAP): route to p2p_pending_beap for extension ingestion
+      const msgCapsule = distribution.validated_capsule!.capsule
+      const handshakeId =
+        (msgCapsule?.handshake_id as string)?.trim() ||
+        (msgCapsule?.header && typeof msgCapsule.header === 'object'
+          ? ((msgCapsule.header as Record<string, unknown>)?.receiver_binding as Record<string, unknown>)?.handshake_id as string
+          : undefined)?.trim() ||
+        '__relay_message__'
+      const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
+      if (db) {
+        try {
+          insertPendingP2PBeap(db, handshakeId, capsuleJson)
+          console.log('[Coordination] Message package routed to p2p_pending_beap, handshake=', handshakeId)
+        } catch (err: any) {
+          console.error('[Coordination] insertPendingP2PBeap failed:', err?.message ?? err)
+        }
+      }
+      setP2PHealthCoordinationLastPush()
+      sendAckFn([id])
+      return
+    }
     if (distribution.target !== 'handshake_pipeline') {
       console.log('[Coordination] Capsule routed to', distribution.target, '— ACKing (not handshake_pipeline)')
       sendAckFn([id])

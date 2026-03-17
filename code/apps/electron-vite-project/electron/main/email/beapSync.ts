@@ -13,10 +13,11 @@
  * Non-BEAP emails are ignored. Duplicate message IDs are not reprocessed.
  */
 
-import { insertPendingP2PBeap } from '../handshake/db'
+import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
 import type { SSOSession } from '../handshake/types'
 import { handleIngestionRPC } from '../ingestion/ipc'
 import type { SanitizedMessage, SanitizedMessageDetail, AttachmentMeta, ExtractedAttachmentText } from './types'
+import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 
 export interface BeapSyncConfig {
   pollIntervalMs: number
@@ -125,6 +126,9 @@ export function detectBeapMessagePackage(text: string): { detected: boolean; pac
       typeof parsed.metadata === 'object' &&
       ('envelope' in parsed || 'payload' in parsed)
     ) {
+      // Optional tighter check: header.encoding in ['qBEAP', 'pBEAP']
+      const enc = parsed.header?.encoding
+      if (enc != null && !['qBEAP', 'pBEAP'].includes(enc)) return { detected: false }
       return { detected: true, packageJson: trimmed }
     }
   } catch {
@@ -135,10 +139,14 @@ export function detectBeapMessagePackage(text: string): { detected: boolean; pac
 }
 
 /**
- * Check if an email subject suggests it contains a BEAP capsule.
+ * Check if an email subject suggests it contains a BEAP capsule or message package.
+ * Matches: "BEAP Handshake:" (capsules) or any subject containing "BEAP" (message packages).
  */
 export function detectBeapInSubject(subject: string): boolean {
-  return typeof subject === 'string' && subject.includes('BEAP Handshake:')
+  if (typeof subject !== 'string') return false
+  if (subject.includes('BEAP Handshake:')) return true
+  if (subject.includes('BEAP')) return true
+  return false
 }
 
 /**
@@ -201,6 +209,11 @@ export async function processEmailForBeap(
   const msgPkgDetection = detectBeapMessagePackage(message.bodyText)
   if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
     try {
+      console.log('[BEAP Sync] Message package detected in email body:', {
+        sender: message.from?.email,
+        subject: message.subject?.slice(0, 80),
+        messageId: message.id,
+      })
       insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
       processedMessageIds.add(messageKey)
       return { submitted: true }
@@ -257,6 +270,12 @@ export async function processEmailForBeap(
           // Try qBEAP/pBEAP message package (p2p_pending_beap → extension sandbox)
           const msgPkgDetection = detectBeapMessagePackage(extracted.text)
           if (msgPkgDetection.detected && msgPkgDetection.packageJson) {
+            console.log('[BEAP Sync] Message package detected in .beap attachment:', {
+              sender: message.from?.email,
+              subject: message.subject?.slice(0, 80),
+              attachment: att.filename,
+              messageId: message.id,
+            })
             insertPendingP2PBeap(db, '__email_import__', msgPkgDetection.packageJson)
             anySubmitted = true
           }
@@ -274,8 +293,35 @@ export async function processEmailForBeap(
     }
   }
 
-  processedMessageIds.add(messageKey)
-  return { submitted: false }
+  // Strategy 3: Plain email (Canon §6) — convert to depackaged BeapMessage for AI inbox
+  try {
+    const plainMsg = plainEmailToBeapMessage(message, accountId)
+    let enrichedMsg = plainMsg
+    if (message.hasAttachments && _emailListAttachmentsFn) {
+      try {
+        const attachments = await _emailListAttachmentsFn(accountId, message.id)
+        enrichedMsg = enrichWithAttachments(plainMsg, attachments.map((a) => ({
+          id: a.id,
+          filename: a.filename || 'attachment',
+          mimeType: a.mimeType || 'application/octet-stream',
+          size: a.size || 0,
+        })))
+      } catch {
+        // Non-fatal: keep msg without attachment metadata
+      }
+    }
+    insertPendingPlainEmail(db, accountId, message.id, JSON.stringify(enrichedMsg))
+    processedMessageIds.add(messageKey)
+    console.log('[BEAP Sync] Plain email queued for inbox:', {
+      sender: message.from?.email,
+      subject: message.subject?.slice(0, 80),
+      messageId: message.id,
+    })
+    return { submitted: true }
+  } catch (err: any) {
+    processedMessageIds.add(messageKey)
+    return { submitted: false, error: err?.message ?? 'Failed to queue plain email' }
+  }
 }
 
 /**
@@ -300,12 +346,6 @@ export async function runBeapSyncCycle(
       for (const msg of messages) {
         const messageKey = `${accountId}:${msg.id}`
         if (processedMessageIds.has(messageKey)) continue
-
-        const isCandidate = detectBeapInSubject(msg.subject) || msg.hasAttachments
-        if (!isCandidate) {
-          processedMessageIds.add(messageKey)
-          continue
-        }
 
         const detail = await _emailGetFn(accountId, msg.id)
         if (!detail) {

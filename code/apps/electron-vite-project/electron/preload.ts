@@ -233,6 +233,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
   ackPendingP2PBeap: (id: unknown) => {
     return ipcRenderer.invoke('handshake:ackPendingP2PBeap', typeof id === 'number' ? id : 0)
   },
+  getPendingPlainEmails: () => {
+    return ipcRenderer.invoke('handshake:getPendingPlainEmails')
+  },
+  ackPendingPlainEmail: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:ackPendingPlainEmail', typeof id === 'number' ? id : 0)
+  },
   importBeapMessage: (packageJson: unknown) => {
     if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
       return Promise.resolve({ success: false, error: 'Invalid package: expected non-empty string (max 512KB)' })

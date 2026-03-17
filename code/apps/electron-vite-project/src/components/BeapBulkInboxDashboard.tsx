@@ -5,8 +5,9 @@
  * Compose buttons [+ BEAP] and [✉+] Email at bottom-right.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
+import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 
@@ -84,6 +85,23 @@ export default function BeapBulkInboxDashboard({
     }
   }, [loadEmailAccounts, notify])
 
+  // Reply composer config: AI provider for Draft with AI + enhanced classification
+  const replyComposerConfig = useMemo(() => {
+    const generate = async (prompt: string): Promise<string> => {
+      const fn = (window as any).handshakeView?.generateDraft
+      if (typeof fn !== 'function') throw new Error('Draft generation not available')
+      const result = await fn(prompt)
+      if (!result?.success) throw new Error(result?.error ?? 'Draft generation failed')
+      return result?.answer ?? ''
+    }
+    return {
+      senderFingerprint: '',
+      senderFingerprintShort: '',
+      aiProvider: createBeapReplyAiProvider(generate),
+      policy: { allowSemanticProcessing: true, allowActuatingProcessing: false },
+    }
+  }, [])
+
   return (
     <div style={{
       position: 'relative',
@@ -132,6 +150,7 @@ export default function BeapBulkInboxDashboard({
         isOpen={showEmailConnectModal}
         onClose={() => setShowEmailConnectModal(false)}
         onConnected={() => {
+          notify('Email connected', 'success')
           loadEmailAccounts()
           setShowEmailConnectModal(false)
         }}
@@ -155,6 +174,9 @@ export default function BeapBulkInboxDashboard({
           onSetSearchContext={onSetSearchContext}
           onViewHandshake={onNavigateToHandshake}
           onViewInInbox={onViewInInbox}
+          replyComposerConfig={replyComposerConfig}
+          onClassificationComplete={(count) => notify(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`, 'success')}
+          onArchiveComplete={(count) => notify(`Archived ${count} message${count === 1 ? '' : 's'}`, 'success')}
         />
       </div>
 

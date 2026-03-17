@@ -3179,6 +3179,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
         })
+        .catch(err => {
+          console.error('[BG] EMAIL_SEND_BEAP error:', err)
+          sendResponse({ ok: false, error: err?.message || 'Failed to send email' })
+        })
       
       return true
     }

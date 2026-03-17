@@ -383,7 +383,9 @@ export const BeapReplyComposer: React.FC<BeapReplyComposerProps> = ({
           }}
         >
           <span style={{ fontSize: '11px', color: '#ef4444', flex: 1 }}>
-            ⚠️ {state.error}
+            ⚠️ {/^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(state.error)
+              ? 'Something went wrong. Please try again.'
+              : state.error}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button

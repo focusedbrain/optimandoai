@@ -17,6 +17,28 @@ import type {
   TrustLevel,
   BeapEncoding,
 } from './beapInboxTypes'
+import type { ProcessingEventOffer } from './services/processingEvents'
+
+// =============================================================================
+// Default Processing Events (receiver-side for depackaged / pBEAP)
+// =============================================================================
+
+/**
+ * Default ProcessingEventOffer when the sender did not include declarations.
+ * Used for depackaged (plain emails) and standard (pBEAP) trust levels.
+ *
+ * Rationale: plain emails and pBEAP are the user's own mail or public mode —
+ * local AI analysis should be unrestricted. No automation (actuating NONE)
+ * without explicit consent.
+ */
+const DEFAULT_PROCESSING_EVENTS_LOCAL: ProcessingEventOffer = {
+  schemaVersion: '1.0',
+  senderIntentOnly: true,
+  declarations: [
+    { class: 'semantic', boundary: 'LOCAL', scope: 'FULL', providers: [], retention: 'NONE' },
+    { class: 'actuating', boundary: 'NONE', scope: 'MINIMAL', providers: [], retention: 'NONE' },
+  ],
+}
 
 // =============================================================================
 // Trust Level Derivation
@@ -125,9 +147,14 @@ export function sanitisedPackageToBeapMessage(
   const automationTags: string[] = pkg.capsule.automation?.tags ?? []
 
   // Processing events: surfaced from authorized processing result.
-  const processingEvents =
-    (pkg.authorizedProcessing as { offer?: import('./services/processingEvents').ProcessingEventOffer })
-      .offer ?? null
+  // When null: set defaults for depackaged/pBEAP so AI classification can run.
+  // For pro/enterprise (qBEAP): keep null — sender's explicit declaration is respected.
+  const trustLevel = deriveTrustLevel(pkg)
+  let processingEvents =
+    (pkg.authorizedProcessing as { offer?: ProcessingEventOffer })?.offer ?? null
+  if (processingEvents == null && (trustLevel === 'depackaged' || trustLevel === 'standard')) {
+    processingEvents = DEFAULT_PROCESSING_EVENTS_LOCAL
+  }
 
   const encoding: BeapEncoding =
     pkg.header.encoding === 'qBEAP' || pkg.header.encoding === 'pBEAP'
@@ -141,7 +168,7 @@ export function sanitisedPackageToBeapMessage(
     senderDisplayName: undefined,
     handshakeId,
     encoding,
-    trustLevel: deriveTrustLevel(pkg),
+    trustLevel,
     messageBody,
     canonicalContent,
     attachments: mapAttachments(pkg),

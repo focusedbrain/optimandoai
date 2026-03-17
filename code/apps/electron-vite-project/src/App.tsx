@@ -190,6 +190,7 @@ function App() {
                 setSelectedHandshakeId(id)
                 setSelectedHandshakeEmail(null)
               }}
+              onNavigateToHandshakesTab={() => setActiveView('handshakes')}
             />
           )
         ) : activeView === 'settings' ? (

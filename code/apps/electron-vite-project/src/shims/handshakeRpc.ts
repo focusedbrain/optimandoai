@@ -119,4 +119,26 @@ export async function ackPendingP2PBeap(id: number): Promise<void> {
   if (typeof fn === 'function') await fn(id)
 }
 
+export interface PendingPlainEmailEntry {
+  id: number
+  message_json: string
+  account_id: string
+  email_message_id: string
+  created_at: string
+}
+
+export async function getPendingPlainEmails(): Promise<PendingPlainEmailEntry[]> {
+  const fn = (window.handshakeView as any)?.getPendingPlainEmails
+  if (typeof fn === 'function') {
+    const res = await fn()
+    return res?.items ?? res ?? []
+  }
+  return []
+}
+
+export async function ackPendingPlainEmail(id: number): Promise<void> {
+  const fn = (window.handshakeView as any)?.ackPendingPlainEmail
+  if (typeof fn === 'function') await fn(id)
+}
+
 export { listHandshakes as _sendHandshakeRpc }

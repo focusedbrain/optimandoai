@@ -573,8 +573,9 @@ function SidepanelOrchestrator() {
         }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-      setNotification({ message, type: 'error' })
+      const raw = error instanceof Error ? error.message : 'An unexpected error occurred'
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+      setNotification({ message: isTechnical ? 'Something went wrong. Please try again.' : raw, type: 'error' })
     } finally {
       setIsSendingBeap(false)
       setTimeout(() => setNotification(null), 3000)
@@ -737,7 +738,9 @@ function SidepanelOrchestrator() {
       await connectGmailAccount()
     } catch (err: any) {
       console.error('[Sidepanel] Failed to save Gmail credentials:', err)
-      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
+      const raw = err?.message || 'Failed to save credentials'
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+      setNotification({ message: isTechnical ? 'Failed to save credentials. Please try again.' : raw, type: 'error' })
       setTimeout(() => setNotification(null), 5000)
       setEmailSetupStep('gmail-credentials')
     }
@@ -817,7 +820,9 @@ function SidepanelOrchestrator() {
       await connectOutlookAccount()
     } catch (err: any) {
       console.error('[Sidepanel] Failed to save Outlook credentials:', err)
-      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
+      const raw = err?.message || 'Failed to save credentials'
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+      setNotification({ message: isTechnical ? 'Failed to save credentials. Please try again.' : raw, type: 'error' })
       setTimeout(() => setNotification(null), 5000)
       setEmailSetupStep('outlook-credentials')
     }
@@ -3726,7 +3731,7 @@ function SidepanelOrchestrator() {
           color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
           textAlign: 'center'
         }}>
-          Loading...
+          Loading WR Desk™…
         </div>
       </div>
     )
@@ -4915,6 +4920,8 @@ function SidepanelOrchestrator() {
                           useBeapInboxStore.getState().selectMessage(messageId)
                         }}
                         replyComposerConfig={replyComposerConfig}
+                        onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                        onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                       />
                     </InboxErrorBoundary>
                   )}
@@ -6484,6 +6491,8 @@ height: '28px',
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
                       replyComposerConfig={replyComposerConfig}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                     />
                   </InboxErrorBoundary>
                 )}
@@ -7621,6 +7630,8 @@ height: '28px',
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
                       replyComposerConfig={replyComposerConfig}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                     />
                   </InboxErrorBoundary>
                 )}

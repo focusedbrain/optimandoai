@@ -127,6 +127,15 @@ interface BeapInboxState {
     handshakeId: string | null,
   ) => BeapMessage
 
+  /**
+   * Add a plain (non-BEAP) email as a depackaged BeapMessage (Canon §6).
+   * No package; message is injected directly. Shows with ✉️ icon.
+   *
+   * @param msg BeapMessage from plainEmailToBeapMessage (Electron).
+   * @returns The added message.
+   */
+  addPlainEmailMessage: (msg: BeapMessage) => BeapMessage
+
   /** Select a message (pass null to deselect). */
   selectMessage: (messageId: string | null) => void
 
@@ -316,6 +325,24 @@ export const useBeapInboxStore = create<BeapInboxState>((set, get) => ({
       const nextNew = new Set(state.newMessageIds)
       nextNew.add(msg.messageId)
       return { messages: next, packages: nextPkgs, newMessageIds: nextNew }
+    })
+    setTimeout(() => {
+      set((state) => {
+        const nextNew = new Set(state.newMessageIds)
+        nextNew.delete(msg.messageId)
+        return nextNew.size !== state.newMessageIds.size ? { newMessageIds: nextNew } : {}
+      })
+    }, NEW_MESSAGE_TTL_MS)
+    return msg
+  },
+
+  addPlainEmailMessage: (msg) => {
+    set((state) => {
+      const next = new Map(state.messages)
+      next.set(msg.messageId, msg)
+      const nextNew = new Set(state.newMessageIds)
+      nextNew.add(msg.messageId)
+      return { messages: next, newMessageIds: nextNew }
     })
     setTimeout(() => {
       set((state) => {

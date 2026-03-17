@@ -19,6 +19,7 @@ import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
 import BeapMessageImportZone from './BeapMessageImportZone'
+import BeapInboxFirstRun from './BeapInboxFirstRun'
 
 const THEME = 'professional' as const
 
@@ -63,6 +64,8 @@ interface BeapInboxDashboardProps {
   onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
   onSetSearchContext?: (context: string) => void
   onNavigateToHandshake?: (handshakeId: string) => void
+  /** Switch to Handshakes tab (for first-run "Go to Handshakes" CTA). */
+  onNavigateToHandshakesTab?: () => void
 }
 
 export default function BeapInboxDashboard({
@@ -71,6 +74,7 @@ export default function BeapInboxDashboard({
   onAttachmentSelect,
   onSetSearchContext,
   onNavigateToHandshake,
+  onNavigateToHandshakesTab,
 }: BeapInboxDashboardProps) {
   usePendingP2PBeapIngestion()
 
@@ -187,6 +191,36 @@ export default function BeapInboxDashboard({
   }, [])
 
   const gridCols = effectiveSelectedId ? '280px 1fr' : '280px 1fr 320px'
+
+  const showFirstRun =
+    messages.length === 0 &&
+    emailAccounts.length === 0 &&
+    !isLoadingEmailAccounts
+
+  const handleOpenBeapDraft = useCallback(() => {
+    handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())
+  }, [handleComposeClick])
+
+  if (showFirstRun) {
+    return (
+      <div style={{
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        background: 'var(--color-bg, #0f172a)',
+        color: 'var(--color-text, #e2e8f0)',
+      }}>
+        <BeapInboxFirstRun
+          onConnectEmail={handleConnectEmail}
+          onNavigateToHandshakes={onNavigateToHandshakesTab ?? (() => {})}
+          onOpenCompose={handleOpenBeapDraft}
+          onImportSuccess={undefined}
+        />
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -390,7 +424,11 @@ export default function BeapInboxDashboard({
               color: 'var(--color-text-muted, #94a3b8)',
             }}>
               <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.3 }}>✉️</div>
-              <div style={{ fontSize: '13px' }}>Select a message to view details</div>
+              <div style={{ fontSize: '13px', textAlign: 'center' }}>
+                {messages.length === 0
+                  ? 'Import a .beap file to get started'
+                  : 'Select a message to view details'}
+              </div>
             </div>
           </div>
         )}
@@ -444,6 +482,7 @@ export default function BeapInboxDashboard({
         isOpen={showEmailConnectModal}
         onClose={() => setShowEmailConnectModal(false)}
         onConnected={() => {
+          notify('Email connected', 'success')
           loadEmailAccounts()
           setShowEmailConnectModal(false)
         }}

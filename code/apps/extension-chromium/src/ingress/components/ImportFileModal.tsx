@@ -6,7 +6,7 @@
  * @version 1.0.0
  */
 
-import React, { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { importFromFile } from '../importPipeline'
 import {
   getThemeTokens,
@@ -41,11 +41,23 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
   // State
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+  const [importPhase, setImportPhase] = useState<'importing' | 'verifying'>('importing')
+  const [verifyingSlow, setVerifyingSlow] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Show "this may take a moment" when verification runs >2s
+  useEffect(() => {
+    if (!importing || importPhase !== 'verifying') {
+      setVerifyingSlow(false)
+      return
+    }
+    const t = setTimeout(() => setVerifyingSlow(true), 2000)
+    return () => clearTimeout(t)
+  }, [importing, importPhase])
   
   // Handle file selection
   const handleFileSelect = useCallback((file: File | null) => {
@@ -93,24 +105,35 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
     
     setImporting(true)
     setError(null)
+    setImportPhase('importing')
+    setVerifyingSlow(false)
     
     try {
-      const result = await importFromFile(selectedFile)
+      const result = await importFromFile(selectedFile, {
+        onProgress: (phase) => {
+          setImportPhase(phase)
+          if (phase !== 'verifying') setVerifyingSlow(false)
+        },
+      })
       
       if (result.success) {
         setSuccess(true)
         setSelectedFile(null)
         
-        // Close after short delay
+        // Close after short delay (message is already verified and in inbox)
         setTimeout(() => {
           onClose()
           setSuccess(false)
         }, 1500)
       } else {
-        setError(result.error || 'Import failed')
+        const raw = result.error || 'Import failed'
+        const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+        setError(isTechnical ? 'Import failed. Please try again.' : raw)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Import failed')
+      const raw = e instanceof Error ? e.message : 'Import failed'
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+      setError(isTechnical ? 'Import failed. Please try again.' : raw)
     } finally {
       setImporting(false)
     }
@@ -202,7 +225,12 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
             </div>
 
             {error && <div style={notificationStyle('error')}>✕ {error}</div>}
-            {success && <div style={{ ...notificationStyle('success'), textAlign: 'center' }}>✓ File imported successfully! Redirecting...</div>}
+            {success && <div style={{ ...notificationStyle('success'), textAlign: 'center' }}>✓ File imported and verified. Message is in your inbox.</div>}
+            {importing && importPhase === 'verifying' && (
+              <div style={{ fontSize: '11px', color: t.textMuted, textAlign: 'center' }}>
+                {verifyingSlow ? '⏳ Decrypting and validating…' : '🔐 Verifying package…'}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={handleClose} style={secondaryButtonStyle(t)}>Cancel</button>
@@ -222,7 +250,13 @@ export const ImportFileModal: React.FC<ImportFileModalProps> = ({
                   transition: 'all 0.18s',
                 }}
               >
-                {importing ? 'Importing...' : success ? 'Done!' : 'Import'}
+                {importing
+                  ? (importPhase === 'verifying'
+                      ? (verifyingSlow ? 'Verifying… (may take a moment)' : 'Verifying…')
+                      : 'Importing…')
+                  : success
+                    ? 'Done!'
+                    : 'Import'}
               </button>
             </div>
           </div>

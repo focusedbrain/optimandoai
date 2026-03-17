@@ -258,6 +258,7 @@ function deserialiseOptions(opts: SandboxDecryptOptions): Parameters<typeof decr
     handshakes,
     senderX25519PublicKey: opts.senderX25519PublicKey,
     mlkemSecretKeyB64: opts.mlkemSecretKeyB64,
+    hybridSharedSecretB64: opts.hybridSharedSecretB64,
     skipSignatureVerification: opts.skipSignatureVerification,
     knownSenders,
     knownReceiver,

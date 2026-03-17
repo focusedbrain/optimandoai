@@ -74,6 +74,13 @@ export interface SandboxDecryptOptions {
   /** Receiver's ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation. Required when package has pq.kemCiphertextB64 */
   mlkemSecretKeyB64?: string
 
+  /**
+   * Pre-derived hybrid shared secret (64 bytes, base64) when host performs ML-KEM
+   * decapsulation before sandbox. Sandbox has no network access; when present,
+   * Gate 4 skips ECDH + pqDecapsulate and uses this directly for deriveBeapKeys.
+   */
+  hybridSharedSecretB64?: string
+
   /** Skip signature verification (NOT recommended; documented for test use only). */
   skipSignatureVerification?: boolean
 

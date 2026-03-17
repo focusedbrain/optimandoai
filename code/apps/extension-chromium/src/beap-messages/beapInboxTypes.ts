@@ -36,7 +36,7 @@ export type UrgencyLevel = 'urgent' | 'action-required' | 'normal' | 'irrelevant
 export type ReplyMode = 'beap' | 'email'
 
 /** Distribution encoding of the original message. Used for reply mode matching. */
-export type BeapEncoding = 'qBEAP' | 'pBEAP' | 'unknown'
+export type BeapEncoding = 'qBEAP' | 'pBEAP' | 'none' | 'unknown'
 
 // =============================================================================
 // BeapAttachment

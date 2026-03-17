@@ -493,18 +493,26 @@ function resolveAuthorizedScope(gateResult: AuthorizedProcessingResult): Process
 /**
  * Find the first registered provider that matches any of the authorized
  * provider IDs from the gate result.
+ * When the sender did not declare specific providers (permittedProviderIds empty),
+ * use the first registered provider as a receiver-side fallback for enhanced classification.
  */
 function resolveProvider(
   gateResult: AuthorizedProcessingResult,
   providers: AIProvider[],
 ): AIProvider | null {
+  if (providers.length === 0) return null
   // Collect all permitted provider IDs from the semantic gate result
   const authorizedIds = new Set<string>(gateResult.authorizedTokenIds)
   const permittedProviderIds = gateResult.processingGate.effective.semantic.permittedProviderIds
   for (const id of permittedProviderIds) {
     authorizedIds.add(id)
   }
-  return providers.find((p) => authorizedIds.has(p.providerId)) ?? null
+  const matched = providers.find((p) => authorizedIds.has(p.providerId))
+  if (matched) return matched
+  // Fallback: sender authorized semantic processing but did not declare providers;
+  // use first registered provider for enhanced classification
+  if (permittedProviderIds.length === 0) return providers[0]
+  return null
 }
 
 /** Run Stage 6.1 gate for a single BeapMessage. */

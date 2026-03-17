@@ -25,6 +25,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError && this.state.error) {
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(
+        this.state.error.message
+      )
+      const userMessage = isTechnical
+        ? 'Something went wrong. Please try again.'
+        : this.state.error.message
       return (
         <div
           style={{
@@ -38,18 +44,10 @@ export class ErrorBoundary extends Component<Props, State> {
             gap: 16,
           }}
         >
-          <h2 style={{ color: '#f87171' }}>Dashboard Error</h2>
-          <pre
-            style={{
-              background: '#1e293b',
-              padding: 16,
-              borderRadius: 8,
-              overflow: 'auto',
-              fontSize: 13,
-            }}
-          >
-            {this.state.error.message}
-          </pre>
+          <h2 style={{ color: '#f87171', fontSize: 18, margin: 0 }}>Something went wrong</h2>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#94a3b8' }}>
+            {userMessage}
+          </p>
           <button
             onClick={() => this.setState({ hasError: false, error: null })}
             style={{
@@ -60,6 +58,8 @@ export class ErrorBoundary extends Component<Props, State> {
               borderRadius: 6,
               cursor: 'pointer',
               alignSelf: 'flex-start',
+              fontSize: 14,
+              fontWeight: 500,
             }}
           >
             Try again
