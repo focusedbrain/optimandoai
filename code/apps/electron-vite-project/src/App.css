@@ -763,6 +763,12 @@ body {
   min-width: 320px;
 }
 
+/* Provider section contrast fix — light blue bg needs dark text for readability */
+.inbox-provider-section,
+.bulk-view-provider-body {
+  color: #1e293b;
+}
+
 .inbox-no-selection-right {
   min-width: 280px;
 }
@@ -1008,7 +1014,8 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  min-height: 480px;
+  height: 320px;
+  max-height: 320px;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 10px;
   overflow: hidden;
@@ -1038,7 +1045,7 @@ body {
 
 .bulk-view-message-body {
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1189,7 +1196,7 @@ body {
 .bulk-view-modal {
   width: 90%;
   max-width: 720px;
-  min-height: 320px;
+  min-height: 280px;
   max-height: 85vh;
   background: var(--color-bg, #0f172a);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));

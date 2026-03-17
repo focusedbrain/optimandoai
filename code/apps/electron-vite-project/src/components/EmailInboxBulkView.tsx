@@ -275,6 +275,15 @@ export default function EmailInboxBulkView({
   const expandedMessage =
     expandedMessageId && selectedMessageId === expandedMessageId ? selectedMessage : null
 
+  useEffect(() => {
+    if (!expandedMessageId) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleCloseExpand()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [expandedMessageId, handleCloseExpand])
+
   return (
     <div className="bulk-view-root">
       {/* Toolbar */}
@@ -451,7 +460,7 @@ export default function EmailInboxBulkView({
         {providerSectionExpanded && (
           <div className="bulk-view-provider-body">
             <EmailProvidersSection
-              theme="dark"
+              theme="professional"
               emailAccounts={providerAccounts}
               isLoadingEmailAccounts={isLoadingProviderAccounts}
               selectedEmailAccountId={selectedProviderAccountId}

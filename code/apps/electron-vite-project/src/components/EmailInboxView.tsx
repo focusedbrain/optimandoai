@@ -571,15 +571,17 @@ export default function EmailInboxView({
               borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
-            <EmailProvidersSection
-              theme="dark"
-              emailAccounts={providerAccounts}
+            <div className="inbox-provider-section">
+              <EmailProvidersSection
+                theme="professional"
+                emailAccounts={providerAccounts}
               isLoadingEmailAccounts={isLoadingProviderAccounts}
               selectedEmailAccountId={selectedProviderAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
               onSelectEmailAccount={setSelectedProviderAccountId}
-            />
+              />
+            </div>
             <div
               style={{
                 flex: 1,
