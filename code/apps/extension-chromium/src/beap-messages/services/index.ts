@@ -201,6 +201,7 @@ export {
   type PQEncapsulationResult,
   type PQDecapsulationResult,
   PQNotAvailableError,
+  setPqAuthHeadersProvider,
   pqKemSupported,
   pqKemSupportedAsync,
   pqKemGenerateKeyPair,

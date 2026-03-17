@@ -5,7 +5,7 @@
  * Compose buttons [+ BEAP] and [✉+] Email at bottom-right.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
@@ -27,6 +27,14 @@ export default function BeapBulkInboxDashboard({
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const composeClickRef = useRef<number>(0)
+
+  const handleComposeClick = useCallback((fn: () => void) => {
+    const now = Date.now()
+    if (now - composeClickRef.current < 600) return
+    composeClickRef.current = now
+    fn()
+  }, [])
 
   const notify = useCallback((msg: string, type: 'success' | 'error' | 'info') => {
     setToast({ msg, type })
@@ -153,7 +161,7 @@ export default function BeapBulkInboxDashboard({
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
         <button
-          onClick={() => window.analysisDashboard?.openEmailCompose?.()}
+          onClick={() => handleComposeClick(() => window.analysisDashboard?.openEmailCompose?.())}
           style={{
             display: 'flex', alignItems: 'center', gap: '4px',
             padding: '10px 14px', borderRadius: '24px',
@@ -166,7 +174,7 @@ export default function BeapBulkInboxDashboard({
           ✉️+
         </button>
         <button
-          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
+          onClick={() => handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())}
           style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '10px 18px', borderRadius: '24px',

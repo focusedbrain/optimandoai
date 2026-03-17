@@ -140,3 +140,7 @@ export type {
 // Seed data (for development)
 export { SEED_MESSAGES, getSeedMessagesByFolder } from './seedData'
 
+// PQ auth init — call from sidepanel/popup on mount so qBEAP can reach Electron PQ API
+export { setPqAuthHeadersProvider } from './services'
+export { initBeapPqAuth } from './initBeapPqAuth'
+

@@ -32,7 +32,7 @@ import { formatErrorForNotification, isConnectionError } from './utils/errorMess
 import { EmailConnectWizard } from './shared/components/EmailConnectWizard'
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
-import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox } from './beap-messages'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import { BeapInboxView } from './beap-messages/components/BeapInboxView'
@@ -137,6 +137,11 @@ function SidepanelOrchestrator() {
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  // Init BEAP PQ auth so qBEAP can reach Electron PQ API (port 51248)
+  useEffect(() => {
+    initBeapPqAuth()
+  }, [])
 
   // Deep linking: ?message=id, ?handshake=id, or #message=id, #handshake=id (R.8)
   useEffect(() => {

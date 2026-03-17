@@ -1846,8 +1846,30 @@ export class PQNotAvailableError extends Error {
   }
 }
 
-// Electron API base URL for PQ operations
-const ELECTRON_PQ_BASE_URL = 'http://127.0.0.1:17179'
+// Electron API base URL for PQ operations (must match main HTTP server port 51248)
+const ELECTRON_PQ_BASE_URL = 'http://127.0.0.1:51248'
+
+// Optional provider for auth headers (X-Launch-Secret) — set by extension init
+let _pqAuthHeadersProvider: (() => Promise<Record<string, string>>) | null = null
+
+/**
+ * Set the provider for PQ API auth headers. Called by extension init (sidepanel/popup).
+ * The provider should return { 'X-Launch-Secret': launchSecret } from the background.
+ */
+export function setPqAuthHeadersProvider(provider: (() => Promise<Record<string, string>>) | null): void {
+  _pqAuthHeadersProvider = provider
+}
+
+async function _getPqHeaders(): Promise<Record<string, string>> {
+  if (_pqAuthHeadersProvider) {
+    try {
+      return await _pqAuthHeadersProvider()
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
 
 // Cache for PQ availability status (to avoid repeated HTTP calls)
 let _pqAvailabilityCache: { available: boolean; checkedAt: number } | null = null
@@ -1884,8 +1906,11 @@ export function pqKemSupported(): boolean {
  */
 export async function pqKemSupportedAsync(): Promise<boolean> {
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/status`, {
       method: 'GET',
+      headers,
       signal: AbortSignal.timeout(5000)
     })
     
@@ -1924,9 +1949,11 @@ export async function pqKemGenerateKeyPair(): Promise<{
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/keypair`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       signal: AbortSignal.timeout(10000)
     })
     
@@ -1974,9 +2001,11 @@ export async function pqEncapsulate(peerPublicKeyB64: string): Promise<PQEncapsu
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/encapsulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ peerPublicKeyB64 }),
       signal: AbortSignal.timeout(10000)
     })
@@ -2025,9 +2054,11 @@ export async function pqDecapsulate(kemCiphertextB64: string, secretKeyB64: stri
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/decapsulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ ciphertextB64: kemCiphertextB64, secretKeyB64 }),
       signal: AbortSignal.timeout(10000)
     })

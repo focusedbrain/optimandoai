@@ -22,6 +22,8 @@ let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
 // Track the dashboard-launched popup window id so we can restore focus when it closes
 let dashboardPopupWindowId: number | null = null;
+// Guard against duplicate OPEN_COMMAND_CENTER_POPUP (e.g. double-click) creating multiple popups
+let creatingDashboardPopup = false;
 // Track if MailGuard should be active (persists across reconnections)
 let mailGuardShouldBeActive = false;
 let lastMailGuardWindowInfo: any = null;
@@ -1001,6 +1003,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'OPEN_COMMAND_CENTER_POPUP') {
               // Open popup from Electron dashboard request
+              // Guard: prevent multiple popups from rapid/double clicks
+              if (creatingDashboardPopup) {
+                console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP ignored (creation already in progress)')
+                return
+              }
+              creatingDashboardPopup = true
               console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds, 'windowState:', data.windowState)
               const themeHint = typeof data.theme === 'string' ? data.theme : null
               const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
@@ -1040,6 +1048,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                     && wins.find(w => w.id === dashboardPopupWindowId)
                   if (existing && existing.id) {
                     trackPopupId(existing.id)
+                    creatingDashboardPopup = false
                     // Update existing popup: set state to match dashboard, set bounds, and focus
                     if (shouldMaximize) {
                       chrome.windows.update(existing.id, { focused: true, state: 'maximized' })
@@ -1056,6 +1065,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   } else {
                     // Create new popup, then force focus after it has rendered
                     chrome.windows.create(opts, (newWindow) => {
+                      creatingDashboardPopup = false
                       if (newWindow?.id) {
                         const winId = newWindow.id
                         trackPopupId(winId)
@@ -1079,6 +1089,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   }
                 })
               } catch (err) {
+                creatingDashboardPopup = false
                 console.error('[BG] Error creating popup:', err)
                 chrome.windows.create(opts)
               }
@@ -1770,6 +1781,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // This gate runs BEFORE any handler dispatch.
   // ════════════════════════════════════════════════════════════════════════
   if (!msg || !msg.type) return true
+
+  // BEAP PQ auth headers — used by beapCrypto for qBEAP ML-KEM calls to Electron
+  if (msg.type === 'BEAP_GET_PQ_HEADERS') {
+    sendResponse({
+      headers: _launchSecret ? { 'X-Launch-Secret': _launchSecret } : {}
+    })
+    return false // synchronous response
+  }
 
   if (!sender || sender.id !== chrome.runtime.id) {
     console.warn('[BG] Rejected message from foreign sender:', sender?.id, msg.type)
@@ -3520,9 +3539,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'OPEN_COMMAND_CENTER_POPUP': {
       const themeHint = typeof msg.theme === 'string' ? msg.theme : null
+      const launchModeHint = typeof msg.launchMode === 'string' ? msg.launchMode : null
       const createPopup = (bounds: chrome.system.display.Bounds | null) => {
         // Use React-based popup-chat.html for full WRGuard and BEAP Messages functionality
-        const url = chrome.runtime.getURL('src/popup-chat.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
+        const params: string[] = []
+        if (themeHint) params.push('t=' + encodeURIComponent(themeHint))
+        if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
+        const query = params.length ? '?' + params.join('&') : ''
+        const url = chrome.runtime.getURL('src/popup-chat.html' + query)
         const opts: chrome.windows.CreateData = {
           url,
           type: 'popup',

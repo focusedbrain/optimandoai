@@ -30,7 +30,7 @@ import { HandshakeRequestForm } from './handshake/components/HandshakeRequestFor
 import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDelivery'
 import { useHandshakes } from './handshake/useHandshakes'
 import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
-import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, initBeapPqAuth } from './beap-messages'
 import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
 import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
 import {
@@ -133,6 +133,11 @@ function PopupChatApp() {
   const [userTier, setUserTier] = useState<string>('free')
   const [pictureError, setPictureError] = useState(false)
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  // Init BEAP PQ auth so qBEAP can reach Electron PQ API (port 51248)
+  useEffect(() => {
+    initBeapPqAuth()
+  }, [])
 
   // Fetch vault status for HS Context gating (Publisher+ only)
   useEffect(() => {

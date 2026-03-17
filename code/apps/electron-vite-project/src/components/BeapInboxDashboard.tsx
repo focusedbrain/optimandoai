@@ -78,8 +78,17 @@ export default function BeapInboxDashboard({
   const storeSelectedId = useBeapInboxStore((s) => s.selectedMessageId)
   const selectMessage = useBeapInboxStore((s) => s.selectMessage)
   const detailPanelRef = useRef<BeapMessageDetailPanelHandle>(null)
+  const composeClickRef = useRef<number>(0)
 
   const messages = getInboxMessages()
+
+  // Debounce compose button clicks to prevent multiple popups from double-clicks
+  const handleComposeClick = useCallback((fn: () => void) => {
+    const now = Date.now()
+    if (now - composeClickRef.current < 600) return
+    composeClickRef.current = now
+    fn()
+  }, [])
 
   // Connected Email Accounts (for center panel empty state)
   const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
@@ -444,7 +453,7 @@ export default function BeapInboxDashboard({
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
         <button
-          onClick={() => window.analysisDashboard?.openEmailCompose?.()}
+          onClick={() => handleComposeClick(() => window.analysisDashboard?.openEmailCompose?.())}
           style={{
             display: 'flex', alignItems: 'center', gap: '4px',
             padding: '10px 14px', borderRadius: '24px',
@@ -457,7 +466,7 @@ export default function BeapInboxDashboard({
           ✉️+
         </button>
         <button
-          onClick={() => window.analysisDashboard?.openBeapDraft?.()}
+          onClick={() => handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())}
           style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '10px 18px', borderRadius: '24px',
