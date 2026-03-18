@@ -63,20 +63,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
   const [isEditingDraft, setIsEditingDraft] = useState(false)
   const [editedDraft, setEditedDraft] = useState('')
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    responseNeeded: true,
-    summary: true,
-    urgency: true,
-    draftReply: true,
-    actionItems: true,
-    archive: true,
-  })
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
-
-  const toggleSection = useCallback((key: string) => {
-    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }))
-  }, [])
 
   const runAnalysis = useCallback(async () => {
     if (!window.emailInbox?.aiAnalyzeMessage) return
@@ -140,7 +128,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
       setAnalysisLoading(false)
     }
     summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    setExpandedSections((prev) => ({ ...prev, summary: true }))
   }, [messageId])
 
   const handleDraftReply = useCallback(async () => {
@@ -164,7 +151,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
       setDraftLoading(false)
     }
     draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    setExpandedSections((prev) => ({ ...prev, draftReply: true }))
   }, [messageId])
 
   const handleRegenerateDraft = useCallback(() => {
@@ -181,6 +167,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
     if (onArchive && messageId) onArchive([messageId])
   }, [onArchive, messageId])
 
+  const handleRetryAnalysis = useCallback(() => {
+    setAnalysisError(false)
+    runAnalysis()
+  }, [runAnalysis])
+
+  const handleRetryDraft = useCallback(() => {
+    setDraftError(false)
+    handleDraftReply()
+  }, [handleDraftReply])
+
   const toggleActionChecked = useCallback((idx: number) => {
     setActionChecked((prev) => ({ ...prev, [idx]: !prev[idx] }))
   }, [])
@@ -196,228 +192,148 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
     : 'var(--color-text-muted, #94a3b8)'
 
   return (
-    <div className="inbox-detail-ai-inner inbox-detail-ai-dashboard">
+    <div className="inbox-detail-ai-inner inbox-detail-ai-premium">
       <div className="inbox-detail-ai-actions">
         <button type="button" onClick={handleSummarize} disabled={analysisLoading || draftLoading}>
-          Summarize
+          {analysisLoading && !analysis ? 'Analyzing…' : 'Summarize'}
         </button>
         <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
-          Draft Reply
+          {draftLoading ? 'Generating…' : 'Draft Reply'}
         </button>
       </div>
       <div className="inbox-detail-ai-scroll">
         {analysisError && (
-          <div className="inbox-detail-ai-error">
-            AI returned an error. Check Ollama status.
+          <div className="inbox-detail-ai-error-banner">
+            <span>AI analysis failed. Check Ollama.</span>
+            <button type="button" onClick={handleRetryAnalysis}>Retry</button>
           </div>
         )}
 
-        {/* Response Needed? */}
-        <div className="inbox-detail-ai-section">
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('responseNeeded')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.responseNeeded ? '▼' : '▶'}</span>
-            Response Needed?
-          </button>
-          {expandedSections.responseNeeded && (
-            <div className="inbox-detail-ai-section-content">
-              {analysisLoading && !analysis ? (
-                <div className="inbox-detail-ai-skeleton" />
-              ) : analysis ? (
-                <div className="inbox-detail-ai-response-needed">
-                  <span
-                    className="inbox-detail-ai-dot"
-                    style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }}
-                  />
-                  <span>
-                    {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
-                  </span>
+        {/* Response Needed — always visible */}
+        <div className="inbox-detail-ai-row">
+          <span className="inbox-detail-ai-row-label">Response Needed</span>
+          <div className="inbox-detail-ai-row-value">
+            {analysisLoading && !analysis ? (
+              <span className="inbox-detail-ai-skeleton-inline" />
+            ) : analysis ? (
+              <span className="inbox-detail-ai-response-needed">
+                <span className="inbox-detail-ai-dot" style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }} />
+                {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
+              </span>
+            ) : (
+              <span className="inbox-detail-ai-muted">—</span>
+            )}
+          </div>
+        </div>
+
+        {/* Summary — always visible */}
+        <div className="inbox-detail-ai-row" ref={summaryRef}>
+          <span className="inbox-detail-ai-row-label">Summary</span>
+          <div className="inbox-detail-ai-row-value">
+            {analysisLoading && !analysis ? (
+              <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
+            ) : analysis?.summary ? (
+              <span className="inbox-detail-ai-text">{analysis.summary}</span>
+            ) : (
+              <span className="inbox-detail-ai-muted">—</span>
+            )}
+          </div>
+        </div>
+
+        {/* Urgency — always visible */}
+        <div className="inbox-detail-ai-row">
+          <span className="inbox-detail-ai-row-label">Urgency</span>
+          <div className="inbox-detail-ai-row-value">
+            {analysisLoading && !analysis ? (
+              <span className="inbox-detail-ai-skeleton-inline" />
+            ) : analysis ? (
+              <>
+                <div className="inbox-detail-ai-urgency-bar">
+                  <div className="inbox-detail-ai-urgency-fill" style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }} />
                 </div>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          )}
+                <span className="inbox-detail-ai-urgency-label">{analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}</span>
+              </>
+            ) : (
+              <span className="inbox-detail-ai-muted">—</span>
+            )}
+          </div>
         </div>
 
-        {/* Summary */}
-        <div className="inbox-detail-ai-section" ref={summaryRef}>
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('summary')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.summary ? '▼' : '▶'}</span>
-            Summary
-          </button>
-          {expandedSections.summary && (
-            <div className="inbox-detail-ai-section-content">
-              {analysisLoading && !analysis ? (
-                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
-              ) : analysis?.summary ? (
-                <div className="inbox-detail-ai-content">{analysis.summary}</div>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Urgency Score */}
-        <div className="inbox-detail-ai-section">
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('urgency')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.urgency ? '▼' : '▶'}</span>
-            Urgency Score
-          </button>
-          {expandedSections.urgency && (
-            <div className="inbox-detail-ai-section-content">
-              {analysisLoading && !analysis ? (
-                <div className="inbox-detail-ai-skeleton" />
-              ) : analysis ? (
-                <>
-                  <div className="inbox-detail-ai-urgency-bar">
-                    <div
-                      className="inbox-detail-ai-urgency-fill"
-                      style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }}
-                    />
+        {/* Draft Reply — always visible */}
+        <div className="inbox-detail-ai-row inbox-detail-ai-row-draft" ref={draftRef}>
+          <span className="inbox-detail-ai-row-label">Draft Reply</span>
+          <div className="inbox-detail-ai-row-value">
+            {draftLoading ? (
+              <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
+            ) : draft ? (
+              <>
+                {draftError && (
+                  <div className="inbox-detail-ai-error-banner">
+                    <span>Draft generation failed.</span>
+                    <button type="button" onClick={handleRetryDraft}>Retry</button>
                   </div>
-                  <div className="inbox-detail-ai-urgency-label">
-                    {analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}
-                  </div>
-                </>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Draft Reply */}
-        <div className="inbox-detail-ai-section" ref={draftRef}>
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('draftReply')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.draftReply ? '▼' : '▶'}</span>
-            Draft Reply
-          </button>
-          {expandedSections.draftReply && (
-            <div className="inbox-detail-ai-section-content">
-              {draftLoading ? (
-                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
-              ) : draft ? (
-                <>
-                  {draftError && (
-                    <div className="inbox-detail-ai-error-small">AI returned an error.</div>
-                  )}
-                  {isEditingDraft ? (
-                    <textarea
-                      value={editedDraft}
-                      onChange={(e) => setEditedDraft(e.target.value)}
-                      className="inbox-detail-ai-draft-textarea"
-                    />
-                  ) : (
-                    <div className="inbox-detail-ai-content">{draft}</div>
-                  )}
-                  <div className="inbox-detail-ai-draft-actions">
-                    <button type="button" className="inbox-detail-ai-btn-secondary" onClick={() => setIsEditingDraft((e) => !e)}>
-                      {isEditingDraft ? 'Preview' : 'Edit'}
-                    </button>
-                    <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>
-                      Regenerate
-                    </button>
-                    {message && onSendDraft && (
-                      <button
-                        type="button"
-                        className="inbox-detail-ai-btn-primary"
-                        onClick={handleSend}
-                      >
-                        {isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <span className="inbox-detail-ai-muted">Click &quot;Draft Reply&quot; to generate.</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Action Items */}
-        <div className="inbox-detail-ai-section">
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('actionItems')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.actionItems ? '▼' : '▶'}</span>
-            Action Items
-          </button>
-          {expandedSections.actionItems && (
-            <div className="inbox-detail-ai-section-content">
-              {analysisLoading && !analysis ? (
-                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
-              ) : analysis?.actionItems?.length ? (
-                <ul className="inbox-detail-ai-action-list">
-                  {analysis.actionItems.map((item, idx) => (
-                    <li key={idx} className="inbox-detail-ai-action-item">
-                      <input
-                        type="checkbox"
-                        checked={!!actionChecked[idx]}
-                        onChange={() => toggleActionChecked(idx)}
-                      />
-                      <span style={{ textDecoration: actionChecked[idx] ? 'line-through' : undefined }}>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="inbox-detail-ai-muted">No action items.</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Archive Recommendation */}
-        <div className="inbox-detail-ai-section">
-          <button
-            type="button"
-            className="inbox-detail-ai-section-header"
-            onClick={() => toggleSection('archive')}
-          >
-            <span className="inbox-detail-ai-section-chevron">{expandedSections.archive ? '▼' : '▶'}</span>
-            Archive Recommendation
-          </button>
-          {expandedSections.archive && (
-            <div className="inbox-detail-ai-section-content">
-              {analysisLoading && !analysis ? (
-                <div className="inbox-detail-ai-skeleton" />
-              ) : analysis ? (
-                <>
-                  <div className="inbox-detail-ai-archive-text">
-                    {analysis.archiveRecommendation === 'archive'
-                      ? `Recommended: Archive — ${analysis.archiveReason || '—'}`
-                      : `Keep in inbox — ${analysis.archiveReason || '—'}`}
-                  </div>
-                  {analysis.archiveRecommendation === 'archive' && onArchive && (
-                    <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>
-                      Archive now
+                )}
+                {isEditingDraft ? (
+                  <textarea value={editedDraft} onChange={(e) => setEditedDraft(e.target.value)} className="inbox-detail-ai-draft-textarea" />
+                ) : (
+                  <div className="inbox-detail-ai-text inbox-detail-ai-draft-preview">{draft}</div>
+                )}
+                <div className="inbox-detail-ai-draft-actions">
+                  <button type="button" className="inbox-detail-ai-btn-secondary" onClick={() => setIsEditingDraft((e) => !e)}>{isEditingDraft ? 'Preview' : 'Edit'}</button>
+                  <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
+                  {message && onSendDraft && (
+                    <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend}>
+                      {isDepackaged ? 'Send via Email' : 'Send via BEAP'}
                     </button>
                   )}
-                </>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          )}
+                </div>
+              </>
+            ) : (
+              <span className="inbox-detail-ai-muted">Click &quot;Draft Reply&quot; to generate.</span>
+            )}
+          </div>
+        </div>
+
+        {/* Action Items — always visible */}
+        <div className="inbox-detail-ai-row">
+          <span className="inbox-detail-ai-row-label">Action Items</span>
+          <div className="inbox-detail-ai-row-value">
+            {analysisLoading && !analysis ? (
+              <span className="inbox-detail-ai-skeleton-inline" />
+            ) : analysis?.actionItems?.length ? (
+              <ul className="inbox-detail-ai-action-list">
+                {analysis.actionItems.map((item, idx) => (
+                  <li key={idx} className="inbox-detail-ai-action-item">
+                    <input type="checkbox" checked={!!actionChecked[idx]} onChange={() => toggleActionChecked(idx)} />
+                    <span style={{ textDecoration: actionChecked[idx] ? 'line-through' : undefined }}>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="inbox-detail-ai-muted">None.</span>
+            )}
+          </div>
+        </div>
+
+        {/* Archive Recommendation — always visible */}
+        <div className="inbox-detail-ai-row">
+          <span className="inbox-detail-ai-row-label">Archive</span>
+          <div className="inbox-detail-ai-row-value">
+            {analysisLoading && !analysis ? (
+              <span className="inbox-detail-ai-skeleton-inline" />
+            ) : analysis ? (
+              <>
+                <span className="inbox-detail-ai-text">
+                  {analysis.archiveRecommendation === 'archive' ? `Recommended: Archive — ${analysis.archiveReason || '—'}` : `Keep — ${analysis.archiveReason || '—'}`}
+                </span>
+                {analysis.archiveRecommendation === 'archive' && onArchive && (
+                  <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive now</button>
+                )}
+              </>
+            ) : (
+              <span className="inbox-detail-ai-muted">—</span>
+            )}
+          </div>
         </div>
       </div>
     </div>

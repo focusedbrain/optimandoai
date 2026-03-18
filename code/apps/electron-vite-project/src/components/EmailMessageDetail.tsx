@@ -145,14 +145,13 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         onCancel={handleLinkCancel}
       />
     <div
-      className="inbox-detail-message-inner"
+      className="inbox-detail-message-inner inbox-detail-message-inner--premium"
       style={{
         display: 'flex',
         flexDirection: 'column',
         flex: 1,
         minHeight: 0,
         overflow: 'hidden',
-        color: 'var(--color-text, #e2e8f0)',
       }}
     >
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }}>
