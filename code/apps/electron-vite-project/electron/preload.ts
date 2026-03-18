@@ -525,6 +525,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
   },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
+  aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),

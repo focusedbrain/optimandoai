@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 
 // ── Types ──
 
@@ -324,6 +325,21 @@ export default function HybridSearch({
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
 
+  const draftRefineConnected = useDraftRefineStore((s) => s.connected)
+  const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
+  const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
+  const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
+
+  useEffect(() => {
+    if (draftRefineConnected) setMode('chat')
+  }, [draftRefineConnected])
+
+  const handleClearMessageSelection = useCallback(() => {
+    draftRefineDisconnect()
+    onClearMessageSelection?.()
+  }, [draftRefineDisconnect, onClearMessageSelection])
+
   // Load available models from backend
   useEffect(() => {
     async function loadModels() {
@@ -415,36 +431,45 @@ export default function HybridSearch({
         setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
       } else {
         const modelInfo = availableModels.find(m => m.id === selectedModel)
+        const streamedRef = { current: '' }
         const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
           setContextBlocks(data.contextBlocks ?? [])
           setChatSources(data.sources ?? [])
           setIsLoading(false)
         })
         const unsubToken = window.handshakeView?.onChatStreamToken?.((data: { token: string }) => {
-          setResponse(prev => (prev ?? '') + (data.token ?? ''))
+          const tok = data.token ?? ''
+          streamedRef.current += tok
+          setResponse(prev => (prev ?? '') + tok)
         })
 
-        let inboxContext = ''
-        if (selectedMessageId && window.emailInbox?.getMessage) {
-          try {
-            const msgRes = await window.emailInbox.getMessage(selectedMessageId)
-            if (msgRes.ok && msgRes.data) {
-              const msg = msgRes.data as { subject?: string; body_text?: string; body_html?: string }
-              inboxContext = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
-              if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
-                const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
-                if (attRes.ok && attRes.data?.text) {
-                  inboxContext += `[Selected Attachment]\n${attRes.data.text.slice(0, 4000)}\n`
-                }
-              }
-              inboxContext += '\n'
-            }
-          } catch {
-            /* ignore */
-          }
-        }
+        const isDraftRefine = draftRefineConnected && draftRefineMessageId === selectedMessageId && draftRefineDraftText
 
-        const chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+        let chatQuery: string
+        if (isDraftRefine) {
+          chatQuery = `[DRAFT REFINE] You are refining a draft email reply. The current draft is:\n\n${draftRefineDraftText}\n\nThe user will give you instructions to improve it. Respond with ONLY the revised draft — no explanation, no preamble.\n\nUser instruction: ${trimmed}`
+        } else {
+          let inboxContext = ''
+          if (selectedMessageId && window.emailInbox?.getMessage) {
+            try {
+              const msgRes = await window.emailInbox.getMessage(selectedMessageId)
+              if (msgRes.ok && msgRes.data) {
+                const msg = msgRes.data as { subject?: string; body_text?: string; body_html?: string }
+                inboxContext = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
+                if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
+                  const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
+                  if (attRes.ok && attRes.data?.text) {
+                    inboxContext += `[Selected Attachment]\n${attRes.data.text.slice(0, 4000)}\n`
+                  }
+                }
+                inboxContext += '\n'
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+        }
 
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
@@ -485,13 +510,15 @@ export default function HybridSearch({
           setChatSources([])
           setChatGovernanceNote(null)
         } else {
+          const answerText = (result.answer ?? streamedRef.current) || ''
           if (!result.streamed) {
-            setResponse(result.answer ?? '')
+            setResponse(answerText)
             setChatSources(result.sources ?? [])
           } else if (result.answer) {
-            // Early-return paths (no-selection, doc-not-found) stream the full message
-            // as one token; IPC reply may arrive before the token. Use answer as fallback.
-            setResponse(prev => prev || (result.answer ?? ''))
+            setResponse(prev => prev || answerText)
+          }
+          if (isDraftRefine && answerText.trim()) {
+            draftRefineDeliverResponse(answerText.trim())
           }
           setChatGovernanceNote(result.governanceNote ?? null)
           if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
@@ -512,7 +539,7 @@ export default function HybridSearch({
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineDeliverResponse])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 
@@ -559,10 +586,10 @@ export default function HybridSearch({
           }}>
             📨 Focused: Message
             {selectedAttachmentId && <span>→ Attachment</span>}
-            {onClearMessageSelection && (
+            {(onClearMessageSelection || draftRefineConnected) && (
               <button
                 type="button"
-                onClick={onClearMessageSelection}
+                onClick={handleClearMessageSelection}
                 aria-label="Clear message selection"
                 style={{
                   marginLeft: '4px', padding: 0, background: 'none', border: 'none',
@@ -655,9 +682,11 @@ export default function HybridSearch({
           className="hs-input"
           type="text"
           placeholder={
-            mode === 'actions'
-              ? 'Describe an action to draft, analyze, or automate…'
-              : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
+            draftRefineConnected && draftRefineMessageId === selectedMessageId
+              ? 'Type instructions to refine the draft above…'
+              : mode === 'actions'
+                ? 'Describe an action to draft, analyze, or automate…'
+                : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
           }
           value={query}
           onChange={e => setQuery(e.target.value)}

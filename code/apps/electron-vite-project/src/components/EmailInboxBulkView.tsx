@@ -17,7 +17,8 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
-import type { AiOutputs, BulkAiResult, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
+import type { AiOutputs, BulkAiResult, BulkAiResultEntry, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -116,6 +117,341 @@ const CATEGORY_BORDER: Record<string, string> = {
   newsletter: '#3b82f6',
   spam: '#6b7280',
   irrelevant: '#6b7280',
+}
+
+/** Structured bulk action card with draft collapse/connect UX (same as Normal Inbox). */
+function BulkActionCardStructured({
+  msg,
+  output,
+  isExpanded,
+  updateDraftReply,
+  handleSendDraft,
+  handleArchiveOne,
+  handleDeleteOne,
+  handlePendingDeleteOne,
+  handleSummarize,
+  handleDraftReply,
+  handleKeepDuringPreview,
+  handleKeepDuringArchivePreview,
+  onSelectMessage,
+  keptDuringPreviewIds,
+  keptDuringArchivePreviewIds,
+  pendingDeletePreviewExpiries,
+  archivePreviewExpiries,
+}: {
+  msg: InboxMessage
+  output: BulkAiResultEntry
+  isExpanded: boolean
+  updateDraftReply: (messageId: string, draftReply: string) => void
+  handleSendDraft: (msg: InboxMessage, draftBody: string) => void
+  handleArchiveOne: (msg: InboxMessage) => void
+  handleDeleteOne: (msg: InboxMessage) => void
+  handlePendingDeleteOne: (msg: InboxMessage) => void
+  handleSummarize: (messageId: string) => void
+  handleDraftReply: (messageId: string) => void
+  handleKeepDuringPreview: (messageId: string) => void
+  handleKeepDuringArchivePreview: (messageId: string) => void
+  onSelectMessage?: (messageId: string | null) => void
+  keptDuringPreviewIds: Set<string>
+  keptDuringArchivePreviewIds: Set<string>
+  pendingDeletePreviewExpiries: Record<string, string | undefined>
+  archivePreviewExpiries: Record<string, string | undefined>
+}) {
+  const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
+  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() =>
+    draftExpanded ? new Set(['response', 'summary', 'action']) : new Set()
+  )
+  const draftRef = useRef<HTMLDivElement>(null)
+
+  const draftRefineConnect = useDraftRefineStore((s) => s.connect)
+  const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
+  const draftRefineConnected = useDraftRefineStore((s) => s.connected)
+  const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+
+  useEffect(() => {
+    if (draftExpanded && sectionsCollapsed.size === 0) {
+      setSectionsCollapsed(new Set(['response', 'summary', 'action']))
+    } else if (!draftExpanded) {
+      setSectionsCollapsed(new Set())
+    }
+  }, [draftExpanded])
+
+  const toggleSection = useCallback((id: string) => {
+    setSectionsCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleDraftTextareaFocus = useCallback(() => {
+    const text = output.draftReply ?? ''
+    if (!text.trim()) return
+    onSelectMessage?.(msg.id)
+    draftRefineConnect(msg.id, text, (refined) => {
+      updateDraftReply(msg.id, refined)
+    })
+  }, [msg.id, output.draftReply, updateDraftReply, draftRefineConnect, onSelectMessage])
+
+  useEffect(() => {
+    if (!draftRefineConnected || draftRefineMessageId !== msg.id) return
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node
+      if (draftRef.current && !draftRef.current.contains(target)) {
+        draftRefineDisconnect()
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [draftRefineConnected, draftRefineMessageId, msg.id, draftRefineDisconnect])
+
+  useEffect(() => {
+    const id = msg.id
+    return () => {
+      if (useDraftRefineStore.getState().messageId === id) useDraftRefineStore.getState().disconnect()
+    }
+  }, [msg.id])
+
+  useEffect(() => {
+    if (draftRefineConnected && draftRefineMessageId === msg.id && output.draftReply != null) {
+      useDraftRefineStore.getState().updateDraftText(output.draftReply)
+    }
+  }, [draftRefineConnected, draftRefineMessageId, msg.id, output.draftReply])
+
+  const rec = output.recommendedAction!
+  const category = (output.category ?? 'normal') as keyof typeof CATEGORY_BORDER
+  const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
+  const urgency = output.urgencyScore ?? 5
+  const needsReplyReason = output.needsReplyReason ?? output.reason ?? ''
+  const urgencyReason = output.urgencyReason ?? output.reason ?? ''
+  const urgencyColor = urgency <= 3 ? '#22c55e' : urgency <= 6 ? '#eab308' : '#ef4444'
+  const panelMod = `bulk-action-card-panel--${rec}`
+  const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
+  const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
+  const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : ''
+  const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : borderColor
+  const isConnected = draftRefineConnected && draftRefineMessageId === msg.id
+
+  return (
+    <div className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}`} style={{ borderLeftColor: effectiveBorderColor }}>
+      <div className="bulk-action-card-header">
+        <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
+          {(output.category ?? 'normal').toUpperCase()}
+        </span>
+        <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
+          {urgency}/10
+        </span>
+      </div>
+      <div className="bulk-action-card-sections">
+        {output.summaryError && (
+          <div className="bulk-action-card-error-banner">
+            <span>Summarize failed.</span>
+            <button type="button" onClick={() => handleSummarize(msg.id)}>Retry</button>
+          </div>
+        )}
+        {output.draftError && (
+          <div className="bulk-action-card-error-banner">
+            <span>Draft generation failed.</span>
+            <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
+          </div>
+        )}
+        {/* Response Needed — collapse when draft expanded */}
+        {draftExpanded && sectionsCollapsed.has('response') ? (
+          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('response')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('response')}>
+            <span className="bulk-action-card-row-label">Response Needed</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
+          </div>
+        ) : (
+          <div className="bulk-action-card-row">
+            <span className="bulk-action-card-row-label">Response Needed</span>
+            <div className="bulk-action-card-row-value">
+              <span className="bulk-action-card-response-needed">
+                <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
+                {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
+              </span>
+            </div>
+          </div>
+        )}
+        {/* Summary — collapse when draft expanded */}
+        {draftExpanded && sectionsCollapsed.has('summary') ? (
+          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('summary')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('summary')}>
+            <span className="bulk-action-card-row-label">Summary</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
+          </div>
+        ) : (
+          <div className="bulk-action-card-row">
+            <span className="bulk-action-card-row-label">Summary</span>
+            <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
+              {output.summary || '—'}
+            </div>
+          </div>
+        )}
+        {/* Urgency — compact when draft expanded (bar only, no label) */}
+        <div className="bulk-action-card-row">
+          <span className="bulk-action-card-row-label">Urgency</span>
+          <div className="bulk-action-card-row-value">
+            <div className="bulk-action-card-urgency-bar">
+              <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
+            </div>
+            {!draftExpanded && (
+              <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
+            )}
+          </div>
+        </div>
+        {/* Draft Reply — expand when draft exists, connect to chat on click */}
+        {output.draftReply != null && output.draftReply !== '' && (
+          <div
+            className={`bulk-action-card-row bulk-action-card-row-draft${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}`}
+            ref={draftRef}
+          >
+            <div className="bulk-action-card-draft-header">
+              <span className="bulk-action-card-row-label">👉 DRAFT REPLY</span>
+              {draftExpanded && (
+                <span className="bulk-action-card-connect-hint">click to refine with AI ↑</span>
+              )}
+            </div>
+            <div className="bulk-action-card-row-value">
+              {isConnected && (
+                <span className="bulk-action-card-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
+              )}
+              <textarea
+                className="bulk-action-card-draft-textarea"
+                value={output.draftReply}
+                onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                onFocus={handleDraftTextareaFocus}
+                placeholder="Edit draft before sending…"
+              />
+              <div className="bulk-action-card-draft-actions">
+                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary" onClick={() => handleSendDraft(msg, output.draftReply ?? '')}>
+                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Action Items — collapse when draft expanded */}
+        {draftExpanded && sectionsCollapsed.has('action') ? (
+          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')}>
+            <span className="bulk-action-card-row-label">Action Items</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
+          </div>
+        ) : (
+          <div className="bulk-action-card-row">
+            <span className="bulk-action-card-row-label">Action Items</span>
+            <div className="bulk-action-card-row-value">
+              {output.actionItems?.length ? (
+                <ul className="bulk-action-card-action-list">
+                  {output.actionItems.map((item, idx) => (
+                    <li key={idx} className="bulk-action-card-action-item">{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="bulk-action-card-muted">None.</span>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Recommended Action */}
+        <div className="bulk-action-card-row bulk-action-card-row--recommended">
+          <span className="bulk-action-card-row-label">Recommended Action</span>
+          <div className="bulk-action-card-row-value">
+            <div
+              role="button"
+              tabIndex={0}
+              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+              onClick={() => {
+                if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                  else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                  else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                }
+              }}
+              title="Click or press Enter to apply"
+            >
+              <span className="bulk-action-card-panel-action">
+                {rec === 'pending_delete' && '🗑 Pending Delete'}
+                {rec === 'archive' && '📦 Archive'}
+                {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+              </span>
+            </div>
+            <div className="bulk-action-card-reasoning-box">
+              <span className="bulk-action-card-reasoning-label">Why:</span>
+              <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
+        <div className="bulk-action-card-pending-preview">
+          <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
+          <span className="bulk-action-card-next-state">
+            Will move to Pending Delete — <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
+          </span>
+          {pendingDeletePreviewExpiries[msg.id] && (
+            <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringPreview(msg.id)} title="Cancel auto-action">
+              Keep
+            </button>
+          )}
+        </div>
+      )}
+      {rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && archivePreviewExpiries[msg.id] && (
+        <div className="bulk-action-card-archive-preview">
+          <span className="bulk-action-card-archive-badge">ARCHIVING</span>
+          <span className="bulk-action-card-next-state">
+            Will archive — <ArchiveCountdown expiresAt={archivePreviewExpiries[msg.id]} />
+          </span>
+          <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringArchivePreview(msg.id)} title="Cancel auto-action">
+            Keep
+          </button>
+        </div>
+      )}
+      <div className="bulk-action-card-buttons">
+        {rec === 'draft_reply_ready' && output.draftReply && (
+          <button
+            type="button"
+            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+            onClick={() => handleSendDraft(msg, output.draftReply!)}
+          >
+            ✉ Send via Email
+          </button>
+        )}
+        {(rec === 'archive' || rec === 'keep_for_manual_action') && (
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+            📦 Archive
+          </button>
+        )}
+        {rec === 'pending_delete' && (
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis" onClick={() => handlePendingDeleteOne(msg)}>
+            🗑 Pending Delete
+          </button>
+        )}
+        {rec === 'draft_reply_ready' && output.draftReply && (
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
+            Archive
+          </button>
+        )}
+        <div className="bulk-action-card-buttons-secondary">
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+            ✨ Summarize
+          </button>
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+            ✍ Draft
+          </button>
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+            🗑 Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const CATEGORY_BG: Record<string, string> = {
@@ -421,124 +757,70 @@ export default function EmailInboxBulkView({
     }
   }, [multiSelectIds, setCategory, clearMultiSelect])
 
-  /** Run AI categorize for given ids. Used by both manual AI Auto-Sort and auto-run on load. */
+  /** Run AI categorize for given ids. Per-message calls with progressive UI updates. */
   const runAiCategorizeForIds = useCallback(
     async (ids: string[], clearSelection: boolean) => {
-      if (!ids.length || !window.emailInbox?.aiCategorize) return
+      if (!ids.length || !window.emailInbox?.aiClassifySingle) return
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
       setAiSortPhase('analyzing')
+      const CONCURRENCY = 3
+      const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
+      const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant']
       try {
-        const res = await window.emailInbox.aiCategorize(ids)
-        if ((res as { error?: string })?.error) {
-          const err = res as { error?: string }
-          const failureReason = (err.error === 'timeout' ? 'timeout' : 'llm_error') as 'timeout' | 'llm_error'
-          const failOutputs: AiOutputs = {}
-          for (const id of ids) {
-            failOutputs[id] = {
-              summary: failureReason === 'timeout' ? 'Timed out.' : 'Analysis failed.',
-              autosortFailure: true,
-              failureReason,
-              status: 'classified',
-            }
-          }
-          setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
-          setAiSortPhase('idle')
-          setAiSortProgress(null)
-          return
+        for (let i = 0; i < ids.length; i += CONCURRENCY) {
+          const batch = ids.slice(i, i + CONCURRENCY)
+          await Promise.all(
+            batch.map(async (messageId) => {
+              const result = await window.emailInbox!.aiClassifySingle(messageId)
+              if (result.error) {
+                const failureReason = (result.error === 'timeout' ? 'timeout' : 'llm_error') as 'timeout' | 'llm_error'
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    summary: failureReason === 'timeout' ? 'Timed out.' : result.error === 'parse_failed' ? 'AI analysis returned no result for this message.' : 'Analysis failed.',
+                    autosortFailure: true,
+                    failureReason,
+                    status: 'classified',
+                  },
+                }))
+                return
+              }
+              const category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory) ? result.category : 'normal') as SortCategory
+              const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
+                ? result.recommended_action
+                : 'keep_for_manual_action') as BulkRecommendedAction
+              const summary = (result.summary ?? '').slice(0, 500)
+              const reason = (result.reason ?? '').slice(0, 300)
+              const entry: BulkAiResult = {
+                category,
+                urgencyScore: typeof result.urgency === 'number' ? Math.max(1, Math.min(10, result.urgency)) : 5,
+                urgencyReason: reason,
+                summary: summary || reason || 'Classified.',
+                reason,
+                needsReply: !!result.needsReply,
+                needsReplyReason: result.needsReply ? 'Reply warranted.' : 'No reply needed.',
+                recommendedAction,
+                actionExplanation: reason,
+                actionItems: [],
+                status: 'classified',
+              }
+              if (result.draftReply && (result.needsReply || recommendedAction === 'draft_reply_ready')) {
+                entry.draftReply = result.draftReply.slice(0, 4000)
+              }
+              if (result.pending_delete && recommendedAction === 'pending_delete') {
+                entry.pendingDeletePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
+                addPendingDeletePreview([messageId])
+              }
+              if (recommendedAction === 'archive') {
+                entry.archivePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
+                addArchivePreview([messageId])
+              }
+              setBulkAiOutputs((prev) => ({ ...prev, [messageId]: entry }))
+            })
+          )
         }
-        const classifications = res.ok && res.data?.classifications
-          ? (res.data.classifications as Array<{
-              id: string
-              category: string
-              summary?: string
-              reason: string
-              needs_reply: boolean
-              needs_reply_reason?: string
-              urgency_score: number
-              urgency_reason?: string
-              recommended_action?: string
-              action_explanation?: string
-              action_items?: string[]
-              draft_reply?: string
-              pending_delete: boolean
-              classification_failed?: boolean
-            }>)
-          : []
-
-        const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
-        const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant']
-
-        const nextOutputs: AiOutputs = {}
-        for (const c of classifications) {
-          if (!ids.includes(c.id)) continue
-          if (c.classification_failed) {
-            nextOutputs[c.id] = {
-              summary: c.reason || 'AI analysis failed for this message.',
-              autosortFailure: true,
-              status: 'classified',
-            }
-            continue
-          }
-          const category = (VALID_CATEGORIES.includes(c.category as SortCategory) ? c.category : 'normal') as SortCategory
-          const recommendedAction = (VALID_ACTIONS.includes((c.recommended_action ?? '') as BulkRecommendedAction)
-            ? c.recommended_action
-            : 'keep_for_manual_action') as BulkRecommendedAction
-          const summary = (c.summary ?? '').slice(0, 500)
-          const actionExplanation = (c.action_explanation ?? '').slice(0, 300)
-          const isIncomplete = !summary.trim() || !actionExplanation.trim()
-          if (isIncomplete) {
-            nextOutputs[c.id] = {
-              summary: c.reason || 'Incomplete AI analysis.',
-              autosortFailure: true,
-              status: 'classified',
-            }
-            continue
-          }
-          const entry: BulkAiResult = {
-            category,
-            urgencyScore: typeof c.urgency_score === 'number' ? Math.max(1, Math.min(10, c.urgency_score)) : 5,
-            urgencyReason: (c.urgency_reason ?? c.reason ?? '').slice(0, 300),
-            summary,
-            reason: (c.reason ?? '').slice(0, 300),
-            needsReply: !!c.needs_reply,
-            needsReplyReason: (c.needs_reply_reason ?? '').slice(0, 300),
-            recommendedAction,
-            actionExplanation,
-            actionItems: Array.isArray(c.action_items) ? c.action_items.filter((x): x is string => typeof x === 'string').slice(0, 10) : [],
-            status: 'classified',
-          }
-          if (c.draft_reply && (c.needs_reply || recommendedAction === 'draft_reply_ready')) {
-            entry.draftReply = c.draft_reply.slice(0, 4000)
-          }
-          if (c.pending_delete && recommendedAction === 'pending_delete') {
-            entry.pendingDeletePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
-          }
-          if (recommendedAction === 'archive') {
-            entry.archivePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
-          }
-          nextOutputs[c.id] = entry
-        }
-
-        for (const id of ids) {
-          if (!(id in nextOutputs)) {
-            nextOutputs[id] = {
-              summary: res.ok ? 'No result from AI.' : (res.error ?? 'Analysis failed.'),
-              autosortFailure: true,
-              status: 'classified',
-            }
-          }
-        }
-
-        setBulkAiOutputs((prev) => ({ ...prev, ...nextOutputs }))
-
-        const pendingIds = classifications.filter((c) => !c.classification_failed && c.pending_delete).map((c) => c.id)
-        const archiveIds = classifications.filter((c) => !c.classification_failed && (c.recommended_action ?? '') === 'archive').map((c) => c.id)
         if (clearSelection) clearMultiSelect()
         await fetchMessages()
-        const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
-        console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
-        if (pendingIds.length > 0) addPendingDeletePreview(pendingIds)
-        if (archiveIds.length > 0) addArchivePreview(archiveIds)
         setAiSortPhase('reordered')
         setTimeout(() => setAiSortPhase('idle'), 380)
       } catch {
@@ -567,7 +849,7 @@ export default function EmailInboxBulkView({
 
   /** Auto-run AI analysis when messages load and batch has no analysis yet. */
   useEffect(() => {
-    if (loading || messages.length === 0 || !window.emailInbox?.aiCategorize) return
+    if (loading || messages.length === 0 || !window.emailInbox?.aiClassifySingle) return
     if (aiSortPhase === 'analyzing') return
     const ids = messages.map((m) => m.id)
     const hasAnalysis = ids.some((id) => {
@@ -924,234 +1206,26 @@ export default function EmailInboxBulkView({
       }
 
       if (hasStructured) {
-        const rec = output.recommendedAction
-        const panelMod = `bulk-action-card-panel--${rec}`
-        const needsReplyReason = output.needsReplyReason ?? output.reason ?? ''
-        const urgencyReason = output.urgencyReason ?? output.reason ?? ''
-        const urgencyColor = urgency <= 3 ? '#22c55e' : urgency <= 6 ? '#eab308' : '#ef4444'
-        const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
-        const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
-        const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : ''
-        const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : borderColor
         return (
-          <div className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}`} style={{ borderLeftColor: effectiveBorderColor }}>
-            <div className="bulk-action-card-header">
-              <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
-                {(output.category ?? 'normal').toUpperCase()}
-              </span>
-              <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
-                {urgency}/10
-              </span>
-            </div>
-            {/* Same section hierarchy as Normal Inbox — reasoning visible before action */}
-            <div className="bulk-action-card-sections">
-              {output.summaryError && (
-                <div className="bulk-action-card-error-banner">
-                  <span>Summarize failed.</span>
-                  <button type="button" onClick={() => handleSummarize(msg.id)}>Retry</button>
-                </div>
-              )}
-              {output.draftError && (
-                <div className="bulk-action-card-error-banner">
-                  <span>Draft generation failed.</span>
-                  <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
-                </div>
-              )}
-              {/* Response Needed */}
-              <div className="bulk-action-card-row">
-                <span className="bulk-action-card-row-label">Response Needed</span>
-                <div className="bulk-action-card-row-value">
-                  <span className="bulk-action-card-response-needed">
-                    <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
-                    {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
-                  </span>
-                </div>
-              </div>
-              {/* Summary — always visible when structured (parity with Normal) */}
-              <div className="bulk-action-card-row">
-                <span className="bulk-action-card-row-label">Summary</span>
-                <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
-                  {output.summary || '—'}
-                </div>
-              </div>
-              {/* Urgency — bar + X/10 + reason (same as Normal) */}
-              <div className="bulk-action-card-row">
-                <span className="bulk-action-card-row-label">Urgency</span>
-                <div className="bulk-action-card-row-value">
-                  <div className="bulk-action-card-urgency-bar">
-                    <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
-                  </div>
-                  <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
-                </div>
-              </div>
-              {/* Draft Reply — same as Normal Inbox */}
-              {output.draftReply != null && output.draftReply !== '' && (
-                <div className="bulk-action-card-row bulk-action-card-row-draft">
-                  <span className="bulk-action-card-row-label">Draft Reply</span>
-                  <div className="bulk-action-card-row-value">
-                    <textarea
-                      className="bulk-action-card-draft-textarea"
-                      value={output.draftReply}
-                      onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                      placeholder="Edit draft…"
-                      rows={isExpanded ? 4 : 2}
-                    />
-                  </div>
-                </div>
-              )}
-              {/* Action Items — always visible when structured (parity with Normal) */}
-              <div className="bulk-action-card-row">
-                <span className="bulk-action-card-row-label">Action Items</span>
-                <div className="bulk-action-card-row-value">
-                  {output.actionItems?.length ? (
-                    <ul className="bulk-action-card-action-list">
-                      {output.actionItems.map((item, idx) => (
-                        <li key={idx} className="bulk-action-card-action-item">{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <span className="bulk-action-card-muted">None.</span>
-                  )}
-                </div>
-              </div>
-              {/* Recommended Action — reasoning always visible, explicit */}
-              <div className="bulk-action-card-row bulk-action-card-row--recommended">
-                <span className="bulk-action-card-row-label">Recommended Action</span>
-                <div className="bulk-action-card-row-value">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
-                    onClick={() => {
-                      if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                      else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                      else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                        else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                        else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                      }
-                    }}
-                    title="Click or press Enter to apply"
-                  >
-                    <span className="bulk-action-card-panel-action">
-                      {rec === 'pending_delete' && '🗑 Pending Delete'}
-                      {rec === 'archive' && '📦 Archive'}
-                      {rec === 'keep_for_manual_action' && '✋ Review manually'}
-                      {rec === 'draft_reply_ready' && '✉ Send draft reply'}
-                    </span>
-                  </div>
-                  <div className="bulk-action-card-reasoning-box">
-                    <span className="bulk-action-card-reasoning-label">Why:</span>
-                    <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
-              <div className="bulk-action-card-pending-preview">
-                <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
-                <span className="bulk-action-card-next-state">
-                  Will move to Pending Delete — <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
-                </span>
-                {pendingDeletePreviewExpiries[msg.id] && (
-                  <button
-                    type="button"
-                    className="bulk-action-card-keep-btn"
-                    onClick={() => handleKeepDuringPreview(msg.id)}
-                    title="Cancel auto-action"
-                  >
-                    Keep
-                  </button>
-                )}
-              </div>
-            )}
-            {rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && archivePreviewExpiries[msg.id] && (
-              <div className="bulk-action-card-archive-preview">
-                <span className="bulk-action-card-archive-badge">ARCHIVING</span>
-                <span className="bulk-action-card-next-state">
-                  Will archive — <ArchiveCountdown expiresAt={archivePreviewExpiries[msg.id]} />
-                </span>
-                <button
-                  type="button"
-                  className="bulk-action-card-keep-btn"
-                  onClick={() => handleKeepDuringArchivePreview(msg.id)}
-                  title="Cancel auto-action"
-                >
-                  Keep
-                </button>
-              </div>
-            )}
-            <div className="bulk-action-card-buttons">
-              {rec === 'draft_reply_ready' && output.draftReply && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                  onClick={() => handleSendDraft(msg, output.draftReply!)}
-                >
-                  ✉ Send via Email
-                </button>
-              )}
-              {(rec === 'archive' || rec === 'keep_for_manual_action') && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                  onClick={() => handleArchiveOne(msg)}
-                >
-                  📦 Archive
-                </button>
-              )}
-              {rec === 'pending_delete' && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis"
-                  onClick={() => handlePendingDeleteOne(msg)}
-                >
-                  🗑 Pending Delete
-                </button>
-              )}
-              {rec === 'draft_reply_ready' && output.draftReply && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                  onClick={() => handleArchiveOne(msg)}
-                >
-                  Archive
-                </button>
-              )}
-              <div className="bulk-action-card-buttons-secondary">
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                  onClick={() => handleSummarize(msg.id)}
-                  disabled={!!output?.loading}
-                  title="Regenerate summary"
-                >
-                  ✨ Summarize
-                </button>
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                  onClick={() => handleDraftReply(msg.id)}
-                  disabled={!!output?.loading}
-                  title="Regenerate draft"
-                >
-                  ✍ Draft
-                </button>
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn-delete"
-                  onClick={() => handleDeleteOne(msg)}
-                  title="Delete this message"
-                >
-                  🗑 Delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <BulkActionCardStructured
+            msg={msg}
+            output={output}
+            isExpanded={isExpanded}
+            updateDraftReply={updateDraftReply}
+            handleSendDraft={handleSendDraft}
+            handleArchiveOne={handleArchiveOne}
+            handleDeleteOne={handleDeleteOne}
+            handlePendingDeleteOne={handlePendingDeleteOne}
+            handleSummarize={handleSummarize}
+            handleDraftReply={handleDraftReply}
+            handleKeepDuringPreview={handleKeepDuringPreview}
+            handleKeepDuringArchivePreview={handleKeepDuringArchivePreview}
+            onSelectMessage={onSelectMessage}
+            keptDuringPreviewIds={keptDuringPreviewIds}
+            keptDuringArchivePreviewIds={keptDuringArchivePreviewIds}
+            pendingDeletePreviewExpiries={pendingDeletePreviewExpiries}
+            archivePreviewExpiries={archivePreviewExpiries}
+          />
         )
       }
 
@@ -1281,6 +1355,7 @@ export default function EmailInboxBulkView({
       handleDraftReply,
       handleKeepDuringPreview,
       handleKeepDuringArchivePreview,
+      onSelectMessage,
       runAiCategorizeForIds,
       keptDuringPreviewIds,
       keptDuringArchivePreviewIds,

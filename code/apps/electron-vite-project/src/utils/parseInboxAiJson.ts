@@ -46,6 +46,7 @@ export function tryParseAnalysis(text: string): NormalInboxAiResult | null {
         : [],
       archiveRecommendation: parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep',
       archiveReason: String(parsed.archiveReason ?? '').slice(0, 300),
+      draftReply: typeof parsed.draftReply === 'string' ? parsed.draftReply.slice(0, 8000) : null,
     }
   } catch {
     return null
@@ -67,7 +68,7 @@ export function tryParsePartialAnalysis(
 
   // Try full parse first
   const full = tryParseAnalysis(text)
-  if (full) return { partial: full, receivedKeys: ['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason'] }
+  if (full) return { partial: full, receivedKeys: ['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply'] }
 
   // Regex extraction for partial JSON (handles escaped quotes in strings)
   const summaryMatch = text.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)/)
@@ -121,6 +122,19 @@ export function tryParsePartialAnalysis(
     const items = inner.match(strRegex)?.map((s) => s.slice(1, -1).replace(/\\"/g, '"')) ?? []
     result.actionItems = items.slice(0, 10)
     receivedKeys.push('actionItems')
+  }
+
+  // draftReply: string or null
+  const draftReplyNullMatch = text.match(/"draftReply"\s*:\s*null/)
+  if (draftReplyNullMatch) {
+    result.draftReply = null
+    receivedKeys.push('draftReply')
+  } else {
+    const draftReplyMatch = text.match(/"draftReply"\s*:\s*"((?:[^"\\]|\\.)*)/)
+    if (draftReplyMatch) {
+      result.draftReply = draftReplyMatch[1].replace(/\\"/g, '"').slice(0, 8000)
+      receivedKeys.push('draftReply')
+    }
   }
 
   return receivedKeys.length > 0 ? { partial: { ...DEFAULTS, ...result }, receivedKeys } : null

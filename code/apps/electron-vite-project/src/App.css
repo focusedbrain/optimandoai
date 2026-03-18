@@ -880,6 +880,41 @@ body {
   border-bottom: none;
 }
 
+.ai-section-collapsed {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+  margin-bottom: 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ai-section-collapsed:hover {
+  opacity: 0.8;
+}
+.ai-draft-connected .inbox-detail-ai-draft-textarea,
+.ai-draft-connected textarea.inbox-detail-ai-draft-textarea {
+  border: 2px solid var(--color-primary, #7c3aed) !important;
+  border-radius: 6px;
+}
+.ai-draft-connect-hint {
+  font-size: 11px;
+  opacity: 0.5;
+  margin-left: 8px;
+}
+.ai-section-draft-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.ai-section-draft-header .inbox-detail-ai-row-label {
+  margin-bottom: 0;
+}
+
 .inbox-detail-ai-row-label {
   font-size: 11px;
   font-weight: 600;
@@ -898,6 +933,23 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.inbox-detail-ai-row-draft.ai-draft-expanded {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inbox-detail-ai-row-draft.ai-draft-expanded .inbox-detail-ai-row-value {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inbox-detail-ai-row-draft.ai-draft-expanded .inbox-detail-ai-draft-textarea {
+  flex: 1;
+  min-height: 80px;
+  resize: none;
 }
 
 .inbox-detail-ai-text {
@@ -2492,6 +2544,70 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Collapsed section row (same as Normal Inbox ai-section-collapsed) */
+.bulk-action-card-section-collapsed {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+  margin-bottom: 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.bulk-action-card-section-collapsed:hover {
+  opacity: 0.8;
+}
+
+/* Draft expanded — textarea grows, sections collapse */
+.bulk-action-card-row-draft.bulk-action-card-draft-expanded {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-row-value {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
+  flex: 1;
+  min-height: 200px;
+  resize: none;
+}
+
+/* Draft connected to chat — purple border (same as Normal Inbox) */
+.bulk-action-card-draft-connected .bulk-action-card-draft-textarea {
+  border: 2px solid var(--color-primary, #7c3aed) !important;
+  border-radius: 6px;
+}
+
+.bulk-action-card-draft-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.bulk-action-card-draft-header .bulk-action-card-row-label {
+  margin-bottom: 0;
+}
+
+.bulk-action-card-connect-hint {
+  font-size: 11px;
+  opacity: 0.5;
+  margin-left: 8px;
+}
+
+.bulk-action-card-draft-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .bulk-action-card-action-list {

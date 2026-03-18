@@ -621,7 +621,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
@@ -1116,6 +1116,7 @@ export function registerInboxHandlers(
 - actionItems: string[] — bullet list of extracted action items (empty array if none)
 - archiveRecommendation: "archive" | "keep" — whether to archive or keep in inbox
 - archiveReason: string — one sentence explaining the recommendation
+- draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
@@ -1135,6 +1136,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         actionItems?: string[]
         archiveRecommendation?: string
         archiveReason?: string
+        draftReply?: string | null
       }
 
       const parseFailed = !parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0
@@ -1146,8 +1148,9 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       const actionItems = parseFailed ? [] : (Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : [])
       const archiveRecommendation = parseFailed ? 'keep' : (parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep')
       const archiveReason = (parseFailed ? 'Could not determine' : (parsed.archiveReason ?? '')).slice(0, 300)
+      const draftReply = parseFailed ? null : (typeof parsed.draftReply === 'string' ? parsed.draftReply.slice(0, 8000) : null)
 
-      console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation }).slice(0, 500))
+      console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation, hasDraftReply: !!draftReply }).slice(0, 500))
 
       return {
         ok: true,
@@ -1160,6 +1163,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
           actionItems,
           archiveRecommendation,
           archiveReason,
+          draftReply,
         },
       }
     } catch (err: any) {
@@ -1208,6 +1212,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - actionItems: string[] — bullet list of extracted action items (empty array if none)
 - archiveRecommendation: "archive" | "keep" — whether to archive or keep in inbox
 - archiveReason: string — one sentence explaining the recommendation
+- draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
@@ -1236,9 +1241,128 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     return { started: true }
   })
 
+  /** Per-message classification — used by both aiClassifySingle and aiCategorize. */
+  async function classifySingleMessage(messageId: string): Promise<{
+    messageId: string
+    category?: string
+    urgency?: number
+    needsReply?: boolean
+    summary?: string
+    reason?: string
+    draftReply?: string | null
+    recommended_action?: string
+    pending_delete?: boolean
+    error?: string
+  }> {
+    const db = await resolveDb()
+    if (!db) return { messageId, error: 'Database unavailable' }
+    const row = db.prepare('SELECT from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
+    if (!row) return { messageId, error: 'not_found' }
+
+    const available = await isOllamaAvailable()
+    if (!available) return { messageId, error: 'llm_unavailable' }
+
+    const systemPrompt = `You are an AI email classifier for a business inbox.
+Classify the email and return ONLY a JSON object — no explanation, no markdown.
+
+Return exactly this shape:
+{
+  "category": "pending_delete" | "archive" | "urgent" | "action_required" | "normal",
+  "urgency": <number 1-10>,
+  "needsReply": <boolean>,
+  "summary": "<one sentence>",
+  "reason": "<one sentence explaining classification>",
+  "draftReply": "<draft reply if needsReply is true, otherwise null>"
+}
+
+Category rules:
+- pending_delete: spam, newsletters, automated notifications, no action needed
+- archive: useful reference, no action needed, keep for records
+- urgent: invoice pending, deadline, payment required, legal notice (urgency >= 7)
+- action_required: requires a manual response or decision (urgency 4-6)
+- normal: everything else that doesn't fit above`
+
+    const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+    const userPrompt = `Classify this email:
+From: ${from}
+Subject: ${row.subject || '(No subject)'}
+Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
+
+    try {
+      const raw = await Promise.race([
+        callInboxOllamaChat(systemPrompt, userPrompt),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('LLM_TIMEOUT')), INBOX_LLM_TIMEOUT_MS)
+        ),
+      ])
+      const parsed = parseAiJson(raw) as {
+        category?: string
+        urgency?: number
+        needsReply?: boolean
+        summary?: string
+        reason?: string
+        draftReply?: string | null
+      }
+      if (!parsed?.category) return { messageId, error: 'parse_failed', reason: raw?.slice?.(0, 200) }
+
+      const cat = String(parsed.category).toLowerCase()
+      const VALID_NEW = ['pending_delete', 'archive', 'urgent', 'action_required', 'normal'] as const
+      const validCategory = VALID_NEW.includes(cat as any) ? cat : 'normal'
+      const urgency = typeof parsed.urgency === 'number' ? Math.max(1, Math.min(10, parsed.urgency)) : 5
+      const needsReply = !!parsed.needsReply
+      const reason = (parsed.reason ?? '').slice(0, 500)
+      const summary = (parsed.summary ?? '').slice(0, 500)
+
+      const sortCategoryMap: Record<string, string> = {
+        pending_delete: 'spam',
+        archive: 'newsletter',
+        urgent: 'urgent',
+        action_required: 'important',
+        normal: 'normal',
+      }
+      const sortCategory = sortCategoryMap[validCategory] ?? 'normal'
+      const recommendedAction =
+        validCategory === 'pending_delete' ? 'pending_delete'
+        : validCategory === 'archive' ? 'archive'
+        : validCategory === 'urgent' && needsReply ? 'draft_reply_ready'
+        : validCategory === 'action_required' && needsReply ? 'draft_reply_ready'
+        : 'keep_for_manual_action'
+      const pendingDelete = validCategory === 'pending_delete'
+
+      db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(
+        sortCategory,
+        reason || null,
+        urgency,
+        needsReply ? 1 : 0,
+        messageId
+      )
+
+      return {
+        messageId,
+        category: sortCategory,
+        urgency,
+        needsReply,
+        summary,
+        reason,
+        draftReply: needsReply ? (parsed.draftReply ?? null) : null,
+        recommended_action: recommendedAction,
+        pending_delete: pendingDelete,
+      }
+    } catch (err: any) {
+      return {
+        messageId,
+        error: err?.message?.includes?.('LLM_TIMEOUT') ? 'timeout' : 'llm_error',
+      }
+    }
+  }
+
+  ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string) => {
+    return classifySingleMessage(messageId)
+  })
+
   ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {
     const ids = messageIds ?? []
-    console.log('[AI-CATEGORIZE] Starting for', ids.length, 'messages:', ids.slice(0, 3))
+    console.log('[AI-CATEGORIZE] Starting for', ids.length, 'messages (per-message, concurrency 3):', ids.slice(0, 3))
     if (ids.length === 0) return { ok: true, data: { classifications: [] } }
     try {
       const db = await resolveDb()
@@ -1270,106 +1394,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         }
       }
 
-      const messages: Array<{ id: string; from: string; subject: string; body_preview: string }> = []
-      for (const id of ids) {
-        const row = db.prepare('SELECT id, from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(id) as { id: string; from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
-        if (!row) continue
-        const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
-        const body = (row.body_text || '').trim().slice(0, 800)
-        messages.push({ id: row.id, from, subject: row.subject || '(No subject)', body_preview: body })
-      }
-
-      if (messages.length === 0) {
-        const errMsg = 'Message not found in database.'
-        return {
-          ok: true,
-          data: {
-            classifications: ids.map((id) => ({
-              id,
-              category: 'normal',
-              summary: '',
-              reason: errMsg,
-              needs_reply: false,
-              needs_reply_reason: errMsg,
-              urgency_score: 5,
-              urgency_reason: errMsg,
-              recommended_action: 'keep_for_manual_action',
-              action_explanation: errMsg,
-              action_items: [],
-              pending_delete: false,
-              classification_failed: true,
-            })),
-          },
-        }
-      }
-
-      const { sortRules, tone } = getToneAndSortForPrompts(db)
-      const contextBlock = getContextBlockForPrompts(db)
-      const systemPrompt = `You are an email triage AI for bulk inbox cleanup. Your objective is to MINIMIZE inbox clutter and maximize cleanup speed. Be aggressive: low-value informational mail should be archived or pending_delete, NOT manual review.
-
-For each email below, respond with a JSON array only. Each entry must have:
-- id: the message id (exact string from input)
-- category: one of 'urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'
-- summary: 1-2 sentence summary of the message
-- reason: one sentence explaining the classification (e.g. 'Invoice pending payment due in 3 days')
-- needs_reply: boolean — true only if the user should actually send a reply
-- needs_reply_reason: string — one sentence explaining why reply is or is not needed (e.g. 'No — automated notification' or 'Yes — sender is asking for clarification')
-- urgency_score: number 1-10 (1=low, 10=critical)
-- urgency_reason: string — one sentence explaining the urgency level
-- recommended_action: one of 'pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready'
-- action_explanation: one sentence explaining the recommended action (reasoning the user should see before acting)
-- action_items: string[] — bullet list of extracted action items (empty array if none)
-- draft_reply: (optional) when needs_reply is true or recommended_action is draft_reply_ready, include a short professional reply draft the user can edit and send
-
-Classification rules (be strict):
-- spam/irrelevant: marketing newsletters, promotional content, cold outreach, event invitations, automated notifications, obvious spam, low-value informational mail. Default to NOT retaining.
-- newsletter: bulk mail, announcements, digests. Usually pending_delete unless user clearly subscribed and values it.
-- normal: generic catch-all. Prefer archive if no reply needed and low urgency.
-- important: operationally relevant, contract/billing/security related, or genuinely reply-worthy.
-- urgent: invoices, deadlines, time-sensitive requests, security alerts.
-
-Recommended action rules (CRITICAL — minimize keep_for_manual_action):
-- pending_delete: spam, irrelevant, newsletters with no reply needed, low-value bulk mail, promotional content.
-- archive: simple informational mail, read-and-file content, notifications, digests, low-urgency updates. Use archive for most low-value informational mail.
-- keep_for_manual_action: ONLY for truly critical cases: payment due, urgent response needed, operational blocking issue, security/account issue, deadline-sensitive human decision, or genuinely ambiguous. Do NOT use for simple informational mail.
-- draft_reply_ready: when the best next step is to send a reply and you can prepare one.
-
-Default to pending_delete or archive for low-value informational mail. Use keep_for_manual_action sparingly — only when human judgment is genuinely required.
-Return ONLY a valid JSON array, no other text.`
-        + (sortRules ? `\n\nUser custom sorting rules: ${sortRules}` : '')
-        + (tone ? `\n\nUser tone/style for draft replies: ${tone}` : '')
-        + contextBlock
-
-      const userPrompt = JSON.stringify(messages)
-
-      console.log('[AI-CATEGORIZE] System prompt length:', systemPrompt.length)
-      console.log('[AI-CATEGORIZE] Calling LLM...')
-      const raw = await callInboxOllamaChat(systemPrompt, userPrompt)
-      console.log('[AI-CATEGORIZE] Raw LLM response:', raw.substring(0, 500))
-      let parsed: Array<{
-        id?: string
-        category?: string
-        summary?: string
-        reason?: string
-        needs_reply?: boolean
-        needs_reply_reason?: string
-        urgency_score?: number
-        urgency_reason?: string
-        recommended_action?: string
-        action_explanation?: string
-        action_items?: string[]
-        draft_reply?: string
-      }>
-      try {
-        const jsonMatch = raw.match(/\[[\s\S]*\]/)
-        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : []
-      } catch {
-        parsed = []
-      }
-
-      const VALID_CATEGORIES = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'] as const
-      const VALID_ACTIONS = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready'] as const
-
+      const CONCURRENCY = 3
       const classifications: Array<{
         id: string
         category: string
@@ -1387,104 +1412,47 @@ Return ONLY a valid JSON array, no other text.`
         classification_failed?: boolean
       }> = []
 
-      for (const p of parsed) {
-        const id = p.id ?? ''
-        if (!ids.includes(id)) continue
-        const category = (p.category ?? 'normal').toLowerCase().trim()
-        const validCategory = VALID_CATEGORIES.includes(category as any) ? category : 'normal'
-        const summary = (p.summary ?? '').slice(0, 500)
-        const reason = (p.reason ?? '').slice(0, 300)
-        const needsReplyReason = (p.needs_reply_reason ?? '').slice(0, 300)
-        const urgencyReason = (p.urgency_reason ?? '').slice(0, 300)
-        let needsReply = !!p.needs_reply
-        let urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
-        let recommendedAction = (p.recommended_action ?? '').toLowerCase().trim()
-        let actionExplanation = (p.action_explanation ?? '').slice(0, 300)
-        let draftReply: string | undefined = typeof p.draft_reply === 'string' ? p.draft_reply.slice(0, 4000) : undefined
-
-        // Post-processing safeguards — prefer archive/pending_delete over manual review for low-value mail
-        if (validCategory === 'spam' || validCategory === 'irrelevant') {
-          recommendedAction = 'pending_delete'
-          actionExplanation = actionExplanation || 'Low-value or unwanted mail; recommended for deletion.'
-        } else if (validCategory === 'newsletter' && !needsReply) {
-          recommendedAction = 'pending_delete'
-          actionExplanation = actionExplanation || 'Newsletter with no reply needed; reduce retention.'
-        } else if (validCategory === 'normal' && !needsReply && urgencyScore <= 4) {
-          // Low-value informational: override keep_for_manual_action to archive
-          if (recommendedAction === 'keep_for_manual_action') {
-            recommendedAction = 'archive'
-            actionExplanation = actionExplanation || 'Simple informational mail; archive to reduce clutter.'
-          } else if (recommendedAction !== 'draft_reply_ready') {
-            recommendedAction = recommendedAction === 'pending_delete' ? 'pending_delete' : 'archive'
-            actionExplanation = actionExplanation || 'Low urgency, no reply needed; archive to reduce clutter.'
+      for (let i = 0; i < ids.length; i += CONCURRENCY) {
+        const batch = ids.slice(i, i + CONCURRENCY)
+        const batchResults = await Promise.all(batch.map((id) => classifySingleMessage(id)))
+        for (const r of batchResults) {
+          if (r.error) {
+            classifications.push({
+              id: r.messageId,
+              category: 'normal',
+              summary: '',
+              reason: r.error === 'timeout' ? 'Timed out.' : r.error === 'parse_failed' ? 'AI analysis returned no result for this message.' : r.error === 'not_found' ? 'Message not found.' : 'Analysis failed.',
+              needs_reply: false,
+              needs_reply_reason: 'No result from AI.',
+              urgency_score: 5,
+              urgency_reason: 'Analysis failed.',
+              recommended_action: 'keep_for_manual_action',
+              action_explanation: 'AI did not return a result. Use Summarize or Draft below to retry.',
+              action_items: [],
+              pending_delete: false,
+              classification_failed: true,
+            })
+          } else {
+            classifications.push({
+              id: r.messageId,
+              category: r.category ?? 'normal',
+              summary: r.summary ?? '',
+              reason: r.reason ?? '',
+              needs_reply: r.needsReply ?? false,
+              needs_reply_reason: r.needsReply ? 'Reply warranted.' : 'No reply needed.',
+              urgency_score: r.urgency ?? 5,
+              urgency_reason: r.reason ?? '',
+              recommended_action: r.recommended_action ?? 'keep_for_manual_action',
+              action_explanation: r.reason ?? '',
+              action_items: [],
+              ...(r.draftReply ? { draft_reply: r.draftReply } : {}),
+              pending_delete: r.pending_delete ?? false,
+            })
           }
-        } else if (validCategory === 'newsletter' && needsReply) {
-          // Newsletter that needs reply — still prefer archive over manual if low urgency
-          if (recommendedAction === 'keep_for_manual_action' && urgencyScore <= 4) {
-            recommendedAction = 'archive'
-            actionExplanation = actionExplanation || 'Newsletter; archive for later review.'
-          }
-        }
-
-        if (!VALID_ACTIONS.includes(recommendedAction as any)) {
-          recommendedAction = validCategory === 'spam' || validCategory === 'irrelevant' ? 'pending_delete'
-            : validCategory === 'newsletter' && !needsReply ? 'pending_delete'
-            : validCategory === 'normal' && !needsReply && urgencyScore <= 4 ? 'archive'
-            : 'keep_for_manual_action'
-        }
-
-        // Only include draft_reply when needs_reply or recommended_action is draft_reply_ready
-        if (draftReply && !needsReply && recommendedAction !== 'draft_reply_ready') {
-          draftReply = undefined
-        }
-
-        const pendingDelete =
-          validCategory === 'spam' || validCategory === 'irrelevant' ||
-          (validCategory === 'newsletter' && recommendedAction === 'pending_delete')
-
-        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(validCategory, reason || null, urgencyScore, needsReply ? 1 : 0, id)
-
-        const actionItems = Array.isArray(p.action_items) ? p.action_items.filter((x): x is string => typeof x === 'string').slice(0, 10) : []
-        classifications.push({
-          id,
-          category: validCategory,
-          summary,
-          reason,
-          needs_reply: needsReply,
-          needs_reply_reason: needsReplyReason || (needsReply ? 'Reply warranted.' : 'No reply needed.'),
-          urgency_score: urgencyScore,
-          urgency_reason: urgencyReason || reason,
-          recommended_action: recommendedAction,
-          action_explanation: actionExplanation,
-          action_items: actionItems,
-          ...(draftReply ? { draft_reply: draftReply } : {}),
-          pending_delete: pendingDelete,
-        })
-      }
-
-      // Ensure every requested id has a classification — explicit failure for missing
-      const classifiedIds = new Set(classifications.map((c) => c.id))
-      for (const id of ids) {
-        if (!classifiedIds.has(id)) {
-          classifications.push({
-            id,
-            category: 'normal',
-            summary: '',
-            reason: 'AI analysis returned no result for this message.',
-            needs_reply: false,
-            needs_reply_reason: 'No result from AI.',
-            urgency_score: 5,
-            urgency_reason: 'Analysis failed.',
-            recommended_action: 'keep_for_manual_action',
-            action_explanation: 'AI did not return a result. Use Summarize or Draft below to retry.',
-            action_items: [],
-            pending_delete: false,
-            classification_failed: true,
-          })
         }
       }
 
-      console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
+      console.log('[AI-CATEGORIZE] Per-message classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
       return { ok: true, data: { classifications } }
     } catch (err: any) {
       console.error('[Inbox IPC] aiCategorize error:', err)
