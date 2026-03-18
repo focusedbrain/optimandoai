@@ -57,6 +57,8 @@ export interface InboxMessage {
   remote_deleted: number | null
   sort_category: string | null
   sort_reason: string | null
+  urgency_score: number | null
+  needs_reply: number | null
   pending_delete: number
   pending_delete_at: string | null
   ai_summary: string | null

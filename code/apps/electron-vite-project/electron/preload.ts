@@ -509,6 +509,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
   aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
+  markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
   setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),

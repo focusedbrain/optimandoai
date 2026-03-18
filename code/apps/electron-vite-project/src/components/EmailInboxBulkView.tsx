@@ -58,10 +58,19 @@ const CATEGORY_ORDER: Record<string, number> = {
 const CATEGORY_BORDER: Record<string, string> = {
   urgent: '#ef4444',
   important: '#f97316',
-  normal: 'transparent',
+  normal: '#a855f7',
   newsletter: '#3b82f6',
   spam: '#6b7280',
   irrelevant: '#6b7280',
+}
+
+const CATEGORY_BG: Record<string, string> = {
+  urgent: 'rgba(239,68,68,0.05)',
+  important: 'rgba(249,115,22,0.05)',
+  normal: 'transparent',
+  newsletter: 'rgba(59,130,246,0.05)',
+  spam: 'rgba(107,114,128,0.08)',
+  irrelevant: 'rgba(107,114,128,0.08)',
 }
 
 function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
@@ -69,6 +78,9 @@ function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
     const orderA = CATEGORY_ORDER[a.sort_category ?? 'normal'] ?? 2
     const orderB = CATEGORY_ORDER[b.sort_category ?? 'normal'] ?? 2
     if (orderA !== orderB) return orderA - orderB
+    const urgA = a.urgency_score ?? 5
+    const urgB = b.urgency_score ?? 5
+    if (urgA !== urgB) return urgB - urgA
     return (b.received_at || '').localeCompare(a.received_at || '')
   })
 }
@@ -119,7 +131,17 @@ export default function EmailInboxBulkView({
   } = useEmailInboxStore()
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
+  const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
   const [providerSectionExpanded, setProviderSectionExpanded] = useState(false)
+
+  const toggleCardExpand = useCallback((id: string) => {
+    setExpandedCardIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
@@ -132,6 +154,7 @@ export default function EmailInboxBulkView({
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
   const [pendingDeleteToast, setPendingDeleteToast] = useState<{ count: number; ids: string[] } | null>(null)
+  const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const composeClickRef = useRef<number>(0)
@@ -144,7 +167,13 @@ export default function EmailInboxBulkView({
 
   useEffect(() => {
     setBulkMode(true)
-    return () => setBulkMode(false)
+    return () => {
+      setBulkMode(false)
+      if (pendingDeleteTimerRef.current) {
+        clearTimeout(pendingDeleteTimerRef.current)
+        pendingDeleteTimerRef.current = null
+      }
+    }
   }, [setBulkMode])
 
   useEffect(() => {
@@ -197,17 +226,28 @@ export default function EmailInboxBulkView({
   const handleAiAutoSort = useCallback(async () => {
     const ids = Array.from(multiSelectIds)
     if (!ids.length || !window.emailInbox?.aiCategorize) return
-    setAiSortProgress(`Sorting ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+    setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
     try {
       const res = await window.emailInbox.aiCategorize(ids)
       if (res.ok && res.data?.classifications) {
         const classifications = res.data.classifications as Array<{ id: string; category: string; reason: string; pending_delete: boolean }>
+        console.log('[AUTO-SORT] Results:', classifications)
         const pendingIds = classifications.filter((c) => c.pending_delete).map((c) => c.id)
-        if (pendingIds.length > 0) {
-          setPendingDeleteToast({ count: pendingIds.length, ids: pendingIds })
-        }
         clearMultiSelect()
-        fetchMessages()
+        await fetchMessages()
+        const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
+        console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
+        if (pendingIds.length > 0 && window.emailInbox?.markPendingDelete) {
+          if (pendingDeleteTimerRef.current) clearTimeout(pendingDeleteTimerRef.current)
+          pendingDeleteTimerRef.current = setTimeout(async () => {
+            pendingDeleteTimerRef.current = null
+            const markRes = await window.emailInbox!.markPendingDelete!(pendingIds)
+            if (markRes.ok) {
+              setPendingDeleteToast({ count: pendingIds.length, ids: pendingIds })
+              fetchMessages()
+            }
+          }, 5 * 60 * 1000)
+        }
       }
     } finally {
       setAiSortProgress(null)
@@ -675,7 +715,7 @@ export default function EmailInboxBulkView({
                 }}
               >
                 <span style={{ fontSize: 12, color: '#fca5a5' }}>
-                  {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} marked for deletion. 5-min grace period.
+                  {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
                 </span>
                 <button
                   type="button"
@@ -699,6 +739,7 @@ export default function EmailInboxBulkView({
             {sortMessagesByCategory(messages).map((msg) => {
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
+              const isCardExpanded = expandedCardIds.has(msg.id)
               const output = aiOutputs[msg.id]
               const bodyContent = (msg.body_text || '').trim() || '(No body)'
               const hasAttachments = msg.has_attachments === 1
@@ -706,15 +747,19 @@ export default function EmailInboxBulkView({
               const isPendingDelete = (msg as InboxMessage & { pending_delete?: number }).pending_delete === 1
               const category = (msg.sort_category ?? 'normal') as keyof typeof CATEGORY_BORDER
               const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
+              const bgTint = CATEGORY_BG[category] ?? 'transparent'
+              const isSpamOrIrrelevant = category === 'spam' || category === 'irrelevant'
+              const needsReply = msg.needs_reply === 1
 
               return (
                 <div
                   key={msg.id}
                   data-msg-id={msg.id}
-                  className={`bulk-view-row ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''}`}
+                  className={`bulk-view-row ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''}`}
                   style={{
-                    borderLeft: borderColor !== 'transparent' ? `3px solid ${borderColor}` : undefined,
-                    opacity: (category === 'spam' || category === 'irrelevant') ? 0.85 : 1,
+                    borderLeft: borderColor ? `4px solid ${borderColor}` : undefined,
+                    background: bgTint !== 'transparent' ? bgTint : undefined,
+                    opacity: isSpamOrIrrelevant ? 0.6 : 1,
                   }}
                 >
                   {/* Left: Message card — click toggles focus */}
@@ -780,18 +825,18 @@ export default function EmailInboxBulkView({
                         <div
                           style={{
                             fontSize: 13,
-                            fontWeight: 500,
+                            fontWeight: category === 'urgent' ? 700 : 500,
                             marginBottom: 4,
                             flexShrink: 0,
-                            textDecoration: isPendingDelete ? 'line-through' : undefined,
-                            color: isPendingDelete ? MUTED : undefined,
+                            textDecoration: isSpamOrIrrelevant || isPendingDelete ? 'line-through' : undefined,
+                            color: isSpamOrIrrelevant || isPendingDelete ? MUTED : undefined,
                           }}
                         >
                           {msg.subject || '(No subject)'}
                         </div>
-                        {(msg as InboxMessage & { sort_reason?: string }).sort_reason && (
-                          <div style={{ fontSize: 11, color: MUTED, marginBottom: 6, flexShrink: 0, fontStyle: 'italic' }}>
-                            {(msg as InboxMessage & { sort_reason?: string }).sort_reason}
+                        {msg.sort_reason && (
+                          <div style={{ fontSize: 12, color: MUTED, marginBottom: 6, flexShrink: 0 }}>
+                            {msg.sort_reason}
                           </div>
                         )}
                         <div
@@ -832,12 +877,15 @@ export default function EmailInboxBulkView({
                                 fontSize: 10,
                                 padding: '3px 8px',
                                 borderRadius: 4,
-                                background: borderColor !== 'transparent' ? `${borderColor}33` : 'rgba(255,255,255,0.06)',
-                                color: borderColor !== 'transparent' ? borderColor : MUTED,
+                                background: borderColor ? `${borderColor}33` : 'rgba(255,255,255,0.06)',
+                                color: borderColor || MUTED,
                               }}
                             >
-                              {msg.sort_category}
+                              {msg.sort_category.toUpperCase()}
                             </span>
+                          )}
+                          {needsReply && (
+                            <span style={{ fontSize: 12, color: '#7c3aed' }} title="Needs reply">↩</span>
                           )}
                           {isPendingDelete && (
                             <button
@@ -937,6 +985,21 @@ export default function EmailInboxBulkView({
                         </div>
                       )}
                     </div>
+                  </div>
+                  <div
+                    className="bulk-card-expand-toggle"
+                    onClick={() => toggleCardExpand(msg.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleCardExpand(msg.id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    title={isCardExpanded ? 'Collapse' : 'Expand full message'}
+                  >
+                    {isCardExpanded ? '▴' : '▾'}
                   </div>
                 </div>
               )

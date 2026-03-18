@@ -9,7 +9,7 @@ const fs = require('fs')
 const path = require('path')
 
 const BUILD_BASE = 'C:\\build-output'
-const OLD_BUILDS = ['build12', 'build17', 'build33', 'build56', 'build105']
+const OLD_BUILDS = ['build12', 'build17', 'build20', 'build33', 'build56', 'build105', 'build004', 'build003']
 
 function deleteOldBuilds() {
   if (process.platform !== 'win32') return

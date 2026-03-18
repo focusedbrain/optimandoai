@@ -709,6 +709,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       )`,
     ],
   },
+  {
+    version: 32,
+    description: 'Schema v32: AI Auto-Sort — urgency_score, needs_reply for sorting',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN urgency_score INTEGER DEFAULT 5`,
+      `ALTER TABLE inbox_messages ADD COLUMN needs_reply INTEGER DEFAULT 0`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

@@ -20,54 +20,49 @@ import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions, queue
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
 import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
-import { DEFAULT_CONFIG } from '../llm/config'
 
 // ── Inbox: active auto-sync loops ──
 
-const OLLAMA_TIMEOUT_MS = 30_000
+/** Use ollamaManager.chat (same path as main app HTTP chat) — avoids aiProviders fetch path that can return 404. */
+async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
+  const { ollamaManager } = await import('../llm/ollama-manager')
+  const models = await ollamaManager.listModels()
+  if (models.length === 0) {
+    throw new Error('No LLM model installed. Install a model in LLM Settings first.')
+  }
+  const modelId = models[0].name
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: userPrompt },
+  ]
+  const response = await ollamaManager.chat(modelId, messages)
+  return response?.content?.trim() ?? 'No response from model.'
+}
 
-/** Call Ollama chat API (non-streaming). Returns response text or throws. */
-async function callOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS)
+/** Check if Ollama has at least one model (same resolution as chat). */
+async function isOllamaAvailable(): Promise<boolean> {
   try {
-    const port = DEFAULT_CONFIG.ollamaPort ?? 11434
-    const model = DEFAULT_CONFIG.activeModelId ?? 'mistral:7b-instruct-q4_0'
-    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
-    const data = (await res.json()) as { message?: { content?: string } }
-    return data.message?.content?.trim() ?? 'No response from model.'
-  } catch (err: any) {
-    clearTimeout(timeout)
-    if (err?.name === 'AbortError') throw new Error('LLM request timed out (30s)')
-    throw err
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const models = await ollamaManager.listModels()
+    return models.length > 0
+  } catch {
+    return false
   }
 }
 
-/** Check if Ollama is reachable. */
-async function isOllamaAvailable(): Promise<boolean> {
+/** Robust JSON parsing for LLM responses — strips markdown fences and preamble. */
+function parseAiJson(raw: string): Record<string, unknown> {
+  let cleaned = raw.trim()
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start !== -1 && end !== -1 && end > start) {
+    cleaned = cleaned.substring(start, end + 1)
+  }
   try {
-    const port = DEFAULT_CONFIG.ollamaPort ?? 11434
-    const res = await fetch(`http://127.0.0.1:${port}/api/tags`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(3000),
-    })
-    return res.ok
+    return JSON.parse(cleaned) as Record<string, unknown>
   } catch {
-    return false
+    return {}
   }
 }
 const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
@@ -546,13 +541,14 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiCategorize', 'inbox:cancelPendingDelete',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
-  /** ~2000 tokens ≈ 7500 chars */
-  const CONTEXT_TOKEN_LIMIT_CHARS = 7500
+  /** ~2000 tokens ≈ 8000 chars */
+  const CONTEXT_TOKEN_LIMIT_CHARS = 8000
+  const CONTEXT_MAX_TOTAL_BYTES = 10 * 1024 * 1024
 
   function getInboxSetting(db: any, key: string): any {
     try {
@@ -939,11 +935,13 @@ export function registerInboxHandlers(
 
   // ── AI (real LLM calls) ──
   ipcMain.handle('inbox:aiSummarize', async (_e, messageId: string) => {
+    console.log('[AI-SUMMARIZE] Starting for message:', messageId)
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
       if (!row) return { ok: false, error: 'Message not found' }
+      console.log('[AI-SUMMARIZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
       const available = await isOllamaAvailable()
       if (!available) {
@@ -955,7 +953,10 @@ export function registerInboxHandlers(
       const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
 
       const systemPrompt = 'You are an AI assistant for WR Desk inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
-      const summary = await callOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-SUMMARIZE] System prompt length:', systemPrompt.length)
+      console.log('[AI-SUMMARIZE] Calling LLM...')
+      const summary = await callInboxOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
       return { ok: true, data: { summary } }
     } catch (err: any) {
       const msg = err?.message ?? 'Summarize failed'
@@ -964,11 +965,13 @@ export function registerInboxHandlers(
   })
 
   ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string) => {
+    console.log('[AI-DRAFT] Starting for message:', messageId)
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
       if (!row) return { ok: false, error: 'Message not found' }
+      console.log('[AI-DRAFT] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
       const available = await isOllamaAvailable()
       if (!available) {
@@ -981,10 +984,13 @@ export function registerInboxHandlers(
 
       const { tone } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = 'You are an AI assistant for WR Desk inbox. Draft a professional reply to the following email. Keep it concise and actionable. Match the language of the original email.'
+      let systemPrompt = 'You are an AI assistant for WR Desk inbox. Draft a professional reply to the following email. Match the language of the original email (if the email is in German, reply in German). Keep it concise. Output ONLY the reply text, no subject line, no metadata.'
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (contextBlock) systemPrompt += contextBlock
-      const draft = await callOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-DRAFT] System prompt length:', systemPrompt.length)
+      console.log('[AI-DRAFT] Calling LLM...')
+      const draft = await callInboxOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
       return { ok: true, data: { draft } }
     } catch (err: any) {
       const msg = err?.message ?? 'Draft failed'
@@ -993,11 +999,13 @@ export function registerInboxHandlers(
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
+    console.log('[AI-ANALYZE] Starting for message:', messageId)
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
       if (!row) return { ok: false, error: 'Message not found' }
+      console.log('[AI-ANALYZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
       const available = await isOllamaAvailable()
       if (!available) {
@@ -1010,7 +1018,7 @@ export function registerInboxHandlers(
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only (no other text). Use these exact keys:
+      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond to this email
 - needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
 - summary: string — 2-3 sentence summary of the message
@@ -1020,13 +1028,16 @@ export function registerInboxHandlers(
 - archiveRecommendation: "archive" | "keep" — whether to archive or keep in inbox
 - archiveReason: string — one sentence explaining the recommendation
 
-Return ONLY a valid JSON object, no markdown.`
+Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
 
-      const raw = await callOllamaChat(systemPrompt, userPrompt)
-      let parsed: {
+      console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
+      console.log('[AI-ANALYZE] Calling LLM...')
+      const raw = await callInboxOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
+      const parsed = parseAiJson(raw) as {
         needsReply?: boolean
         needsReplyReason?: string
         summary?: string
@@ -1036,21 +1047,18 @@ Return ONLY a valid JSON object, no markdown.`
         archiveRecommendation?: string
         archiveReason?: string
       }
-      try {
-        const jsonMatch = raw.match(/\{[\s\S]*\}/)
-        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}
-      } catch {
-        parsed = {}
-      }
 
-      const needsReply = !!parsed.needsReply
-      const needsReplyReason = (parsed.needsReplyReason ?? '').slice(0, 300)
-      const summary = (parsed.summary ?? '').slice(0, 1000)
-      const urgencyScore = typeof parsed.urgencyScore === 'number' ? Math.max(1, Math.min(10, parsed.urgencyScore)) : 5
-      const urgencyReason = (parsed.urgencyReason ?? '').slice(0, 300)
-      const actionItems = Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : []
-      const archiveRecommendation = parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep'
-      const archiveReason = (parsed.archiveReason ?? '').slice(0, 300)
+      const parseFailed = !parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0
+      const needsReply = parseFailed ? false : !!parsed.needsReply
+      const needsReplyReason = (parseFailed ? 'Could not analyze' : (parsed.needsReplyReason ?? '')).slice(0, 300)
+      const summary = (parseFailed ? 'Analysis failed — could not parse AI response' : (parsed.summary ?? '')).slice(0, 1000)
+      const urgencyScore = parseFailed ? 5 : (typeof parsed.urgencyScore === 'number' ? Math.max(1, Math.min(10, parsed.urgencyScore)) : 5)
+      const urgencyReason = (parseFailed ? 'Unknown' : (parsed.urgencyReason ?? '')).slice(0, 300)
+      const actionItems = parseFailed ? [] : (Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : [])
+      const archiveRecommendation = parseFailed ? 'keep' : (parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep')
+      const archiveReason = (parseFailed ? 'Could not determine' : (parsed.archiveReason ?? '')).slice(0, 300)
+
+      console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation }).slice(0, 500))
 
       return {
         ok: true,
@@ -1073,6 +1081,7 @@ Return ONLY a valid JSON object, no markdown.`
 
   ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {
     const ids = messageIds ?? []
+    console.log('[AI-CATEGORIZE] Starting for', ids.length, 'messages:', ids.slice(0, 3))
     if (ids.length === 0) return { ok: true, data: { classifications: [] } }
     try {
       const db = await resolveDb()
@@ -1111,7 +1120,10 @@ Return ONLY a valid JSON array, no other text.`
 
       const userPrompt = JSON.stringify(messages)
 
-      const raw = await callOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-CATEGORIZE] System prompt length:', systemPrompt.length)
+      console.log('[AI-CATEGORIZE] Calling LLM...')
+      const raw = await callInboxOllamaChat(systemPrompt, userPrompt)
+      console.log('[AI-CATEGORIZE] Raw LLM response:', raw.substring(0, 500))
       let parsed: Array<{ id?: string; category?: string; reason?: string; needs_reply?: boolean; urgency_score?: number }>
       try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/)
@@ -1126,24 +1138,36 @@ Return ONLY a valid JSON array, no other text.`
       for (const p of parsed) {
         const id = p.id ?? ''
         if (!ids.includes(id)) continue
-        const category = (p.category ?? 'normal').toLowerCase()
+        const category = (p.category ?? 'normal').toLowerCase().trim()
         const validCategory = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'].includes(category) ? category : 'normal'
         const reason = (p.reason ?? '').slice(0, 200)
         const needsReply = !!p.needs_reply
         const urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
         const pendingDelete = validCategory === 'spam' || validCategory === 'irrelevant'
 
-        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ? WHERE id = ?').run(validCategory, reason || null, id)
-        if (pendingDelete) {
-          db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?').run(now, id)
-        }
+        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(validCategory, reason || null, urgencyScore, needsReply ? 1 : 0, id)
+        // pending_delete is set by client after 5-min grace period via inbox:markPendingDelete
 
         classifications.push({ id, category: validCategory, reason, needs_reply: needsReply, urgency_score: urgencyScore, pending_delete: pendingDelete })
       }
 
+      console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category })))
       return { ok: true, data: { classifications } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Categorize failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:markPendingDelete', async (_e, messageIds: string[]) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const now = new Date().toISOString()
+      const stmt = db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
+      for (const id of messageIds ?? []) stmt.run(now, id)
+      return { ok: true, data: { marked: (messageIds ?? []).length } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Mark failed' }
     }
   })
 
@@ -1208,6 +1232,8 @@ Return ONLY a valid JSON array, no other text.`
       if (!db) return { ok: false, error: 'Database unavailable' }
       const docs = (getInboxSetting(db, 'inbox_ai_context_docs') ?? []) as Array<{ id: string; name: string; size: number; extractedText: string }>
       if (docs.length >= 5) return { ok: false, error: 'Maximum 5 context documents allowed' }
+      const totalBytes = docs.reduce((s, d) => s + (d.size ?? 0), 0)
+      if (totalBytes >= CONTEXT_MAX_TOTAL_BYTES) return { ok: false, error: 'Maximum 10MB total for context documents' }
 
       const result = await dialog.showOpenDialog(mainWindow ?? null, {
         title: 'Select PDF for Business Context',
@@ -1219,6 +1245,7 @@ Return ONLY a valid JSON array, no other text.`
       const filePath = result.filePaths[0]
       const buffer = fs.readFileSync(filePath)
       if (!isPdfFile('application/pdf', filePath)) return { ok: false, error: 'File is not a valid PDF' }
+      if (totalBytes + buffer.length > CONTEXT_MAX_TOTAL_BYTES) return { ok: false, error: 'Adding this file would exceed 10MB total. Remove some documents first.' }
 
       const extracted = await extractPdfText(buffer)
       const text = extracted.success ? (extracted.text || '').trim() : ''

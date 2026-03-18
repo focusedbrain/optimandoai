@@ -116,7 +116,8 @@ export interface EmailInboxBridge {
     }
     error?: string
   }>
-  aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { categorized: number }; error?: string }>
+  aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: Array<{ id: string; category: string; reason: string; needs_reply: boolean; urgency_score: number; pending_delete: boolean }> }; error?: string }>
+  markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number }; error?: string }>
   setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => Promise<{ ok: boolean; error?: string }>

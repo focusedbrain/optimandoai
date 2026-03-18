@@ -304,8 +304,8 @@ export default function SettingsView() {
             value={inboxAi.tone}
             onChange={(e) => setInboxAi((p) => ({ ...p, tone: e.target.value }))}
             onBlur={saveInboxAiTone}
-            placeholder="e.g., Professional and concise. Always greet by first name. Sign off as 'Best regards, [Your Name]'"
-            rows={3}
+            placeholder="e.g., Professional and concise. Always greet by first name. Sign off with 'Best regards, [Your Name]'. Use formal German for German emails."
+            rows={5}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -323,14 +323,14 @@ export default function SettingsView() {
 
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-            Sorting Rules
+            Custom Sorting Rules
           </label>
           <textarea
             value={inboxAi.sortRules}
             onChange={(e) => setInboxAi((p) => ({ ...p, sortRules: e.target.value }))}
             onBlur={saveInboxAiSortRules}
-            placeholder="e.g., Emails from @clientdomain.com are always 'urgent'. Newsletters from Substack are 'normal', not 'irrelevant'."
-            rows={3}
+            placeholder="e.g., Emails from @clientdomain.com are always 'urgent'. Newsletters from Substack are 'normal'. Anything from noreply@ is 'irrelevant' unless it contains an invoice."
+            rows={5}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -350,7 +350,7 @@ export default function SettingsView() {
             Business Context Documents
           </label>
           <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
-            Upload up to 5 PDFs. Extracted text is prepended to AI prompts for context.
+            Upload PDFs to help the AI understand your business, products, and communication style. Content is extracted and included in AI prompts. Max 5 files, 10MB total.
           </p>
           <button
             type="button"
