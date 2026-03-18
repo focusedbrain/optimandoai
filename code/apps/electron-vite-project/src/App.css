@@ -803,6 +803,10 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.inbox-detail-workspace--ai-collapsed {
+  grid-template-columns: 1fr 72px;
+}
+
 .inbox-detail-message {
   min-width: 0;
   min-height: 0;
@@ -835,6 +839,42 @@ body {
   border-radius: 0 10px 10px 0;
 }
 
+.inbox-detail-ai[data-collapsed="true"] {
+  min-width: 72px;
+  width: 72px;
+  overflow: hidden;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-advisory-banner {
+  display: none !important;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-actions {
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 4px;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-actions button {
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .ai-analysis-toggle {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  cursor: pointer;
+  padding: 12px 8px;
+  text-orientation: mixed;
+  white-space: nowrap;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .ai-analysis-body,
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-row-draft,
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-error-banner {
+  display: none !important;
+}
+
 .inbox-detail-ai-inner {
   display: flex;
   flex-direction: column;
@@ -865,6 +905,31 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-analysis-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ai-analysis-toggle:hover {
+  color: #334155;
+}
+
+.ai-analysis-body {
+  flex-shrink: 0;
 }
 
 /* Compact always-visible rows (no accordions) */
@@ -1608,6 +1673,15 @@ body {
   flex-shrink: 0;
 }
 
+/* Undo button fade-out: starts at 8s, gone at 10s */
+.undo-btn-wrapper {
+  transition: opacity 2s ease-out;
+}
+.undo-btn-wrapper[data-fading="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Recent undoable actions — compact stack for power-user recovery */
 .bulk-view-recent-actions {
   display: flex;
@@ -1752,6 +1826,12 @@ body {
   color: #dc2626;
 }
 
+.bulk-view-toolbar-filter-btn--review[data-active="true"] {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
 .bulk-view-toolbar-filter-btn--archived[data-active="true"] {
   background: rgba(59, 130, 246, 0.1);
   border-color: rgba(59, 130, 246, 0.35);
@@ -1831,6 +1911,37 @@ body {
 .bulk-view-archive-btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.bulk-view-review-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  cursor: pointer;
+}
+
+.bulk-view-review-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.bulk-view-wr-expert-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(147, 51, 234, 0.35);
+  background: rgba(147, 51, 234, 0.08);
+  color: #a78bfa;
+  cursor: pointer;
+}
+
+.bulk-view-wr-expert-btn:hover {
+  background: rgba(147, 51, 234, 0.15);
 }
 
 .bulk-view-ai-sort-btn {
@@ -2872,6 +2983,37 @@ body {
   border: 2px solid #2563eb;
   border-radius: 6px;
   flex-shrink: 0;
+}
+
+.bulk-action-card-review-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.bulk-action-card-review-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #f59e0b;
+}
+
+.bulk-action-card-review-countdown {
+  font-size: 11px;
+  color: #92400e;
+}
+
+.bulk-action-card--pre-action-review .bulk-action-card-review-countdown {
+  font-weight: 700;
+  color: #f59e0b;
 }
 
 .bulk-action-card--pre-action-archive .bulk-action-card-archive-preview {

@@ -527,12 +527,16 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
+  moveToPendingReview: (ids: string[]) => ipcRenderer.invoke('inbox:moveToPendingReview', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
   setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
   selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),
   deleteContextDoc: (docId: string) => ipcRenderer.invoke('inbox:deleteContextDoc', docId),
   listContextDocs: () => ipcRenderer.invoke('inbox:listContextDocs'),
+  getAiRules: () => ipcRenderer.invoke('inbox:getAiRules'),
+  saveAiRules: (content: string) => ipcRenderer.invoke('inbox:saveAiRules', content),
+  getAiRulesDefault: () => ipcRenderer.invoke('inbox:getAiRulesDefault'),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

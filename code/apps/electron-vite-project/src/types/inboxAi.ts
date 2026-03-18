@@ -15,6 +15,7 @@ export type SortCategory =
   | 'newsletter'
   | 'spam'
   | 'irrelevant'
+  | 'pending_review'
 
 export const SORT_CATEGORIES: SortCategory[] = [
   'urgent',
@@ -23,6 +24,7 @@ export const SORT_CATEGORIES: SortCategory[] = [
   'newsletter',
   'spam',
   'irrelevant',
+  'pending_review',
 ]
 
 // ── Normal Inbox: Advisory AI ───────────────────────────────────────────────────
@@ -60,9 +62,10 @@ export interface NormalInboxDraftReply {
 
 // ── Bulk Inbox: Authoritative AI ───────────────────────────────────────────────
 
-/** Actionable recommendation used in workflow. Can trigger pending_delete, archive, etc. */
+/** Actionable recommendation used in workflow. Can trigger pending_delete, pending_review, archive, etc. */
 export type BulkRecommendedAction =
   | 'pending_delete'
+  | 'pending_review'
   | 'archive'
   | 'keep_for_manual_action'
   | 'draft_reply_ready'
@@ -110,6 +113,8 @@ export interface BulkAiResult {
   pendingDeletePreviewUntil?: string
   /** ISO timestamp: show "archive" preview until this time */
   archivePreviewUntil?: string
+  /** ISO timestamp: show "pending review" preview until this time */
+  pendingReviewPreviewUntil?: string
 }
 
 /** Per-message entry: full or partial result + optional loading state. */

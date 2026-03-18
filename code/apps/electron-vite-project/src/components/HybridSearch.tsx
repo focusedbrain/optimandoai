@@ -319,6 +319,7 @@ export default function HybridSearch({
   const [showPanel, setShowPanel] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [infoPopupOpen, setInfoPopupOpen] = useState(false)
+  const [draftRefineHistory, setDraftRefineHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; showUseButton?: boolean; onUse?: () => void }>>([])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const infoPopupRef = useRef<HTMLDivElement>(null)
@@ -333,6 +334,10 @@ export default function HybridSearch({
 
   useEffect(() => {
     if (draftRefineConnected) setMode('chat')
+  }, [draftRefineConnected])
+
+  useEffect(() => {
+    if (!draftRefineConnected) setDraftRefineHistory([])
   }, [draftRefineConnected])
 
   const handleClearMessageSelection = useCallback(() => {
@@ -443,11 +448,29 @@ export default function HybridSearch({
           setResponse(prev => (prev ?? '') + tok)
         })
 
-        const isDraftRefine = draftRefineConnected && draftRefineMessageId === selectedMessageId && draftRefineDraftText
+        const isDraftRefine = draftRefineConnected && draftRefineMessageId === selectedMessageId
+        const currentDraft = isDraftRefine ? (useDraftRefineStore.getState().draftText || draftRefineDraftText || '') : ''
+
+        if (isDraftRefine) {
+          setDraftRefineHistory(prev => [...prev, { role: 'user', content: trimmed }])
+        }
 
         let chatQuery: string
         if (isDraftRefine) {
-          chatQuery = `[DRAFT REFINE] You are refining a draft email reply. The current draft is:\n\n${draftRefineDraftText}\n\nThe user will give you instructions to improve it. Respond with ONLY the revised draft — no explanation, no preamble.\n\nUser instruction: ${trimmed}`
+          chatQuery = currentDraft
+            ? `[DRAFT REFINE] You are editing a draft email reply.
+Current draft:
+"""
+${currentDraft}
+"""
+The user will give you an instruction to modify this draft.
+Respond with ONLY the complete revised draft text — no explanation, no preamble, no markdown. Just the revised email text.
+
+User instruction: ${trimmed}`
+            : `[DRAFT REFINE] The user has no draft yet. The user will give you an instruction to create a draft email reply.
+Respond with ONLY the complete draft text — no explanation, no preamble, no markdown. Just the email text.
+
+User instruction: ${trimmed}`
         } else {
           let inboxContext = ''
           if (selectedMessageId && window.emailInbox?.getMessage) {
@@ -518,7 +541,16 @@ export default function HybridSearch({
             setResponse(prev => prev || answerText)
           }
           if (isDraftRefine && answerText.trim()) {
-            draftRefineDeliverResponse(answerText.trim())
+            const refined = answerText.trim()
+            draftRefineDeliverResponse(refined)
+            setDraftRefineHistory(prev => [...prev, {
+              role: 'assistant',
+              content: refined,
+              showUseButton: true,
+              onUse: () => draftRefineDeliverResponse(refined),
+            }])
+            setResponse(null)
+            setQuery('')
           }
           setChatGovernanceNote(result.governanceNote ?? null)
           if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
@@ -577,29 +609,50 @@ export default function HybridSearch({
       {selectedMessageId && (
         <div style={{
           fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
-          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
         }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: '4px',
-            padding: '2px 8px', borderRadius: '6px',
-            background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-          }}>
-            📨 Focused: Message
-            {selectedAttachmentId && <span>→ Attachment</span>}
-            {(onClearMessageSelection || draftRefineConnected) && (
+          {draftRefineConnected && draftRefineMessageId === selectedMessageId ? (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+            }}>
+              ✏️ Focused: Draft
               <button
                 type="button"
                 onClick={handleClearMessageSelection}
-                aria-label="Clear message selection"
+                aria-label="Disconnect draft"
                 style={{
                   marginLeft: '4px', padding: 0, background: 'none', border: 'none',
                   cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
                 }}
               >
-                ✕
+                ×
               </button>
-            )}
-          </span>
+            </span>
+          ) : (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+            }}>
+              📨 Focused: Message
+              {selectedAttachmentId && <span>→ Attachment</span>}
+              {onClearMessageSelection && (
+                <button
+                  type="button"
+                  onClick={handleClearMessageSelection}
+                  aria-label="Clear message selection"
+                  style={{
+                    marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                    cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          )}
         </div>
       )}
       <div className="hs-bar">
@@ -683,7 +736,7 @@ export default function HybridSearch({
           type="text"
           placeholder={
             draftRefineConnected && draftRefineMessageId === selectedMessageId
-              ? 'Type instructions to refine the draft above…'
+              ? "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
               : mode === 'actions'
                 ? 'Describe an action to draft, analyze, or automate…'
                 : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
@@ -850,6 +903,61 @@ export default function HybridSearch({
             </>
           )}
 
+          {/* Draft refine history (when connected to draft) */}
+          {draftRefineConnected && draftRefineMessageId === selectedMessageId && (draftRefineHistory.length > 0 || response) && (
+            <div className="hs-draft-refine-history" style={{ marginBottom: '16px' }}>
+              {draftRefineHistory.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`hs-draft-refine-msg hs-draft-refine-msg--${msg.role}`}
+                  style={{
+                    marginBottom: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: msg.role === 'user' ? 'rgba(147,51,234,0.08)' : 'rgba(147,51,234,0.04)',
+                    border: '1px solid rgba(147,51,234,0.2)',
+                    fontSize: '12px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    {msg.role === 'user' ? 'You' : 'Revised draft'}
+                  </div>
+                  <div className="hs-draft-refine-content">{msg.content}</div>
+                  {msg.showUseButton && msg.onUse && (
+                    <button
+                      type="button"
+                      className="chat-use-btn"
+                      onClick={msg.onUse}
+                      title="Apply this version to draft"
+                    >
+                      USE ↓
+                    </button>
+                  )}
+                </div>
+              ))}
+              {isLoading && response && (
+                <div
+                  className="hs-draft-refine-msg hs-draft-refine-msg--assistant"
+                  style={{
+                    marginBottom: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'rgba(147,51,234,0.04)',
+                    border: '1px solid rgba(147,51,234,0.2)',
+                    fontSize: '12px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>Revising…</div>
+                  <div>{response}</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Actions response */}
           {lastMode === 'actions' && response && (
             <div className="hs-response">
@@ -858,8 +966,8 @@ export default function HybridSearch({
             </div>
           )}
 
-          {/* Chat response */}
-          {lastMode === 'chat' && (response || contextBlocks.length > 0 || structuredResult) && (
+          {/* Chat response (skip when draft refine mode — we show draft history instead) */}
+          {lastMode === 'chat' && !(draftRefineConnected && draftRefineMessageId === selectedMessageId) && (response || contextBlocks.length > 0 || structuredResult) && (
             <div className="hs-response">
               {structuredResult && structuredResult.items.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>

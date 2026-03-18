@@ -46,9 +46,10 @@ interface InboxDetailAiPanelProps {
   onSendDraft?: (draft: string, message: InboxMessage) => void
   onArchive?: (messageIds: string[]) => void
   onDelete?: (messageIds: string[]) => void
+  onCollapsedChange?: (collapsed: boolean) => void
 }
 
-function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete }: InboxDetailAiPanelProps) {
+function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete, onCollapsedChange }: InboxDetailAiPanelProps) {
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [receivedFields, setReceivedFields] = useState<Set<NormalInboxAiResultKey>>(new Set())
   const [analysisLoading, setAnalysisLoading] = useState(false)
@@ -58,8 +59,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [draftError, setDraftError] = useState(false)
   const [editedDraft, setEditedDraft] = useState('')
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
-  const [draftExpanded, setDraftExpanded] = useState(false)
-  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(new Set())
+  const [analysisExpanded, setAnalysisExpanded] = useState(true)
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -166,8 +166,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setDraft(null)
     setEditedDraft('')
     setActionChecked({})
-    setDraftExpanded(false)
-    setSectionsCollapsed(new Set())
+    setAnalysisExpanded(true)
     draftRefineDisconnect()
     runAnalysisStream()
     return () => {
@@ -176,25 +175,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [messageId, runAnalysisStream, draftRefineDisconnect])
 
   useEffect(() => {
-    if (draft) {
-      setDraftExpanded(true)
-      setSectionsCollapsed((prev) => {
-        if (prev.size === 0) return new Set(['response', 'summary', 'action', 'archive'])
-        return prev
-      })
-    } else {
-      setDraftExpanded(false)
-      setSectionsCollapsed(new Set())
-    }
-  }, [draft])
+    if (analysis?.draftReply || draft) setAnalysisExpanded(false)
+  }, [analysis?.draftReply, draft])
 
-  const toggleSection = useCallback((id: string) => {
-    setSectionsCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const panelCollapsed = !analysisExpanded && !draft
+  useEffect(() => {
+    onCollapsedChange?.(panelCollapsed)
+  }, [panelCollapsed, onCollapsedChange])
+
+  const toggleAnalysisExpanded = useCallback(() => {
+    setAnalysisExpanded((prev) => !prev)
   }, [])
 
   const handleDraftTextareaFocus = useCallback(() => {
@@ -346,81 +336,130 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {/* Response Needed */}
-        {draftExpanded && sectionsCollapsed.has('response') ? (
-          <div className="inbox-detail-ai-row ai-section-collapsed" onClick={() => toggleSection('response')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('response')}>
-            <span className="inbox-detail-ai-row-label">Response Needed</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="inbox-detail-ai-row">
-            <span className="inbox-detail-ai-row-label">Response Needed</span>
-            <div className="inbox-detail-ai-row-value">
-              {analysisLoading && !receivedFields.has('needsReply') ? (
-                <span className="inbox-detail-ai-skeleton-inline" />
-              ) : analysis ? (
-                <span className="inbox-detail-ai-response-needed">
-                  <span className="inbox-detail-ai-dot" style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }} />
-                  {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
-                </span>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Summary */}
-        {draftExpanded && sectionsCollapsed.has('summary') ? (
-          <div className="inbox-detail-ai-row ai-section-collapsed" onClick={() => toggleSection('summary')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('summary')}>
-            <span className="inbox-detail-ai-row-label">Summary</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="inbox-detail-ai-row" ref={summaryRef}>
-            <span className="inbox-detail-ai-row-label">Summary</span>
-            <div className="inbox-detail-ai-row-value">
-              {analysisLoading && !receivedFields.has('summary') ? (
-                <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
-              ) : analysis?.summary ? (
-                <span className="inbox-detail-ai-text">{analysis.summary}</span>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Urgency — compact when draft expanded */}
-        <div className="inbox-detail-ai-row">
-          <span className="inbox-detail-ai-row-label">Urgency</span>
-          <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !receivedFields.has('urgencyScore') ? (
-              <span className="inbox-detail-ai-skeleton-inline" />
-            ) : analysis ? (
-              <>
-                <div className="inbox-detail-ai-urgency-bar">
-                  <div className="inbox-detail-ai-urgency-fill" style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }} />
-                </div>
-                {!draftExpanded && (
-                  <span className="inbox-detail-ai-urgency-label">{analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}</span>
-                )}
-              </>
-            ) : (
-              <span className="inbox-detail-ai-muted">—</span>
-            )}
-          </div>
+        {/* Collapsible analysis header */}
+        <div
+          className="ai-analysis-toggle"
+          onClick={toggleAnalysisExpanded}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && toggleAnalysisExpanded()}
+        >
+          <span>Analysis</span>
+          <span>{analysisExpanded ? '▾' : '▸'}</span>
         </div>
 
-        {/* Draft Reply */}
-        <div className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draftExpanded ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`} ref={draftRef}>
+        {/* Collapsible analysis body */}
+        {analysisExpanded && (
+          <div className="ai-analysis-body">
+            {/* Response Needed */}
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Response Needed</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('needsReply') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis ? (
+                  <span className="inbox-detail-ai-response-needed">
+                    <span className="inbox-detail-ai-dot" style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }} />
+                    {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
+                  </span>
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="inbox-detail-ai-row" ref={summaryRef}>
+              <span className="inbox-detail-ai-row-label">Summary</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('summary') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
+                ) : analysis?.summary ? (
+                  <span className="inbox-detail-ai-text">{analysis.summary}</span>
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+
+            {/* Urgency */}
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Urgency</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('urgencyScore') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis ? (
+                  <>
+                    <div className="inbox-detail-ai-urgency-bar">
+                      <div className="inbox-detail-ai-urgency-fill" style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }} />
+                    </div>
+                    <span className="inbox-detail-ai-urgency-label">{analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}</span>
+                  </>
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+
+            {/* Action Items */}
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Action Items</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('actionItems') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis?.actionItems?.length ? (
+                  <ul className="inbox-detail-ai-action-list">
+                    {analysis.actionItems.map((item, idx) => (
+                      <li key={idx} className="inbox-detail-ai-action-item">
+                        <input type="checkbox" checked={!!actionChecked[idx]} onChange={() => toggleActionChecked(idx)} />
+                        <span style={{ textDecoration: actionChecked[idx] ? 'line-through' : undefined }}>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="inbox-detail-ai-muted">None.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Suggested action */}
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Suggested action</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('archiveRecommendation') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis ? (
+                  <>
+                    <span className="inbox-detail-ai-text">
+                      {analysis.archiveRecommendation === 'archive'
+                        ? `Consider archiving — ${analysis.archiveReason || '—'}`
+                        : `Keep for now — ${analysis.archiveReason || '—'}`}
+                    </span>
+                    {analysis.archiveRecommendation === 'archive' && onArchive && (
+                      <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
+                    )}
+                  </>
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Draft Reply — always below, outside collapsible; fills height when draft exists */}
+        <div
+          className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
+          ref={draftRef}
+          style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
+        >
           <div className="ai-section-draft-header">
             <span className="inbox-detail-ai-row-label">{draft ? '👉 DRAFT REPLY' : 'Draft Reply'}</span>
-            {draftExpanded && draft && (
+            {draft && (
               <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
             )}
           </div>
-          <div className="inbox-detail-ai-row-value">
+          <div className="inbox-detail-ai-row-value" style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
             {draftLoading ? (
               <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
             ) : draft ? (
@@ -456,64 +495,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             )}
           </div>
         </div>
-
-        {/* Action Items */}
-        {draftExpanded && sectionsCollapsed.has('action') ? (
-          <div className="inbox-detail-ai-row ai-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')}>
-            <span className="inbox-detail-ai-row-label">Action Items</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="inbox-detail-ai-row">
-            <span className="inbox-detail-ai-row-label">Action Items</span>
-            <div className="inbox-detail-ai-row-value">
-              {analysisLoading && !receivedFields.has('actionItems') ? (
-                <span className="inbox-detail-ai-skeleton-inline" />
-              ) : analysis?.actionItems?.length ? (
-                <ul className="inbox-detail-ai-action-list">
-                  {analysis.actionItems.map((item, idx) => (
-                    <li key={idx} className="inbox-detail-ai-action-item">
-                      <input type="checkbox" checked={!!actionChecked[idx]} onChange={() => toggleActionChecked(idx)} />
-                      <span style={{ textDecoration: actionChecked[idx] ? 'line-through' : undefined }}>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="inbox-detail-ai-muted">None.</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Archive suggestion */}
-        {draftExpanded && sectionsCollapsed.has('archive') ? (
-          <div className="inbox-detail-ai-row ai-section-collapsed" onClick={() => toggleSection('archive')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('archive')}>
-            <span className="inbox-detail-ai-row-label">Suggested action</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="inbox-detail-ai-row">
-            <span className="inbox-detail-ai-row-label">Suggested action</span>
-            <div className="inbox-detail-ai-row-value">
-              {analysisLoading && !receivedFields.has('archiveRecommendation') ? (
-                <span className="inbox-detail-ai-skeleton-inline" />
-              ) : analysis ? (
-                <>
-                  <span className="inbox-detail-ai-text">
-                    {analysis.archiveRecommendation === 'archive'
-                      ? `Consider archiving — ${analysis.archiveReason || '—'}`
-                      : `Keep for now — ${analysis.archiveReason || '—'}`}
-                  </span>
-                  {analysis.archiveRecommendation === 'archive' && onArchive && (
-                    <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
-                  )}
-                </>
-              ) : (
-                <span className="inbox-detail-ai-muted">—</span>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -756,6 +737,10 @@ export default function EmailInboxView({
     if (primaryAccountId) loadSyncState(primaryAccountId)
   }, [primaryAccountId, loadSyncState])
 
+  useEffect(() => {
+    setAiPanelCollapsed(false)
+  }, [selectedMessageId])
+
   // Provider/account state for no-selection workspace
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
@@ -765,6 +750,7 @@ export default function EmailInboxView({
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
   const composeClickRef = useRef<number>(0)
+  const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -867,6 +853,16 @@ export default function EmailInboxView({
     clearMultiSelect()
   }, [multiSelectIds, archiveMessages, clearMultiSelect])
 
+  const handleBulkMoveToPendingReview = useCallback(async () => {
+    const ids = Array.from(multiSelectIds)
+    if (!ids.length || !window.emailInbox?.moveToPendingReview) return
+    const res = await window.emailInbox.moveToPendingReview(ids)
+    if (res.ok) {
+      clearMultiSelect()
+      fetchMessages()
+    }
+  }, [multiSelectIds, clearMultiSelect, fetchMessages])
+
   useEffect(() => {
     fetchMessages()
   }, [fetchMessages])
@@ -962,6 +958,7 @@ export default function EmailInboxView({
           selectedCount={selectedCount}
           onBulkDelete={handleBulkDelete}
           onBulkArchive={handleBulkArchive}
+          onBulkMoveToPendingReview={selectedCount > 0 ? handleBulkMoveToPendingReview : undefined}
           onBulkCategorize={
             selectedCount > 0
               ? () => {
@@ -1115,7 +1112,7 @@ export default function EmailInboxView({
 
       {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
       {selectedMessageId && (
-        <div className="inbox-detail-workspace">
+        <div className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}>
           <div className="inbox-detail-message">
             <EmailMessageDetail
               message={selectedMessage}
@@ -1123,13 +1120,14 @@ export default function EmailInboxView({
               onReply={handleReply}
             />
           </div>
-          <div className="inbox-detail-ai">
+          <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
             <InboxDetailAiPanel
               messageId={selectedMessageId}
               message={selectedMessage}
               onSendDraft={handleSendDraft}
               onArchive={archiveMessages}
               onDelete={deleteMessages}
+              onCollapsedChange={setAiPanelCollapsed}
             />
           </div>
         </div>

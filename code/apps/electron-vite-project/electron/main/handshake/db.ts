@@ -717,6 +717,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN needs_reply INTEGER DEFAULT 0`,
     ],
   },
+  {
+    version: 33,
+    description: 'Schema v33: Pending Review — pending_review_at for 14-day grace',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN pending_review_at TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_inbox_messages_sort_category ON inbox_messages(sort_category)`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

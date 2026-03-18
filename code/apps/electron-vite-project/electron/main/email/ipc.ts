@@ -8,6 +8,127 @@
 import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+
+// ── WRExpert.md: user-editable AI behaviour (userData, survives app updates) ──
+const RULES_PATH = path.join(app.getPath('userData'), 'WRExpert.md')
+const DEFAULT_RULES_PATH = path.join(__dirname, '../../WRExpert.default.md')
+
+const DEFAULT_WREXPERT_CONTENT = `# WRExpert.md — WR Desk Inbox AI Behaviour
+# This is your personal AI expert. Edit this file to teach the AI how to
+# handle your specific inbox. Changes take effect on the next Auto-Sort run.
+# Lines starting with # are comments and are ignored by the AI.
+
+## IDENTITY
+You are classifying emails for a business professional.
+Adapt tone and priorities to a business context unless specified otherwise.
+
+## CATEGORIES AND THRESHOLDS
+
+### pending_delete (auto-deleted after 7 days)
+Move here if ANY of these apply:
+- Newsletters and marketing emails with no direct action required
+- Automated notifications (order confirmations, shipping updates, receipts)
+  EXCEPTION: receipts over €500 → move to pending_review instead
+- Social media notifications
+- Promotional offers
+- Spam or unsolicited commercial email
+- System status emails with no incident
+
+### pending_review (human review required, auto-deleted after 14 days)
+Move here if ANY of these apply:
+- Legal notices or contract-related emails that are NOT time-sensitive
+- Supplier or vendor communications that are informational only
+- Any email where the intent is unclear and automatic action seems risky
+- Receipts or invoices over €500 (even if automated)
+- First contact from an unknown sender on a potentially relevant topic
+
+### archive (kept permanently, no action needed)
+Move here if:
+- Useful reference material (documentation, guides, confirmations you might need later)
+- Completed transaction records under €500
+- Meeting notes, summaries, reports for future reference
+- Any email explicitly marked by the user as "keep"
+
+### urgent (stays in inbox, flagged red, urgency >= 7)
+Move here if ANY of these apply:
+- Invoice or payment overdue or due within 3 days
+- Legal deadline within 7 days
+- Contract termination or dispute
+- Security alert requiring immediate action
+- Direct request from a known important contact requiring same-day response
+
+### action_required (stays in inbox, flagged orange, urgency 4–6)
+Move here if:
+- Requires a response within the next 7 days
+- Requires a decision or manual step (not just reading)
+- Contains a question directed at you that is not automated
+
+### normal (stays in inbox, no special flag)
+Move here if:
+- Requires attention but no urgency
+- Does not fit the above categories
+- Personal or low-stakes business communication
+
+## URGENCY SCORING (1–10)
+1–3: No action required, informational only
+4–6: Action required within the week
+7–8: Action required within 48 hours
+9–10: Immediate action required (legal, financial, security)
+
+## DRAFT REPLY RULES
+Generate a draft reply (draftReply field) when:
+- needsReply is true
+- The email is action_required or urgent
+- The sender is a real person (not an automated system)
+Do NOT generate a draft reply for:
+- Automated notifications
+- Newsletters
+- Spam
+
+Draft tone: professional, concise, direct. 
+Default language: match the language of the incoming email.
+Signature: do not add a signature — the user will add their own.
+
+## CUSTOM RULES (add your own below)
+# Example: treat all emails from my-important-client.com as urgent
+# RULE: sender domain "my-important-client.com" → urgent, urgency 8
+#
+# Example: never auto-delete emails with subject containing "invoice"
+# RULE: subject contains "invoice" → pending_review minimum
+`
+
+let rulesCache = { content: '', mtime: 0 }
+
+function getInboxAiRules(): string {
+  if (!fs.existsSync(RULES_PATH)) {
+    let defaults: string
+    try {
+      defaults = fs.readFileSync(DEFAULT_RULES_PATH, 'utf-8')
+    } catch {
+      defaults = DEFAULT_WREXPERT_CONTENT
+    }
+    fs.writeFileSync(RULES_PATH, defaults, 'utf-8')
+    rulesCache = { content: defaults, mtime: Date.now() }
+    return defaults
+  }
+  try {
+    const stats = fs.statSync(RULES_PATH)
+    if (stats.mtimeMs !== rulesCache.mtime) {
+      rulesCache = { content: fs.readFileSync(RULES_PATH, 'utf-8'), mtime: stats.mtimeMs }
+    }
+    return rulesCache.content
+  } catch {
+    return DEFAULT_WREXPERT_CONTENT
+  }
+}
+
+function getInboxAiRulesForPrompt(): string {
+  const raw = getInboxAiRules()
+  return raw
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#') && line.trim() !== '')
+    .join('\n')
+}
 import { emailGateway } from './gateway'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
@@ -621,8 +742,9 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
+    'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -738,15 +860,21 @@ export function registerInboxHandlers(
       if (filter === 'deleted') conditions.push('deleted = 1')
       else if (filter === 'pending_delete') {
         conditions.push('deleted = 0', 'pending_delete = 1')
+      } else if (filter === 'pending_review') {
+        conditions.push('deleted = 0', 'archived = 0', 'sort_category = ?')
+        params.push('pending_review')
       } else if (filter === 'unread') {
-        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
+        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+        params.push('pending_review')
       } else if (filter === 'starred') {
-        conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)')
+        conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+        params.push('pending_review')
       } else if (filter === 'archived') {
         conditions.push('archived = 1', 'deleted = 0')
       } else {
-        /* all: main inbox — exclude archived, deleted, pending_delete */
-        conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
+        /* all: main inbox — exclude archived, deleted, pending_delete, pending_review */
+        conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+        params.push('pending_review')
       }
       if (sourceType) {
         conditions.push('source_type = ?')
@@ -1252,6 +1380,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     draftReply?: string | null
     recommended_action?: string
     pending_delete?: boolean
+    pending_review?: boolean
     error?: string
   }> {
     const db = await resolveDb()
@@ -1262,25 +1391,18 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     const available = await isOllamaAvailable()
     if (!available) return { messageId, error: 'llm_unavailable' }
 
-    const systemPrompt = `You are an AI email classifier for a business inbox.
-Classify the email and return ONLY a JSON object — no explanation, no markdown.
+    const userRules = getInboxAiRulesForPrompt()
+    const systemPrompt = `${userRules}
 
-Return exactly this shape:
+Return ONLY a JSON object with this exact shape — no explanation, no markdown:
 {
-  "category": "pending_delete" | "archive" | "urgent" | "action_required" | "normal",
+  "category": "pending_delete" | "pending_review" | "archive" | "urgent" | "action_required" | "normal",
   "urgency": <number 1-10>,
   "needsReply": <boolean>,
   "summary": "<one sentence>",
-  "reason": "<one sentence explaining classification>",
-  "draftReply": "<draft reply if needsReply is true, otherwise null>"
-}
-
-Category rules:
-- pending_delete: spam, newsletters, automated notifications, no action needed
-- archive: useful reference, no action needed, keep for records
-- urgent: invoice pending, deadline, payment required, legal notice (urgency >= 7)
-- action_required: requires a manual response or decision (urgency 4-6)
-- normal: everything else that doesn't fit above`
+  "reason": "<one sentence>",
+  "draftReply": "<draft reply or null>"
+}`
 
     const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
     const userPrompt = `Classify this email:
@@ -1306,7 +1428,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       if (!parsed?.category) return { messageId, error: 'parse_failed', reason: raw?.slice?.(0, 200) }
 
       const cat = String(parsed.category).toLowerCase()
-      const VALID_NEW = ['pending_delete', 'archive', 'urgent', 'action_required', 'normal'] as const
+      const VALID_NEW = ['pending_delete', 'pending_review', 'archive', 'urgent', 'action_required', 'normal'] as const
       const validCategory = VALID_NEW.includes(cat as any) ? cat : 'normal'
       const urgency = typeof parsed.urgency === 'number' ? Math.max(1, Math.min(10, parsed.urgency)) : 5
       const needsReply = !!parsed.needsReply
@@ -1315,6 +1437,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
 
       const sortCategoryMap: Record<string, string> = {
         pending_delete: 'spam',
+        pending_review: 'pending_review',
         archive: 'newsletter',
         urgent: 'urgent',
         action_required: 'important',
@@ -1323,19 +1446,33 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       const sortCategory = sortCategoryMap[validCategory] ?? 'normal'
       const recommendedAction =
         validCategory === 'pending_delete' ? 'pending_delete'
+        : validCategory === 'pending_review' ? 'pending_review'
         : validCategory === 'archive' ? 'archive'
         : validCategory === 'urgent' && needsReply ? 'draft_reply_ready'
         : validCategory === 'action_required' && needsReply ? 'draft_reply_ready'
         : 'keep_for_manual_action'
       const pendingDelete = validCategory === 'pending_delete'
+      const pendingReview = validCategory === 'pending_review'
 
-      db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(
-        sortCategory,
-        reason || null,
-        urgency,
-        needsReply ? 1 : 0,
-        messageId
-      )
+      if (pendingReview) {
+        const now = new Date().toISOString()
+        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?').run(
+          sortCategory,
+          reason || null,
+          urgency,
+          needsReply ? 1 : 0,
+          now,
+          messageId
+        )
+      } else {
+        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(
+          sortCategory,
+          reason || null,
+          urgency,
+          needsReply ? 1 : 0,
+          messageId
+        )
+      }
 
       return {
         messageId,
@@ -1347,6 +1484,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
         recommended_action: recommendedAction,
         pending_delete: pendingDelete,
+        pending_review: pendingReview,
       }
     } catch (err: any) {
       return {
@@ -1475,6 +1613,23 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       return { ok: true, data: { marked: (messageIds ?? []).length } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Mark failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:moveToPendingReview', async (_e, ids: string[]) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const idList = ids ?? []
+      if (idList.length === 0) return { ok: true }
+      const now = new Date().toISOString()
+      const placeholders = idList.map(() => '?').join(',')
+      db.prepare(
+        `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`
+      ).run(now, ...idList)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Move failed' }
     }
   })
 
@@ -1607,6 +1762,28 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     }
   })
 
+  ipcMain.handle('inbox:getAiRules', async () => {
+    try {
+      return fs.readFileSync(RULES_PATH, 'utf-8')
+    } catch {
+      return getInboxAiRules()
+    }
+  })
+
+  ipcMain.handle('inbox:saveAiRules', async (_e, content: string) => {
+    try {
+      fs.writeFileSync(RULES_PATH, content ?? '', 'utf-8')
+      rulesCache.mtime = 0
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Save failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:getAiRulesDefault', async () => {
+    return DEFAULT_WREXPERT_CONTENT
+  })
+
   // ── Periodic: execute pending deletions every 5 minutes; process 7-day pending_delete → queue ──
   let deletionInterval: ReturnType<typeof setInterval> | null = null
   deletionInterval = setInterval(async () => {
@@ -1627,6 +1804,22 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
           queueRemoteDeletion(db, r.id, 0)
         } catch (e: any) {
           console.error('[Inbox IPC] queueRemoteDeletion for pending_delete:', e?.message)
+        }
+      }
+      // Pending review: 14-day grace, then queue for remote deletion
+      const fourteenDaysAgo = new Date()
+      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+      const reviewCutoff = fourteenDaysAgo.toISOString()
+      const reviewRows = db.prepare(
+        `SELECT id FROM inbox_messages
+         WHERE sort_category = 'pending_review' AND pending_review_at IS NOT NULL AND pending_review_at <= ?
+         AND NOT EXISTS (SELECT 1 FROM deletion_queue dq WHERE dq.message_id = inbox_messages.id AND dq.executed = 0 AND dq.cancelled = 0)`
+      ).all(reviewCutoff) as Array<{ id: string }>
+      for (const r of reviewRows) {
+        try {
+          queueRemoteDeletion(db, r.id, 0)
+        } catch (e: any) {
+          console.error('[Inbox IPC] queueRemoteDeletion for pending_review:', e?.message)
         }
       }
     } catch (err: any) {

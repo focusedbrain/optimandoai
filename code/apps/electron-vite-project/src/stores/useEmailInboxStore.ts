@@ -68,7 +68,7 @@ export interface InboxMessage {
 }
 
 export interface InboxFilter {
-  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete'
+  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review'
   sourceType: InboxSourceType | 'all'
   handshakeId?: string
   category?: string
@@ -98,10 +98,14 @@ interface EmailInboxState {
   pendingDeletePreviewExpiries: Record<string, string>
   /** messageId -> expiresAt ISO for archive grace. Survives view switch. */
   archivePreviewExpiries: Record<string, string>
+  /** messageId -> expiresAt ISO for pending review grace. Survives view switch. */
+  pendingReviewPreviewExpiries: Record<string, string>
   /** IDs user chose to keep during preview. Survives view switch. */
   keptDuringPreviewIds: Set<string>
   /** IDs user chose to keep during archive preview. Survives view switch. */
   keptDuringArchivePreviewIds: Set<string>
+  /** IDs user chose to keep during pending review preview. Survives view switch. */
+  keptDuringReviewPreviewIds: Set<string>
   /** Toast shown after move; Undo clears it. */
   pendingDeleteToast: { count: number; ids: string[] } | null
   /** Recent undoable batches (max 5) — supports recovery when multiple actions happen quickly. */
@@ -132,8 +136,10 @@ interface EmailInboxState {
   clearBulkAiOutputsForIds: (ids: string[]) => void
   addPendingDeletePreview: (ids: string[]) => void
   addArchivePreview: (ids: string[]) => void
+  addPendingReviewPreview: (ids: string[]) => void
   keepDuringPreview: (id: string) => void
   keepDuringArchivePreview: (id: string) => void
+  keepDuringReviewPreview: (id: string) => void
   setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
   /** Remove a batch from recent list after Undo. */
   removeRecentPendingDeleteBatch: (ids: string[]) => void
@@ -144,6 +150,7 @@ interface EmailInboxState {
   incrementCountdownTick: () => void
   processExpiredPendingDeletes: () => Promise<void>
   processExpiredArchivePreviews: () => Promise<void>
+  processExpiredPendingReviewPreviews: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
@@ -198,8 +205,10 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkAiOutputs: {},
   pendingDeletePreviewExpiries: {},
   archivePreviewExpiries: {},
+  pendingReviewPreviewExpiries: {},
   keptDuringPreviewIds: new Set(),
   keptDuringArchivePreviewIds: new Set(),
+  keptDuringReviewPreviewIds: new Set(),
   pendingDeleteToast: null,
   recentPendingDeleteBatches: [],
   countdownTick: 0,
@@ -405,6 +414,18 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     })
   },
 
+  addPendingReviewPreview: (ids) => {
+    if (ids.length === 0) return
+    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
+    set((state) => {
+      const next = { ...state.pendingReviewPreviewExpiries }
+      for (const id of ids) next[id] = expiresAt
+      const kept = new Set(state.keptDuringReviewPreviewIds)
+      for (const id of ids) kept.delete(id)
+      return { pendingReviewPreviewExpiries: next, keptDuringReviewPreviewIds: kept }
+    })
+  },
+
   keepDuringPreview: (id) => {
     set((state) => ({
       keptDuringPreviewIds: new Set([...state.keptDuringPreviewIds, id]),
@@ -414,6 +435,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   keepDuringArchivePreview: (id) => {
     set((state) => ({
       keptDuringArchivePreviewIds: new Set([...state.keptDuringArchivePreviewIds, id]),
+    }))
+  },
+
+  keepDuringReviewPreview: (id) => {
+    set((state) => ({
+      keptDuringReviewPreviewIds: new Set([...state.keptDuringReviewPreviewIds, id]),
     }))
   },
 
@@ -544,6 +571,41 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
       }))
       get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
+      get().fetchMessages()
+    }
+  },
+
+  processExpiredPendingReviewPreviews: async () => {
+    const bridge = getBridge()
+    if (!bridge?.moveToPendingReview) return
+    const state = get()
+    const now = Date.now()
+    const expired: string[] = []
+    for (const [id, expiresAt] of Object.entries(state.pendingReviewPreviewExpiries)) {
+      if (new Date(expiresAt).getTime() <= now) expired.push(id)
+    }
+    if (expired.length === 0) return
+    const idsToMove = expired.filter((id) => !state.keptDuringReviewPreviewIds.has(id))
+    set((s) => {
+      const nextExpiries = { ...s.pendingReviewPreviewExpiries }
+      const nextKept = new Set(s.keptDuringReviewPreviewIds)
+      for (const id of expired) {
+        delete nextExpiries[id]
+        nextKept.delete(id)
+      }
+      return { pendingReviewPreviewExpiries: nextExpiries, keptDuringReviewPreviewIds: nextKept }
+    })
+    if (idsToMove.length === 0) return
+    const res = await bridge.moveToPendingReview(idsToMove)
+    if (res.ok) {
+      get().clearBulkAiOutputsForIds(idsToMove)
+      set((s) => ({
+        messages: s.messages.filter((m) => !idsToMove.includes(m.id)),
+        total: Math.max(0, s.total - idsToMove.length),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
+        selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+      }))
       get().fetchMessages()
     }
   },

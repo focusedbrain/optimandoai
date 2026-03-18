@@ -13,10 +13,12 @@ function tick() {
   const state = useEmailInboxStore.getState()
   const hasPending = Object.keys(state.pendingDeletePreviewExpiries).length > 0
   const hasArchive = Object.keys(state.archivePreviewExpiries).length > 0
-  if (!hasPending && !hasArchive) return
+  const hasReview = Object.keys(state.pendingReviewPreviewExpiries).length > 0
+  if (!hasPending && !hasArchive && !hasReview) return
   state.incrementCountdownTick()
   if (hasPending) void state.processExpiredPendingDeletes()
   if (hasArchive) void state.processExpiredArchivePreviews()
+  if (hasReview) void state.processExpiredPendingReviewPreviews()
 }
 
 function start() {

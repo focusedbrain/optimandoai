@@ -4,7 +4,7 @@
  * Collapsible provider section at top for account management.
  */
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   useEmailInboxStore,
   type InboxMessage,
@@ -64,6 +64,19 @@ function PendingDeleteCountdown({ expiresAt }: { expiresAt: string | undefined }
   }
 }
 
+/** Live countdown for pending review preview. */
+function PendingReviewCountdown({ expiresAt }: { expiresAt: string | undefined }) {
+  useEmailInboxStore((s) => s.countdownTick)
+  if (!expiresAt) return <span className="bulk-action-card-review-countdown">Moving in {GRACE_SECONDS}s</span>
+  try {
+    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
+    const text = remaining > 0 ? `Moving in ${remaining}s` : 'Moving now'
+    return <span className="bulk-action-card-review-countdown">{text}</span>
+  } catch {
+    return <span className="bulk-action-card-review-countdown">Moving in {GRACE_SECONDS}s</span>
+  }
+}
+
 /** Live countdown for archive preview. */
 function ArchiveCountdown({ expiresAt }: { expiresAt: string | undefined }) {
   useEmailInboxStore((s) => s.countdownTick)
@@ -75,6 +88,156 @@ function ArchiveCountdown({ expiresAt }: { expiresAt: string | undefined }) {
   } catch {
     return <span className="bulk-action-card-archive-countdown">Archiving in {GRACE_SECONDS}s</span>
   }
+}
+
+/** Wraps Undo content with 10s fade-out: starts fading at 8s, gone at 10s. */
+function UndoFadeWrapper({
+  children,
+  onFadeComplete,
+}: {
+  children: ReactNode
+  onFadeComplete?: () => void
+}) {
+  const [visible, setVisible] = useState(true)
+  const [fading, setFading] = useState(false)
+
+  useEffect(() => {
+    const fadeTimer = setTimeout(() => setFading(true), 8_000)
+    const hideTimer = setTimeout(() => {
+      setVisible(false)
+      onFadeComplete?.()
+    }, 10_000)
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [onFadeComplete])
+
+  if (!visible) return null
+  return (
+    <div className="undo-btn-wrapper" data-fading={fading}>
+      {children}
+    </div>
+  )
+}
+
+/** WR Expert modal — edit AI inbox rules (WRExpert.md) */
+function WrExpertModal({
+  content,
+  onChange,
+  onSave,
+  onResetToDefaults,
+  onClose,
+  saving,
+}: {
+  content: string
+  onChange: (content: string) => void
+  onSave: () => Promise<boolean>
+  onResetToDefaults: () => Promise<void>
+  onClose: () => void
+  saving: boolean
+}) {
+  const handleSave = useCallback(async () => {
+    const ok = await onSave()
+    if (ok) onClose()
+  }, [onSave, onClose])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 300,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 640,
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--color-bg, #0f172a)',
+          borderRadius: 12,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))', fontWeight: 700, fontSize: 16 }}>
+          WR Expert — Your AI Inbox Rules
+        </div>
+        <textarea
+          value={content}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Loading…"
+          style={{
+            flex: 1,
+            minHeight: 320,
+            padding: 16,
+            fontSize: 12,
+            fontFamily: 'ui-monospace, monospace',
+            lineHeight: 1.5,
+            background: 'var(--color-surface, rgba(255,255,255,0.04))',
+            border: 'none',
+            color: 'var(--color-text, #e2e8f0)',
+            resize: 'none',
+          }}
+          spellCheck={false}
+        />
+        <div style={{ padding: '12px 20px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)', margin: 0 }}>
+            Changes take effect on the next Auto-Sort run.
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)', margin: 0 }}>
+            You can also edit WRExpert.md directly in your system&apos;s app data folder with any text editor.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onResetToDefaults}
+              disabled={saving}
+              style={{
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+                background: 'transparent',
+                color: 'var(--color-text-muted, #94a3b8)',
+                cursor: saving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Reset to defaults
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: '8px 18px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: 'none',
+                background: 'var(--purple-accent, #7c3aed)',
+                color: '#fff',
+                cursor: saving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /** Format deletion info from pending_delete_at + 7 days. Returns e.g. "Deletes on Mar 25" or "Deletes in 6d 18h". */
@@ -108,6 +271,7 @@ const CATEGORY_ORDER: Record<string, number> = {
   normal: 3,
   important: 4,
   urgent: 5,
+  pending_review: 6,
 }
 
 const CATEGORY_BORDER: Record<string, string> = {
@@ -117,6 +281,7 @@ const CATEGORY_BORDER: Record<string, string> = {
   newsletter: '#3b82f6',
   spam: '#6b7280',
   irrelevant: '#6b7280',
+  pending_review: '#f59e0b',
 }
 
 /** Structured bulk action card with draft collapse/connect UX (same as Normal Inbox). */
@@ -129,15 +294,19 @@ function BulkActionCardStructured({
   handleArchiveOne,
   handleDeleteOne,
   handlePendingDeleteOne,
+  handleMoveToPendingReviewOne,
   handleSummarize,
   handleDraftReply,
   handleKeepDuringPreview,
   handleKeepDuringArchivePreview,
+  handleKeepDuringReviewPreview,
   onSelectMessage,
   keptDuringPreviewIds,
   keptDuringArchivePreviewIds,
+  keptDuringReviewPreviewIds,
   pendingDeletePreviewExpiries,
   archivePreviewExpiries,
+  pendingReviewPreviewExpiries,
 }: {
   msg: InboxMessage
   output: BulkAiResultEntry
@@ -147,15 +316,19 @@ function BulkActionCardStructured({
   handleArchiveOne: (msg: InboxMessage) => void
   handleDeleteOne: (msg: InboxMessage) => void
   handlePendingDeleteOne: (msg: InboxMessage) => void
+  handleMoveToPendingReviewOne: (msg: InboxMessage) => void
   handleSummarize: (messageId: string) => void
   handleDraftReply: (messageId: string) => void
   handleKeepDuringPreview: (messageId: string) => void
   handleKeepDuringArchivePreview: (messageId: string) => void
+  handleKeepDuringReviewPreview: (messageId: string) => void
   onSelectMessage?: (messageId: string | null) => void
   keptDuringPreviewIds: Set<string>
   keptDuringArchivePreviewIds: Set<string>
+  keptDuringReviewPreviewIds: Set<string>
   pendingDeletePreviewExpiries: Record<string, string | undefined>
   archivePreviewExpiries: Record<string, string | undefined>
+  pendingReviewPreviewExpiries: Record<string, string | undefined>
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() =>
@@ -229,15 +402,16 @@ function BulkActionCardStructured({
   const panelMod = `bulk-action-card-panel--${rec}`
   const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
   const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
-  const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : ''
-  const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : borderColor
+  const inReviewGrace = rec === 'pending_review' && !keptDuringReviewPreviewIds.has(msg.id) && !!pendingReviewPreviewExpiries[msg.id]
+  const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : inReviewGrace ? 'bulk-action-card--pre-action-review' : ''
+  const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : inReviewGrace ? '#f59e0b' : borderColor
   const isConnected = draftRefineConnected && draftRefineMessageId === msg.id
 
   return (
     <div className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}`} style={{ borderLeftColor: effectiveBorderColor }}>
       <div className="bulk-action-card-header">
         <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
-          {(output.category ?? 'normal').toUpperCase()}
+          {(output.category ?? 'normal') === 'pending_review' ? 'REVIEW' : (output.category ?? 'normal').toUpperCase()}
         </span>
         <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
           {urgency}/10
@@ -362,6 +536,7 @@ function BulkActionCardStructured({
               className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
               onClick={() => {
                 if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
                 else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                 else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
               }}
@@ -369,6 +544,7 @@ function BulkActionCardStructured({
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                  else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
                   else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                   else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
                 }
@@ -377,6 +553,7 @@ function BulkActionCardStructured({
             >
               <span className="bulk-action-card-panel-action">
                 {rec === 'pending_delete' && '🗑 Pending Delete'}
+                {rec === 'pending_review' && '⏳ Pending Review'}
                 {rec === 'archive' && '📦 Archive'}
                 {rec === 'keep_for_manual_action' && '✋ Review manually'}
                 {rec === 'draft_reply_ready' && '✉ Send draft reply'}
@@ -409,6 +586,17 @@ function BulkActionCardStructured({
             Will archive — <ArchiveCountdown expiresAt={archivePreviewExpiries[msg.id]} />
           </span>
           <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringArchivePreview(msg.id)} title="Cancel auto-action">
+            Keep
+          </button>
+        </div>
+      )}
+      {rec === 'pending_review' && !keptDuringReviewPreviewIds.has(msg.id) && pendingReviewPreviewExpiries[msg.id] && (
+        <div className="bulk-action-card-review-preview">
+          <span className="bulk-action-card-review-badge">REVIEW</span>
+          <span className="bulk-action-card-next-state">
+            Will move to Pending Review — <PendingReviewCountdown expiresAt={pendingReviewPreviewExpiries[msg.id]} />
+          </span>
+          <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringReviewPreview(msg.id)} title="Cancel auto-action">
             Keep
           </button>
         </div>
@@ -461,6 +649,7 @@ const CATEGORY_BG: Record<string, string> = {
   newsletter: 'rgba(59,130,246,0.05)',
   spam: 'rgba(107,114,128,0.08)',
   irrelevant: 'rgba(107,114,128,0.08)',
+  pending_review: 'rgba(245,158,11,0.06)',
 }
 
 function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
@@ -567,16 +756,20 @@ export default function EmailInboxBulkView({
       setBulkAiOutputs: s.setBulkAiOutputs,
       pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
       archivePreviewExpiries: s.archivePreviewExpiries,
+      pendingReviewPreviewExpiries: s.pendingReviewPreviewExpiries,
       keptDuringPreviewIds: s.keptDuringPreviewIds,
       keptDuringArchivePreviewIds: s.keptDuringArchivePreviewIds,
+      keptDuringReviewPreviewIds: s.keptDuringReviewPreviewIds,
       pendingDeleteToast: s.pendingDeleteToast,
       recentPendingDeleteBatches: s.recentPendingDeleteBatches,
       bulkSessionArchived: s.bulkSessionArchived,
       bulkSessionPendingDelete: s.bulkSessionPendingDelete,
       addPendingDeletePreview: s.addPendingDeletePreview,
       addArchivePreview: s.addArchivePreview,
+      addPendingReviewPreview: s.addPendingReviewPreview,
       keepDuringPreview: s.keepDuringPreview,
       keepDuringArchivePreview: s.keepDuringArchivePreview,
+      keepDuringReviewPreview: s.keepDuringReviewPreview,
       setPendingDeleteToast: s.setPendingDeleteToast,
       removeRecentPendingDeleteBatch: s.removeRecentPendingDeleteBatch,
       decrementBulkSessionPendingDelete: s.decrementBulkSessionPendingDelete,
@@ -621,6 +814,14 @@ export default function EmailInboxBulkView({
     })
   }, [])
 
+  /** Cached counts per filter — updated when we fetch for each tab. Used to show counts in all tab labels. */
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!loading) {
+      setTabCounts((prev) => ({ ...prev, [filter.filter]: total }))
+    }
+  }, [filter.filter, loading, total])
+
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
@@ -633,6 +834,15 @@ export default function EmailInboxBulkView({
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
   const composeClickRef = useRef<number>(0)
+  const [showWrExpertModal, setShowWrExpertModal] = useState(false)
+  const [wrExpertContent, setWrExpertContent] = useState('')
+  const [wrExpertSaving, setWrExpertSaving] = useState(false)
+
+  useEffect(() => {
+    if (showWrExpertModal && window.emailInbox?.getAiRules) {
+      window.emailInbox.getAiRules().then((c) => setWrExpertContent(c ?? ''))
+    }
+  }, [showWrExpertModal])
 
   /** Messages animating out (archive / pending delete). Cleared after exit animation. */
   const [removingItems, setRemovingItems] = useState<Map<string, { message: InboxMessage; index: number }>>(new Map())
@@ -746,6 +956,16 @@ export default function EmailInboxBulkView({
     clearMultiSelect()
   }, [multiSelectIds, archiveMessages, clearMultiSelect])
 
+  const handleBulkMoveToPendingReview = useCallback(async () => {
+    const ids = Array.from(multiSelectIds)
+    if (!ids.length || !window.emailInbox?.moveToPendingReview) return
+    const res = await window.emailInbox.moveToPendingReview(ids)
+    if (res.ok) {
+      clearMultiSelect()
+      await fetchMessages()
+    }
+  }, [multiSelectIds, clearMultiSelect, fetchMessages])
+
   const handleBulkCategorize = useCallback(() => {
     const ids = Array.from(multiSelectIds)
     if (ids.length) {
@@ -764,8 +984,8 @@ export default function EmailInboxBulkView({
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
       setAiSortPhase('analyzing')
       const CONCURRENCY = 3
-      const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
-      const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant']
+      const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
+      const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
           const batch = ids.slice(i, i + CONCURRENCY)
@@ -811,6 +1031,10 @@ export default function EmailInboxBulkView({
                 entry.pendingDeletePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
                 addPendingDeletePreview([messageId])
               }
+              if (result.pending_review && recommendedAction === 'pending_review') {
+                entry.pendingReviewPreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
+                addPendingReviewPreview([messageId])
+              }
               if (recommendedAction === 'archive') {
                 entry.archivePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
                 addArchivePreview([messageId])
@@ -839,7 +1063,7 @@ export default function EmailInboxBulkView({
         setAiSortProgress(null)
       }
     },
-    [clearMultiSelect, fetchMessages, addPendingDeletePreview, addArchivePreview]
+    [clearMultiSelect, fetchMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview]
   )
 
   const handleAiAutoSort = useCallback(() => {
@@ -1128,6 +1352,19 @@ export default function EmailInboxBulkView({
     [markPendingDeleteImmediate]
   )
 
+  /** Move to Pending Review (14-day grace). Use when AI recommends pending_review or manual. */
+  const handleMoveToPendingReviewOne = useCallback(
+    async (msg: InboxMessage) => {
+      if (!window.emailInbox?.moveToPendingReview) return
+      const res = await window.emailInbox.moveToPendingReview([msg.id])
+      if (res.ok) {
+        useEmailInboxStore.getState().clearBulkAiOutputsForIds([msg.id])
+        await fetchMessages()
+      }
+    },
+    [fetchMessages]
+  )
+
   /** Render structured Action Card when BulkAiResult exists; otherwise fallback. */
   const renderActionCard = useCallback(
     (msg: InboxMessage, output: BulkAiResultEntry | undefined, isExpanded: boolean) => {
@@ -1216,15 +1453,19 @@ export default function EmailInboxBulkView({
             handleArchiveOne={handleArchiveOne}
             handleDeleteOne={handleDeleteOne}
             handlePendingDeleteOne={handlePendingDeleteOne}
+            handleMoveToPendingReviewOne={handleMoveToPendingReviewOne}
             handleSummarize={handleSummarize}
             handleDraftReply={handleDraftReply}
             handleKeepDuringPreview={handleKeepDuringPreview}
             handleKeepDuringArchivePreview={handleKeepDuringArchivePreview}
+            handleKeepDuringReviewPreview={handleKeepDuringReviewPreview}
             onSelectMessage={onSelectMessage}
             keptDuringPreviewIds={keptDuringPreviewIds}
             keptDuringArchivePreviewIds={keptDuringArchivePreviewIds}
+            keptDuringReviewPreviewIds={keptDuringReviewPreviewIds}
             pendingDeletePreviewExpiries={pendingDeletePreviewExpiries}
             archivePreviewExpiries={archivePreviewExpiries}
+            pendingReviewPreviewExpiries={pendingReviewPreviewExpiries}
           />
         )
       }
@@ -1351,16 +1592,20 @@ export default function EmailInboxBulkView({
       handleArchiveOne,
       handleDeleteOne,
       handlePendingDeleteOne,
+      handleMoveToPendingReviewOne,
       handleSummarize,
       handleDraftReply,
       handleKeepDuringPreview,
       handleKeepDuringArchivePreview,
+      handleKeepDuringReviewPreview,
       onSelectMessage,
       runAiCategorizeForIds,
       keptDuringPreviewIds,
       keptDuringArchivePreviewIds,
+      keptDuringReviewPreviewIds,
       pendingDeletePreviewExpiries,
       archivePreviewExpiries,
+      pendingReviewPreviewExpiries,
     ]
   )
 
@@ -1390,10 +1635,11 @@ export default function EmailInboxBulkView({
       if (!output?.recommendedAction) return
       const rec = output.recommendedAction
       if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+      else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
       else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
       // draft_reply_ready: skip — avoid accidental send
     },
-    [handlePendingDeleteOne, handleArchiveOne]
+    [handlePendingDeleteOne, handleMoveToPendingReviewOne, handleArchiveOne]
   )
 
   useEffect(() => {
@@ -1429,7 +1675,11 @@ export default function EmailInboxBulkView({
         focusedMsg &&
         archivePreviewExpiries[focusedMsg.id] &&
         !keptDuringArchivePreviewIds.has(focusedMsg.id)
-      const inGracePeriod = inPendingDeleteGrace || inArchiveGrace
+      const inReviewGrace =
+        focusedMsg &&
+        pendingReviewPreviewExpiries[focusedMsg.id] &&
+        !keptDuringReviewPreviewIds.has(focusedMsg.id)
+      const inGracePeriod = inPendingDeleteGrace || inArchiveGrace || inReviewGrace
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         if (!e.ctrlKey && !e.metaKey) {
@@ -1457,6 +1707,7 @@ export default function EmailInboxBulkView({
         e.preventDefault()
         if (inPendingDeleteGrace) handleKeepDuringPreview(focusedMsg.id)
         else if (inArchiveGrace) handleKeepDuringArchivePreview(focusedMsg.id)
+        else if (inReviewGrace) handleKeepDuringReviewPreview(focusedMsg.id)
         return
       }
       if (e.key === ' ' && !onActionablePanel && focusedMsg && focusedOutput?.recommendedAction) {
@@ -1497,14 +1748,17 @@ export default function EmailInboxBulkView({
     bulkAiOutputs,
     pendingDeletePreviewExpiries,
     archivePreviewExpiries,
+    pendingReviewPreviewExpiries,
     keptDuringPreviewIds,
     keptDuringArchivePreviewIds,
+    keptDuringReviewPreviewIds,
     expandedCardIds,
     selectedCount,
     focusAdjacentRow,
     toggleCardExpand,
     handleKeepDuringPreview,
     handleKeepDuringArchivePreview,
+    handleKeepDuringReviewPreview,
     triggerPrimaryAction,
     handleBulkArchive,
     handleArchiveOne,
@@ -1552,47 +1806,39 @@ export default function EmailInboxBulkView({
             className="bulk-view-toolbar-filter-btn"
             data-active={filter.filter === 'all'}
           >
-            All{filter.filter === 'all' ? ` (${total})` : ''}
+            All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
           </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'pending_delete' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
-            data-active={filter.filter === 'pending_delete'}
-          >
-            Pending Delete{filter.filter === 'pending_delete' ? ` (${total})` : ''}
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'archived' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
-            data-active={filter.filter === 'archived'}
-          >
-            Archived{filter.filter === 'archived' ? ` (${total})` : ''}
-          </button>
+          {(tabCounts.pending_delete === undefined || tabCounts.pending_delete > 0) && (
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_delete' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
+              data-active={filter.filter === 'pending_delete'}
+            >
+              Pending Delete ({filter.filter === 'pending_delete' ? total : (tabCounts.pending_delete ?? 0)})
+            </button>
+          )}
+          {(tabCounts.pending_review === undefined || tabCounts.pending_review > 0) && (
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_review' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--review"
+              data-active={filter.filter === 'pending_review'}
+            >
+              Pending Review ({filter.filter === 'pending_review' ? total : (tabCounts.pending_review ?? 0)})
+            </button>
+          )}
+          {(tabCounts.archived === undefined || tabCounts.archived > 0) && (
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'archived' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
+              data-active={filter.filter === 'archived'}
+            >
+              Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
+            </button>
+          )}
         </div>
-        {(bulkSessionArchived > 0 || bulkSessionPendingDelete > 0) && (
-          <div className="bulk-view-session-progress" role="status" aria-live="polite">
-            {bulkSessionArchived > 0 && (
-              <span className="bulk-view-session-count bulk-view-session-archived">
-                Archived {bulkSessionArchived}
-              </span>
-            )}
-            {bulkSessionArchived > 0 && bulkSessionPendingDelete > 0 && (
-              <span className="bulk-view-session-sep">·</span>
-            )}
-            {bulkSessionPendingDelete > 0 && (
-              <span className="bulk-view-session-count bulk-view-session-pending">
-                Pending {bulkSessionPendingDelete}
-              </span>
-            )}
-            {filter.filter === 'all' && (
-              <span className="bulk-view-session-remaining">
-                · {messages.length} remaining
-              </span>
-            )}
-          </div>
-        )}
         <div className="bulk-view-sync-group">
           <label className="bulk-view-sync-label">
             <input
@@ -1633,11 +1879,28 @@ export default function EmailInboxBulkView({
           </button>
           <button
             type="button"
+            className="bulk-view-review-btn"
+            onClick={handleBulkMoveToPendingReview}
+            disabled={selectedCount === 0}
+            title={selectedCount ? 'Move to Pending Review' : undefined}
+          >
+            ⏳ Review
+          </button>
+          <button
+            type="button"
             className="bulk-view-ai-sort-btn"
             onClick={handleAiAutoSort}
             disabled={selectedCount === 0}
           >
             ✨ AI Auto-Sort
+          </button>
+          <button
+            type="button"
+            className="bulk-view-wr-expert-btn"
+            onClick={() => setShowWrExpertModal(true)}
+            title="Edit AI inbox rules (WRExpert.md)"
+          >
+            ⚙ WR Expert
           </button>
         </div>
         <div className="bulk-view-toolbar-spacer" />
@@ -1763,26 +2026,30 @@ export default function EmailInboxBulkView({
             {(pendingDeleteToast || recentPendingDeleteBatches.length > 0) && (
               <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
                 {pendingDeleteToast && (
-                  <div className="bulk-view-toast-primary">
-                    <span>
-                      {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
-                    </span>
-                    <button type="button" onClick={() => handleUndoPendingDelete(pendingDeleteToast.ids)}>
-                      Undo
-                    </button>
-                  </div>
+                  <UndoFadeWrapper onFadeComplete={() => setPendingDeleteToast(null)}>
+                    <div className="bulk-view-toast-primary">
+                      <span>
+                        {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
+                      </span>
+                      <button type="button" onClick={() => handleUndoPendingDelete(pendingDeleteToast.ids)}>
+                        Undo
+                      </button>
+                    </div>
+                  </UndoFadeWrapper>
                 )}
                 {recentPendingDeleteBatches.length > 0 && (
                   <div className="bulk-view-recent-stack">
                     {recentPendingDeleteBatches.map((batch, i) => (
-                      <div key={i} className="bulk-view-recent-item">
-                        <span>
-                          {batch.count} msg{batch.count !== 1 ? 's' : ''}
-                        </span>
-                        <button type="button" onClick={() => handleUndoPendingDelete(batch.ids)}>
-                          Undo
-                        </button>
-                      </div>
+                      <UndoFadeWrapper key={i} onFadeComplete={() => removeRecentPendingDeleteBatch(batch.ids)}>
+                        <div className="bulk-view-recent-item">
+                          <span>
+                            {batch.count} msg{batch.count !== 1 ? 's' : ''}
+                          </span>
+                          <button type="button" onClick={() => handleUndoPendingDelete(batch.ids)}>
+                            Undo
+                          </button>
+                        </div>
+                      </UndoFadeWrapper>
                     ))}
                   </div>
                 )}
@@ -1954,24 +2221,26 @@ export default function EmailInboxBulkView({
                               >
                                 {formatPendingDeleteInfo(msg.pending_delete_at)}
                               </span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleUndoPendingDelete([msg.id])
-                                }}
-                                style={{
-                                  fontSize: 10,
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  background: 'rgba(34,197,94,0.2)',
-                                  border: '1px solid rgba(34,197,94,0.4)',
-                                  color: '#86efac',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Undo
-                              </button>
+                              <UndoFadeWrapper>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleUndoPendingDelete([msg.id])
+                                  }}
+                                  style={{
+                                    fontSize: 10,
+                                    padding: '2px 6px',
+                                    borderRadius: 4,
+                                    background: 'rgba(34,197,94,0.2)',
+                                    border: '1px solid rgba(34,197,94,0.4)',
+                                    color: '#86efac',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Undo
+                                </button>
+                              </UndoFadeWrapper>
                             </>
                           )}
                           {isDeleted && (
@@ -2060,6 +2329,29 @@ export default function EmailInboxBulkView({
         }}
         theme="dark"
       />
+
+      {/* WR Expert modal — edit AI inbox rules */}
+      {showWrExpertModal && (
+        <WrExpertModal
+          content={wrExpertContent}
+          onChange={setWrExpertContent}
+          onSave={async () => {
+            setWrExpertSaving(true)
+            try {
+              const res = await window.emailInbox?.saveAiRules?.(wrExpertContent)
+              return !!res?.ok
+            } finally {
+              setWrExpertSaving(false)
+            }
+          }}
+          onResetToDefaults={async () => {
+            const defaults = await window.emailInbox?.getAiRulesDefault?.()
+            setWrExpertContent(defaults ?? '')
+          }}
+          onClose={() => setShowWrExpertModal(false)}
+          saving={wrExpertSaving}
+        />
+      )}
 
       {/* Compose buttons — floating bottom-right */}
       <div

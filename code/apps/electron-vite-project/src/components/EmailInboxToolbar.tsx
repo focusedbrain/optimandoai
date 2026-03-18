@@ -20,18 +20,20 @@ export interface EmailInboxToolbarProps {
   selectedCount: number
   onBulkDelete: () => void
   onBulkArchive: () => void
+  onBulkMoveToPendingReview?: () => void
   onBulkCategorize?: () => void
 }
 
 // ── Filter tabs ──
 
-const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'deleted'] as const
+const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'pending_review', 'deleted'] as const
 const FILTER_LABELS: Record<string, string> = {
   all: 'All',
   unread: 'Unread',
   starred: 'Starred',
   archived: 'Archived',
   pending_delete: 'Pending Delete',
+  pending_review: '⏳ Pending Review',
   deleted: 'Deleted',
 }
 
@@ -103,6 +105,7 @@ export default function EmailInboxToolbar({
   selectedCount,
   onBulkDelete,
   onBulkArchive,
+  onBulkMoveToPendingReview,
   onBulkCategorize,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = accounts[0]?.id
@@ -254,6 +257,23 @@ export default function EmailInboxToolbar({
           >
             Archive
           </button>
+          {onBulkMoveToPendingReview && (
+            <button
+              onClick={onBulkMoveToPendingReview}
+              style={{
+                padding: '5px 10px',
+                fontSize: 10,
+                fontWeight: 600,
+                borderRadius: 4,
+                border: '1px solid rgba(245,158,11,0.4)',
+                background: 'rgba(245,158,11,0.1)',
+                color: '#f59e0b',
+                cursor: 'pointer',
+              }}
+            >
+              Move to Pending Review
+            </button>
+          )}
           {onBulkCategorize && (
             <button
               onClick={onBulkCategorize}
