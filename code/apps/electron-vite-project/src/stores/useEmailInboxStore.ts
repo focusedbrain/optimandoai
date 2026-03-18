@@ -94,6 +94,14 @@ interface EmailInboxState {
   bulkBatchSize: number
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
+  /** messageId -> expiresAt ISO. Survives view switch. */
+  pendingDeletePreviewExpiries: Record<string, string>
+  /** IDs user chose to keep during preview. Survives view switch. */
+  keptDuringPreviewIds: Set<string>
+  /** Toast shown after move; Undo clears it. */
+  pendingDeleteToast: { count: number; ids: string[] } | null
+  /** Incremented every second when previews exist; drives live countdown. */
+  countdownTick: number
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
@@ -111,6 +119,11 @@ interface EmailInboxState {
   syncBulkBatchSizeFromSettings: () => Promise<void>
   setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
   clearBulkAiOutputsForIds: (ids: string[]) => void
+  addPendingDeletePreview: (ids: string[]) => void
+  keepDuringPreview: (id: string) => void
+  setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
+  incrementCountdownTick: () => void
+  processExpiredPendingDeletes: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
@@ -151,6 +164,10 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkMode: false,
   bulkPage: 0,
   bulkAiOutputs: {},
+  pendingDeletePreviewExpiries: {},
+  keptDuringPreviewIds: new Set(),
+  pendingDeleteToast: null,
+  countdownTick: 0,
   bulkCompactMode: (() => {
     try {
       return localStorage?.getItem('wrdesk_bulkCompactMode') === '1'
@@ -315,6 +332,69 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       for (const id of idSet) delete next[id]
       return { bulkAiOutputs: next }
     })
+  },
+
+  addPendingDeletePreview: (ids) => {
+    if (ids.length === 0) return
+    const expiresAt = new Date(Date.now() + 15 * 1000).toISOString()
+    set((state) => {
+      const next = { ...state.pendingDeletePreviewExpiries }
+      for (const id of ids) next[id] = expiresAt
+      const kept = new Set(state.keptDuringPreviewIds)
+      for (const id of ids) kept.delete(id)
+      return { pendingDeletePreviewExpiries: next, keptDuringPreviewIds: kept }
+    })
+  },
+
+  keepDuringPreview: (id) => {
+    set((state) => ({
+      keptDuringPreviewIds: new Set([...state.keptDuringPreviewIds, id]),
+    }))
+  },
+
+  setPendingDeleteToast: (toast) => {
+    set({ pendingDeleteToast: toast })
+  },
+
+  incrementCountdownTick: () => {
+    set((s) => ({ countdownTick: s.countdownTick + 1 }))
+  },
+
+  processExpiredPendingDeletes: async () => {
+    const bridge = getBridge()
+    if (!bridge?.markPendingDelete) return
+    const state = get()
+    const now = Date.now()
+    const expired: string[] = []
+    for (const [id, expiresAt] of Object.entries(state.pendingDeletePreviewExpiries)) {
+      if (new Date(expiresAt).getTime() <= now) expired.push(id)
+    }
+    if (expired.length === 0) return
+    const idsToMove = expired.filter((id) => !state.keptDuringPreviewIds.has(id))
+    set((s) => {
+      const nextExpiries = { ...s.pendingDeletePreviewExpiries }
+      const nextKept = new Set(s.keptDuringPreviewIds)
+      for (const id of expired) {
+        delete nextExpiries[id]
+        nextKept.delete(id)
+      }
+      return { pendingDeletePreviewExpiries: nextExpiries, keptDuringPreviewIds: nextKept }
+    })
+    if (idsToMove.length === 0) return
+    const res = await bridge.markPendingDelete(idsToMove)
+    if (res.ok) {
+      set((s) => {
+        const next = { ...s.bulkAiOutputs }
+        for (const id of idsToMove) {
+          if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
+        }
+        return {
+          bulkAiOutputs: next,
+          pendingDeleteToast: { count: idsToMove.length, ids: idsToMove },
+        }
+      })
+      get().fetchMessages()
+    }
   },
 
   syncBulkBatchSizeFromSettings: async () => {

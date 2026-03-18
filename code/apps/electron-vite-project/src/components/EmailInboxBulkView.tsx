@@ -47,6 +47,19 @@ function formatSourceBadge(sourceType: InboxSourceType): string {
   }
 }
 
+/** Live countdown for pending-delete preview. Subscribes only to countdownTick to limit rerenders. */
+function PendingDeleteCountdown({ expiresAt }: { expiresAt: string | undefined }) {
+  useEmailInboxStore((s) => s.countdownTick)
+  if (!expiresAt) return <span className="bulk-action-card-pending-countdown">Delete to move to Pending Delete</span>
+  try {
+    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
+    const text = remaining > 0 ? `Moving in ${remaining}s` : 'Moving now'
+    return <span className="bulk-action-card-pending-countdown">{text}</span>
+  } catch {
+    return <span className="bulk-action-card-pending-countdown">Moving in 15s</span>
+  }
+}
+
 /** Format deletion info from pending_delete_at + 7 days. Returns e.g. "Deletes on Mar 25" or "Deletes in 6d 18h". */
 function formatPendingDeleteInfo(pendingDeleteAt: string | null): string {
   if (!pendingDeleteAt) return 'Deletes in 7d'
@@ -148,6 +161,12 @@ export default function EmailInboxBulkView({
     setBulkCompactMode,
     syncBulkBatchSizeFromSettings,
     setBulkAiOutputs,
+    pendingDeletePreviewExpiries,
+    keptDuringPreviewIds,
+    pendingDeleteToast,
+    addPendingDeletePreview,
+    keepDuringPreview,
+    setPendingDeleteToast,
     setFilter,
     selectMessage,
     toggleMultiSelect,
@@ -178,11 +197,6 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
-  const [pendingDeleteToast, setPendingDeleteToast] = useState<{ count: number; ids: string[] } | null>(null)
-  const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingIdsRef = useRef<string[]>([])
-  const keptDuringPreviewIdsRef = useRef<Set<string>>(new Set())
-  const [keptDuringPreviewIds, setKeptDuringPreviewIds] = useState<Set<string>>(new Set())
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
@@ -196,13 +210,7 @@ export default function EmailInboxBulkView({
 
   useEffect(() => {
     setBulkMode(true)
-    return () => {
-      setBulkMode(false)
-      if (pendingDeleteTimerRef.current) {
-        clearTimeout(pendingDeleteTimerRef.current)
-        pendingDeleteTimerRef.current = null
-      }
-    }
+    return () => setBulkMode(false)
   }, [setBulkMode])
 
   useEffect(() => {
@@ -305,38 +313,18 @@ export default function EmailInboxBulkView({
         setBulkAiOutputs((prev) => ({ ...prev, ...nextOutputs }))
 
         const pendingIds = classifications.filter((c) => c.pending_delete).map((c) => c.id)
-        keptDuringPreviewIdsRef.current = new Set()
-        setKeptDuringPreviewIds(new Set())
         clearMultiSelect()
         await fetchMessages()
         const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
         console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
-        if (pendingIds.length > 0 && window.emailInbox?.markPendingDelete) {
-          pendingIdsRef.current = pendingIds
-          if (pendingDeleteTimerRef.current) clearTimeout(pendingDeleteTimerRef.current)
-          pendingDeleteTimerRef.current = setTimeout(async () => {
-            pendingDeleteTimerRef.current = null
-            const idsToMove = pendingIdsRef.current.filter((id) => !keptDuringPreviewIdsRef.current.has(id))
-            if (idsToMove.length === 0) return
-            const markRes = await window.emailInbox!.markPendingDelete!(idsToMove)
-            if (markRes.ok) {
-              setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
-              setBulkAiOutputs((prev) => {
-                const next = { ...prev }
-                for (const id of idsToMove) {
-                  if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
-                }
-                return next
-              })
-              fetchMessages()
-            }
-          }, 15 * 1000)
+        if (pendingIds.length > 0) {
+          addPendingDeletePreview(pendingIds)
         }
       }
     } finally {
       setAiSortProgress(null)
     }
-  }, [multiSelectIds, clearMultiSelect, fetchMessages])
+  }, [multiSelectIds, clearMultiSelect, fetchMessages, addPendingDeletePreview])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -347,14 +335,16 @@ export default function EmailInboxBulkView({
       setPendingDeleteToast(null)
       fetchMessages()
     },
-    [fetchMessages]
+    [fetchMessages, setPendingDeleteToast]
   )
 
   /** Cancel the scheduled pending-delete move for one message during the 15s preview. */
-  const handleKeepDuringPreview = useCallback((messageId: string) => {
-    keptDuringPreviewIdsRef.current.add(messageId)
-    setKeptDuringPreviewIds((prev) => new Set([...prev, messageId]))
-  }, [])
+  const handleKeepDuringPreview = useCallback(
+    (messageId: string) => {
+      keepDuringPreview(messageId)
+    },
+    [keepDuringPreview]
+  )
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -619,10 +609,8 @@ export default function EmailInboxBulkView({
             {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
               <div className="bulk-action-card-pending-preview">
                 <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
-                <span className="bulk-action-card-pending-countdown">
-                  {output.pendingDeletePreviewUntil ? 'Moving in 15s' : 'Delete to move to Pending Delete'}
-                </span>
-                {output.pendingDeletePreviewUntil && (
+                <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
+                {pendingDeletePreviewExpiries[msg.id] && (
                   <button
                     type="button"
                     className="bulk-action-card-keep-btn"
@@ -1108,6 +1096,11 @@ export default function EmailInboxBulkView({
             {aiSortProgress && (
               <div style={{ padding: 8, textAlign: 'center', fontSize: 12, color: MUTED }}>
                 {aiSortProgress}
+              </div>
+            )}
+            {bulkCompactMode && bulkBatchSize >= 24 && messages.length > 0 && (
+              <div className="bulk-view-compact-hint" role="status">
+                Compact mode · {messages.length} messages · Scroll to review, expand for details
               </div>
             )}
             {pendingDeleteToast && (
