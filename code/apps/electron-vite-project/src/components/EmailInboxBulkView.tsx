@@ -716,6 +716,7 @@ export default function EmailInboxBulkView({
     addPendingReviewPreview,
     keepDuringPreview,
     keepDuringArchivePreview,
+    keepDuringReviewPreview,
     setPendingDeleteToast,
       removeRecentPendingDeleteBatch,
       decrementBulkSessionPendingDelete,
@@ -1114,6 +1115,14 @@ export default function EmailInboxBulkView({
       keepDuringArchivePreview(messageId)
     },
     [keepDuringArchivePreview]
+  )
+
+  /** Cancel the scheduled pending-review move for one message during the 5s preview. */
+  const handleKeepDuringReviewPreview = useCallback(
+    (messageId: string) => {
+      keepDuringReviewPreview(messageId)
+    },
+    [keepDuringReviewPreview]
   )
 
   const loadProviderAccounts = useCallback(async () => {
