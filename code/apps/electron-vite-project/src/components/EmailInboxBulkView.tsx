@@ -852,6 +852,8 @@ export default function EmailInboxBulkView({
   const [removingItems, setRemovingItems] = useState<Map<string, { message: InboxMessage; index: number }>>(new Map())
   const prevMessagesRef = useRef<InboxMessage[]>([])
   const prevFilterRef = useRef<string>(filter.filter)
+  const isSortingRef = useRef(false)
+  const autoSortedIdsRef = useRef<Set<string>>(new Set())
 
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
@@ -984,7 +986,9 @@ export default function EmailInboxBulkView({
   /** Run AI categorize for given ids. Per-message calls with progressive UI updates. */
   const runAiCategorizeForIds = useCallback(
     async (ids: string[], clearSelection: boolean) => {
+      if (isSortingRef.current) return
       if (!ids.length || !window.emailInbox?.aiClassifySingle) return
+      isSortingRef.current = true
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
       setAiSortPhase('analyzing')
       const CONCURRENCY = 3
@@ -1064,6 +1068,8 @@ export default function EmailInboxBulkView({
         setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
         setAiSortPhase('idle')
       } finally {
+        ids.forEach((id) => autoSortedIdsRef.current.add(id))
+        isSortingRef.current = false
         setAiSortProgress(null)
       }
     },
@@ -1071,13 +1077,16 @@ export default function EmailInboxBulkView({
   )
 
   const handleAiAutoSort = useCallback(() => {
+    autoSortedIdsRef.current.clear()
     const ids = Array.from(multiSelectIds)
     runAiCategorizeForIds(ids, true)
   }, [multiSelectIds, runAiCategorizeForIds])
 
-  /** Auto-run AI analysis when messages load and batch has no analysis yet. */
+  /** Auto-run AI analysis when messages load and batch has no analysis yet. Only in inbox-like views — never in Pending Delete, Pending Review, Archived, or Deleted. */
+  const SORTABLE_FILTERS = ['all', 'unread', 'starred'] as const
   useEffect(() => {
     if (loading || messages.length === 0 || !window.emailInbox?.aiClassifySingle) return
+    if (!SORTABLE_FILTERS.includes(filter.filter as (typeof SORTABLE_FILTERS)[number])) return
     if (aiSortPhase === 'analyzing') return
     const ids = messages.map((m) => m.id)
     const hasAnalysis = ids.some((id) => {
@@ -1085,8 +1094,10 @@ export default function EmailInboxBulkView({
       return !!(out?.category || out?.summary)
     })
     if (hasAnalysis) return
-    runAiCategorizeForIds(ids, false)
-  }, [loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase])
+    const unsortedIds = ids.filter((id) => !autoSortedIdsRef.current.has(id))
+    if (unsortedIds.length === 0) return
+    runAiCategorizeForIds(unsortedIds, false)
+  }, [loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase, filter.filter])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
