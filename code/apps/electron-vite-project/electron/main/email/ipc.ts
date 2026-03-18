@@ -665,8 +665,8 @@ export function registerInboxHandlers(
       } else if (filter === 'archived') {
         conditions.push('archived = 1', 'deleted = 0')
       } else {
-        /* all: exclude deleted and pending_delete so they appear only in Pending Delete */
-        conditions.push('deleted = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
+        /* all: main inbox — exclude archived, deleted, pending_delete */
+        conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
       }
       if (sourceType) {
         conditions.push('source_type = ?')
@@ -1090,7 +1090,28 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 
       const available = await isOllamaAvailable()
       if (!available) {
-        return { ok: true, data: { classifications: [], error: 'LLM not available. Check Ollama status.' } }
+        const errMsg = 'LLM not available. Check Ollama status.'
+        return {
+          ok: true,
+          data: {
+            classifications: ids.map((id) => ({
+              id,
+              category: 'normal',
+              summary: '',
+              reason: errMsg,
+              needs_reply: false,
+              needs_reply_reason: errMsg,
+              urgency_score: 5,
+              urgency_reason: errMsg,
+              recommended_action: 'keep_for_manual_action',
+              action_explanation: errMsg,
+              action_items: [],
+              pending_delete: false,
+              classification_failed: true,
+            })),
+            error: errMsg,
+          },
+        }
       }
 
       const messages: Array<{ id: string; from: string; subject: string; body_preview: string }> = []
@@ -1102,7 +1123,29 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         messages.push({ id: row.id, from, subject: row.subject || '(No subject)', body_preview: body })
       }
 
-      if (messages.length === 0) return { ok: true, data: { classifications: [] } }
+      if (messages.length === 0) {
+        const errMsg = 'Message not found in database.'
+        return {
+          ok: true,
+          data: {
+            classifications: ids.map((id) => ({
+              id,
+              category: 'normal',
+              summary: '',
+              reason: errMsg,
+              needs_reply: false,
+              needs_reply_reason: errMsg,
+              urgency_score: 5,
+              urgency_reason: errMsg,
+              recommended_action: 'keep_for_manual_action',
+              action_explanation: errMsg,
+              action_items: [],
+              pending_delete: false,
+              classification_failed: true,
+            })),
+          },
+        }
+      }
 
       const { sortRules, tone } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
@@ -1185,6 +1228,7 @@ Return ONLY a valid JSON array, no other text.`
         action_items: string[]
         draft_reply?: string
         pending_delete: boolean
+        classification_failed?: boolean
       }> = []
 
       for (const p of parsed) {
@@ -1260,6 +1304,28 @@ Return ONLY a valid JSON array, no other text.`
           ...(draftReply ? { draft_reply: draftReply } : {}),
           pending_delete: pendingDelete,
         })
+      }
+
+      // Ensure every requested id has a classification — explicit failure for missing
+      const classifiedIds = new Set(classifications.map((c) => c.id))
+      for (const id of ids) {
+        if (!classifiedIds.has(id)) {
+          classifications.push({
+            id,
+            category: 'normal',
+            summary: '',
+            reason: 'AI analysis returned no result for this message.',
+            needs_reply: false,
+            needs_reply_reason: 'No result from AI.',
+            urgency_score: 5,
+            urgency_reason: 'Analysis failed.',
+            recommended_action: 'keep_for_manual_action',
+            action_explanation: 'AI did not return a result. Use Summarize or Draft below to retry.',
+            action_items: [],
+            pending_delete: false,
+            classification_failed: true,
+          })
+        }
       }
 
       console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))

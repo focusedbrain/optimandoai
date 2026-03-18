@@ -100,12 +100,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAnalysisError(false)
     try {
       const res = await window.emailInbox.aiSummarize(messageId)
-      if (res.ok && res.data?.summary) {
+      const data = res.data as { summary?: string; error?: boolean } | undefined
+      const isError = !res.ok || !data?.summary || !!data.error
+      if (isError) {
+        setAnalysisError(true)
+      } else {
         setAnalysis((prev) =>
-          prev ? { ...prev, summary: res.data!.summary } : {
+          prev ? { ...prev, summary: data!.summary! } : {
             needsReply: false,
             needsReplyReason: '',
-            summary: res.data!.summary,
+            summary: data!.summary!,
             urgencyScore: 5,
             urgencyReason: '',
             actionItems: [],
@@ -284,7 +288,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 />
                 <div className="inbox-detail-ai-draft-actions">
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
-                  {message && onSendDraft && (
+                  {message && onSendDraft && !draftError && (
                     <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend}>
                       {isDepackaged ? 'Send via Email' : 'Send via BEAP'}
                     </button>

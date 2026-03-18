@@ -114,6 +114,12 @@ export interface BulkAiResult {
 export type BulkAiResultEntry = Partial<BulkAiResult> & {
   /** When loading: 'summary' | 'draft' | 'triage' */
   loading?: string
+  /** True when summarize API failed — show error + Retry */
+  summaryError?: boolean
+  /** True when draft API failed — show error + Retry */
+  draftError?: boolean
+  /** True when Bulk AI Auto-Sort failed for this message — explicit failure, not empty */
+  autosortFailure?: boolean
 }
 
 /** aiOutputs state: Record<messageId, BulkAiResultEntry> */

@@ -201,6 +201,7 @@ export default function EmailInboxBulkView({
     markRead,
     archiveMessages,
     deleteMessages,
+    markPendingDeleteImmediate,
     setCategory,
     autoSyncEnabled,
     syncing,
@@ -251,6 +252,7 @@ export default function EmailInboxBulkView({
       markRead: s.markRead,
       archiveMessages: s.archiveMessages,
       deleteMessages: s.deleteMessages,
+      markPendingDeleteImmediate: s.markPendingDeleteImmediate,
       setCategory: s.setCategory,
       autoSyncEnabled: s.autoSyncEnabled,
       syncing: s.syncing,
@@ -419,51 +421,72 @@ export default function EmailInboxBulkView({
     }
   }, [multiSelectIds, setCategory, clearMultiSelect])
 
-  const handleAiAutoSort = useCallback(async () => {
-    const ids = Array.from(multiSelectIds)
-    if (!ids.length || !window.emailInbox?.aiCategorize) return
-    setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
-    setAiSortPhase('analyzing')
-    try {
-      const res = await window.emailInbox.aiCategorize(ids)
-      if (res.ok && res.data?.classifications) {
-        const classifications = res.data.classifications as Array<{
-          id: string
-          category: string
-          summary?: string
-          reason: string
-          needs_reply: boolean
-          needs_reply_reason?: string
-          urgency_score: number
-          urgency_reason?: string
-          recommended_action?: string
-          action_explanation?: string
-          action_items?: string[]
-          draft_reply?: string
-          pending_delete: boolean
-        }>
-        console.log('[AUTO-SORT] Results:', classifications)
+  /** Run AI categorize for given ids. Used by both manual AI Auto-Sort and auto-run on load. */
+  const runAiCategorizeForIds = useCallback(
+    async (ids: string[], clearSelection: boolean) => {
+      if (!ids.length || !window.emailInbox?.aiCategorize) return
+      setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+      setAiSortPhase('analyzing')
+      try {
+        const res = await window.emailInbox.aiCategorize(ids)
+        const classifications = res.ok && res.data?.classifications
+          ? (res.data.classifications as Array<{
+              id: string
+              category: string
+              summary?: string
+              reason: string
+              needs_reply: boolean
+              needs_reply_reason?: string
+              urgency_score: number
+              urgency_reason?: string
+              recommended_action?: string
+              action_explanation?: string
+              action_items?: string[]
+              draft_reply?: string
+              pending_delete: boolean
+              classification_failed?: boolean
+            }>)
+          : []
 
         const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
         const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant']
 
         const nextOutputs: AiOutputs = {}
         for (const c of classifications) {
+          if (!ids.includes(c.id)) continue
+          if (c.classification_failed) {
+            nextOutputs[c.id] = {
+              summary: c.reason || 'AI analysis failed for this message.',
+              autosortFailure: true,
+              status: 'classified',
+            }
+            continue
+          }
           const category = (VALID_CATEGORIES.includes(c.category as SortCategory) ? c.category : 'normal') as SortCategory
           const recommendedAction = (VALID_ACTIONS.includes((c.recommended_action ?? '') as BulkRecommendedAction)
             ? c.recommended_action
             : 'keep_for_manual_action') as BulkRecommendedAction
-
+          const summary = (c.summary ?? '').slice(0, 500)
+          const actionExplanation = (c.action_explanation ?? '').slice(0, 300)
+          const isIncomplete = !summary.trim() || !actionExplanation.trim()
+          if (isIncomplete) {
+            nextOutputs[c.id] = {
+              summary: c.reason || 'Incomplete AI analysis.',
+              autosortFailure: true,
+              status: 'classified',
+            }
+            continue
+          }
           const entry: BulkAiResult = {
             category,
             urgencyScore: typeof c.urgency_score === 'number' ? Math.max(1, Math.min(10, c.urgency_score)) : 5,
             urgencyReason: (c.urgency_reason ?? c.reason ?? '').slice(0, 300),
-            summary: (c.summary ?? '').slice(0, 500),
+            summary,
             reason: (c.reason ?? '').slice(0, 300),
             needsReply: !!c.needs_reply,
             needsReplyReason: (c.needs_reply_reason ?? '').slice(0, 300),
             recommendedAction,
-            actionExplanation: (c.action_explanation ?? '').slice(0, 300),
+            actionExplanation,
             actionItems: Array.isArray(c.action_items) ? c.action_items.filter((x): x is string => typeof x === 'string').slice(0, 10) : [],
             status: 'classified',
           }
@@ -479,11 +502,21 @@ export default function EmailInboxBulkView({
           nextOutputs[c.id] = entry
         }
 
+        for (const id of ids) {
+          if (!(id in nextOutputs)) {
+            nextOutputs[id] = {
+              summary: res.ok ? 'No result from AI.' : (res.error ?? 'Analysis failed.'),
+              autosortFailure: true,
+              status: 'classified',
+            }
+          }
+        }
+
         setBulkAiOutputs((prev) => ({ ...prev, ...nextOutputs }))
 
-        const pendingIds = classifications.filter((c) => c.pending_delete).map((c) => c.id)
-        const archiveIds = classifications.filter((c) => (c.recommended_action ?? '') === 'archive').map((c) => c.id)
-        clearMultiSelect()
+        const pendingIds = classifications.filter((c) => !c.classification_failed && c.pending_delete).map((c) => c.id)
+        const archiveIds = classifications.filter((c) => !c.classification_failed && (c.recommended_action ?? '') === 'archive').map((c) => c.id)
+        if (clearSelection) clearMultiSelect()
         await fetchMessages()
         const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
         console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
@@ -491,15 +524,37 @@ export default function EmailInboxBulkView({
         if (archiveIds.length > 0) addArchivePreview(archiveIds)
         setAiSortPhase('reordered')
         setTimeout(() => setAiSortPhase('idle'), 380)
-      } else {
+      } catch {
+        const failOutputs: AiOutputs = {}
+        for (const id of ids) {
+          failOutputs[id] = { summary: 'Analysis failed.', autosortFailure: true, status: 'classified' }
+        }
+        setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
         setAiSortPhase('idle')
+      } finally {
+        setAiSortProgress(null)
       }
-    } catch {
-      setAiSortPhase('idle')
-    } finally {
-      setAiSortProgress(null)
-    }
-  }, [multiSelectIds, clearMultiSelect, fetchMessages, addPendingDeletePreview, addArchivePreview])
+    },
+    [clearMultiSelect, fetchMessages, addPendingDeletePreview, addArchivePreview]
+  )
+
+  const handleAiAutoSort = useCallback(() => {
+    const ids = Array.from(multiSelectIds)
+    runAiCategorizeForIds(ids, true)
+  }, [multiSelectIds, runAiCategorizeForIds])
+
+  /** Auto-run AI analysis when messages load and batch has no analysis yet. */
+  useEffect(() => {
+    if (loading || messages.length === 0 || !window.emailInbox?.aiCategorize) return
+    if (aiSortPhase === 'analyzing') return
+    const ids = messages.map((m) => m.id)
+    const hasAnalysis = ids.some((id) => {
+      const out = bulkAiOutputs[id]
+      return !!(out?.category || out?.summary)
+    })
+    if (hasAnalysis) return
+    runAiCategorizeForIds(ids, false)
+  }, [loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -589,27 +644,34 @@ export default function EmailInboxBulkView({
   const handleSummarize = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.aiSummarize) return
-      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'summary' } }))
+      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'summary', summaryError: undefined } }))
       try {
         const res = await window.emailInbox.aiSummarize(messageId)
-        if (res.ok && res.data?.summary) {
-          setBulkAiOutputs((prev) => {
-            const existing = prev[messageId] ?? {}
-            return {
-              ...prev,
-              [messageId]: {
-                ...existing,
-                summary: res.data!.summary,
-                status: existing.status ?? 'classified',
-                loading: undefined,
-              },
-            }
-          })
-        } else {
-          setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
-        }
+        const data = res.data as { summary?: string; error?: boolean } | undefined
+        const isError = !res.ok || !data?.summary || !!data.error
+        setBulkAiOutputs((prev) => {
+          const existing = prev[messageId] ?? {}
+          return {
+            ...prev,
+            [messageId]: {
+              ...existing,
+              summary: data?.summary ?? (isError ? 'Summarize failed.' : ''),
+              summaryError: isError,
+              status: existing.status ?? 'classified',
+              loading: undefined,
+            },
+          }
+        })
       } catch {
-        setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+        setBulkAiOutputs((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            summary: 'Summarize failed.',
+            summaryError: true,
+            loading: undefined,
+          },
+        }))
       }
     },
     []
@@ -618,27 +680,33 @@ export default function EmailInboxBulkView({
   const handleDraftReply = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.aiDraftReply) return
-      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'draft' } }))
+      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'draft', draftError: undefined } }))
       try {
         const res = await window.emailInbox.aiDraftReply(messageId)
-        if (res.ok && res.data?.draft) {
-          setBulkAiOutputs((prev) => {
-            const existing = prev[messageId] ?? {}
-            return {
-              ...prev,
-              [messageId]: {
-                ...existing,
-                draftReply: res.data!.draft,
-                status: existing.status ?? 'classified',
-                loading: undefined,
-              },
-            }
-          })
-        } else {
-          setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
-        }
+        const data = res.data as { draft?: string; error?: boolean } | undefined
+        const isError = !res.ok || !data?.draft || !!data.error
+        setBulkAiOutputs((prev) => {
+          const existing = prev[messageId] ?? {}
+          return {
+            ...prev,
+            [messageId]: {
+              ...existing,
+              draftReply: isError ? undefined : data!.draft,
+              draftError: isError,
+              status: existing.status ?? 'classified',
+              loading: undefined,
+            },
+          }
+        })
       } catch {
-        setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+        setBulkAiOutputs((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            draftError: true,
+            loading: undefined,
+          },
+        }))
       }
     },
     []
@@ -729,6 +797,7 @@ export default function EmailInboxBulkView({
       setReplyDraftBody(draftBody || '')
       setShowEmailCompose(true)
     } else {
+      if (draftBody?.trim()) navigator.clipboard?.writeText(draftBody).catch(() => {})
       window.analysisDashboard?.openBeapDraft?.()
     }
   }, [])
@@ -747,6 +816,14 @@ export default function EmailInboxBulkView({
     [deleteMessages]
   )
 
+  /** Move to Pending Delete (soft, 7-day grace). Use when AI recommends pending_delete. */
+  const handlePendingDeleteOne = useCallback(
+    (msg: InboxMessage) => {
+      markPendingDeleteImmediate([msg.id])
+    },
+    [markPendingDeleteImmediate]
+  )
+
   /** Render structured Action Card when BulkAiResult exists; otherwise fallback. */
   const renderActionCard = useCallback(
     (msg: InboxMessage, output: BulkAiResultEntry | undefined, isExpanded: boolean) => {
@@ -758,15 +835,63 @@ export default function EmailInboxBulkView({
       if (output?.loading) {
         return (
           <div className="bulk-action-card bulk-action-card--loading">
-            <span style={{ color: MUTED }}>Loading…</span>
-            <button
-              type="button"
-              className="bulk-action-card-btn bulk-action-card-btn-delete"
-              onClick={() => handleDeleteOne(msg)}
-              title="Delete this message"
-            >
-              🗑 Delete
-            </button>
+            <div className="bulk-action-card-state-content">
+              <span className="bulk-action-card-state-label">Analyzing</span>
+              <span className="bulk-action-card-state-detail">AI is processing this message…</span>
+            </div>
+            <div className="bulk-action-card-actions-row">
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
+                onClick={() => handleDeleteOne(msg)}
+                title="Delete this message"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )
+      }
+
+      if (output?.autosortFailure) {
+        return (
+          <div className="bulk-action-card bulk-action-card--failure">
+            <div className="bulk-action-card-state-content bulk-action-card-failure-content">
+              <span className="bulk-action-card-state-label bulk-action-card-failure-label">Analysis failed</span>
+              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{output.summary || 'No result from AI for this message.'}</span>
+            </div>
+            <div className="bulk-action-card-actions-row">
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--compact"
+                onClick={() => runAiCategorizeForIds([msg.id], false)}
+                title="Retry AI Auto-Sort for this message"
+              >
+                Retry Auto-Sort
+              </button>
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
+                onClick={() => handleSummarize(msg.id)}
+              >
+                Summarize
+              </button>
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
+                onClick={() => handleDraftReply(msg.id)}
+              >
+                Draft
+              </button>
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn-delete bulk-action-card-btn--compact"
+                onClick={() => handleDeleteOne(msg)}
+                title="Delete this message"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         )
       }
@@ -793,6 +918,18 @@ export default function EmailInboxBulkView({
             </div>
             {/* Same section hierarchy as Normal Inbox — reasoning visible before action */}
             <div className="bulk-action-card-sections">
+              {output.summaryError && (
+                <div className="bulk-action-card-error-banner">
+                  <span>Summarize failed.</span>
+                  <button type="button" onClick={() => handleSummarize(msg.id)}>Retry</button>
+                </div>
+              )}
+              {output.draftError && (
+                <div className="bulk-action-card-error-banner">
+                  <span>Draft generation failed.</span>
+                  <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
+                </div>
+              )}
               {/* Response Needed */}
               <div className="bulk-action-card-row">
                 <span className="bulk-action-card-row-label">Response Needed</span>
@@ -803,15 +940,13 @@ export default function EmailInboxBulkView({
                   </span>
                 </div>
               </div>
-              {/* Summary */}
-              {output.summary && (
-                <div className="bulk-action-card-row">
-                  <span className="bulk-action-card-row-label">Summary</span>
-                  <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
-                    {output.summary}
-                  </div>
+              {/* Summary — always visible when structured (parity with Normal) */}
+              <div className="bulk-action-card-row">
+                <span className="bulk-action-card-row-label">Summary</span>
+                <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
+                  {output.summary || '—'}
                 </div>
-              )}
+              </div>
               {/* Urgency — bar + X/10 + reason (same as Normal) */}
               <div className="bulk-action-card-row">
                 <span className="bulk-action-card-row-label">Urgency</span>
@@ -837,19 +972,21 @@ export default function EmailInboxBulkView({
                   </div>
                 </div>
               )}
-              {/* Action Items — same as Normal Inbox */}
-              {output.actionItems?.length ? (
-                <div className="bulk-action-card-row">
-                  <span className="bulk-action-card-row-label">Action Items</span>
-                  <div className="bulk-action-card-row-value">
+              {/* Action Items — always visible when structured (parity with Normal) */}
+              <div className="bulk-action-card-row">
+                <span className="bulk-action-card-row-label">Action Items</span>
+                <div className="bulk-action-card-row-value">
+                  {output.actionItems?.length ? (
                     <ul className="bulk-action-card-action-list">
                       {output.actionItems.map((item, idx) => (
                         <li key={idx} className="bulk-action-card-action-item">{item}</li>
                       ))}
                     </ul>
-                  </div>
+                  ) : (
+                    <span className="bulk-action-card-muted">None.</span>
+                  )}
                 </div>
-              ) : null}
+              </div>
               {/* Recommended Action — reasoning always visible, explicit */}
               <div className="bulk-action-card-row bulk-action-card-row--recommended">
                 <span className="bulk-action-card-row-label">Recommended Action</span>
@@ -859,14 +996,14 @@ export default function EmailInboxBulkView({
                     tabIndex={0}
                     className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
                     onClick={() => {
-                      if (rec === 'pending_delete') handleDeleteOne(msg)
+                      if (rec === 'pending_delete') handlePendingDeleteOne(msg)
                       else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                       else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        if (rec === 'pending_delete') handleDeleteOne(msg)
+                        if (rec === 'pending_delete') handlePendingDeleteOne(msg)
                         else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                         else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
                       }
@@ -880,12 +1017,10 @@ export default function EmailInboxBulkView({
                       {rec === 'draft_reply_ready' && '✉ Send draft reply'}
                     </span>
                   </div>
-                  {output.actionExplanation && (
-                    <div className="bulk-action-card-reasoning-box">
-                      <span className="bulk-action-card-reasoning-label">Why:</span>
-                      <span className="bulk-action-card-reasoning">{output.actionExplanation}</span>
-                    </div>
-                  )}
+                  <div className="bulk-action-card-reasoning-box">
+                    <span className="bulk-action-card-reasoning-label">Why:</span>
+                    <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -946,9 +1081,9 @@ export default function EmailInboxBulkView({
                 <button
                   type="button"
                   className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis"
-                  onClick={() => handleDeleteOne(msg)}
+                  onClick={() => handlePendingDeleteOne(msg)}
                 >
-                  🗑 Delete
+                  🗑 Pending Delete
                 </button>
               )}
               {rec === 'draft_reply_ready' && output.draftReply && (
@@ -993,94 +1128,117 @@ export default function EmailInboxBulkView({
         )
       }
 
-      // Fallback: summary or draft without full structured result
-      if (output?.summary || output?.draftReply) {
+      // Fallback: summary or draft without full structured result (from manual Summarize/Draft)
+      if (output?.summary || output?.draftReply || output?.summaryError || output?.draftError) {
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
-            {output.summary && (
-              <div className={fallbackSummaryCls}>{output.summary}</div>
-            )}
-            {output.draftReply && (
-              <div className={`bulk-action-card-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
-                <label className="bulk-action-card-draft-label">Draft — edit before sending</label>
-                <textarea
-                  className="bulk-action-card-draft-textarea"
-                  value={output.draftReply}
-                  onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                  placeholder="Edit draft…"
-                  rows={isExpanded ? 4 : 2}
-                />
-              </div>
-            )}
-            <div className="bulk-action-card-buttons">
-              {output.draftReply && (
+            <div className="bulk-action-card-fallback-content">
+              {(output.summaryError || output.draftError) && (
+                <div className="bulk-action-card-error-banner">
+                  {output.summaryError && (
+                    <span>Summarize failed. <button type="button" className="bulk-action-card-inline-retry" onClick={() => handleSummarize(msg.id)}>Retry</button></span>
+                  )}
+                  {output.draftError && (
+                    <span>Draft failed. <button type="button" className="bulk-action-card-inline-retry" onClick={() => handleDraftReply(msg.id)}>Retry</button></span>
+                  )}
+                </div>
+              )}
+              {output.summary && !output.summaryError && (
+                <div className={`bulk-action-card-row ${fallbackSummaryCls}`}>
+                  <span className="bulk-action-card-row-label">Summary</span>
+                  <div className="bulk-action-card-row-value">{output.summary}</div>
+                </div>
+              )}
+              {output.summaryError && output.summary && (
+                <div className={`bulk-action-card-row ${fallbackSummaryCls} bulk-action-card-summary--error`}>
+                  <span className="bulk-action-card-row-label">Error</span>
+                  <div className="bulk-action-card-row-value">{output.summary}</div>
+                </div>
+              )}
+              {output.draftReply && !output.draftError && (
+                <div className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
+                  <span className="bulk-action-card-row-label">Draft — edit before sending</span>
+                  <textarea
+                    className="bulk-action-card-draft-textarea"
+                    value={output.draftReply}
+                    onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                    placeholder="Edit draft…"
+                    rows={isExpanded ? 4 : 2}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="bulk-action-card-actions-row">
+              {output.draftReply && !output.draftError && (
                 <button
                   type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--compact"
                   onClick={() => handleSendDraft(msg, output.draftReply!)}
                 >
-                  ✉ Send via Email
+                  Send via Email
                 </button>
               )}
               <button
                 type="button"
-                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
                 onClick={() => handleSummarize(msg.id)}
                 disabled={!!output?.loading}
               >
-                ✨ Summarize
+                Summarize
               </button>
               <button
                 type="button"
-                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
                 onClick={() => handleDraftReply(msg.id)}
                 disabled={!!output?.loading}
               >
-                ✍ Draft
+                Draft
               </button>
               <button
                 type="button"
-                className="bulk-action-card-btn bulk-action-card-btn-delete"
+                className="bulk-action-card-btn bulk-action-card-btn-delete bulk-action-card-btn--compact"
                 onClick={() => handleDeleteOne(msg)}
                 title="Delete this message"
               >
-                🗑 Delete
+                Delete
               </button>
             </div>
           </div>
         )
       }
 
-      // Empty state
+      // Guidance state: not yet analyzed
       return (
-        <div className="bulk-action-card bulk-action-card--empty">
-          <div className="bulk-view-ai-empty">
-            <span className="bulk-view-ai-empty-icon">✨</span>
-            Summarize or draft a reply to see output here.
+        <div className="bulk-action-card bulk-action-card--guidance">
+          <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
+            <span className="bulk-action-card-state-label bulk-action-card-guidance-label">Not yet analyzed</span>
+            <span className="bulk-action-card-state-detail bulk-action-card-guidance-detail">
+              This message has not been analyzed. Select messages above and click <strong>AI Auto-Sort</strong> in the toolbar to analyze the batch, or use per-message actions below.
+            </span>
           </div>
-          <div className="bulk-action-card-buttons">
+          <div className="bulk-action-card-actions-row bulk-action-card-actions-row--secondary">
             <button
               type="button"
-              className="bulk-action-card-btn bulk-action-card-btn--muted"
+              className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
               onClick={() => handleSummarize(msg.id)}
             >
-              ✨ Summarize
+              Summarize
             </button>
             <button
               type="button"
-              className="bulk-action-card-btn bulk-action-card-btn--muted"
+              className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
               onClick={() => handleDraftReply(msg.id)}
             >
-              ✍ Draft Reply
+              Draft
             </button>
             <button
               type="button"
-              className="bulk-action-card-btn bulk-action-card-btn-delete"
+              className="bulk-action-card-btn bulk-action-card-btn-delete bulk-action-card-btn--compact"
               onClick={() => handleDeleteOne(msg)}
               title="Delete this message"
             >
-              🗑 Delete
+              Delete
             </button>
           </div>
         </div>
@@ -1091,10 +1249,12 @@ export default function EmailInboxBulkView({
       handleSendDraft,
       handleArchiveOne,
       handleDeleteOne,
+      handlePendingDeleteOne,
       handleSummarize,
       handleDraftReply,
       handleKeepDuringPreview,
       handleKeepDuringArchivePreview,
+      runAiCategorizeForIds,
       keptDuringPreviewIds,
       keptDuringArchivePreviewIds,
       pendingDeletePreviewExpiries,
@@ -1127,11 +1287,11 @@ export default function EmailInboxBulkView({
     (msg: InboxMessage, output: BulkAiResultEntry | undefined) => {
       if (!output?.recommendedAction) return
       const rec = output.recommendedAction
-      if (rec === 'pending_delete') handleDeleteOne(msg)
+      if (rec === 'pending_delete') handlePendingDeleteOne(msg)
       else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
       // draft_reply_ready: skip — avoid accidental send
     },
-    [handleDeleteOne, handleArchiveOne]
+    [handlePendingDeleteOne, handleArchiveOne]
   )
 
   useEffect(() => {
@@ -1216,7 +1376,10 @@ export default function EmailInboxBulkView({
       if (e.key === 'd' || e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
         if (selectedCount > 0) handleBulkDelete()
-        else if (focusedMsg) handleDeleteOne(focusedMsg)
+        else if (focusedMsg) {
+          if (focusedOutput?.recommendedAction === 'pending_delete') handlePendingDeleteOne(focusedMsg)
+          else handleDeleteOne(focusedMsg)
+        }
         return
       }
     }
@@ -1245,228 +1408,145 @@ export default function EmailInboxBulkView({
     handleArchiveOne,
     handleBulkDelete,
     handleDeleteOne,
+    handlePendingDeleteOne,
   ])
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
       {/* Toolbar — compact, no duplication */}
       <div className="bulk-view-toolbar">
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={allSelected}
-            onChange={handleSelectAll}
-            disabled={messages.length === 0}
-          />
-          <span style={{ fontSize: 11, fontWeight: 600 }}>Select all</span>
-        </label>
-        {selectedCount > 0 && (
-          <span style={{ fontSize: 11, color: MUTED }}>{selectedCount} selected</span>
-        )}
-        <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
-        <button
-          type="button"
-          onClick={() => setFilter({ filter: 'all' })}
-          className="bulk-view-toolbar-filter-btn"
-          data-active={filter.filter === 'all'}
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: filter.filter === 'all' ? 'rgba(147,51,234,0.1)' : '#f1f5f9',
-            border: `1px solid ${filter.filter === 'all' ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
-            borderRadius: 6,
-            color: filter.filter === 'all' ? '#7c3aed' : '#334155',
-            cursor: 'pointer',
-          }}
-        >
-          All{filter.filter === 'all' ? ` (${total})` : ''}
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilter({ filter: 'pending_delete' })}
-          className="bulk-view-toolbar-filter-btn"
-          data-active={filter.filter === 'pending_delete'}
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: filter.filter === 'pending_delete' ? 'rgba(239,68,68,0.1)' : '#f1f5f9',
-            border: `1px solid ${filter.filter === 'pending_delete' ? 'rgba(239,68,68,0.35)' : '#e2e8f0'}`,
-            borderRadius: 6,
-            color: filter.filter === 'pending_delete' ? '#dc2626' : '#334155',
-            cursor: 'pointer',
-          }}
-        >
-          Pending Delete{filter.filter === 'pending_delete' ? ` (${total})` : ''}
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilter({ filter: 'archived' })}
-          className="bulk-view-toolbar-filter-btn"
-          data-active={filter.filter === 'archived'}
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: filter.filter === 'archived' ? 'rgba(59,130,246,0.1)' : '#f1f5f9',
-            border: `1px solid ${filter.filter === 'archived' ? 'rgba(59,130,246,0.35)' : '#e2e8f0'}`,
-            borderRadius: 6,
-            color: filter.filter === 'archived' ? '#2563eb' : '#334155',
-            cursor: 'pointer',
-          }}
-        >
-          Archived{filter.filter === 'archived' ? ` (${total})` : ''}
-        </button>
+        <div className="bulk-view-selection-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={handleSelectAll}
+              disabled={messages.length === 0}
+            />
+            <span style={{ fontSize: 11, fontWeight: 600 }}>Select all</span>
+          </label>
+          <span className="bulk-view-selection-group-label">Batch</span>
+          <select
+            value={bulkBatchSize}
+            onChange={(e) => setBulkBatchSize(Number(e.target.value))}
+            className="bulk-view-selection-group-select"
+          >
+            {[10, 12, 24, 48].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          {messages.length > 0 && (
+            <span className="bulk-view-selection-group-count">
+              {selectedCount} selected
+            </span>
+          )}
+        </div>
+        <div className="bulk-view-filter-group">
+          <button
+            type="button"
+            onClick={() => setFilter({ filter: 'all' })}
+            className="bulk-view-toolbar-filter-btn"
+            data-active={filter.filter === 'all'}
+          >
+            All{filter.filter === 'all' ? ` (${total})` : ''}
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter({ filter: 'pending_delete' })}
+            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
+            data-active={filter.filter === 'pending_delete'}
+          >
+            Pending Delete{filter.filter === 'pending_delete' ? ` (${total})` : ''}
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter({ filter: 'archived' })}
+            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
+            data-active={filter.filter === 'archived'}
+          >
+            Archived{filter.filter === 'archived' ? ` (${total})` : ''}
+          </button>
+        </div>
         {(bulkSessionArchived > 0 || bulkSessionPendingDelete > 0) && (
-          <>
-            <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
-            <div className="bulk-view-session-progress" role="status" aria-live="polite">
-              {bulkSessionArchived > 0 && (
-                <span className="bulk-view-session-count bulk-view-session-archived">
-                  Archived {bulkSessionArchived}
-                </span>
-              )}
-              {bulkSessionArchived > 0 && bulkSessionPendingDelete > 0 && (
-                <span style={{ color: '#94a3b8', margin: '0 4px' }}>·</span>
-              )}
-              {bulkSessionPendingDelete > 0 && (
-                <span className="bulk-view-session-count bulk-view-session-pending">
-                  Pending {bulkSessionPendingDelete}
-                </span>
-              )}
-              {filter.filter === 'all' && (
-                <span className="bulk-view-session-remaining">
-                  · {messages.length} remaining
-                </span>
-              )}
-            </div>
-          </>
+          <div className="bulk-view-session-progress" role="status" aria-live="polite">
+            {bulkSessionArchived > 0 && (
+              <span className="bulk-view-session-count bulk-view-session-archived">
+                Archived {bulkSessionArchived}
+              </span>
+            )}
+            {bulkSessionArchived > 0 && bulkSessionPendingDelete > 0 && (
+              <span className="bulk-view-session-sep">·</span>
+            )}
+            {bulkSessionPendingDelete > 0 && (
+              <span className="bulk-view-session-count bulk-view-session-pending">
+                Pending {bulkSessionPendingDelete}
+              </span>
+            )}
+            {filter.filter === 'all' && (
+              <span className="bulk-view-session-remaining">
+                · {messages.length} remaining
+              </span>
+            )}
+          </div>
         )}
-        <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 10, fontWeight: 600, color: '#334155' }}>
-          <input
-            type="checkbox"
-            checked={autoSyncEnabled}
-            onChange={() => primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)}
-            style={{ cursor: 'pointer' }}
-          />
-          Auto-sync
-        </label>
+        <div className="bulk-view-sync-group">
+          <label className="bulk-view-sync-label">
+            <input
+              type="checkbox"
+              checked={autoSyncEnabled}
+              onChange={() => primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+            />
+            Auto-sync
+          </label>
+          <button
+            type="button"
+            className="bulk-view-pull-btn"
+            onClick={handleSync}
+            disabled={syncing || !primaryAccountId}
+            title="Pull messages"
+          >
+            {syncing ? '↻ Syncing…' : '↻ Pull'}
+          </button>
+        </div>
+        <div className="bulk-view-action-group">
+          <button
+            type="button"
+            className="bulk-view-delete-btn"
+            onClick={handleBulkDelete}
+            disabled={selectedCount === 0}
+            title={selectedCount ? 'Delete selected (d)' : undefined}
+          >
+            🗑
+          </button>
+          <button
+            type="button"
+            className="bulk-view-archive-btn"
+            onClick={handleBulkArchive}
+            disabled={selectedCount === 0}
+            title={selectedCount ? 'Archive selected (a)' : undefined}
+          >
+            Archive
+          </button>
+          <button
+            type="button"
+            className="bulk-view-ai-sort-btn"
+            onClick={handleAiAutoSort}
+            disabled={selectedCount === 0}
+          >
+            ✨ AI Auto-Sort
+          </button>
+        </div>
+        <div className="bulk-view-toolbar-spacer" />
         <button
           type="button"
-          onClick={handleSync}
-          disabled={syncing || !primaryAccountId}
-          title="Pull messages"
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: 'rgba(147,51,234,0.1)',
-            border: '1px solid rgba(147,51,234,0.35)',
-            borderRadius: 6,
-            color: '#7c3aed',
-            cursor: syncing || !primaryAccountId ? 'not-allowed' : 'pointer',
-            opacity: syncing || !primaryAccountId ? 0.6 : 1,
-          }}
-        >
-          {syncing ? '↻ Syncing…' : '↻ Pull'}
-        </button>
-        <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
-        <button
-          type="button"
-          onClick={handleBulkDelete}
-          disabled={selectedCount === 0}
-          title={selectedCount ? 'Delete selected (d)' : undefined}
-          className="bulk-view-toolbar-btn-icon"
-          style={{
-            padding: '4px 6px',
-            fontSize: 12,
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: 6,
-            color: '#dc2626',
-            cursor: selectedCount ? 'pointer' : 'not-allowed',
-            opacity: selectedCount ? 1 : 0.5,
-          }}
-        >
-          🗑
-        </button>
-        <button
-          type="button"
-          onClick={handleBulkArchive}
-          disabled={selectedCount === 0}
-          title={selectedCount ? 'Archive selected (a)' : undefined}
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: '#f1f5f9',
-            border: '1px solid #e2e8f0',
-            borderRadius: 6,
-            color: '#334155',
-            cursor: selectedCount ? 'pointer' : 'not-allowed',
-            opacity: selectedCount ? 1 : 0.5,
-          }}
-        >
-          Archive
-        </button>
-        <button
-          type="button"
-          onClick={handleAiAutoSort}
-          disabled={selectedCount === 0}
-          style={{
-            padding: '4px 8px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: 'var(--purple-accent, #9333ea)',
-            border: '1px solid rgba(147,51,234,0.5)',
-            borderRadius: 6,
-            color: '#ffffff',
-            cursor: selectedCount ? 'pointer' : 'not-allowed',
-            opacity: selectedCount ? 1 : 0.5,
-          }}
-        >
-          ✨ AI Auto-Sort
-        </button>
-        <div style={{ flex: 1, minWidth: 0 }} />
-        <button
-          type="button"
+          className="bulk-view-compact-btn"
           onClick={() => setBulkCompactMode(!bulkCompactMode)}
           title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
-          style={{
-            padding: '4px 6px',
-            fontSize: 10,
-            fontWeight: 600,
-            background: bulkCompactMode ? 'rgba(147,51,234,0.12)' : '#f1f5f9',
-            border: `1px solid ${bulkCompactMode ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
-            borderRadius: 6,
-            color: bulkCompactMode ? '#7c3aed' : '#334155',
-            cursor: 'pointer',
-          }}
         >
           {bulkCompactMode ? '⊟' : '⊞'}
         </button>
-        <span style={{ fontSize: 10, color: MUTED }}>Batch</span>
-        <select
-          value={bulkBatchSize}
-          onChange={(e) => setBulkBatchSize(Number(e.target.value))}
-          style={{
-            padding: '4px 6px',
-            fontSize: 10,
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: 6,
-            color: '#334155',
-            cursor: 'pointer',
-          }}
-        >
-          {[10, 12, 24, 48].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* Collapsible provider/account section */}
@@ -1674,7 +1754,7 @@ export default function EmailInboxBulkView({
                           👉
                         </span>
                       )}
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                      <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
                           <span
                             style={{

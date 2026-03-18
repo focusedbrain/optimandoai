@@ -146,6 +146,8 @@ interface EmailInboxState {
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
   deleteMessages: (ids: string[], gracePeriodHours?: number) => Promise<void>
+  /** Move messages to Pending Delete (soft, 7-day grace). Use for AI-recommended pending_delete. */
+  markPendingDeleteImmediate: (ids: string[]) => Promise<void>
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
@@ -522,13 +524,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (idsToMove.length === 0) return
     const res = await bridge.markPendingDelete(idsToMove)
     if (res.ok) {
-      set((s) => {
-        const next = { ...s.bulkAiOutputs }
-        for (const id of idsToMove) {
-          if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
-        }
-        return { bulkAiOutputs: next, bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length }
-      })
+      get().clearBulkAiOutputsForIds(idsToMove)
+      set((s) => ({
+        messages: s.messages.filter((m) => !idsToMove.includes(m.id)),
+        total: Math.max(0, s.total - idsToMove.length),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
+        selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
+      }))
       get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
       get().fetchMessages()
     }
@@ -557,13 +561,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (idsToArchive.length === 0) return
     const res = await bridge.archiveMessages(idsToArchive)
     if (res.ok) {
-      set((s) => {
-        const next = { ...s.bulkAiOutputs }
-        for (const id of idsToArchive) {
-          if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
-        }
-        return { bulkAiOutputs: next, bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length }
-      })
+      get().clearBulkAiOutputsForIds(idsToArchive)
+      set((s) => ({
+        messages: s.messages.filter((m) => !idsToArchive.includes(m.id)),
+        total: Math.max(0, s.total - idsToArchive.length),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToArchive.includes(x))),
+        selectedMessageId: s.selectedMessageId && idsToArchive.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && idsToArchive.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length,
+      }))
       get().fetchMessages()
     }
   },
@@ -671,6 +677,35 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             : state.selectedMessage,
         }
       })
+      get().fetchMessages()
+    }
+  },
+
+  markPendingDeleteImmediate: async (ids) => {
+    const bridge = getBridge()
+    if (!bridge?.markPendingDelete || ids.length === 0) return
+    const res = await bridge.markPendingDelete(ids)
+    if (res.ok) {
+      get().clearBulkAiOutputsForIds(ids)
+      set((s) => {
+        const nextExpiries = { ...s.pendingDeletePreviewExpiries }
+        const nextKept = new Set(s.keptDuringPreviewIds)
+        for (const id of ids) {
+          delete nextExpiries[id]
+          nextKept.delete(id)
+        }
+        return {
+          messages: s.messages.filter((m) => !ids.includes(m.id)),
+          total: Math.max(0, s.total - ids.length),
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+          pendingDeletePreviewExpiries: nextExpiries,
+          keptDuringPreviewIds: nextKept,
+          bulkSessionPendingDelete: s.bulkSessionPendingDelete + ids.length,
+        }
+      })
+      get().setPendingDeleteToast({ count: ids.length, ids })
       get().fetchMessages()
     }
   },
