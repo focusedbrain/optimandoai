@@ -1181,6 +1181,18 @@ body {
   cursor: not-allowed;
 }
 
+.inbox-detail-ai-btn-delete {
+  border-color: #dc2626 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #dc2626 !important;
+}
+
+.inbox-detail-ai-btn-delete:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: #b91c1c !important;
+  color: #b91c1c !important;
+}
+
 .inbox-detail-ai-output {
   flex: 1;
   min-height: 0;
@@ -1306,9 +1318,19 @@ body {
   border-radius: 8px;
 }
 
+/* Compact expanded: same behavior as standard — row grows, both sides show full detail */
+.bulk-view--compact .bulk-view-row--expanded {
+  height: auto;
+  max-height: none;
+}
+
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-message,
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-ai {
-  min-height: 72px;
+  min-height: 120px;
+}
+
+.bulk-view--compact .bulk-view-row--expanded .bulk-view-message-body {
+  overflow: visible;
 }
 
 .bulk-view--compact .bulk-view-message {
@@ -1566,6 +1588,28 @@ body {
 .bulk-view-expand-btn:hover {
   background: #e2e8f0;
   color: #334155;
+}
+
+.bulk-view-msg-delete-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 4px;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.bulk-view-msg-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #b91c1c;
+}
+
+.bulk-view--compact .bulk-view-msg-delete-btn {
+  padding: 2px 6px;
+  font-size: 9px;
 }
 
 .bulk-card-expand-toggle {
@@ -2007,6 +2051,19 @@ body {
 .bulk-action-card-btn-tertiary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Per-message Delete — always visible, clear affordance */
+.bulk-action-card-btn-delete {
+  color: #dc2626 !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+
+.bulk-action-card-btn-delete:hover:not(:disabled) {
+  color: #b91c1c !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
 }
 
 .bulk-view-empty-state {

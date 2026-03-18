@@ -20,7 +20,6 @@ export interface EmailInboxToolbarProps {
   selectedCount: number
   onBulkDelete: () => void
   onBulkArchive: () => void
-  onBulkMarkRead: () => void
   onBulkCategorize?: () => void
 }
 
@@ -104,7 +103,6 @@ export default function EmailInboxToolbar({
   selectedCount,
   onBulkDelete,
   onBulkArchive,
-  onBulkMarkRead,
   onBulkCategorize,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = accounts[0]?.id
@@ -199,7 +197,7 @@ export default function EmailInboxToolbar({
             opacity: syncing ? 0.7 : 1,
           }}
         >
-          {syncing ? '↻ Syncing...' : '↻ Pull'}
+          {syncing ? '↻ Syncing…' : '↻ Pull'}
         </button>
 
         {/* Bulk mode toggle */}
@@ -255,21 +253,6 @@ export default function EmailInboxToolbar({
             }}
           >
             Archive
-          </button>
-          <button
-            onClick={onBulkMarkRead}
-            style={{
-              padding: '5px 10px',
-              fontSize: 10,
-              fontWeight: 600,
-              borderRadius: 4,
-              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
-              background: 'var(--color-surface, rgba(255,255,255,0.04))',
-              color: 'var(--color-text, #e2e8f0)',
-              cursor: 'pointer',
-            }}
-          >
-            Mark Read
           </button>
           {onBulkCategorize && (
             <button

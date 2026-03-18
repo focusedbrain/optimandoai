@@ -122,6 +122,8 @@ interface EmailInboxState {
   addPendingDeletePreview: (ids: string[]) => void
   keepDuringPreview: (id: string) => void
   setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
+  /** Fully reset pending-delete state for ids after Undo. Clears preview, grace-period, and AI output flags. */
+  clearPendingDeleteStateForIds: (ids: string[]) => void
   incrementCountdownTick: () => void
   processExpiredPendingDeletes: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
@@ -132,6 +134,8 @@ interface EmailInboxState {
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<void>
+  /** Load autoSyncEnabled from backend for the given account. Call when Inbox view mounts. */
+  loadSyncState: (accountId: string) => Promise<void>
 }
 
 // =============================================================================
@@ -146,6 +150,11 @@ const DEFAULT_FILTER: InboxFilter = {
   filter: 'all',
   sourceType: 'all',
 }
+
+// Auto-hide for pending-delete toast: 5 seconds
+const PENDING_DELETE_TOAST_VISIBILITY_MS = 5000
+
+let pendingDeleteToastTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 // =============================================================================
 // Store Implementation
@@ -353,7 +362,53 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setPendingDeleteToast: (toast) => {
+    if (pendingDeleteToastTimeoutId) {
+      clearTimeout(pendingDeleteToastTimeoutId)
+      pendingDeleteToastTimeoutId = null
+    }
     set({ pendingDeleteToast: toast })
+    if (toast) {
+      pendingDeleteToastTimeoutId = setTimeout(() => {
+        pendingDeleteToastTimeoutId = null
+        set({ pendingDeleteToast: null })
+      }, PENDING_DELETE_TOAST_VISIBILITY_MS)
+    }
+  },
+
+  clearPendingDeleteStateForIds: (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((state) => {
+      const nextExpiries = { ...state.pendingDeletePreviewExpiries }
+      const nextKept = new Set(state.keptDuringPreviewIds)
+      const nextOutputs = { ...state.bulkAiOutputs }
+      for (const id of idSet) {
+        delete nextExpiries[id]
+        nextKept.delete(id)
+        if (nextOutputs[id]) {
+          const entry = { ...nextOutputs[id] }
+          delete entry.pendingDeletePreviewUntil
+          if (entry.recommendedAction === 'pending_delete') {
+            entry.recommendedAction = 'keep_for_manual_action'
+          }
+          nextOutputs[id] = entry
+        }
+      }
+      const nextMessages = state.messages.map((m) =>
+        idSet.has(m.id) ? { ...m, pending_delete: 0, pending_delete_at: null } : m
+      )
+      const nextSelected =
+        state.selectedMessage && idSet.has(state.selectedMessage.id)
+          ? { ...state.selectedMessage, pending_delete: 0, pending_delete_at: null }
+          : state.selectedMessage
+      return {
+        pendingDeletePreviewExpiries: nextExpiries,
+        keptDuringPreviewIds: nextKept,
+        bulkAiOutputs: nextOutputs,
+        messages: nextMessages,
+        selectedMessage: nextSelected,
+      }
+    })
   },
 
   incrementCountdownTick: () => {
@@ -388,11 +443,9 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         for (const id of idsToMove) {
           if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
         }
-        return {
-          bulkAiOutputs: next,
-          pendingDeleteToast: { count: idsToMove.length, ids: idsToMove },
-        }
+        return { bulkAiOutputs: next }
       })
+      get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
       get().fetchMessages()
     }
   },
@@ -561,6 +614,20 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.toggleAutoSync(accountId, enabled)
     if (res.ok) {
       set({ autoSyncEnabled: enabled })
+    }
+  },
+
+  loadSyncState: async (accountId) => {
+    const bridge = getBridge()
+    if (!bridge?.getSyncState) return
+    try {
+      const res = await bridge.getSyncState(accountId)
+      if (res.ok && res.data) {
+        const row = res.data as { auto_sync_enabled?: number }
+        set({ autoSyncEnabled: row.auto_sync_enabled === 1 })
+      }
+    } catch {
+      /* ignore */
     }
   },
 }))

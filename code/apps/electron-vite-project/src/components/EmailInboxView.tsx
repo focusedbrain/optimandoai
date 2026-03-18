@@ -42,9 +42,10 @@ interface InboxDetailAiPanelProps {
   message: InboxMessage | null
   onSendDraft?: (draft: string, message: InboxMessage) => void
   onArchive?: (messageIds: string[]) => void
+  onDelete?: (messageIds: string[]) => void
 }
 
-function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: InboxDetailAiPanelProps) {
+function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete }: InboxDetailAiPanelProps) {
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState(false)
@@ -157,6 +158,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
     if (onArchive && messageId) onArchive([messageId])
   }, [onArchive, messageId])
 
+  const handleDelete = useCallback(() => {
+    if (onDelete && messageId) onDelete([messageId])
+  }, [onDelete, messageId])
+
   const handleRetryAnalysis = useCallback(() => {
     setAnalysisError(false)
     runAnalysis()
@@ -193,6 +198,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
         <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
           {draftLoading ? 'Generating…' : 'Draft Reply'}
         </button>
+        {onDelete && messageId && (
+          <button type="button" className="inbox-detail-ai-btn-delete" onClick={handleDelete}>
+            Delete
+          </button>
+        )}
       </div>
       <div className="inbox-detail-ai-scroll">
         {analysisError && (
@@ -557,9 +567,14 @@ export default function EmailInboxView({
     setCategory,
     syncAccount,
     toggleAutoSync,
+    loadSyncState,
   } = useEmailInboxStore()
 
   const primaryAccountId = accounts[0]?.id
+
+  useEffect(() => {
+    if (primaryAccountId) loadSyncState(primaryAccountId)
+  }, [primaryAccountId, loadSyncState])
 
   // Provider/account state for no-selection workspace
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
@@ -672,12 +687,6 @@ export default function EmailInboxView({
     clearMultiSelect()
   }, [multiSelectIds, archiveMessages, clearMultiSelect])
 
-  const handleBulkMarkRead = useCallback(() => {
-    const ids = Array.from(multiSelectIds)
-    if (ids.length) markRead(ids, true)
-    clearMultiSelect()
-  }, [multiSelectIds, markRead, clearMultiSelect])
-
   useEffect(() => {
     fetchMessages()
   }, [fetchMessages])
@@ -773,7 +782,6 @@ export default function EmailInboxView({
           selectedCount={selectedCount}
           onBulkDelete={handleBulkDelete}
           onBulkArchive={handleBulkArchive}
-          onBulkMarkRead={handleBulkMarkRead}
           onBulkCategorize={
             selectedCount > 0
               ? () => {
@@ -940,6 +948,7 @@ export default function EmailInboxView({
               message={selectedMessage}
               onSendDraft={handleSendDraft}
               onArchive={archiveMessages}
+              onDelete={deleteMessages}
             />
           </div>
         </div>

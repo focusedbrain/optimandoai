@@ -4,12 +4,13 @@
  * Collapsible provider section at top for account management.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import {
   useEmailInboxStore,
   type InboxMessage,
   type InboxSourceType,
 } from '../stores/useEmailInboxStore'
+import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay from './EmailComposeOverlay'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
@@ -167,6 +168,7 @@ export default function EmailInboxBulkView({
     addPendingDeletePreview,
     keepDuringPreview,
     setPendingDeleteToast,
+    clearPendingDeleteStateForIds,
     setFilter,
     selectMessage,
     toggleMultiSelect,
@@ -175,7 +177,64 @@ export default function EmailInboxBulkView({
     archiveMessages,
     deleteMessages,
     setCategory,
-  } = useEmailInboxStore()
+    autoSyncEnabled,
+    syncing,
+    syncAccount,
+    toggleAutoSync,
+    loadSyncState,
+  } = useEmailInboxStore(
+    useShallow((s) => ({
+      messages: s.messages,
+      total: s.total,
+      loading: s.loading,
+      error: s.error,
+      bulkPage: s.bulkPage,
+      bulkBatchSize: s.bulkBatchSize,
+      bulkCompactMode: s.bulkCompactMode,
+      bulkAiOutputs: s.bulkAiOutputs,
+      multiSelectIds: s.multiSelectIds,
+      selectedMessage: s.selectedMessage,
+      selectedMessageId: s.selectedMessageId,
+      filter: s.filter,
+      fetchMessages: s.fetchMessages,
+      setBulkMode: s.setBulkMode,
+      setBulkPage: s.setBulkPage,
+      setBulkBatchSize: s.setBulkBatchSize,
+      setBulkCompactMode: s.setBulkCompactMode,
+      syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
+      setBulkAiOutputs: s.setBulkAiOutputs,
+      pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
+      keptDuringPreviewIds: s.keptDuringPreviewIds,
+      pendingDeleteToast: s.pendingDeleteToast,
+      addPendingDeletePreview: s.addPendingDeletePreview,
+      keepDuringPreview: s.keepDuringPreview,
+      setPendingDeleteToast: s.setPendingDeleteToast,
+      clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
+      setFilter: s.setFilter,
+      selectMessage: s.selectMessage,
+      toggleMultiSelect: s.toggleMultiSelect,
+      clearMultiSelect: s.clearMultiSelect,
+      markRead: s.markRead,
+      archiveMessages: s.archiveMessages,
+      deleteMessages: s.deleteMessages,
+      setCategory: s.setCategory,
+      autoSyncEnabled: s.autoSyncEnabled,
+      syncing: s.syncing,
+      syncAccount: s.syncAccount,
+      toggleAutoSync: s.toggleAutoSync,
+      loadSyncState: s.loadSyncState,
+    }))
+  )
+
+  const primaryAccountId = accounts[0]?.id
+
+  useEffect(() => {
+    if (primaryAccountId) loadSyncState(primaryAccountId)
+  }, [primaryAccountId, loadSyncState])
+
+  const handleSync = useCallback(() => {
+    if (primaryAccountId) syncAccount(primaryAccountId)
+  }, [primaryAccountId, syncAccount])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
@@ -202,6 +261,7 @@ export default function EmailInboxBulkView({
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
   const composeClickRef = useRef<number>(0)
 
+  const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
   const selectedCount = multiSelectIds.size
   const totalPages = Math.max(1, Math.ceil(total / bulkBatchSize))
   const canPrev = bulkPage > 0
@@ -242,12 +302,6 @@ export default function EmailInboxBulkView({
     if (ids.length) archiveMessages(ids)
     clearMultiSelect()
   }, [multiSelectIds, archiveMessages, clearMultiSelect])
-
-  const handleBulkMarkRead = useCallback(() => {
-    const ids = Array.from(multiSelectIds)
-    if (ids.length) markRead(ids, true)
-    clearMultiSelect()
-  }, [multiSelectIds, markRead, clearMultiSelect])
 
   const handleBulkCategorize = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -328,14 +382,15 @@ export default function EmailInboxBulkView({
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
-      if (!window.emailInbox?.cancelPendingDelete) return
+      if (!window.emailInbox?.cancelPendingDelete || ids.length === 0) return
       for (const id of ids) {
         await window.emailInbox.cancelPendingDelete(id)
       }
       setPendingDeleteToast(null)
-      fetchMessages()
+      clearPendingDeleteStateForIds(ids)
+      await fetchMessages()
     },
-    [fetchMessages, setPendingDeleteToast]
+    [fetchMessages, setPendingDeleteToast, clearPendingDeleteStateForIds]
   )
 
   /** Cancel the scheduled pending-delete move for one message during the 15s preview. */
@@ -573,6 +628,14 @@ export default function EmailInboxBulkView({
         return (
           <div className="bulk-action-card bulk-action-card--loading">
             <span style={{ color: MUTED }}>Loading…</span>
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn-delete"
+              onClick={() => handleDeleteOne(msg)}
+              title="Delete this message"
+            >
+              🗑 Delete
+            </button>
           </div>
         )
       }
@@ -692,6 +755,14 @@ export default function EmailInboxBulkView({
                 >
                   ✍ Draft
                 </button>
+                <button
+                  type="button"
+                  className="bulk-action-card-btn-tertiary bulk-action-card-btn-delete"
+                  onClick={() => handleDeleteOne(msg)}
+                  title="Delete this message"
+                >
+                  🗑 Delete
+                </button>
               </div>
             </div>
           </div>
@@ -744,6 +815,14 @@ export default function EmailInboxBulkView({
               >
                 ✍ Draft
               </button>
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn-delete"
+                onClick={() => handleDeleteOne(msg)}
+                title="Delete this message"
+              >
+                🗑 Delete
+              </button>
             </div>
           </div>
         )
@@ -770,6 +849,14 @@ export default function EmailInboxBulkView({
               onClick={() => handleDraftReply(msg.id)}
             >
               ✍ Draft Reply
+            </button>
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn-delete"
+              onClick={() => handleDeleteOne(msg)}
+              title="Delete this message"
+            >
+              🗑 Delete
             </button>
           </div>
         </div>
@@ -869,6 +956,35 @@ export default function EmailInboxBulkView({
           Pending Delete
         </button>
         <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#334155' }}>
+          <input
+            type="checkbox"
+            checked={autoSyncEnabled}
+            onChange={() => primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+            style={{ cursor: 'pointer' }}
+          />
+          Auto-sync
+        </label>
+        <button
+          type="button"
+          onClick={handleSync}
+          disabled={syncing || !primaryAccountId}
+          title="Pull messages"
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            background: 'rgba(147,51,234,0.1)',
+            border: '1px solid rgba(147,51,234,0.35)',
+            borderRadius: 6,
+            color: '#7c3aed',
+            cursor: syncing || !primaryAccountId ? 'not-allowed' : 'pointer',
+            opacity: syncing || !primaryAccountId ? 0.6 : 1,
+          }}
+        >
+          {syncing ? '↻ Syncing…' : '↻ Pull'}
+        </button>
+        <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
         <button
           type="button"
           onClick={handleBulkDelete}
@@ -906,24 +1022,6 @@ export default function EmailInboxBulkView({
           }}
         >
           Archive
-        </button>
-        <button
-          type="button"
-          onClick={handleBulkMarkRead}
-          disabled={selectedCount === 0}
-          style={{
-            padding: '6px 10px',
-            fontSize: 11,
-            fontWeight: 600,
-            background: '#f1f5f9',
-            border: '1px solid #e2e8f0',
-            borderRadius: 6,
-            color: '#334155',
-            cursor: selectedCount ? 'pointer' : 'not-allowed',
-            opacity: selectedCount ? 1 : 0.5,
-          }}
-        >
-          Mark Read
         </button>
         <button
           type="button"
@@ -1139,7 +1237,7 @@ export default function EmailInboxBulkView({
               </div>
             )}
           <div className="bulk-view-grid">
-            {sortMessagesByCategory(messages).map((msg) => {
+            {sortedMessages.map((msg) => {
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const isCardExpanded = expandedCardIds.has(msg.id)
@@ -1168,7 +1266,7 @@ export default function EmailInboxBulkView({
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('.bulk-view-expand-btn')) return
+                      if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('.bulk-view-expand-btn') || (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn')) return
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
@@ -1219,6 +1317,17 @@ export default function EmailInboxBulkView({
                             title="View full message"
                           >
                             View full
+                          </button>
+                          <button
+                            type="button"
+                            className="bulk-view-msg-delete-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteOne(msg)
+                            }}
+                            title="Delete this message"
+                          >
+                            🗑 Delete
                           </button>
                         </div>
                         <div
