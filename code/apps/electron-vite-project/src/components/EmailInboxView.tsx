@@ -332,7 +332,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     : `Keep for now — ${analysis.archiveReason || '—'}`}
                 </span>
                 {analysis.archiveRecommendation === 'archive' && onArchive && (
-                  <button type="button" className="inbox-detail-ai-btn-secondary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
+                  <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
                 )}
               </>
             ) : (

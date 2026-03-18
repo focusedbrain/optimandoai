@@ -1351,6 +1351,11 @@ body {
   padding: 6px 8px;
 }
 
+/* Compact mode: ensure focus ring remains visible */
+.bulk-view--compact .bulk-view-row--focused {
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.35);
+}
+
 .bulk-view--compact .bulk-action-card {
   gap: 3px;
   padding-left: 5px;
@@ -1441,6 +1446,62 @@ body {
   background: rgba(100, 116, 139, 0.08);
   border-radius: 6px;
   flex-shrink: 0;
+}
+
+/* Recent undoable actions — compact stack for power-user recovery */
+.bulk-view-recent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.bulk-view-toast-primary {
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #fca5a5;
+}
+.bulk-view-toast-primary button {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 6px;
+  color: #86efac;
+  cursor: pointer;
+}
+.bulk-view-recent-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bulk-view-recent-item {
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #fca5a5;
+}
+.bulk-view-recent-item button {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 4px;
+  color: #86efac;
+  cursor: pointer;
 }
 
 .bulk-view-toolbar {
@@ -1534,9 +1595,10 @@ body {
   background: #ffffff;
 }
 
+/* Focused row: clear, enterprise-grade focus state for keyboard triage */
 .bulk-view-row--focused {
-  border-color: #a78bfa;
-  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.15);
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.3);
 }
 
 .bulk-view-message {
@@ -1569,8 +1631,13 @@ body {
 }
 
 .bulk-view-message.bulk-view-message--focused {
-  border-color: #c4b5fd;
-  background: rgba(147, 51, 234, 0.04);
+  border-color: #a78bfa;
+  background: rgba(124, 58, 237, 0.06);
+}
+
+/* AI panel tint when row focused — unified focus state */
+.bulk-view-row--focused .bulk-view-ai {
+  background: rgba(124, 58, 237, 0.03);
 }
 
 .bulk-view-expand-btn {
@@ -1819,6 +1886,19 @@ body {
   margin: 0;
 }
 
+.bulk-action-card-panel--actionable {
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+.bulk-action-card-panel--actionable:hover {
+  opacity: 0.95;
+  filter: brightness(1.05);
+}
+.bulk-action-card-panel--actionable:focus {
+  outline: 2px solid var(--purple-accent, #7c3aed);
+  outline-offset: 2px;
+}
+
 .bulk-action-card--expanded .bulk-action-card-panel--recommended {
   padding: 8px 12px;
   margin: 2px 0;
@@ -2004,7 +2084,12 @@ body {
 .bulk-action-card-btn--primary-emphasis {
   padding: 5px 12px;
   font-size: 11px;
+}
+.bulk-action-card-btn--danger.bulk-action-card-btn--primary-emphasis {
   box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2);
+}
+.bulk-action-card-btn--primary.bulk-action-card-btn--primary-emphasis {
+  box-shadow: 0 1px 2px rgba(124, 58, 237, 0.25);
 }
 
 .bulk-action-card-btn--muted {

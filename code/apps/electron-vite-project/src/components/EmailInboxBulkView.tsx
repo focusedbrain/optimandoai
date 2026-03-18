@@ -165,9 +165,11 @@ export default function EmailInboxBulkView({
     pendingDeletePreviewExpiries,
     keptDuringPreviewIds,
     pendingDeleteToast,
+    recentPendingDeleteBatches,
     addPendingDeletePreview,
     keepDuringPreview,
     setPendingDeleteToast,
+    removeRecentPendingDeleteBatch,
     clearPendingDeleteStateForIds,
     setFilter,
     selectMessage,
@@ -206,9 +208,11 @@ export default function EmailInboxBulkView({
       pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
       keptDuringPreviewIds: s.keptDuringPreviewIds,
       pendingDeleteToast: s.pendingDeleteToast,
+      recentPendingDeleteBatches: s.recentPendingDeleteBatches,
       addPendingDeletePreview: s.addPendingDeletePreview,
       keepDuringPreview: s.keepDuringPreview,
       setPendingDeleteToast: s.setPendingDeleteToast,
+      removeRecentPendingDeleteBatch: s.removeRecentPendingDeleteBatch,
       clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
       setFilter: s.setFilter,
       selectMessage: s.selectMessage,
@@ -272,6 +276,36 @@ export default function EmailInboxBulkView({
     setBulkMode(true)
     return () => setBulkMode(false)
   }, [setBulkMode])
+
+  /** Auto-focus first row when messages finish loading — enables immediate keyboard triage. Skip when user explicitly unfocused. */
+  const prevLoadingRef = useRef(false)
+  useEffect(() => {
+    const wasLoading = prevLoadingRef.current
+    prevLoadingRef.current = loading
+    if (wasLoading && !loading && sortedMessages.length > 0 && !focusedMessageId && onSelectMessage) {
+      onSelectMessage(sortedMessages[0].id)
+    }
+  }, [loading, sortedMessages, focusedMessageId, onSelectMessage])
+
+  /** Scroll focused row into view when focus changes (keyboard nav or click). */
+  useEffect(() => {
+    if (focusedMessageId) {
+      const el = document.querySelector(`[data-msg-id="${focusedMessageId}"]`) as HTMLElement | null
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [focusedMessageId])
+
+  /** When focused message is removed (archived/deleted), focus next available row. */
+  useEffect(() => {
+    if (
+      focusedMessageId &&
+      !sortedMessages.some((m) => m.id === focusedMessageId) &&
+      sortedMessages.length > 0 &&
+      onSelectMessage
+    ) {
+      onSelectMessage(sortedMessages[0].id)
+    }
+  }, [focusedMessageId, sortedMessages, onSelectMessage])
 
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
@@ -387,10 +421,11 @@ export default function EmailInboxBulkView({
         await window.emailInbox.cancelPendingDelete(id)
       }
       setPendingDeleteToast(null)
+      removeRecentPendingDeleteBatch(ids)
       clearPendingDeleteStateForIds(ids)
       await fetchMessages()
     },
-    [fetchMessages, setPendingDeleteToast, clearPendingDeleteStateForIds]
+    [fetchMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, clearPendingDeleteStateForIds]
   )
 
   /** Cancel the scheduled pending-delete move for one message during the 15s preview. */
@@ -654,7 +689,25 @@ export default function EmailInboxBulkView({
                 U{urgency}
               </span>
             </div>
-            <div className={`bulk-action-card-panel bulk-action-card-panel--recommended ${panelMod}`}>
+            <div
+              role="button"
+              tabIndex={0}
+              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+              onClick={() => {
+                if (rec === 'pending_delete') handleDeleteOne(msg)
+                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  if (rec === 'pending_delete') handleDeleteOne(msg)
+                  else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                  else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                }
+              }}
+              title="Click or press Enter to apply"
+            >
               <span className="bulk-action-card-panel-label">Next</span>
               <span className="bulk-action-card-panel-action">
                 {rec === 'pending_delete' && '🗑 Pending Delete'}
@@ -703,7 +756,7 @@ export default function EmailInboxBulkView({
               {rec === 'draft_reply_ready' && output.draftReply && (
                 <button
                   type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
                   onClick={() => handleSendDraft(msg, output.draftReply!)}
                 >
                   ✉ Send via Email
@@ -712,7 +765,7 @@ export default function EmailInboxBulkView({
               {(rec === 'archive' || rec === 'keep_for_manual_action') && (
                 <button
                   type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
                   onClick={() => handleArchiveOne(msg)}
                 >
                   📦 Archive
@@ -793,7 +846,7 @@ export default function EmailInboxBulkView({
               {output.draftReply && (
                 <button
                   type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
                   onClick={() => handleSendDraft(msg, output.draftReply!)}
                 >
                   ✉ Send via Email
@@ -871,40 +924,145 @@ export default function EmailInboxBulkView({
       handleDraftReply,
       handleKeepDuringPreview,
       keptDuringPreviewIds,
+      pendingDeletePreviewExpiries,
     ]
   )
 
   const expandedMessage =
     expandedMessageId && selectedMessageId === expandedMessageId ? selectedMessage : null
 
-  useEffect(() => {
-    if (!expandedMessageId) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCloseExpand()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [expandedMessageId, handleCloseExpand])
+  /** Focus next/previous row. Returns true if handled. */
+  const focusAdjacentRow = useCallback(
+    (direction: 'next' | 'prev') => {
+      if (sortedMessages.length === 0) return
+      const idx = focusedMessageId
+        ? sortedMessages.findIndex((m) => m.id === focusedMessageId)
+        : -1
+      const nextIdx = direction === 'next' ? idx + 1 : idx - 1
+      if (nextIdx >= 0 && nextIdx < sortedMessages.length) {
+        onSelectMessage?.(sortedMessages[nextIdx].id)
+      } else if (idx < 0 && sortedMessages.length > 0) {
+        onSelectMessage?.(sortedMessages[direction === 'next' ? 0 : sortedMessages.length - 1].id)
+      }
+    },
+    [sortedMessages, focusedMessageId, onSelectMessage]
+  )
+
+  /** Trigger primary recommended action for focused row. Safe: skip draft_reply_ready. */
+  const triggerPrimaryAction = useCallback(
+    (msg: InboxMessage, output: BulkAiResultEntry | undefined) => {
+      if (!output?.recommendedAction) return
+      const rec = output.recommendedAction
+      if (rec === 'pending_delete') handleDeleteOne(msg)
+      else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+      // draft_reply_ready: skip — avoid accidental send
+    },
+    [handleDeleteOne, handleArchiveOne]
+  )
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null
-      const inInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.getAttribute?.('contenteditable') === 'true')
+      const inInput =
+        el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.getAttribute?.('contenteditable') === 'true')
       if (inInput) return
-      if (selectedCount === 0) return
+      const onActionablePanel = el?.closest('.bulk-action-card-panel--actionable')
+
+      if (expandedMessageId) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          handleCloseExpand()
+        }
+        return
+      }
+      if (pendingLinkUrl || showEmailCompose) return
+
+      const focusedMsg = focusedMessageId
+        ? sortedMessages.find((m) => m.id === focusedMessageId)
+        : null
+      const focusedOutput = focusedMsg ? bulkAiOutputs[focusedMsg.id] : undefined
+      const inGracePeriod =
+        focusedMsg &&
+        pendingDeletePreviewExpiries[focusedMsg.id] &&
+        !keptDuringPreviewIds.has(focusedMsg.id)
+
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault()
+          focusAdjacentRow('next')
+        }
+        return
+      }
+      if (e.key === 'k' || e.key === 'ArrowUp') {
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault()
+          focusAdjacentRow('prev')
+        }
+        return
+      }
+      if (e.key === 'Enter') {
+        if (onActionablePanel) return
+        if (focusedMsg) {
+          e.preventDefault()
+          toggleCardExpand(focusedMsg.id)
+        }
+        return
+      }
+      if (e.key === 'g' && inGracePeriod && focusedMsg) {
+        e.preventDefault()
+        handleKeepDuringPreview(focusedMsg.id)
+        return
+      }
+      if (e.key === ' ' && !onActionablePanel && focusedMsg && focusedOutput?.recommendedAction) {
+        const rec = focusedOutput.recommendedAction
+        if (rec !== 'draft_reply_ready') {
+          e.preventDefault()
+          triggerPrimaryAction(focusedMsg, focusedOutput)
+        }
+        return
+      }
       if (e.key === 'a' || e.key === 'A') {
         if (!e.ctrlKey && !e.metaKey) {
           e.preventDefault()
-          handleBulkArchive()
+          if (selectedCount > 0) handleBulkArchive()
+          else if (focusedMsg) handleArchiveOne(focusedMsg)
         }
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        return
+      }
+      if (e.key === 'd' || e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
-        handleBulkDelete()
+        if (selectedCount > 0) handleBulkDelete()
+        else if (focusedMsg) handleDeleteOne(focusedMsg)
+        return
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [selectedCount, handleBulkArchive, handleBulkDelete])
+  }, [
+    expandedMessageId,
+    pendingLinkUrl,
+    showEmailCompose,
+    handleCloseExpand,
+    sortedMessages,
+    focusedMessageId,
+    bulkAiOutputs,
+    pendingDeletePreviewExpiries,
+    keptDuringPreviewIds,
+    expandedCardIds,
+    selectedCount,
+    focusAdjacentRow,
+    toggleCardExpand,
+    handleKeepDuringPreview,
+    triggerPrimaryAction,
+    handleBulkArchive,
+    handleArchiveOne,
+    handleBulkDelete,
+    handleDeleteOne,
+  ])
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
@@ -1197,46 +1355,39 @@ export default function EmailInboxBulkView({
               </div>
             )}
             {bulkCompactMode && bulkBatchSize >= 24 && messages.length > 0 && (
-              <div className="bulk-view-compact-hint" role="status">
-                Compact mode · {messages.length} messages · Scroll to review, expand for details
+              <div className="bulk-view-compact-hint" role="status" title="Keyboard: j/k nav, a archive, d delete, g keep, Enter expand, Space primary">
+                Compact mode · {messages.length} messages · j/k nav, a archive, d delete
               </div>
             )}
-            {pendingDeleteToast && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  margin: '0 12px 12px',
-                  background: 'rgba(239,68,68,0.15)',
-                  border: '1px solid rgba(239,68,68,0.4)',
-                  borderRadius: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <span style={{ fontSize: 12, color: '#fca5a5' }}>
-                  {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleUndoPendingDelete(pendingDeleteToast.ids)}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    background: 'rgba(34,197,94,0.2)',
-                    border: '1px solid rgba(34,197,94,0.4)',
-                    borderRadius: 6,
-                    color: '#86efac',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Undo
-                </button>
+            {(pendingDeleteToast || recentPendingDeleteBatches.length > 0) && (
+              <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
+                {pendingDeleteToast && (
+                  <div className="bulk-view-toast-primary">
+                    <span>
+                      {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
+                    </span>
+                    <button type="button" onClick={() => handleUndoPendingDelete(pendingDeleteToast.ids)}>
+                      Undo
+                    </button>
+                  </div>
+                )}
+                {recentPendingDeleteBatches.length > 0 && (
+                  <div className="bulk-view-recent-stack">
+                    {recentPendingDeleteBatches.map((batch, i) => (
+                      <div key={i} className="bulk-view-recent-item">
+                        <span>
+                          {batch.count} msg{batch.count !== 1 ? 's' : ''}
+                        </span>
+                        <button type="button" onClick={() => handleUndoPendingDelete(batch.ids)}>
+                          Undo
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          <div className="bulk-view-grid">
+          <div className="bulk-view-grid" title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, g keep (grace), Space primary action">
             {sortedMessages.map((msg) => {
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id

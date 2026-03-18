@@ -100,6 +100,8 @@ interface EmailInboxState {
   keptDuringPreviewIds: Set<string>
   /** Toast shown after move; Undo clears it. */
   pendingDeleteToast: { count: number; ids: string[] } | null
+  /** Recent undoable batches (max 5) — supports recovery when multiple actions happen quickly. */
+  recentPendingDeleteBatches: Array<{ count: number; ids: string[] }>
   /** Incremented every second when previews exist; drives live countdown. */
   countdownTick: number
   autoSyncEnabled: boolean
@@ -122,6 +124,8 @@ interface EmailInboxState {
   addPendingDeletePreview: (ids: string[]) => void
   keepDuringPreview: (id: string) => void
   setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
+  /** Remove a batch from recent list after Undo. */
+  removeRecentPendingDeleteBatch: (ids: string[]) => void
   /** Fully reset pending-delete state for ids after Undo. Clears preview, grace-period, and AI output flags. */
   clearPendingDeleteStateForIds: (ids: string[]) => void
   incrementCountdownTick: () => void
@@ -153,6 +157,7 @@ const DEFAULT_FILTER: InboxFilter = {
 
 // Auto-hide for pending-delete toast: 5 seconds
 const PENDING_DELETE_TOAST_VISIBILITY_MS = 5000
+const RECENT_PENDING_DELETE_MAX = 5
 
 let pendingDeleteToastTimeoutId: ReturnType<typeof setTimeout> | null = null
 
@@ -176,6 +181,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   pendingDeletePreviewExpiries: {},
   keptDuringPreviewIds: new Set(),
   pendingDeleteToast: null,
+  recentPendingDeleteBatches: [],
   countdownTick: 0,
   bulkCompactMode: (() => {
     try {
@@ -366,13 +372,42 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       clearTimeout(pendingDeleteToastTimeoutId)
       pendingDeleteToastTimeoutId = null
     }
+    const state = get()
+    if (state.pendingDeleteToast) {
+      set((s) => ({
+        recentPendingDeleteBatches: [
+          ...s.recentPendingDeleteBatches,
+          { count: state.pendingDeleteToast!.count, ids: state.pendingDeleteToast!.ids },
+        ].slice(-RECENT_PENDING_DELETE_MAX),
+      }))
+    }
     set({ pendingDeleteToast: toast })
     if (toast) {
       pendingDeleteToastTimeoutId = setTimeout(() => {
         pendingDeleteToastTimeoutId = null
-        set({ pendingDeleteToast: null })
+        const current = get().pendingDeleteToast
+        if (current) {
+          set((s) => ({
+            pendingDeleteToast: null,
+            recentPendingDeleteBatches: [
+              ...s.recentPendingDeleteBatches,
+              { count: current.count, ids: current.ids },
+            ].slice(-RECENT_PENDING_DELETE_MAX),
+          }))
+        } else {
+          set({ pendingDeleteToast: null })
+        }
       }, PENDING_DELETE_TOAST_VISIBILITY_MS)
     }
+  },
+
+  removeRecentPendingDeleteBatch: (ids) => {
+    const idSet = new Set(ids)
+    set((s) => ({
+      recentPendingDeleteBatches: s.recentPendingDeleteBatches.filter(
+        (b) => !(b.ids.length === ids.length && b.ids.every((id) => idSet.has(id)))
+      ),
+    }))
   },
 
   clearPendingDeleteStateForIds: (ids) => {
