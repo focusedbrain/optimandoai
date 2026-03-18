@@ -96,14 +96,21 @@ interface EmailInboxState {
   bulkAiOutputs: AiOutputs
   /** messageId -> expiresAt ISO. Survives view switch. */
   pendingDeletePreviewExpiries: Record<string, string>
+  /** messageId -> expiresAt ISO for archive grace. Survives view switch. */
+  archivePreviewExpiries: Record<string, string>
   /** IDs user chose to keep during preview. Survives view switch. */
   keptDuringPreviewIds: Set<string>
+  /** IDs user chose to keep during archive preview. Survives view switch. */
+  keptDuringArchivePreviewIds: Set<string>
   /** Toast shown after move; Undo clears it. */
   pendingDeleteToast: { count: number; ids: string[] } | null
   /** Recent undoable batches (max 5) — supports recovery when multiple actions happen quickly. */
   recentPendingDeleteBatches: Array<{ count: number; ids: string[] }>
   /** Incremented every second when previews exist; drives live countdown. */
   countdownTick: number
+  /** Session counters: reset when bulk mode exits. */
+  bulkSessionArchived: number
+  bulkSessionPendingDelete: number
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
@@ -122,14 +129,19 @@ interface EmailInboxState {
   setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
   clearBulkAiOutputsForIds: (ids: string[]) => void
   addPendingDeletePreview: (ids: string[]) => void
+  addArchivePreview: (ids: string[]) => void
   keepDuringPreview: (id: string) => void
+  keepDuringArchivePreview: (id: string) => void
   setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
   /** Remove a batch from recent list after Undo. */
   removeRecentPendingDeleteBatch: (ids: string[]) => void
+  /** Decrement session pending-delete count when Undo restores messages. */
+  decrementBulkSessionPendingDelete: (count: number) => void
   /** Fully reset pending-delete state for ids after Undo. Clears preview, grace-period, and AI output flags. */
   clearPendingDeleteStateForIds: (ids: string[]) => void
   incrementCountdownTick: () => void
   processExpiredPendingDeletes: () => Promise<void>
+  processExpiredArchivePreviews: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
@@ -179,10 +191,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkPage: 0,
   bulkAiOutputs: {},
   pendingDeletePreviewExpiries: {},
+  archivePreviewExpiries: {},
   keptDuringPreviewIds: new Set(),
+  keptDuringArchivePreviewIds: new Set(),
   pendingDeleteToast: null,
   recentPendingDeleteBatches: [],
   countdownTick: 0,
+  bulkSessionArchived: 0,
+  bulkSessionPendingDelete: 0,
   bulkCompactMode: (() => {
     try {
       return localStorage?.getItem('wrdesk_bulkCompactMode') === '1'
@@ -304,7 +320,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setBulkMode: (enabled) => {
-    set({ bulkMode: enabled, bulkPage: 0 })
+    set({
+      bulkMode: enabled,
+      bulkPage: 0,
+      ...(enabled ? {} : { bulkSessionArchived: 0, bulkSessionPendingDelete: 0 }),
+    })
     get().fetchMessages()
   },
 
@@ -351,7 +371,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   addPendingDeletePreview: (ids) => {
     if (ids.length === 0) return
-    const expiresAt = new Date(Date.now() + 15 * 1000).toISOString()
+    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
     set((state) => {
       const next = { ...state.pendingDeletePreviewExpiries }
       for (const id of ids) next[id] = expiresAt
@@ -361,9 +381,27 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     })
   },
 
+  addArchivePreview: (ids) => {
+    if (ids.length === 0) return
+    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
+    set((state) => {
+      const next = { ...state.archivePreviewExpiries }
+      for (const id of ids) next[id] = expiresAt
+      const kept = new Set(state.keptDuringArchivePreviewIds)
+      for (const id of ids) kept.delete(id)
+      return { archivePreviewExpiries: next, keptDuringArchivePreviewIds: kept }
+    })
+  },
+
   keepDuringPreview: (id) => {
     set((state) => ({
       keptDuringPreviewIds: new Set([...state.keptDuringPreviewIds, id]),
+    }))
+  },
+
+  keepDuringArchivePreview: (id) => {
+    set((state) => ({
+      keptDuringArchivePreviewIds: new Set([...state.keptDuringArchivePreviewIds, id]),
     }))
   },
 
@@ -410,19 +448,28 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }))
   },
 
+  decrementBulkSessionPendingDelete: (count) => {
+    set((s) => ({ bulkSessionPendingDelete: Math.max(0, s.bulkSessionPendingDelete - count) }))
+  },
+
   clearPendingDeleteStateForIds: (ids) => {
     if (ids.length === 0) return
     const idSet = new Set(ids)
     set((state) => {
       const nextExpiries = { ...state.pendingDeletePreviewExpiries }
+      const nextArchiveExpiries = { ...state.archivePreviewExpiries }
       const nextKept = new Set(state.keptDuringPreviewIds)
+      const nextArchiveKept = new Set(state.keptDuringArchivePreviewIds)
       const nextOutputs = { ...state.bulkAiOutputs }
       for (const id of idSet) {
         delete nextExpiries[id]
+        delete nextArchiveExpiries[id]
         nextKept.delete(id)
+        nextArchiveKept.delete(id)
         if (nextOutputs[id]) {
           const entry = { ...nextOutputs[id] }
           delete entry.pendingDeletePreviewUntil
+          delete entry.archivePreviewUntil
           if (entry.recommendedAction === 'pending_delete') {
             entry.recommendedAction = 'keep_for_manual_action'
           }
@@ -438,7 +485,9 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           : state.selectedMessage
       return {
         pendingDeletePreviewExpiries: nextExpiries,
+        archivePreviewExpiries: nextArchiveExpiries,
         keptDuringPreviewIds: nextKept,
+        keptDuringArchivePreviewIds: nextArchiveKept,
         bulkAiOutputs: nextOutputs,
         messages: nextMessages,
         selectedMessage: nextSelected,
@@ -478,9 +527,43 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         for (const id of idsToMove) {
           if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
         }
-        return { bulkAiOutputs: next }
+        return { bulkAiOutputs: next, bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length }
       })
       get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
+      get().fetchMessages()
+    }
+  },
+
+  processExpiredArchivePreviews: async () => {
+    const bridge = getBridge()
+    if (!bridge?.archiveMessages) return
+    const state = get()
+    const now = Date.now()
+    const expired: string[] = []
+    for (const [id, expiresAt] of Object.entries(state.archivePreviewExpiries)) {
+      if (new Date(expiresAt).getTime() <= now) expired.push(id)
+    }
+    if (expired.length === 0) return
+    const idsToArchive = expired.filter((id) => !state.keptDuringArchivePreviewIds.has(id))
+    set((s) => {
+      const nextExpiries = { ...s.archivePreviewExpiries }
+      const nextKept = new Set(s.keptDuringArchivePreviewIds)
+      for (const id of expired) {
+        delete nextExpiries[id]
+        nextKept.delete(id)
+      }
+      return { archivePreviewExpiries: nextExpiries, keptDuringArchivePreviewIds: nextKept }
+    })
+    if (idsToArchive.length === 0) return
+    const res = await bridge.archiveMessages(idsToArchive)
+    if (res.ok) {
+      set((s) => {
+        const next = { ...s.bulkAiOutputs }
+        for (const id of idsToArchive) {
+          if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
+        }
+        return { bulkAiOutputs: next, bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length }
+      })
       get().fetchMessages()
     }
   },
@@ -559,6 +642,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           state.selectedMessage && ids.includes(state.selectedMessage.id)
             ? null
             : state.selectedMessage,
+        bulkSessionArchived: state.bulkSessionArchived + ids.length,
       }))
     }
   },

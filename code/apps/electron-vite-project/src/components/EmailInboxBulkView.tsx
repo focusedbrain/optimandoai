@@ -48,6 +48,8 @@ function formatSourceBadge(sourceType: InboxSourceType): string {
   }
 }
 
+const GRACE_SECONDS = 5
+
 /** Live countdown for pending-delete preview. Subscribes only to countdownTick to limit rerenders. */
 function PendingDeleteCountdown({ expiresAt }: { expiresAt: string | undefined }) {
   useEmailInboxStore((s) => s.countdownTick)
@@ -57,7 +59,20 @@ function PendingDeleteCountdown({ expiresAt }: { expiresAt: string | undefined }
     const text = remaining > 0 ? `Moving in ${remaining}s` : 'Moving now'
     return <span className="bulk-action-card-pending-countdown">{text}</span>
   } catch {
-    return <span className="bulk-action-card-pending-countdown">Moving in 15s</span>
+    return <span className="bulk-action-card-pending-countdown">Moving in {GRACE_SECONDS}s</span>
+  }
+}
+
+/** Live countdown for archive preview. */
+function ArchiveCountdown({ expiresAt }: { expiresAt: string | undefined }) {
+  useEmailInboxStore((s) => s.countdownTick)
+  if (!expiresAt) return <span className="bulk-action-card-archive-countdown">Archiving in {GRACE_SECONDS}s</span>
+  try {
+    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
+    const text = remaining > 0 ? `Archiving in ${remaining}s` : 'Archiving now'
+    return <span className="bulk-action-card-archive-countdown">{text}</span>
+  } catch {
+    return <span className="bulk-action-card-archive-countdown">Archiving in {GRACE_SECONDS}s</span>
   }
 }
 
@@ -84,13 +99,14 @@ function formatPendingDeleteInfo(pendingDeleteAt: string | null): string {
   }
 }
 
+/** Speed-first: Pending Delete first, Archive next, Manual/urgent last. */
 const CATEGORY_ORDER: Record<string, number> = {
-  urgent: 0,
-  important: 1,
-  normal: 2,
-  newsletter: 3,
-  spam: 4,
-  irrelevant: 5,
+  spam: 0,
+  irrelevant: 1,
+  newsletter: 2,
+  normal: 3,
+  important: 4,
+  urgent: 5,
 }
 
 const CATEGORY_BORDER: Record<string, string> = {
@@ -113,8 +129,8 @@ const CATEGORY_BG: Record<string, string> = {
 
 function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
   return [...msgs].sort((a, b) => {
-    const orderA = CATEGORY_ORDER[a.sort_category ?? 'normal'] ?? 2
-    const orderB = CATEGORY_ORDER[b.sort_category ?? 'normal'] ?? 2
+    const orderA = CATEGORY_ORDER[a.sort_category ?? 'normal'] ?? 3
+    const orderB = CATEGORY_ORDER[b.sort_category ?? 'normal'] ?? 3
     if (orderA !== orderB) return orderA - orderB
     const urgA = a.urgency_score ?? 5
     const urgB = b.urgency_score ?? 5
@@ -163,14 +179,21 @@ export default function EmailInboxBulkView({
     syncBulkBatchSizeFromSettings,
     setBulkAiOutputs,
     pendingDeletePreviewExpiries,
+    archivePreviewExpiries,
     keptDuringPreviewIds,
+    keptDuringArchivePreviewIds,
     pendingDeleteToast,
-    recentPendingDeleteBatches,
+      recentPendingDeleteBatches,
+      bulkSessionArchived,
+      bulkSessionPendingDelete,
     addPendingDeletePreview,
+    addArchivePreview,
     keepDuringPreview,
+    keepDuringArchivePreview,
     setPendingDeleteToast,
-    removeRecentPendingDeleteBatch,
-    clearPendingDeleteStateForIds,
+      removeRecentPendingDeleteBatch,
+      decrementBulkSessionPendingDelete,
+      clearPendingDeleteStateForIds,
     setFilter,
     selectMessage,
     toggleMultiSelect,
@@ -206,13 +229,20 @@ export default function EmailInboxBulkView({
       syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
       setBulkAiOutputs: s.setBulkAiOutputs,
       pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
+      archivePreviewExpiries: s.archivePreviewExpiries,
       keptDuringPreviewIds: s.keptDuringPreviewIds,
+      keptDuringArchivePreviewIds: s.keptDuringArchivePreviewIds,
       pendingDeleteToast: s.pendingDeleteToast,
       recentPendingDeleteBatches: s.recentPendingDeleteBatches,
+      bulkSessionArchived: s.bulkSessionArchived,
+      bulkSessionPendingDelete: s.bulkSessionPendingDelete,
       addPendingDeletePreview: s.addPendingDeletePreview,
+      addArchivePreview: s.addArchivePreview,
       keepDuringPreview: s.keepDuringPreview,
+      keepDuringArchivePreview: s.keepDuringArchivePreview,
       setPendingDeleteToast: s.setPendingDeleteToast,
       removeRecentPendingDeleteBatch: s.removeRecentPendingDeleteBatch,
+      decrementBulkSessionPendingDelete: s.decrementBulkSessionPendingDelete,
       clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
       setFilter: s.setFilter,
       selectMessage: s.selectMessage,
@@ -260,12 +290,53 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
+  const [aiSortPhase, setAiSortPhase] = useState<'idle' | 'analyzing' | 'reordered'>('idle')
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
   const composeClickRef = useRef<number>(0)
 
+  /** Messages animating out (archive / pending delete). Cleared after exit animation. */
+  const [removingItems, setRemovingItems] = useState<Map<string, { message: InboxMessage; index: number }>>(new Map())
+  const prevMessagesRef = useRef<InboxMessage[]>([])
+  const prevFilterRef = useRef<string>(filter.filter)
+
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
+
+  /** Build display list: current messages + removing items at original positions. */
+  const displayMessages = useMemo(() => {
+    const base = [...sortedMessages]
+    const removing = Array.from(removingItems.entries())
+      .map(([id, { message, index }]) => ({ id, message, index }))
+      .sort((a, b) => b.index - a.index)
+    for (const { message, index } of removing) {
+      base.splice(Math.min(index, base.length), 0, message)
+    }
+    return base
+  }, [sortedMessages, removingItems])
+
+  /** Detect removals and add to removingItems for exit animation. Skip when filter changed (view switch). */
+  useEffect(() => {
+    if (loading) return
+    const prev = prevMessagesRef.current
+    const prevFilter = prevFilterRef.current
+    prevMessagesRef.current = messages
+    prevFilterRef.current = filter.filter
+    if (prevFilter !== filter.filter) return
+    if (prev.length === 0) return
+    if (messages.length >= prev.length) return
+    const removed = prev.filter((m) => !messages.some((n) => n.id === m.id))
+    if (removed.length === 0 || removed.length > 50) return
+    const prevSorted = sortMessagesByCategory(prev)
+    setRemovingItems((curr) => {
+      const next = new Map(curr)
+      for (const m of removed) {
+        const idx = prevSorted.findIndex((x) => x.id === m.id)
+        if (idx >= 0) next.set(m.id, { message: m, index: idx })
+      }
+      return next
+    })
+  }, [messages, loading, filter.filter])
   const selectedCount = multiSelectIds.size
   const totalPages = Math.max(1, Math.ceil(total / bulkBatchSize))
   const canPrev = bulkPage > 0
@@ -352,6 +423,7 @@ export default function EmailInboxBulkView({
     const ids = Array.from(multiSelectIds)
     if (!ids.length || !window.emailInbox?.aiCategorize) return
     setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+    setAiSortPhase('analyzing')
     try {
       const res = await window.emailInbox.aiCategorize(ids)
       if (res.ok && res.data?.classifications) {
@@ -361,9 +433,12 @@ export default function EmailInboxBulkView({
           summary?: string
           reason: string
           needs_reply: boolean
+          needs_reply_reason?: string
           urgency_score: number
+          urgency_reason?: string
           recommended_action?: string
           action_explanation?: string
+          action_items?: string[]
           draft_reply?: string
           pending_delete: boolean
         }>
@@ -382,18 +457,24 @@ export default function EmailInboxBulkView({
           const entry: BulkAiResult = {
             category,
             urgencyScore: typeof c.urgency_score === 'number' ? Math.max(1, Math.min(10, c.urgency_score)) : 5,
+            urgencyReason: (c.urgency_reason ?? c.reason ?? '').slice(0, 300),
             summary: (c.summary ?? '').slice(0, 500),
             reason: (c.reason ?? '').slice(0, 300),
             needsReply: !!c.needs_reply,
+            needsReplyReason: (c.needs_reply_reason ?? '').slice(0, 300),
             recommendedAction,
             actionExplanation: (c.action_explanation ?? '').slice(0, 300),
+            actionItems: Array.isArray(c.action_items) ? c.action_items.filter((x): x is string => typeof x === 'string').slice(0, 10) : [],
             status: 'classified',
           }
           if (c.draft_reply && (c.needs_reply || recommendedAction === 'draft_reply_ready')) {
             entry.draftReply = c.draft_reply.slice(0, 4000)
           }
           if (c.pending_delete && recommendedAction === 'pending_delete') {
-            entry.pendingDeletePreviewUntil = new Date(Date.now() + 15 * 1000).toISOString()
+            entry.pendingDeletePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
+          }
+          if (recommendedAction === 'archive') {
+            entry.archivePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
           }
           nextOutputs[c.id] = entry
         }
@@ -401,18 +482,24 @@ export default function EmailInboxBulkView({
         setBulkAiOutputs((prev) => ({ ...prev, ...nextOutputs }))
 
         const pendingIds = classifications.filter((c) => c.pending_delete).map((c) => c.id)
+        const archiveIds = classifications.filter((c) => (c.recommended_action ?? '') === 'archive').map((c) => c.id)
         clearMultiSelect()
         await fetchMessages()
         const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
         console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
-        if (pendingIds.length > 0) {
-          addPendingDeletePreview(pendingIds)
-        }
+        if (pendingIds.length > 0) addPendingDeletePreview(pendingIds)
+        if (archiveIds.length > 0) addArchivePreview(archiveIds)
+        setAiSortPhase('reordered')
+        setTimeout(() => setAiSortPhase('idle'), 380)
+      } else {
+        setAiSortPhase('idle')
       }
+    } catch {
+      setAiSortPhase('idle')
     } finally {
       setAiSortProgress(null)
     }
-  }, [multiSelectIds, clearMultiSelect, fetchMessages, addPendingDeletePreview])
+  }, [multiSelectIds, clearMultiSelect, fetchMessages, addPendingDeletePreview, addArchivePreview])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -422,18 +509,27 @@ export default function EmailInboxBulkView({
       }
       setPendingDeleteToast(null)
       removeRecentPendingDeleteBatch(ids)
+      decrementBulkSessionPendingDelete(ids.length)
       clearPendingDeleteStateForIds(ids)
       await fetchMessages()
     },
-    [fetchMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, clearPendingDeleteStateForIds]
+    [fetchMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
   )
 
-  /** Cancel the scheduled pending-delete move for one message during the 15s preview. */
+  /** Cancel the scheduled pending-delete move for one message during the 5s preview. */
   const handleKeepDuringPreview = useCallback(
     (messageId: string) => {
       keepDuringPreview(messageId)
     },
     [keepDuringPreview]
+  )
+
+  /** Cancel the scheduled archive move for one message during the 5s preview. */
+  const handleKeepDuringArchivePreview = useCallback(
+    (messageId: string) => {
+      keepDuringArchivePreview(messageId)
+    },
+    [keepDuringArchivePreview]
   )
 
   const loadProviderAccounts = useCallback(async () => {
@@ -678,78 +774,153 @@ export default function EmailInboxBulkView({
       if (hasStructured) {
         const rec = output.recommendedAction
         const panelMod = `bulk-action-card-panel--${rec}`
-        const summaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
+        const needsReplyReason = output.needsReplyReason ?? output.reason ?? ''
+        const urgencyReason = output.urgencyReason ?? output.reason ?? ''
+        const urgencyColor = urgency <= 3 ? '#22c55e' : urgency <= 6 ? '#eab308' : '#ef4444'
+        const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
+        const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
+        const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : ''
+        const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : borderColor
         return (
-          <div className={`bulk-action-card ${isExpanded ? 'bulk-action-card--expanded' : ''}`} style={{ borderLeftColor: borderColor }}>
+          <div className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}`} style={{ borderLeftColor: effectiveBorderColor }}>
             <div className="bulk-action-card-header">
               <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
                 {(output.category ?? 'normal').toUpperCase()}
               </span>
-              <span className="bulk-action-card-urgency" title="Urgency 1–10">
-                U{urgency}
+              <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
+                {urgency}/10
               </span>
             </div>
-            <div
-              role="button"
-              tabIndex={0}
-              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
-              onClick={() => {
-                if (rec === 'pending_delete') handleDeleteOne(msg)
-                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  if (rec === 'pending_delete') handleDeleteOne(msg)
-                  else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                  else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                }
-              }}
-              title="Click or press Enter to apply"
-            >
-              <span className="bulk-action-card-panel-label">Next</span>
-              <span className="bulk-action-card-panel-action">
-                {rec === 'pending_delete' && '🗑 Pending Delete'}
-                {rec === 'archive' && '📦 Archive'}
-                {rec === 'keep_for_manual_action' && '✋ Review manually'}
-                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
-              </span>
+            {/* Same section hierarchy as Normal Inbox — reasoning visible before action */}
+            <div className="bulk-action-card-sections">
+              {/* Response Needed */}
+              <div className="bulk-action-card-row">
+                <span className="bulk-action-card-row-label">Response Needed</span>
+                <div className="bulk-action-card-row-value">
+                  <span className="bulk-action-card-response-needed">
+                    <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
+                    {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
+                  </span>
+                </div>
+              </div>
+              {/* Summary */}
+              {output.summary && (
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Summary</span>
+                  <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
+                    {output.summary}
+                  </div>
+                </div>
+              )}
+              {/* Urgency — bar + X/10 + reason (same as Normal) */}
+              <div className="bulk-action-card-row">
+                <span className="bulk-action-card-row-label">Urgency</span>
+                <div className="bulk-action-card-row-value">
+                  <div className="bulk-action-card-urgency-bar">
+                    <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
+                  </div>
+                  <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
+                </div>
+              </div>
+              {/* Draft Reply — same as Normal Inbox */}
+              {output.draftReply != null && output.draftReply !== '' && (
+                <div className="bulk-action-card-row bulk-action-card-row-draft">
+                  <span className="bulk-action-card-row-label">Draft Reply</span>
+                  <div className="bulk-action-card-row-value">
+                    <textarea
+                      className="bulk-action-card-draft-textarea"
+                      value={output.draftReply}
+                      onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                      placeholder="Edit draft…"
+                      rows={isExpanded ? 4 : 2}
+                    />
+                  </div>
+                </div>
+              )}
+              {/* Action Items — same as Normal Inbox */}
+              {output.actionItems?.length ? (
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Action Items</span>
+                  <div className="bulk-action-card-row-value">
+                    <ul className="bulk-action-card-action-list">
+                      {output.actionItems.map((item, idx) => (
+                        <li key={idx} className="bulk-action-card-action-item">{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : null}
+              {/* Recommended Action — reasoning always visible, explicit */}
+              <div className="bulk-action-card-row bulk-action-card-row--recommended">
+                <span className="bulk-action-card-row-label">Recommended Action</span>
+                <div className="bulk-action-card-row-value">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+                    onClick={() => {
+                      if (rec === 'pending_delete') handleDeleteOne(msg)
+                      else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                      else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        if (rec === 'pending_delete') handleDeleteOne(msg)
+                        else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                        else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                      }
+                    }}
+                    title="Click or press Enter to apply"
+                  >
+                    <span className="bulk-action-card-panel-action">
+                      {rec === 'pending_delete' && '🗑 Pending Delete'}
+                      {rec === 'archive' && '📦 Archive'}
+                      {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                      {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+                    </span>
+                  </div>
+                  {output.actionExplanation && (
+                    <div className="bulk-action-card-reasoning-box">
+                      <span className="bulk-action-card-reasoning-label">Why:</span>
+                      <span className="bulk-action-card-reasoning">{output.actionExplanation}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            {output.summary && (
-              <div className={summaryCls}>{output.summary}</div>
-            )}
-            {(isExpanded && output.reason) && (
-              <div className="bulk-action-card-reason">{output.reason}</div>
-            )}
             {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
               <div className="bulk-action-card-pending-preview">
                 <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
-                <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
+                <span className="bulk-action-card-next-state">
+                  Will move to Pending Delete — <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
+                </span>
                 {pendingDeletePreviewExpiries[msg.id] && (
                   <button
                     type="button"
                     className="bulk-action-card-keep-btn"
                     onClick={() => handleKeepDuringPreview(msg.id)}
+                    title="Cancel auto-action"
                   >
                     Keep
                   </button>
                 )}
               </div>
             )}
-            {(isExpanded && output.actionExplanation) && (
-              <div className="bulk-action-card-explanation">{output.actionExplanation}</div>
-            )}
-            {output.draftReply != null && output.draftReply !== '' && (
-              <div className={`bulk-action-card-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
-                <label className="bulk-action-card-draft-label">Draft reply — edit before sending</label>
-                <textarea
-                  className="bulk-action-card-draft-textarea"
-                  value={output.draftReply}
-                  onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                  placeholder="Edit draft…"
-                  rows={isExpanded ? 4 : 2}
-                />
+            {rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && archivePreviewExpiries[msg.id] && (
+              <div className="bulk-action-card-archive-preview">
+                <span className="bulk-action-card-archive-badge">ARCHIVING</span>
+                <span className="bulk-action-card-next-state">
+                  Will archive — <ArchiveCountdown expiresAt={archivePreviewExpiries[msg.id]} />
+                </span>
+                <button
+                  type="button"
+                  className="bulk-action-card-keep-btn"
+                  onClick={() => handleKeepDuringArchivePreview(msg.id)}
+                  title="Cancel auto-action"
+                >
+                  Keep
+                </button>
               </div>
             )}
             <div className="bulk-action-card-buttons">
@@ -792,7 +963,7 @@ export default function EmailInboxBulkView({
               <div className="bulk-action-card-buttons-secondary">
                 <button
                   type="button"
-                  className="bulk-action-card-btn-tertiary"
+                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
                   onClick={() => handleSummarize(msg.id)}
                   disabled={!!output?.loading}
                   title="Regenerate summary"
@@ -801,7 +972,7 @@ export default function EmailInboxBulkView({
                 </button>
                 <button
                   type="button"
-                  className="bulk-action-card-btn-tertiary"
+                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
                   onClick={() => handleDraftReply(msg.id)}
                   disabled={!!output?.loading}
                   title="Regenerate draft"
@@ -810,7 +981,7 @@ export default function EmailInboxBulkView({
                 </button>
                 <button
                   type="button"
-                  className="bulk-action-card-btn-tertiary bulk-action-card-btn-delete"
+                  className="bulk-action-card-btn bulk-action-card-btn-delete"
                   onClick={() => handleDeleteOne(msg)}
                   title="Delete this message"
                 >
@@ -854,7 +1025,7 @@ export default function EmailInboxBulkView({
               )}
               <button
                 type="button"
-                className="bulk-action-card-btn bulk-action-card-btn--muted"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
                 onClick={() => handleSummarize(msg.id)}
                 disabled={!!output?.loading}
               >
@@ -862,7 +1033,7 @@ export default function EmailInboxBulkView({
               </button>
               <button
                 type="button"
-                className="bulk-action-card-btn bulk-action-card-btn--muted"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
                 onClick={() => handleDraftReply(msg.id)}
                 disabled={!!output?.loading}
               >
@@ -923,8 +1094,11 @@ export default function EmailInboxBulkView({
       handleSummarize,
       handleDraftReply,
       handleKeepDuringPreview,
+      handleKeepDuringArchivePreview,
       keptDuringPreviewIds,
+      keptDuringArchivePreviewIds,
       pendingDeletePreviewExpiries,
+      archivePreviewExpiries,
     ]
   )
 
@@ -985,10 +1159,15 @@ export default function EmailInboxBulkView({
         ? sortedMessages.find((m) => m.id === focusedMessageId)
         : null
       const focusedOutput = focusedMsg ? bulkAiOutputs[focusedMsg.id] : undefined
-      const inGracePeriod =
+      const inPendingDeleteGrace =
         focusedMsg &&
         pendingDeletePreviewExpiries[focusedMsg.id] &&
         !keptDuringPreviewIds.has(focusedMsg.id)
+      const inArchiveGrace =
+        focusedMsg &&
+        archivePreviewExpiries[focusedMsg.id] &&
+        !keptDuringArchivePreviewIds.has(focusedMsg.id)
+      const inGracePeriod = inPendingDeleteGrace || inArchiveGrace
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         if (!e.ctrlKey && !e.metaKey) {
@@ -1014,7 +1193,8 @@ export default function EmailInboxBulkView({
       }
       if (e.key === 'g' && inGracePeriod && focusedMsg) {
         e.preventDefault()
-        handleKeepDuringPreview(focusedMsg.id)
+        if (inPendingDeleteGrace) handleKeepDuringPreview(focusedMsg.id)
+        else if (inArchiveGrace) handleKeepDuringArchivePreview(focusedMsg.id)
         return
       }
       if (e.key === ' ' && !onActionablePanel && focusedMsg && focusedOutput?.recommendedAction) {
@@ -1051,12 +1231,15 @@ export default function EmailInboxBulkView({
     focusedMessageId,
     bulkAiOutputs,
     pendingDeletePreviewExpiries,
+    archivePreviewExpiries,
     keptDuringPreviewIds,
+    keptDuringArchivePreviewIds,
     expandedCardIds,
     selectedCount,
     focusAdjacentRow,
     toggleCardExpand,
     handleKeepDuringPreview,
+    handleKeepDuringArchivePreview,
     triggerPrimaryAction,
     handleBulkArchive,
     handleArchiveOne,
@@ -1066,27 +1249,29 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar */}
+      {/* Toolbar — compact, no duplication */}
       <div className="bulk-view-toolbar">
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
           <input
             type="checkbox"
             checked={allSelected}
             onChange={handleSelectAll}
             disabled={messages.length === 0}
           />
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Select all</span>
+          <span style={{ fontSize: 11, fontWeight: 600 }}>Select all</span>
         </label>
-        <span style={{ fontSize: 12, color: MUTED }}>
-          {selectedCount} selected
-        </span>
+        {selectedCount > 0 && (
+          <span style={{ fontSize: 11, color: MUTED }}>{selectedCount} selected</span>
+        )}
         <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
         <button
           type="button"
           onClick={() => setFilter({ filter: 'all' })}
+          className="bulk-view-toolbar-filter-btn"
+          data-active={filter.filter === 'all'}
           style={{
-            padding: '4px 10px',
-            fontSize: 11,
+            padding: '4px 8px',
+            fontSize: 10,
             fontWeight: 600,
             background: filter.filter === 'all' ? 'rgba(147,51,234,0.1)' : '#f1f5f9',
             border: `1px solid ${filter.filter === 'all' ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
@@ -1095,14 +1280,16 @@ export default function EmailInboxBulkView({
             cursor: 'pointer',
           }}
         >
-          All
+          All{filter.filter === 'all' ? ` (${total})` : ''}
         </button>
         <button
           type="button"
           onClick={() => setFilter({ filter: 'pending_delete' })}
+          className="bulk-view-toolbar-filter-btn"
+          data-active={filter.filter === 'pending_delete'}
           style={{
-            padding: '4px 10px',
-            fontSize: 11,
+            padding: '4px 8px',
+            fontSize: 10,
             fontWeight: 600,
             background: filter.filter === 'pending_delete' ? 'rgba(239,68,68,0.1)' : '#f1f5f9',
             border: `1px solid ${filter.filter === 'pending_delete' ? 'rgba(239,68,68,0.35)' : '#e2e8f0'}`,
@@ -1111,10 +1298,53 @@ export default function EmailInboxBulkView({
             cursor: 'pointer',
           }}
         >
-          Pending Delete
+          Pending Delete{filter.filter === 'pending_delete' ? ` (${total})` : ''}
         </button>
+        <button
+          type="button"
+          onClick={() => setFilter({ filter: 'archived' })}
+          className="bulk-view-toolbar-filter-btn"
+          data-active={filter.filter === 'archived'}
+          style={{
+            padding: '4px 8px',
+            fontSize: 10,
+            fontWeight: 600,
+            background: filter.filter === 'archived' ? 'rgba(59,130,246,0.1)' : '#f1f5f9',
+            border: `1px solid ${filter.filter === 'archived' ? 'rgba(59,130,246,0.35)' : '#e2e8f0'}`,
+            borderRadius: 6,
+            color: filter.filter === 'archived' ? '#2563eb' : '#334155',
+            cursor: 'pointer',
+          }}
+        >
+          Archived{filter.filter === 'archived' ? ` (${total})` : ''}
+        </button>
+        {(bulkSessionArchived > 0 || bulkSessionPendingDelete > 0) && (
+          <>
+            <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
+            <div className="bulk-view-session-progress" role="status" aria-live="polite">
+              {bulkSessionArchived > 0 && (
+                <span className="bulk-view-session-count bulk-view-session-archived">
+                  Archived {bulkSessionArchived}
+                </span>
+              )}
+              {bulkSessionArchived > 0 && bulkSessionPendingDelete > 0 && (
+                <span style={{ color: '#94a3b8', margin: '0 4px' }}>·</span>
+              )}
+              {bulkSessionPendingDelete > 0 && (
+                <span className="bulk-view-session-count bulk-view-session-pending">
+                  Pending {bulkSessionPendingDelete}
+                </span>
+              )}
+              {filter.filter === 'all' && (
+                <span className="bulk-view-session-remaining">
+                  · {messages.length} remaining
+                </span>
+              )}
+            </div>
+          </>
+        )}
         <span style={{ color: '#cbd5e1', margin: '0 4px' }}>|</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#334155' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 10, fontWeight: 600, color: '#334155' }}>
           <input
             type="checkbox"
             checked={autoSyncEnabled}
@@ -1129,8 +1359,8 @@ export default function EmailInboxBulkView({
           disabled={syncing || !primaryAccountId}
           title="Pull messages"
           style={{
-            padding: '4px 10px',
-            fontSize: 11,
+            padding: '4px 8px',
+            fontSize: 10,
             fontWeight: 600,
             background: 'rgba(147,51,234,0.1)',
             border: '1px solid rgba(147,51,234,0.35)',
@@ -1147,11 +1377,11 @@ export default function EmailInboxBulkView({
           type="button"
           onClick={handleBulkDelete}
           disabled={selectedCount === 0}
-          title={selectedCount ? 'Delete selected (Del)' : undefined}
+          title={selectedCount ? 'Delete selected (d)' : undefined}
+          className="bulk-view-toolbar-btn-icon"
           style={{
-            padding: '6px 10px',
-            fontSize: 11,
-            fontWeight: 600,
+            padding: '4px 6px',
+            fontSize: 12,
             background: '#fef2f2',
             border: '1px solid #fecaca',
             borderRadius: 6,
@@ -1160,16 +1390,16 @@ export default function EmailInboxBulkView({
             opacity: selectedCount ? 1 : 0.5,
           }}
         >
-          Delete
+          🗑
         </button>
         <button
           type="button"
           onClick={handleBulkArchive}
           disabled={selectedCount === 0}
-          title={selectedCount ? 'Archive selected (A)' : undefined}
+          title={selectedCount ? 'Archive selected (a)' : undefined}
           style={{
-            padding: '6px 10px',
-            fontSize: 11,
+            padding: '4px 8px',
+            fontSize: 10,
             fontWeight: 600,
             background: '#f1f5f9',
             border: '1px solid #e2e8f0',
@@ -1183,29 +1413,11 @@ export default function EmailInboxBulkView({
         </button>
         <button
           type="button"
-          onClick={handleBulkCategorize}
-          disabled={selectedCount === 0}
-          style={{
-            padding: '6px 10px',
-            fontSize: 11,
-            fontWeight: 600,
-            background: '#f1f5f9',
-            border: '1px solid #e2e8f0',
-            borderRadius: 6,
-            color: '#334155',
-            cursor: selectedCount ? 'pointer' : 'not-allowed',
-            opacity: selectedCount ? 1 : 0.5,
-          }}
-        >
-          Categorize
-        </button>
-        <button
-          type="button"
           onClick={handleAiAutoSort}
           disabled={selectedCount === 0}
           style={{
-            padding: '6px 10px',
-            fontSize: 11,
+            padding: '4px 8px',
+            fontSize: 10,
             fontWeight: 600,
             background: 'var(--purple-accent, #9333ea)',
             border: '1px solid rgba(147,51,234,0.5)',
@@ -1218,84 +1430,43 @@ export default function EmailInboxBulkView({
           ✨ AI Auto-Sort
         </button>
         <div style={{ flex: 1, minWidth: 0 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => setBulkCompactMode(!bulkCompactMode)}
-            title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
-            style={{
-              padding: '4px 8px',
-              fontSize: 10,
-              fontWeight: 600,
-              background: bulkCompactMode ? 'rgba(147,51,234,0.12)' : '#f1f5f9',
-              border: `1px solid ${bulkCompactMode ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
-              borderRadius: 6,
-              color: bulkCompactMode ? '#7c3aed' : '#334155',
-              cursor: 'pointer',
-            }}
-          >
-            {bulkCompactMode ? '⊟ Compact' : '⊞ Compact'}
-          </button>
-          <span style={{ color: '#cbd5e1', margin: '0 2px' }}>|</span>
-          <span style={{ fontSize: 11, color: MUTED }}>Batch:</span>
-          <select
-            value={bulkBatchSize}
-            onChange={(e) => setBulkBatchSize(Number(e.target.value))}
-            style={{
-              padding: '4px 8px',
-              fontSize: 11,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 6,
-              color: 'var(--color-text, #e2e8f0)',
-              cursor: 'pointer',
-            }}
-          >
-            {[10, 12, 24, 48].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <span style={{ color: 'var(--color-border, rgba(255,255,255,0.2))', margin: '0 4px' }}>|</span>
-          <button
-            type="button"
-            onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
-            disabled={!canPrev}
-            style={{
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 6,
-              color: canPrev ? 'var(--color-text, #e2e8f0)' : MUTED,
-              cursor: canPrev ? 'pointer' : 'not-allowed',
-            }}
-          >
-            Prev
-          </button>
-          <span style={{ fontSize: 12, color: MUTED }}>
-            Page {bulkPage + 1} of {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
-            disabled={!canNext}
-            style={{
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 6,
-              color: canNext ? 'var(--color-text, #e2e8f0)' : MUTED,
-              cursor: canNext ? 'pointer' : 'not-allowed',
-            }}
-          >
-            Next
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setBulkCompactMode(!bulkCompactMode)}
+          title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
+          style={{
+            padding: '4px 6px',
+            fontSize: 10,
+            fontWeight: 600,
+            background: bulkCompactMode ? 'rgba(147,51,234,0.12)' : '#f1f5f9',
+            border: `1px solid ${bulkCompactMode ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
+            borderRadius: 6,
+            color: bulkCompactMode ? '#7c3aed' : '#334155',
+            cursor: 'pointer',
+          }}
+        >
+          {bulkCompactMode ? '⊟' : '⊞'}
+        </button>
+        <span style={{ fontSize: 10, color: MUTED }}>Batch</span>
+        <select
+          value={bulkBatchSize}
+          onChange={(e) => setBulkBatchSize(Number(e.target.value))}
+          style={{
+            padding: '4px 6px',
+            fontSize: 10,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 6,
+            color: '#334155',
+            cursor: 'pointer',
+          }}
+        >
+          {[10, 12, 24, 48].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Collapsible provider/account section */}
@@ -1349,6 +1520,54 @@ export default function EmailInboxBulkView({
           <div className="bulk-view-empty-state">No messages in this batch.</div>
         ) : (
           <>
+            {totalPages > 1 && (
+              <div className="bulk-view-pagination-bar">
+                <span style={{ fontSize: 11, color: MUTED }}>
+                  {total} message{total !== 1 ? 's' : ''}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
+                    disabled={!canPrev}
+                    title="Previous page"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      background: '#f1f5f9',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 6,
+                      color: canPrev ? '#334155' : MUTED,
+                      cursor: canPrev ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+                  <span style={{ fontSize: 11, color: MUTED }}>
+                    Page {bulkPage + 1} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
+                    disabled={!canNext}
+                    title="Next page"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      background: '#f1f5f9',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 6,
+                      color: canNext ? '#334155' : MUTED,
+                      cursor: canNext ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    Next ›
+                  </button>
+                </div>
+              </div>
+            )}
             {aiSortProgress && (
               <div style={{ padding: 8, textAlign: 'center', fontSize: 12, color: MUTED }}>
                 {aiSortProgress}
@@ -1387,8 +1606,12 @@ export default function EmailInboxBulkView({
                 )}
               </div>
             )}
-          <div className="bulk-view-grid" title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, g keep (grace), Space primary action">
-            {sortedMessages.map((msg) => {
+          <div
+            className={`bulk-view-grid ${aiSortPhase === 'analyzing' ? 'bulk-view-grid--analyzing' : ''} ${aiSortPhase === 'reordered' ? 'bulk-view-grid--reordered' : ''}`}
+            title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, g keep (grace), Space primary action"
+          >
+            {displayMessages.map((msg, rowIndex) => {
+              const isRemoving = removingItems.has(msg.id)
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const isCardExpanded = expandedCardIds.has(msg.id)
@@ -1406,10 +1629,13 @@ export default function EmailInboxBulkView({
                 <div
                   key={msg.id}
                   data-msg-id={msg.id}
-                  className={`bulk-view-row ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''}`}
+                  data-row-index={aiSortPhase === 'reordered' ? rowIndex : undefined}
+                  className={`bulk-view-row ${isRemoving ? 'bulk-view-row--removing' : ''} ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''} ${aiSortPhase === 'reordered' && !isRemoving ? 'bulk-view-row--reorder-enter' : ''}`}
+                  onAnimationEnd={isRemoving ? () => setRemovingItems((prev) => { const next = new Map(prev); next.delete(msg.id); return next; }) : undefined}
                   style={{
                     borderLeft: borderColor ? `4px solid ${borderColor}` : undefined,
                     background: bgTint !== 'transparent' ? bgTint : undefined,
+                    ...(aiSortPhase === 'reordered' && !isRemoving ? { animationDelay: `${rowIndex * 18}ms` } : {}),
                   }}
                 >
                   {/* Left: Message card — click toggles focus */}

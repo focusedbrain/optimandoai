@@ -90,16 +90,24 @@ export interface BulkClassification {
 export interface BulkAiResult {
   category: SortCategory
   urgencyScore: number
+  /** One sentence explaining the urgency level (matches Normal Inbox). */
+  urgencyReason: string
   summary: string
   reason: string
   needsReply: boolean
+  /** One sentence explaining why reply is or is not needed (matches Normal Inbox). */
+  needsReplyReason: string
   recommendedAction: BulkRecommendedAction
   actionExplanation: string
+  /** Extracted action items (matches Normal Inbox). */
+  actionItems: string[]
   /** Prepared draft. Shown inline, editable before send. */
   draftReply?: string
   status: 'pending' | 'classified' | 'action_taken'
   /** ISO timestamp: show "pending delete" preview until this time */
   pendingDeletePreviewUntil?: string
+  /** ISO timestamp: show "archive" preview until this time */
+  archivePreviewUntil?: string
 }
 
 /** Per-message entry: full or partial result + optional loading state. */

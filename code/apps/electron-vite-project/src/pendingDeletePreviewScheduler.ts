@@ -1,6 +1,6 @@
 /**
- * Pending-delete preview scheduler — runs outside component lifecycle.
- * Survives view switch (Normal ↔ Bulk) so the 15s preview continues.
+ * Pending-delete and archive preview scheduler — runs outside component lifecycle.
+ * Survives view switch (Normal ↔ Bulk) so the 5s preview continues.
  */
 
 import { useEmailInboxStore } from './stores/useEmailInboxStore'
@@ -11,9 +11,12 @@ let intervalId: ReturnType<typeof setInterval> | null = null
 
 function tick() {
   const state = useEmailInboxStore.getState()
-  if (Object.keys(state.pendingDeletePreviewExpiries).length === 0) return
+  const hasPending = Object.keys(state.pendingDeletePreviewExpiries).length > 0
+  const hasArchive = Object.keys(state.archivePreviewExpiries).length > 0
+  if (!hasPending && !hasArchive) return
   state.incrementCountdownTick()
-  void state.processExpiredPendingDeletes()
+  if (hasPending) void state.processExpiredPendingDeletes()
+  if (hasArchive) void state.processExpiredArchivePreviews()
 }
 
 function start() {

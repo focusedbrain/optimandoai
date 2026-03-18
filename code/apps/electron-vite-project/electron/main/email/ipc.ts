@@ -1106,7 +1106,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 
       const { sortRules, tone } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      const systemPrompt = `You are an email triage AI for bulk inbox cleanup. Your objective is to MINIMIZE inbox clutter and long-term retention. Be aggressive about identifying low-value email.
+      const systemPrompt = `You are an email triage AI for bulk inbox cleanup. Your objective is to MINIMIZE inbox clutter and maximize cleanup speed. Be aggressive: low-value informational mail should be archived or pending_delete, NOT manual review.
 
 For each email below, respond with a JSON array only. Each entry must have:
 - id: the message id (exact string from input)
@@ -1114,9 +1114,12 @@ For each email below, respond with a JSON array only. Each entry must have:
 - summary: 1-2 sentence summary of the message
 - reason: one sentence explaining the classification (e.g. 'Invoice pending payment due in 3 days')
 - needs_reply: boolean — true only if the user should actually send a reply
+- needs_reply_reason: string — one sentence explaining why reply is or is not needed (e.g. 'No — automated notification' or 'Yes — sender is asking for clarification')
 - urgency_score: number 1-10 (1=low, 10=critical)
+- urgency_reason: string — one sentence explaining the urgency level
 - recommended_action: one of 'pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready'
-- action_explanation: one sentence explaining the recommended action
+- action_explanation: one sentence explaining the recommended action (reasoning the user should see before acting)
+- action_items: string[] — bullet list of extracted action items (empty array if none)
 - draft_reply: (optional) when needs_reply is true or recommended_action is draft_reply_ready, include a short professional reply draft the user can edit and send
 
 Classification rules (be strict):
@@ -1126,13 +1129,13 @@ Classification rules (be strict):
 - important: operationally relevant, contract/billing/security related, or genuinely reply-worthy.
 - urgent: invoices, deadlines, time-sensitive requests, security alerts.
 
-Recommended action rules:
-- pending_delete: for spam, irrelevant, newsletters with no reply needed, low-value bulk mail.
-- archive: for informational but non-actionable mail, read-and-file content.
-- keep_for_manual_action: when unclear or user-specific judgment needed.
+Recommended action rules (CRITICAL — minimize keep_for_manual_action):
+- pending_delete: spam, irrelevant, newsletters with no reply needed, low-value bulk mail, promotional content.
+- archive: simple informational mail, read-and-file content, notifications, digests, low-urgency updates. Use archive for most low-value informational mail.
+- keep_for_manual_action: ONLY for truly critical cases: payment due, urgent response needed, operational blocking issue, security/account issue, deadline-sensitive human decision, or genuinely ambiguous. Do NOT use for simple informational mail.
 - draft_reply_ready: when the best next step is to send a reply and you can prepare one.
 
-Preserve only: urgent, important, operationally relevant, contract/billing/security, or genuinely reply-worthy mail. Default to pending_delete or archive for everything else.
+Default to pending_delete or archive for low-value informational mail. Use keep_for_manual_action sparingly — only when human judgment is genuinely required.
 Return ONLY a valid JSON array, no other text.`
         + (sortRules ? `\n\nUser custom sorting rules: ${sortRules}` : '')
         + (tone ? `\n\nUser tone/style for draft replies: ${tone}` : '')
@@ -1150,9 +1153,12 @@ Return ONLY a valid JSON array, no other text.`
         summary?: string
         reason?: string
         needs_reply?: boolean
+        needs_reply_reason?: string
         urgency_score?: number
+        urgency_reason?: string
         recommended_action?: string
         action_explanation?: string
+        action_items?: string[]
         draft_reply?: string
       }>
       try {
@@ -1171,9 +1177,12 @@ Return ONLY a valid JSON array, no other text.`
         summary: string
         reason: string
         needs_reply: boolean
+        needs_reply_reason: string
         urgency_score: number
+        urgency_reason: string
         recommended_action: string
         action_explanation: string
+        action_items: string[]
         draft_reply?: string
         pending_delete: boolean
       }> = []
@@ -1185,29 +1194,42 @@ Return ONLY a valid JSON array, no other text.`
         const validCategory = VALID_CATEGORIES.includes(category as any) ? category : 'normal'
         const summary = (p.summary ?? '').slice(0, 500)
         const reason = (p.reason ?? '').slice(0, 300)
+        const needsReplyReason = (p.needs_reply_reason ?? '').slice(0, 300)
+        const urgencyReason = (p.urgency_reason ?? '').slice(0, 300)
         let needsReply = !!p.needs_reply
         let urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
         let recommendedAction = (p.recommended_action ?? '').toLowerCase().trim()
         let actionExplanation = (p.action_explanation ?? '').slice(0, 300)
         let draftReply: string | undefined = typeof p.draft_reply === 'string' ? p.draft_reply.slice(0, 4000) : undefined
 
-        // Post-processing safeguards
+        // Post-processing safeguards — prefer archive/pending_delete over manual review for low-value mail
         if (validCategory === 'spam' || validCategory === 'irrelevant') {
           recommendedAction = 'pending_delete'
           actionExplanation = actionExplanation || 'Low-value or unwanted mail; recommended for deletion.'
         } else if (validCategory === 'newsletter' && !needsReply) {
           recommendedAction = 'pending_delete'
           actionExplanation = actionExplanation || 'Newsletter with no reply needed; reduce retention.'
-        } else if (validCategory === 'normal' && !needsReply && urgencyScore <= 3) {
-          if (recommendedAction !== 'keep_for_manual_action' && recommendedAction !== 'draft_reply_ready') {
+        } else if (validCategory === 'normal' && !needsReply && urgencyScore <= 4) {
+          // Low-value informational: override keep_for_manual_action to archive
+          if (recommendedAction === 'keep_for_manual_action') {
+            recommendedAction = 'archive'
+            actionExplanation = actionExplanation || 'Simple informational mail; archive to reduce clutter.'
+          } else if (recommendedAction !== 'draft_reply_ready') {
             recommendedAction = recommendedAction === 'pending_delete' ? 'pending_delete' : 'archive'
             actionExplanation = actionExplanation || 'Low urgency, no reply needed; archive to reduce clutter.'
+          }
+        } else if (validCategory === 'newsletter' && needsReply) {
+          // Newsletter that needs reply — still prefer archive over manual if low urgency
+          if (recommendedAction === 'keep_for_manual_action' && urgencyScore <= 4) {
+            recommendedAction = 'archive'
+            actionExplanation = actionExplanation || 'Newsletter; archive for later review.'
           }
         }
 
         if (!VALID_ACTIONS.includes(recommendedAction as any)) {
           recommendedAction = validCategory === 'spam' || validCategory === 'irrelevant' ? 'pending_delete'
             : validCategory === 'newsletter' && !needsReply ? 'pending_delete'
+            : validCategory === 'normal' && !needsReply && urgencyScore <= 4 ? 'archive'
             : 'keep_for_manual_action'
         }
 
@@ -1222,15 +1244,19 @@ Return ONLY a valid JSON array, no other text.`
 
         db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(validCategory, reason || null, urgencyScore, needsReply ? 1 : 0, id)
 
+        const actionItems = Array.isArray(p.action_items) ? p.action_items.filter((x): x is string => typeof x === 'string').slice(0, 10) : []
         classifications.push({
           id,
           category: validCategory,
           summary,
           reason,
           needs_reply: needsReply,
+          needs_reply_reason: needsReplyReason || (needsReply ? 'Reply warranted.' : 'No reply needed.'),
           urgency_score: urgencyScore,
+          urgency_reason: urgencyReason || reason,
           recommended_action: recommendedAction,
           action_explanation: actionExplanation,
+          action_items: actionItems,
           ...(draftReply ? { draft_reply: draftReply } : {}),
           pending_delete: pendingDelete,
         })
