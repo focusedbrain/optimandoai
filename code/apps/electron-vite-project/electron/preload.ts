@@ -508,6 +508,22 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
   aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
   aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
+  aiAnalyzeMessageStream: (messageId: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId),
+  onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; chunk: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageChunk', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageChunk', handler)
+  },
+  onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
+  },
+  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; error: string; message: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageError', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
+  },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),

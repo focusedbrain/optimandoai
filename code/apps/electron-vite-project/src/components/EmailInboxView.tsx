@@ -14,6 +14,8 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
+import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
+import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import '../components/handshakeViewTypes'
 
 // ── Relative date ──
@@ -47,8 +49,9 @@ interface InboxDetailAiPanelProps {
 
 function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDelete }: InboxDetailAiPanelProps) {
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
+  const [receivedFields, setReceivedFields] = useState<Set<NormalInboxAiResultKey>>(new Set())
   const [analysisLoading, setAnalysisLoading] = useState(false)
-  const [analysisError, setAnalysisError] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftError, setDraftError] = useState(false)
@@ -56,54 +59,108 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
+  const streamCleanupRef = useRef<(() => void) | null>(null)
 
-  const runAnalysis = useCallback(async () => {
-    if (!window.emailInbox?.aiAnalyzeMessage) return
+  const runAnalysisStream = useCallback(async () => {
+    if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
+    const cached = useEmailInboxStore.getState().analysisCache[messageId]
+    if (cached) {
+      setAnalysis(cached)
+      setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason']))
+      setAnalysisLoading(false)
+      return
+    }
+    streamCleanupRef.current?.()
     setAnalysisLoading(true)
     setAnalysis(null)
-    setAnalysisError(false)
-    try {
-      const res = await window.emailInbox.aiAnalyzeMessage(messageId)
-      if (res.ok && res.data && !(res.data as { error?: string }).error) {
-        setAnalysis({
-          needsReply: res.data.needsReply,
-          needsReplyReason: res.data.needsReplyReason ?? '',
-          summary: res.data.summary ?? '',
-          urgencyScore: res.data.urgencyScore ?? 5,
-          urgencyReason: res.data.urgencyReason ?? '',
-          actionItems: res.data.actionItems ?? [],
-          archiveRecommendation: res.data.archiveRecommendation ?? 'keep',
-          archiveReason: res.data.archiveReason ?? '',
-        })
-      } else {
-        setAnalysisError(true)
+    setAnalysisError(null)
+    let accumulatedText = ''
+
+    const DEFAULTS: NormalInboxAiResult = {
+      needsReply: false,
+      needsReplyReason: '',
+      summary: '',
+      urgencyScore: 5,
+      urgencyReason: '',
+      actionItems: [],
+      archiveRecommendation: 'keep',
+      archiveReason: '',
+    }
+
+    const cleanup = () => {
+      unsubChunk()
+      unsubDone()
+      unsubError()
+      streamCleanupRef.current = null
+    }
+
+    const unsubChunk = window.emailInbox.onAiAnalyzeChunk(({ messageId: mid, chunk }) => {
+      if (mid !== messageId) return
+      accumulatedText += chunk
+      const parsed = tryParsePartialAnalysis(accumulatedText)
+      if (parsed) {
+        setAnalysis((prev) => ({ ...DEFAULTS, ...(prev ?? {}), ...parsed.partial } as NormalInboxAiResult))
+        setReceivedFields((prev) => new Set([...prev, ...parsed.receivedKeys]))
       }
-    } catch {
-      setAnalysisError(true)
-    } finally {
+    })
+
+    const unsubDone = window.emailInbox.onAiAnalyzeDone(({ messageId: mid }) => {
+      if (mid !== messageId) return
       setAnalysisLoading(false)
+      const final = tryParseAnalysis(accumulatedText)
+      if (final) {
+        setAnalysis(final)
+        setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason']))
+        useEmailInboxStore.getState().setAnalysisCache(messageId, final)
+      }
+      cleanup()
+    })
+
+    const unsubError = window.emailInbox.onAiAnalyzeError(({ messageId: mid, error }) => {
+      if (mid !== messageId) return
+      setAnalysisLoading(false)
+      setAnalysisError(
+        error === 'timeout'
+          ? 'Analysis timed out. Ollama may be slow or unavailable.'
+          : 'Analysis failed. Check that Ollama is running.'
+      )
+      cleanup()
+    })
+
+    streamCleanupRef.current = cleanup
+
+    try {
+      await window.emailInbox.aiAnalyzeMessageStream(messageId)
+    } catch {
+      setAnalysisLoading(false)
+      setAnalysisError('Analysis failed. Check that Ollama is running.')
+      cleanup()
     }
   }, [messageId])
 
   useEffect(() => {
     if (!messageId) return
     setAnalysis(null)
+    setReceivedFields(new Set())
     setDraft(null)
     setEditedDraft('')
     setActionChecked({})
-    runAnalysis()
-  }, [messageId, runAnalysis])
+    runAnalysisStream()
+    return () => {
+      streamCleanupRef.current?.()
+    }
+  }, [messageId, runAnalysisStream])
 
   const handleSummarize = useCallback(async () => {
     if (!window.emailInbox?.aiSummarize) return
     setAnalysisLoading(true)
-    setAnalysisError(false)
+    setAnalysisError(null)
     try {
       const res = await window.emailInbox.aiSummarize(messageId)
       const data = res.data as { summary?: string; error?: boolean } | undefined
       const isError = !res.ok || !data?.summary || !!data.error
       if (isError) {
-        setAnalysisError(true)
+        setAnalysisError('Summarize failed. Check that Ollama is running.')
       } else {
         setAnalysis((prev) =>
           prev ? { ...prev, summary: data!.summary! } : {
@@ -119,7 +176,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         )
       }
     } catch {
-      setAnalysisError(true)
+      setAnalysisError('Summarize failed. Check that Ollama is running.')
     } finally {
       setAnalysisLoading(false)
     }
@@ -167,9 +224,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [onDelete, messageId])
 
   const handleRetryAnalysis = useCallback(() => {
-    setAnalysisError(false)
-    runAnalysis()
-  }, [runAnalysis])
+    setAnalysisError(null)
+    runAnalysisStream()
+  }, [runAnalysisStream])
 
   const handleRetryDraft = useCallback(() => {
     setDraftError(false)
@@ -211,7 +268,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       <div className="inbox-detail-ai-scroll">
         {analysisError && (
           <div className="inbox-detail-ai-error-banner">
-            <span>AI analysis failed. Check Ollama.</span>
+            <span>{analysisError}</span>
             <button type="button" onClick={handleRetryAnalysis}>Retry</button>
           </div>
         )}
@@ -220,7 +277,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         <div className="inbox-detail-ai-row">
           <span className="inbox-detail-ai-row-label">Response Needed</span>
           <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !analysis ? (
+            {analysisLoading && !receivedFields.has('needsReply') ? (
               <span className="inbox-detail-ai-skeleton-inline" />
             ) : analysis ? (
               <span className="inbox-detail-ai-response-needed">
@@ -237,7 +294,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         <div className="inbox-detail-ai-row" ref={summaryRef}>
           <span className="inbox-detail-ai-row-label">Summary</span>
           <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !analysis ? (
+            {analysisLoading && !receivedFields.has('summary') ? (
               <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
             ) : analysis?.summary ? (
               <span className="inbox-detail-ai-text">{analysis.summary}</span>
@@ -251,7 +308,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         <div className="inbox-detail-ai-row">
           <span className="inbox-detail-ai-row-label">Urgency</span>
           <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !analysis ? (
+            {analysisLoading && !receivedFields.has('urgencyScore') ? (
               <span className="inbox-detail-ai-skeleton-inline" />
             ) : analysis ? (
               <>
@@ -305,7 +362,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         <div className="inbox-detail-ai-row">
           <span className="inbox-detail-ai-row-label">Action Items</span>
           <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !analysis ? (
+            {analysisLoading && !receivedFields.has('actionItems') ? (
               <span className="inbox-detail-ai-skeleton-inline" />
             ) : analysis?.actionItems?.length ? (
               <ul className="inbox-detail-ai-action-list">
@@ -326,7 +383,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         <div className="inbox-detail-ai-row">
           <span className="inbox-detail-ai-row-label">Suggested action</span>
           <div className="inbox-detail-ai-row-value">
-            {analysisLoading && !analysis ? (
+            {analysisLoading && !receivedFields.has('archiveRecommendation') ? (
               <span className="inbox-detail-ai-skeleton-inline" />
             ) : analysis ? (
               <>
@@ -358,6 +415,7 @@ interface InboxMessageRowProps {
   multiSelected: boolean
   onSelect: () => void
   onToggleMultiSelect: () => void
+  onMouseEnter?: () => void
 }
 
 function InboxMessageRow({
@@ -367,6 +425,7 @@ function InboxMessageRow({
   multiSelected,
   onSelect,
   onToggleMultiSelect,
+  onMouseEnter,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
@@ -383,6 +442,7 @@ function InboxMessageRow({
   return (
     <div
       onClick={handleClick}
+      onMouseEnter={onMouseEnter}
       className={`inbox-message-row ${selected && !bulkMode ? 'inbox-message-row--selected' : ''} ${bulkMode && multiSelected ? 'inbox-message-row--multi' : ''}`}
       style={{
         display: 'flex',
@@ -556,6 +616,7 @@ export default function EmailInboxView({
     filter,
     bulkMode,
     multiSelectIds,
+    analysisCache,
     autoSyncEnabled,
     syncing,
     fetchMessages,
@@ -573,6 +634,8 @@ export default function EmailInboxView({
     toggleAutoSync,
     loadSyncState,
   } = useEmailInboxStore()
+
+  const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
   const primaryAccountId = accounts[0]?.id
 
@@ -847,6 +910,7 @@ export default function EmailInboxView({
                 multiSelected={multiSelectIds.has(msg.id)}
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
+                onMouseEnter={() => prioritize(msg.id)}
               />
             ))
           )}

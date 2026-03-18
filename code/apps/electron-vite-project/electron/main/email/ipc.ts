@@ -23,6 +23,8 @@ import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
 
 // ── Inbox: active auto-sync loops ──
 
+const INBOX_LLM_TIMEOUT_MS = 45_000
+
 /** Use ollamaManager.chat (same path as main app HTTP chat) — avoids aiProviders fetch path that can return 404. */
 async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
   const { ollamaManager } = await import('../llm/ollama-manager')
@@ -35,7 +37,13 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ]
-  const response = await ollamaManager.chat(modelId, messages)
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('LLM_TIMEOUT: response exceeded 45s')), INBOX_LLM_TIMEOUT_MS)
+  )
+  const response = await Promise.race([
+    ollamaManager.chat(modelId, messages),
+    timeoutPromise,
+  ])
   return response?.content?.trim() ?? 'No response from model.'
 }
 
@@ -47,6 +55,78 @@ async function isOllamaAvailable(): Promise<boolean> {
     return models.length > 0
   } catch {
     return false
+  }
+}
+
+const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
+
+/** Stream LLM response token-by-token. Yields content chunks. 45s timeout via AbortController. */
+async function* callInboxOllamaChatStream(
+  systemPrompt: string,
+  userPrompt: string
+): AsyncGenerator<string> {
+  const { ollamaManager } = await import('../llm/ollama-manager')
+  const models = await ollamaManager.listModels()
+  if (models.length === 0) {
+    throw new Error('No LLM model installed. Install a model in LLM Settings first.')
+  }
+  const modelId = models[0].name
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), INBOX_LLM_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelId,
+        stream: true,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    if (!response.ok || !response.body) throw new Error('Stream failed')
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try {
+          const parsed = JSON.parse(line) as { message?: { content?: string } }
+          if (parsed.message?.content) {
+            yield parsed.message.content
+          }
+        } catch {
+          /* partial line, skip */
+        }
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer) as { message?: { content?: string } }
+        if (parsed.message?.content) {
+          yield parsed.message.content
+        }
+      } catch {
+        /* partial line, skip */
+      }
+    }
+  } catch (err: unknown) {
+    clearTimeout(timeoutId)
+    const isAbort = err instanceof Error && err.name === 'AbortError'
+    if (isAbort) {
+      throw new Error('LLM_TIMEOUT: response exceeded 45s')
+    }
+    throw err
   }
 }
 
@@ -541,7 +621,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:cancelPendingDelete',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
@@ -960,8 +1040,12 @@ export function registerInboxHandlers(
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
       return { ok: true, data: { summary } }
     } catch (err: any) {
-      const msg = err?.message ?? 'Summarize failed'
-      return { ok: true, data: { summary: `Error: ${msg}`, error: true } }
+      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+      return {
+        ok: false,
+        error: isTimeout ? 'timeout' : 'llm_error',
+        message: err?.message ?? 'Unknown error',
+      }
     }
   })
 
@@ -994,8 +1078,12 @@ export function registerInboxHandlers(
       console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
       return { ok: true, data: { draft } }
     } catch (err: any) {
-      const msg = err?.message ?? 'Draft failed'
-      return { ok: true, data: { draft: `Error: ${msg}`, error: true } }
+      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+      return {
+        ok: false,
+        error: isTimeout ? 'timeout' : 'llm_error',
+        message: err?.message ?? 'Unknown error',
+      }
     }
   })
 
@@ -1076,8 +1164,76 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       }
     } catch (err: any) {
       console.error('[Inbox IPC] aiAnalyzeMessage error:', err)
-      return { ok: false, error: err?.message ?? 'Analyze failed' }
+      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+      return {
+        ok: false,
+        error: isTimeout ? 'timeout' : 'llm_error',
+        message: err?.message ?? 'Unknown error',
+      }
     }
+  })
+
+  ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string) => {
+    console.log('[AI-ANALYZE-STREAM] Starting for message:', messageId)
+    try {
+      const db = await resolveDb()
+      if (!db) {
+        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Database unavailable' })
+        return { started: false }
+      }
+      const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
+      if (!row) {
+        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Message not found' })
+        return { started: false }
+      }
+
+      const available = await isOllamaAvailable()
+      if (!available) {
+        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'LLM not available. Check Ollama status.' })
+        return { started: false }
+      }
+
+      const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+      const body = (row.body_text || '').trim().slice(0, 8000)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
+
+      const { tone, sortRules } = getToneAndSortForPrompts(db)
+      const contextBlock = getContextBlockForPrompts(db)
+      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only. Use these exact keys:
+- needsReply: boolean — true if the user should respond to this email
+- needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
+- summary: string — 2-3 sentence summary of the message
+- urgencyScore: number — 1-10 (1=low, 10=critical)
+- urgencyReason: string — one sentence explaining the urgency
+- actionItems: string[] — bullet list of extracted action items (empty array if none)
+- archiveRecommendation: "archive" | "keep" — whether to archive or keep in inbox
+- archiveReason: string — one sentence explaining the recommendation
+
+Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+      if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
+      if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
+      if (contextBlock) systemPrompt += contextBlock
+
+      const stream = callInboxOllamaChatStream(systemPrompt, userPrompt)
+      for await (const chunk of stream) {
+        if (event.sender.isDestroyed()) break
+        event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+      }
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+      }
+    } catch (err: any) {
+      console.error('[Inbox IPC] aiAnalyzeMessageStream error:', err)
+      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('inbox:aiAnalyzeMessageError', {
+          messageId,
+          error: isTimeout ? 'timeout' : 'llm_error',
+          message: err?.message ?? 'Unknown error',
+        })
+      }
+    }
+    return { started: true }
   })
 
   ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {
@@ -1331,7 +1487,13 @@ Return ONLY a valid JSON array, no other text.`
       console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
       return { ok: true, data: { classifications } }
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? 'Categorize failed' }
+      console.error('[Inbox IPC] aiCategorize error:', err)
+      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+      return {
+        ok: false,
+        error: isTimeout ? 'timeout' : 'llm_error',
+        message: err?.message ?? 'Unknown error',
+      }
     }
   })
 

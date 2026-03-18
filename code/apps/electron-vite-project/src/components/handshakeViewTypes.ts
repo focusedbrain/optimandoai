@@ -104,6 +104,10 @@ export interface EmailInboxBridge {
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
   aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
+  aiAnalyzeMessageStream: (messageId: string) => Promise<{ started: boolean }>
+  onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void
+  onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
+  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>

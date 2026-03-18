@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand'
-import type { AiOutputs } from '../types/inboxAi'
+import type { AiOutputs, NormalInboxAiResult } from '../types/inboxAi'
 import '../components/handshakeViewTypes'
 
 // =============================================================================
@@ -114,6 +114,8 @@ interface EmailInboxState {
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
+  /** Cache of AI analysis results keyed by messageId. Cleared for messages no longer in list after fetch. */
+  analysisCache: Record<string, NormalInboxAiResult>
 
   fetchMessages: () => Promise<void>
   selectMessage: (id: string | null) => Promise<void>
@@ -154,6 +156,8 @@ interface EmailInboxState {
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<void>
   /** Load autoSyncEnabled from backend for the given account. Call when Inbox view mounts. */
   loadSyncState: (accountId: string) => Promise<void>
+  setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
+  clearAnalysisCache: () => void
 }
 
 // =============================================================================
@@ -220,6 +224,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   autoSyncEnabled: false,
   syncing: false,
   lastSyncAt: null,
+  analysisCache: {},
 
   fetchMessages: async () => {
     const bridge = getBridge()
@@ -246,12 +251,17 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       }
       const res = await bridge.listMessages(options)
       if (res.ok && res.data) {
-        set({
-          messages: (res.data.messages ?? []) as InboxMessage[],
+        const newMessages = (res.data.messages ?? []) as InboxMessage[]
+        const currentIds = new Set(newMessages.map((m) => m.id))
+        set((state) => ({
+          messages: newMessages,
           total: res.data.total ?? 0,
           loading: false,
           error: null,
-        })
+          analysisCache: Object.fromEntries(
+            Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
+          ),
+        }))
       } else {
         set({
           loading: false,
@@ -784,4 +794,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       /* ignore */
     }
   },
+
+  setAnalysisCache: (messageId, result) =>
+    set((state) => ({
+      analysisCache: { ...state.analysisCache, [messageId]: result },
+    })),
+
+  clearAnalysisCache: () => set({ analysisCache: {} }),
 }))

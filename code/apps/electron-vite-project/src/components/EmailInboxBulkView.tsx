@@ -429,6 +429,23 @@ export default function EmailInboxBulkView({
       setAiSortPhase('analyzing')
       try {
         const res = await window.emailInbox.aiCategorize(ids)
+        if ((res as { error?: string })?.error) {
+          const err = res as { error?: string }
+          const failureReason = (err.error === 'timeout' ? 'timeout' : 'llm_error') as 'timeout' | 'llm_error'
+          const failOutputs: AiOutputs = {}
+          for (const id of ids) {
+            failOutputs[id] = {
+              summary: failureReason === 'timeout' ? 'Timed out.' : 'Analysis failed.',
+              autosortFailure: true,
+              failureReason,
+              status: 'classified',
+            }
+          }
+          setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
+          setAiSortPhase('idle')
+          setAiSortProgress(null)
+          return
+        }
         const classifications = res.ok && res.data?.classifications
           ? (res.data.classifications as Array<{
               id: string
@@ -527,7 +544,12 @@ export default function EmailInboxBulkView({
       } catch {
         const failOutputs: AiOutputs = {}
         for (const id of ids) {
-          failOutputs[id] = { summary: 'Analysis failed.', autosortFailure: true, status: 'classified' }
+          failOutputs[id] = {
+            summary: 'Analysis failed.',
+            autosortFailure: true,
+            failureReason: 'llm_error',
+            status: 'classified',
+          }
         }
         setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
         setAiSortPhase('idle')
@@ -854,11 +876,16 @@ export default function EmailInboxBulkView({
       }
 
       if (output?.autosortFailure) {
+        const isTimeout = output.failureReason === 'timeout'
         return (
           <div className="bulk-action-card bulk-action-card--failure">
             <div className="bulk-action-card-state-content bulk-action-card-failure-content">
-              <span className="bulk-action-card-state-label bulk-action-card-failure-label">Analysis failed</span>
-              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{output.summary || 'No result from AI for this message.'}</span>
+              <span className="bulk-action-card-state-label bulk-action-card-failure-label">
+                {isTimeout ? 'Timed out' : 'Analysis failed'}
+              </span>
+              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">
+                {output.summary || (isTimeout ? 'Ollama may be slow or unavailable.' : 'No result from AI for this message.')}
+              </span>
             </div>
             <div className="bulk-action-card-actions-row">
               <button
@@ -1833,19 +1860,6 @@ export default function EmailInboxBulkView({
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center', flexShrink: 0 }}>
                           {hasAttachments && (
                             <span style={{ fontSize: 11, color: MUTED }}>📎 {msg.attachment_count}</span>
-                          )}
-                          {msg.sort_category && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                padding: '3px 8px',
-                                borderRadius: 4,
-                                background: borderColor ? `${borderColor}33` : 'rgba(255,255,255,0.06)',
-                                color: borderColor || MUTED,
-                              }}
-                            >
-                              {msg.sort_category.toUpperCase()}
-                            </span>
                           )}
                           {needsReply && (
                             <span style={{ fontSize: 12, color: '#7c3aed' }} title="Needs reply">↩</span>

@@ -120,6 +120,8 @@ export type BulkAiResultEntry = Partial<BulkAiResult> & {
   draftError?: boolean
   /** True when Bulk AI Auto-Sort failed for this message — explicit failure, not empty */
   autosortFailure?: boolean
+  /** When autosortFailure: 'timeout' | 'llm_error' — distinguishes Timed out vs Analysis failed */
+  failureReason?: 'timeout' | 'llm_error'
 }
 
 /** aiOutputs state: Record<messageId, BulkAiResultEntry> */
