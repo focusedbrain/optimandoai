@@ -4,6 +4,7 @@
  */
 
 import type { VerifiedContextBlock } from './contextEscaping'
+import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
 
 declare global {
   interface Window {
@@ -102,21 +103,8 @@ export interface EmailInboxBridge {
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
-  aiAnalyzeMessage: (id: string) => Promise<{
-    ok: boolean
-    data?: {
-      needsReply: boolean
-      needsReplyReason: string
-      summary: string
-      urgencyScore: number
-      urgencyReason: string
-      actionItems: string[]
-      archiveRecommendation: 'archive' | 'keep'
-      archiveReason: string
-    }
-    error?: string
-  }>
-  aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: Array<{ id: string; category: string; reason: string; needs_reply: boolean; urgency_score: number; pending_delete: boolean }> }; error?: string }>
+  aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
+  aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number }; error?: string }>

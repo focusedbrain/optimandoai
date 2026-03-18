@@ -665,7 +665,8 @@ export function registerInboxHandlers(
       } else if (filter === 'archived') {
         conditions.push('archived = 1', 'deleted = 0')
       } else {
-        conditions.push('deleted = 0')
+        /* all: exclude deleted and pending_delete so they appear only in Pending Delete */
+        conditions.push('deleted = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
       }
       if (sourceType) {
         conditions.push('source_type = ?')
@@ -1097,26 +1098,45 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         const row = db.prepare('SELECT id, from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(id) as { id: string; from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
         if (!row) continue
         const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
-        const body = (row.body_text || '').trim().slice(0, 500)
+        const body = (row.body_text || '').trim().slice(0, 800)
         messages.push({ id: row.id, from, subject: row.subject || '(No subject)', body_preview: body })
       }
 
       if (messages.length === 0) return { ok: true, data: { classifications: [] } }
 
-      const { sortRules } = getToneAndSortForPrompts(db)
+      const { sortRules, tone } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
-      let systemPrompt = `You are an email triage AI. For each email below, respond with a JSON array only. Each entry must have:
+      const systemPrompt = `You are an email triage AI for bulk inbox cleanup. Your objective is to MINIMIZE inbox clutter and long-term retention. Be aggressive about identifying low-value email.
+
+For each email below, respond with a JSON array only. Each entry must have:
 - id: the message id (exact string from input)
 - category: one of 'urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'
-- reason: one sentence explaining why (e.g. 'Invoice pending payment due in 3 days')
-- needs_reply: boolean
-- urgency_score: number 1-10
+- summary: 1-2 sentence summary of the message
+- reason: one sentence explaining the classification (e.g. 'Invoice pending payment due in 3 days')
+- needs_reply: boolean — true only if the user should actually send a reply
+- urgency_score: number 1-10 (1=low, 10=critical)
+- recommended_action: one of 'pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready'
+- action_explanation: one sentence explaining the recommended action
+- draft_reply: (optional) when needs_reply is true or recommended_action is draft_reply_ready, include a short professional reply draft the user can edit and send
 
-Classify 'spam' or 'irrelevant' for: marketing newsletters the user didn't subscribe to, automated notifications with no action needed, obvious spam.
-Classify 'urgent' for: invoices, deadlines, time-sensitive requests, security alerts.
+Classification rules (be strict):
+- spam/irrelevant: marketing newsletters, promotional content, cold outreach, event invitations, automated notifications, obvious spam, low-value informational mail. Default to NOT retaining.
+- newsletter: bulk mail, announcements, digests. Usually pending_delete unless user clearly subscribed and values it.
+- normal: generic catch-all. Prefer archive if no reply needed and low urgency.
+- important: operationally relevant, contract/billing/security related, or genuinely reply-worthy.
+- urgent: invoices, deadlines, time-sensitive requests, security alerts.
+
+Recommended action rules:
+- pending_delete: for spam, irrelevant, newsletters with no reply needed, low-value bulk mail.
+- archive: for informational but non-actionable mail, read-and-file content.
+- keep_for_manual_action: when unclear or user-specific judgment needed.
+- draft_reply_ready: when the best next step is to send a reply and you can prepare one.
+
+Preserve only: urgent, important, operationally relevant, contract/billing/security, or genuinely reply-worthy mail. Default to pending_delete or archive for everything else.
 Return ONLY a valid JSON array, no other text.`
-      if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
-      if (contextBlock) systemPrompt += contextBlock
+        + (sortRules ? `\n\nUser custom sorting rules: ${sortRules}` : '')
+        + (tone ? `\n\nUser tone/style for draft replies: ${tone}` : '')
+        + contextBlock
 
       const userPrompt = JSON.stringify(messages)
 
@@ -1124,7 +1144,17 @@ Return ONLY a valid JSON array, no other text.`
       console.log('[AI-CATEGORIZE] Calling LLM...')
       const raw = await callInboxOllamaChat(systemPrompt, userPrompt)
       console.log('[AI-CATEGORIZE] Raw LLM response:', raw.substring(0, 500))
-      let parsed: Array<{ id?: string; category?: string; reason?: string; needs_reply?: boolean; urgency_score?: number }>
+      let parsed: Array<{
+        id?: string
+        category?: string
+        summary?: string
+        reason?: string
+        needs_reply?: boolean
+        urgency_score?: number
+        recommended_action?: string
+        action_explanation?: string
+        draft_reply?: string
+      }>
       try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/)
         parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : []
@@ -1132,26 +1162,81 @@ Return ONLY a valid JSON array, no other text.`
         parsed = []
       }
 
-      const classifications: Array<{ id: string; category: string; reason: string; needs_reply: boolean; urgency_score: number; pending_delete: boolean }> = []
-      const now = new Date().toISOString()
+      const VALID_CATEGORIES = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'] as const
+      const VALID_ACTIONS = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready'] as const
+
+      const classifications: Array<{
+        id: string
+        category: string
+        summary: string
+        reason: string
+        needs_reply: boolean
+        urgency_score: number
+        recommended_action: string
+        action_explanation: string
+        draft_reply?: string
+        pending_delete: boolean
+      }> = []
 
       for (const p of parsed) {
         const id = p.id ?? ''
         if (!ids.includes(id)) continue
         const category = (p.category ?? 'normal').toLowerCase().trim()
-        const validCategory = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'].includes(category) ? category : 'normal'
-        const reason = (p.reason ?? '').slice(0, 200)
-        const needsReply = !!p.needs_reply
-        const urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
-        const pendingDelete = validCategory === 'spam' || validCategory === 'irrelevant'
+        const validCategory = VALID_CATEGORIES.includes(category as any) ? category : 'normal'
+        const summary = (p.summary ?? '').slice(0, 500)
+        const reason = (p.reason ?? '').slice(0, 300)
+        let needsReply = !!p.needs_reply
+        let urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
+        let recommendedAction = (p.recommended_action ?? '').toLowerCase().trim()
+        let actionExplanation = (p.action_explanation ?? '').slice(0, 300)
+        let draftReply: string | undefined = typeof p.draft_reply === 'string' ? p.draft_reply.slice(0, 4000) : undefined
+
+        // Post-processing safeguards
+        if (validCategory === 'spam' || validCategory === 'irrelevant') {
+          recommendedAction = 'pending_delete'
+          actionExplanation = actionExplanation || 'Low-value or unwanted mail; recommended for deletion.'
+        } else if (validCategory === 'newsletter' && !needsReply) {
+          recommendedAction = 'pending_delete'
+          actionExplanation = actionExplanation || 'Newsletter with no reply needed; reduce retention.'
+        } else if (validCategory === 'normal' && !needsReply && urgencyScore <= 3) {
+          if (recommendedAction !== 'keep_for_manual_action' && recommendedAction !== 'draft_reply_ready') {
+            recommendedAction = recommendedAction === 'pending_delete' ? 'pending_delete' : 'archive'
+            actionExplanation = actionExplanation || 'Low urgency, no reply needed; archive to reduce clutter.'
+          }
+        }
+
+        if (!VALID_ACTIONS.includes(recommendedAction as any)) {
+          recommendedAction = validCategory === 'spam' || validCategory === 'irrelevant' ? 'pending_delete'
+            : validCategory === 'newsletter' && !needsReply ? 'pending_delete'
+            : 'keep_for_manual_action'
+        }
+
+        // Only include draft_reply when needs_reply or recommended_action is draft_reply_ready
+        if (draftReply && !needsReply && recommendedAction !== 'draft_reply_ready') {
+          draftReply = undefined
+        }
+
+        const pendingDelete =
+          validCategory === 'spam' || validCategory === 'irrelevant' ||
+          (validCategory === 'newsletter' && recommendedAction === 'pending_delete')
 
         db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(validCategory, reason || null, urgencyScore, needsReply ? 1 : 0, id)
-        // pending_delete is set by client after 5-min grace period via inbox:markPendingDelete
 
-        classifications.push({ id, category: validCategory, reason, needs_reply: needsReply, urgency_score: urgencyScore, pending_delete: pendingDelete })
+        classifications.push({
+          id,
+          category: validCategory,
+          summary,
+          reason,
+          needs_reply: needsReply,
+          urgency_score: urgencyScore,
+          recommended_action: recommendedAction,
+          action_explanation: actionExplanation,
+          ...(draftReply ? { draft_reply: draftReply } : {}),
+          pending_delete: pendingDelete,
+        })
       }
 
-      console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category })))
+      console.log('[AI-CATEGORIZE] Parsed classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
       return { ok: true, data: { classifications } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Categorize failed' }

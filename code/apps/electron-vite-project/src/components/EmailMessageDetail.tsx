@@ -194,89 +194,94 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
           </div>
         )}
 
-        {/* Header */}
+        {/* Header — stacked: subject full-width, then actions, then metadata */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-                {message.subject || '(No subject)'}
-              </h2>
-              <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>
-                <div>From: {fromDisplay}</div>
-                <div>To: {toDisplay}</div>
-                <div>{formatDate(message.received_at)}</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 18,
+              fontWeight: 700,
+              width: '100%',
+              wordBreak: 'break-word',
+              marginBottom: 10,
+            }}
+          >
+            {message.subject || '(No subject)'}
+          </h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <button
+              type="button"
+              onClick={handleStar}
+              title={message.starred === 1 ? 'Unstar' : 'Star'}
+              style={{
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                background: message.starred === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: 6,
+                color: message.starred === 1 ? '#a78bfa' : 'var(--color-text-muted, #94a3b8)',
+                cursor: 'pointer',
+              }}
+            >
+              {message.starred === 1 ? '★ Starred' : '☆ Star'}
+            </button>
+            <button
+              type="button"
+              onClick={handleArchive}
+              style={{
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 6,
+                color: 'var(--color-text, #e2e8f0)',
+                cursor: 'pointer',
+              }}
+            >
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              style={{
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 6,
+                color: '#fca5a5',
+                cursor: 'pointer',
+              }}
+            >
+              Delete
+            </button>
+            {onReply && (
               <button
                 type="button"
-                onClick={handleStar}
-                title={message.starred === 1 ? 'Unstar' : 'Star'}
+                onClick={handleReply}
+                title={isBeap ? 'Reply with BEAP' : 'Reply with email'}
                 style={{
                   padding: '6px 10px',
                   fontSize: 11,
                   fontWeight: 600,
-                  background: message.starred === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.06)',
+                  background: 'rgba(139,92,246,0.15)',
                   border: '1px solid rgba(139,92,246,0.3)',
                   borderRadius: 6,
-                  color: message.starred === 1 ? '#a78bfa' : 'var(--color-text-muted, #94a3b8)',
+                  color: '#a78bfa',
                   cursor: 'pointer',
                 }}
               >
-                {message.starred === 1 ? '★ Starred' : '☆ Star'}
+                Reply
               </button>
-              <button
-                type="button"
-                onClick={handleArchive}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: 6,
-                  color: 'var(--color-text, #e2e8f0)',
-                  cursor: 'pointer',
-                }}
-              >
-                Archive
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: 'rgba(239,68,68,0.1)',
-                  border: '1px solid rgba(239,68,68,0.3)',
-                  borderRadius: 6,
-                  color: '#fca5a5',
-                  cursor: 'pointer',
-                }}
-              >
-                Delete
-              </button>
-              {onReply && (
-                <button
-                  type="button"
-                  onClick={handleReply}
-                  title={isBeap ? 'Reply with BEAP' : 'Reply with email'}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    background: 'rgba(139,92,246,0.15)',
-                    border: '1px solid rgba(139,92,246,0.3)',
-                    borderRadius: 6,
-                    color: '#a78bfa',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Reply
-                </button>
-              )}
-            </div>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>
+            <div>From: {fromDisplay}</div>
+            <div>To: {toDisplay}</div>
+            <div>{formatDate(message.received_at)}</div>
           </div>
         </div>
 

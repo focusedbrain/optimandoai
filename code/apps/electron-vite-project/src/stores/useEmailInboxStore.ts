@@ -8,6 +8,7 @@
  */
 
 import { create } from 'zustand'
+import type { AiOutputs } from '../types/inboxAi'
 import '../components/handshakeViewTypes'
 
 // =============================================================================
@@ -91,6 +92,8 @@ interface EmailInboxState {
   bulkMode: boolean
   bulkPage: number
   bulkBatchSize: number
+  bulkCompactMode: boolean
+  bulkAiOutputs: AiOutputs
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
@@ -104,7 +107,10 @@ interface EmailInboxState {
   setBulkMode: (enabled: boolean) => void
   setBulkPage: (page: number) => void
   setBulkBatchSize: (size: number) => void
+  setBulkCompactMode: (enabled: boolean) => void
   syncBulkBatchSizeFromSettings: () => Promise<void>
+  setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
+  clearBulkAiOutputsForIds: (ids: string[]) => void
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
@@ -144,6 +150,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   filter: DEFAULT_FILTER,
   bulkMode: false,
   bulkPage: 0,
+  bulkAiOutputs: {},
+  bulkCompactMode: (() => {
+    try {
+      return localStorage?.getItem('wrdesk_bulkCompactMode') === '1'
+    } catch {
+      return false
+    }
+  })(),
   bulkBatchSize: (() => {
     try {
       const s = localStorage?.getItem('wrdesk_bulkBatchSize')
@@ -280,6 +294,29 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     get().fetchMessages()
   },
 
+  setBulkCompactMode: (enabled) => {
+    set({ bulkCompactMode: enabled })
+    try {
+      localStorage?.setItem('wrdesk_bulkCompactMode', enabled ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  },
+
+  setBulkAiOutputs: (updater) => {
+    set((state) => ({ bulkAiOutputs: updater(state.bulkAiOutputs) }))
+  },
+
+  clearBulkAiOutputsForIds: (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((state) => {
+      const next = { ...state.bulkAiOutputs }
+      for (const id of idSet) delete next[id]
+      return { bulkAiOutputs: next }
+    })
+  },
+
   syncBulkBatchSizeFromSettings: async () => {
     const bridge = getBridge()
     if (!bridge?.getInboxSettings) return
@@ -341,6 +378,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.archiveMessages) return
     const res = await bridge.archiveMessages(ids)
     if (res.ok) {
+      get().clearBulkAiOutputsForIds(ids)
       set((state) => ({
         messages: state.messages.filter((m) => !ids.includes(m.id)),
         total: Math.max(0, state.total - ids.length),
@@ -362,6 +400,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.deleteMessages) return
     const res = await bridge.deleteMessages(ids, gracePeriodHours)
     if (res.ok) {
+      get().clearBulkAiOutputsForIds(ids)
       const now = new Date().toISOString()
       set((state) => {
         const updatedMsg = (m: InboxMessage) =>

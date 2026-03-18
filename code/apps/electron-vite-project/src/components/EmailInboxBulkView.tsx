@@ -16,6 +16,7 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
+import type { AiOutputs, BulkAiResult, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -43,6 +44,29 @@ function formatSourceBadge(sourceType: InboxSourceType): string {
       return 'Plain'
     default:
       return 'Email'
+  }
+}
+
+/** Format deletion info from pending_delete_at + 7 days. Returns e.g. "Deletes on Mar 25" or "Deletes in 6d 18h". */
+function formatPendingDeleteInfo(pendingDeleteAt: string | null): string {
+  if (!pendingDeleteAt) return 'Deletes in 7d'
+  try {
+    const markedAt = new Date(pendingDeleteAt).getTime()
+    const deleteAt = markedAt + 7 * 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const msRemaining = deleteAt - now
+    if (msRemaining <= 0) return 'Deletes soon'
+    const days = Math.floor(msRemaining / (24 * 60 * 60 * 1000))
+    const hours = Math.floor((msRemaining % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+    const mins = Math.floor((msRemaining % (60 * 60 * 1000)) / (60 * 1000))
+    if (days >= 2) {
+      return `Deletes on ${new Date(deleteAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    }
+    if (days >= 1) return `Deletes in ${days}d ${hours}h`
+    if (hours >= 1) return `Deletes in ${hours}h`
+    return mins > 0 ? `Deletes in ${mins}m` : 'Deletes soon'
+  } catch {
+    return 'Deletes in 7d'
   }
 }
 
@@ -111,6 +135,8 @@ export default function EmailInboxBulkView({
     error,
     bulkPage,
     bulkBatchSize,
+    bulkCompactMode,
+    bulkAiOutputs,
     multiSelectIds,
     selectedMessage,
     selectedMessageId,
@@ -119,7 +145,9 @@ export default function EmailInboxBulkView({
     setBulkMode,
     setBulkPage,
     setBulkBatchSize,
+    setBulkCompactMode,
     syncBulkBatchSizeFromSettings,
+    setBulkAiOutputs,
     setFilter,
     selectMessage,
     toggleMultiSelect,
@@ -148,15 +176,16 @@ export default function EmailInboxBulkView({
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
 
-  const [aiOutputs, setAiOutputs] = useState<
-    Record<string, { summary?: string; draft?: string; loading?: string }>
-  >({})
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
   const [pendingDeleteToast, setPendingDeleteToast] = useState<{ count: number; ids: string[] } | null>(null)
   const pendingDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingIdsRef = useRef<string[]>([])
+  const keptDuringPreviewIdsRef = useRef<Set<string>>(new Set())
+  const [keptDuringPreviewIds, setKeptDuringPreviewIds] = useState<Set<string>>(new Set())
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
+  const [replyDraftBody, setReplyDraftBody] = useState<string>('')
   const composeClickRef = useRef<number>(0)
 
   const selectedCount = multiSelectIds.size
@@ -230,23 +259,78 @@ export default function EmailInboxBulkView({
     try {
       const res = await window.emailInbox.aiCategorize(ids)
       if (res.ok && res.data?.classifications) {
-        const classifications = res.data.classifications as Array<{ id: string; category: string; reason: string; pending_delete: boolean }>
+        const classifications = res.data.classifications as Array<{
+          id: string
+          category: string
+          summary?: string
+          reason: string
+          needs_reply: boolean
+          urgency_score: number
+          recommended_action?: string
+          action_explanation?: string
+          draft_reply?: string
+          pending_delete: boolean
+        }>
         console.log('[AUTO-SORT] Results:', classifications)
+
+        const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
+        const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant']
+
+        const nextOutputs: AiOutputs = {}
+        for (const c of classifications) {
+          const category = (VALID_CATEGORIES.includes(c.category as SortCategory) ? c.category : 'normal') as SortCategory
+          const recommendedAction = (VALID_ACTIONS.includes((c.recommended_action ?? '') as BulkRecommendedAction)
+            ? c.recommended_action
+            : 'keep_for_manual_action') as BulkRecommendedAction
+
+          const entry: BulkAiResult = {
+            category,
+            urgencyScore: typeof c.urgency_score === 'number' ? Math.max(1, Math.min(10, c.urgency_score)) : 5,
+            summary: (c.summary ?? '').slice(0, 500),
+            reason: (c.reason ?? '').slice(0, 300),
+            needsReply: !!c.needs_reply,
+            recommendedAction,
+            actionExplanation: (c.action_explanation ?? '').slice(0, 300),
+            status: 'classified',
+          }
+          if (c.draft_reply && (c.needs_reply || recommendedAction === 'draft_reply_ready')) {
+            entry.draftReply = c.draft_reply.slice(0, 4000)
+          }
+          if (c.pending_delete && recommendedAction === 'pending_delete') {
+            entry.pendingDeletePreviewUntil = new Date(Date.now() + 15 * 1000).toISOString()
+          }
+          nextOutputs[c.id] = entry
+        }
+
+        setBulkAiOutputs((prev) => ({ ...prev, ...nextOutputs }))
+
         const pendingIds = classifications.filter((c) => c.pending_delete).map((c) => c.id)
+        keptDuringPreviewIdsRef.current = new Set()
+        setKeptDuringPreviewIds(new Set())
         clearMultiSelect()
         await fetchMessages()
         const sortedMessages = sortMessagesByCategory(useEmailInboxStore.getState().messages)
         console.log('[AUTO-SORT] Store updated, sorted messages:', sortedMessages.map((m) => ({ id: m.id, category: m.sort_category, urgency: m.urgency_score })))
         if (pendingIds.length > 0 && window.emailInbox?.markPendingDelete) {
+          pendingIdsRef.current = pendingIds
           if (pendingDeleteTimerRef.current) clearTimeout(pendingDeleteTimerRef.current)
           pendingDeleteTimerRef.current = setTimeout(async () => {
             pendingDeleteTimerRef.current = null
-            const markRes = await window.emailInbox!.markPendingDelete!(pendingIds)
+            const idsToMove = pendingIdsRef.current.filter((id) => !keptDuringPreviewIdsRef.current.has(id))
+            if (idsToMove.length === 0) return
+            const markRes = await window.emailInbox!.markPendingDelete!(idsToMove)
             if (markRes.ok) {
-              setPendingDeleteToast({ count: pendingIds.length, ids: pendingIds })
+              setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
+              setBulkAiOutputs((prev) => {
+                const next = { ...prev }
+                for (const id of idsToMove) {
+                  if (next[id]) next[id] = { ...next[id], status: 'action_taken' as const }
+                }
+                return next
+              })
               fetchMessages()
             }
-          }, 5 * 60 * 1000)
+          }, 15 * 1000)
         }
       }
     } finally {
@@ -265,6 +349,12 @@ export default function EmailInboxBulkView({
     },
     [fetchMessages]
   )
+
+  /** Cancel the scheduled pending-delete move for one message during the 15s preview. */
+  const handleKeepDuringPreview = useCallback((messageId: string) => {
+    keptDuringPreviewIdsRef.current.add(messageId)
+    setKeptDuringPreviewIds((prev) => new Set([...prev, messageId]))
+  }, [])
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -323,19 +413,27 @@ export default function EmailInboxBulkView({
   const handleSummarize = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.aiSummarize) return
-      setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'summary' } }))
+      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'summary' } }))
       try {
         const res = await window.emailInbox.aiSummarize(messageId)
         if (res.ok && res.data?.summary) {
-          setAiOutputs((prev) => ({
-            ...prev,
-            [messageId]: { ...prev[messageId], summary: res.data!.summary, loading: undefined },
-          }))
+          setBulkAiOutputs((prev) => {
+            const existing = prev[messageId] ?? {}
+            return {
+              ...prev,
+              [messageId]: {
+                ...existing,
+                summary: res.data!.summary,
+                status: existing.status ?? 'classified',
+                loading: undefined,
+              },
+            }
+          })
         } else {
-          setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+          setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
         }
       } catch {
-        setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+        setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
       }
     },
     []
@@ -344,23 +442,39 @@ export default function EmailInboxBulkView({
   const handleDraftReply = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.aiDraftReply) return
-      setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'draft' } }))
+      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'draft' } }))
       try {
         const res = await window.emailInbox.aiDraftReply(messageId)
         if (res.ok && res.data?.draft) {
-          setAiOutputs((prev) => ({
-            ...prev,
-            [messageId]: { ...prev[messageId], draft: res.data!.draft, loading: undefined },
-          }))
+          setBulkAiOutputs((prev) => {
+            const existing = prev[messageId] ?? {}
+            return {
+              ...prev,
+              [messageId]: {
+                ...existing,
+                draftReply: res.data!.draft,
+                status: existing.status ?? 'classified',
+                loading: undefined,
+              },
+            }
+          })
         } else {
-          setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+          setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
         }
       } catch {
-        setAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
+        setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: undefined } }))
       }
     },
     []
   )
+
+  /** Update draft reply in state — used by editable UI layers. */
+  const updateDraftReply = useCallback((messageId: string, draftReply: string) => {
+    setBulkAiOutputs((prev) => ({
+      ...prev,
+      [messageId]: { ...prev[messageId], draftReply },
+    }))
+  }, [])
 
   const handleFocusPair = useCallback(
     (msg: InboxMessage) => {
@@ -423,11 +537,267 @@ export default function EmailInboxBulkView({
     if (isDepackaged) {
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       setReplyToMessage({ ...msg, subject })
+      setReplyDraftBody('')
       setShowEmailCompose(true)
     } else {
       window.analysisDashboard?.openBeapDraft?.()
     }
   }, [])
+
+  /** Open compose with draft body for reply. */
+  const handleSendDraft = useCallback((msg: InboxMessage, draftBody: string) => {
+    const isDepackaged = msg.source_type === 'email_plain'
+    if (isDepackaged) {
+      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
+      setReplyToMessage({ ...msg, subject })
+      setReplyDraftBody(draftBody || '')
+      setShowEmailCompose(true)
+    } else {
+      window.analysisDashboard?.openBeapDraft?.()
+    }
+  }, [])
+
+  const handleArchiveOne = useCallback(
+    (msg: InboxMessage) => {
+      archiveMessages([msg.id])
+    },
+    [archiveMessages]
+  )
+
+  const handleDeleteOne = useCallback(
+    (msg: InboxMessage) => {
+      deleteMessages([msg.id])
+    },
+    [deleteMessages]
+  )
+
+  /** Render structured Action Card when BulkAiResult exists; otherwise fallback. */
+  const renderActionCard = useCallback(
+    (msg: InboxMessage, output: BulkAiResultEntry | undefined, isExpanded: boolean) => {
+      const hasStructured = !!(output?.category && output?.recommendedAction)
+      const category = (output?.category ?? 'normal') as keyof typeof CATEGORY_BORDER
+      const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
+      const urgency = output?.urgencyScore ?? 5
+
+      if (output?.loading) {
+        return (
+          <div className="bulk-action-card bulk-action-card--loading">
+            <span style={{ color: MUTED }}>Loading…</span>
+          </div>
+        )
+      }
+
+      if (hasStructured) {
+        const rec = output.recommendedAction
+        const panelMod = `bulk-action-card-panel--${rec}`
+        const summaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
+        return (
+          <div className={`bulk-action-card ${isExpanded ? 'bulk-action-card--expanded' : ''}`} style={{ borderLeftColor: borderColor }}>
+            <div className="bulk-action-card-header">
+              <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
+                {(output.category ?? 'normal').toUpperCase()}
+              </span>
+              <span className="bulk-action-card-urgency" title="Urgency 1–10">
+                U{urgency}
+              </span>
+            </div>
+            <div className={`bulk-action-card-panel bulk-action-card-panel--recommended ${panelMod}`}>
+              <span className="bulk-action-card-panel-label">Next</span>
+              <span className="bulk-action-card-panel-action">
+                {rec === 'pending_delete' && '🗑 Pending Delete'}
+                {rec === 'archive' && '📦 Archive'}
+                {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+              </span>
+            </div>
+            {output.summary && (
+              <div className={summaryCls}>{output.summary}</div>
+            )}
+            {(isExpanded && output.reason) && (
+              <div className="bulk-action-card-reason">{output.reason}</div>
+            )}
+            {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
+              <div className="bulk-action-card-pending-preview">
+                <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
+                <span className="bulk-action-card-pending-countdown">
+                  {output.pendingDeletePreviewUntil ? 'Moving in 15s' : 'Delete to move to Pending Delete'}
+                </span>
+                {output.pendingDeletePreviewUntil && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-keep-btn"
+                    onClick={() => handleKeepDuringPreview(msg.id)}
+                  >
+                    Keep
+                  </button>
+                )}
+              </div>
+            )}
+            {(isExpanded && output.actionExplanation) && (
+              <div className="bulk-action-card-explanation">{output.actionExplanation}</div>
+            )}
+            {output.draftReply != null && output.draftReply !== '' && (
+              <div className={`bulk-action-card-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
+                <label className="bulk-action-card-draft-label">Draft reply — edit before sending</label>
+                <textarea
+                  className="bulk-action-card-draft-textarea"
+                  value={output.draftReply}
+                  onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                  placeholder="Edit draft…"
+                  rows={isExpanded ? 4 : 2}
+                />
+              </div>
+            )}
+            <div className="bulk-action-card-buttons">
+              {rec === 'draft_reply_ready' && output.draftReply && (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  onClick={() => handleSendDraft(msg, output.draftReply!)}
+                >
+                  ✉ Send via Email
+                </button>
+              )}
+              {(rec === 'archive' || rec === 'keep_for_manual_action') && (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  onClick={() => handleArchiveOne(msg)}
+                >
+                  📦 Archive
+                </button>
+              )}
+              {rec === 'pending_delete' && (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis"
+                  onClick={() => handleDeleteOne(msg)}
+                >
+                  🗑 Delete
+                </button>
+              )}
+              {rec === 'draft_reply_ready' && output.draftReply && (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                  onClick={() => handleArchiveOne(msg)}
+                >
+                  Archive
+                </button>
+              )}
+              <div className="bulk-action-card-buttons-secondary">
+                <button
+                  type="button"
+                  className="bulk-action-card-btn-tertiary"
+                  onClick={() => handleSummarize(msg.id)}
+                  disabled={!!output?.loading}
+                  title="Regenerate summary"
+                >
+                  ✨ Summarize
+                </button>
+                <button
+                  type="button"
+                  className="bulk-action-card-btn-tertiary"
+                  onClick={() => handleDraftReply(msg.id)}
+                  disabled={!!output?.loading}
+                  title="Regenerate draft"
+                >
+                  ✍ Draft
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      // Fallback: summary or draft without full structured result
+      if (output?.summary || output?.draftReply) {
+        const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
+        return (
+          <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
+            {output.summary && (
+              <div className={fallbackSummaryCls}>{output.summary}</div>
+            )}
+            {output.draftReply && (
+              <div className={`bulk-action-card-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
+                <label className="bulk-action-card-draft-label">Draft — edit before sending</label>
+                <textarea
+                  className="bulk-action-card-draft-textarea"
+                  value={output.draftReply}
+                  onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                  placeholder="Edit draft…"
+                  rows={isExpanded ? 4 : 2}
+                />
+              </div>
+            )}
+            <div className="bulk-action-card-buttons">
+              {output.draftReply && (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  onClick={() => handleSendDraft(msg, output.draftReply!)}
+                >
+                  ✉ Send via Email
+                </button>
+              )}
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--muted"
+                onClick={() => handleSummarize(msg.id)}
+                disabled={!!output?.loading}
+              >
+                ✨ Summarize
+              </button>
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--muted"
+                onClick={() => handleDraftReply(msg.id)}
+                disabled={!!output?.loading}
+              >
+                ✍ Draft
+              </button>
+            </div>
+          </div>
+        )
+      }
+
+      // Empty state
+      return (
+        <div className="bulk-action-card bulk-action-card--empty">
+          <div className="bulk-view-ai-empty">
+            <span className="bulk-view-ai-empty-icon">✨</span>
+            Summarize or draft a reply to see output here.
+          </div>
+          <div className="bulk-action-card-buttons">
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--muted"
+              onClick={() => handleSummarize(msg.id)}
+            >
+              ✨ Summarize
+            </button>
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--muted"
+              onClick={() => handleDraftReply(msg.id)}
+            >
+              ✍ Draft Reply
+            </button>
+          </div>
+        </div>
+      )
+    },
+    [
+      updateDraftReply,
+      handleSendDraft,
+      handleArchiveOne,
+      handleDeleteOne,
+      handleSummarize,
+      handleDraftReply,
+      handleKeepDuringPreview,
+      keptDuringPreviewIds,
+    ]
+  )
 
   const expandedMessage =
     expandedMessageId && selectedMessageId === expandedMessageId ? selectedMessage : null
@@ -441,8 +811,28 @@ export default function EmailInboxBulkView({
     return () => document.removeEventListener('keydown', handler)
   }, [expandedMessageId, handleCloseExpand])
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null
+      const inInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.getAttribute?.('contenteditable') === 'true')
+      if (inInput) return
+      if (selectedCount === 0) return
+      if (e.key === 'a' || e.key === 'A') {
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault()
+          handleBulkArchive()
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        handleBulkDelete()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [selectedCount, handleBulkArchive, handleBulkDelete])
+
   return (
-    <div className="bulk-view-root">
+    <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
       {/* Toolbar */}
       <div className="bulk-view-toolbar">
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -495,6 +885,7 @@ export default function EmailInboxBulkView({
           type="button"
           onClick={handleBulkDelete}
           disabled={selectedCount === 0}
+          title={selectedCount ? 'Delete selected (Del)' : undefined}
           style={{
             padding: '6px 10px',
             fontSize: 11,
@@ -513,6 +904,7 @@ export default function EmailInboxBulkView({
           type="button"
           onClick={handleBulkArchive}
           disabled={selectedCount === 0}
+          title={selectedCount ? 'Archive selected (A)' : undefined}
           style={{
             padding: '6px 10px',
             fontSize: 11,
@@ -583,6 +975,24 @@ export default function EmailInboxBulkView({
         </button>
         <div style={{ flex: 1, minWidth: 0 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setBulkCompactMode(!bulkCompactMode)}
+            title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
+            style={{
+              padding: '4px 8px',
+              fontSize: 10,
+              fontWeight: 600,
+              background: bulkCompactMode ? 'rgba(147,51,234,0.12)' : '#f1f5f9',
+              border: `1px solid ${bulkCompactMode ? 'rgba(147,51,234,0.35)' : '#e2e8f0'}`,
+              borderRadius: 6,
+              color: bulkCompactMode ? '#7c3aed' : '#334155',
+              cursor: 'pointer',
+            }}
+          >
+            {bulkCompactMode ? '⊟ Compact' : '⊞ Compact'}
+          </button>
+          <span style={{ color: '#cbd5e1', margin: '0 2px' }}>|</span>
           <span style={{ fontSize: 11, color: MUTED }}>Batch:</span>
           <select
             value={bulkBatchSize}
@@ -740,7 +1150,7 @@ export default function EmailInboxBulkView({
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const isCardExpanded = expandedCardIds.has(msg.id)
-              const output = aiOutputs[msg.id]
+              const output = bulkAiOutputs[msg.id]
               const bodyContent = (msg.body_text || '').trim() || '(No body)'
               const hasAttachments = msg.has_attachments === 1
               const isDeleted = msg.deleted === 1
@@ -748,7 +1158,6 @@ export default function EmailInboxBulkView({
               const category = (msg.sort_category ?? 'normal') as keyof typeof CATEGORY_BORDER
               const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
               const bgTint = CATEGORY_BG[category] ?? 'transparent'
-              const isSpamOrIrrelevant = category === 'spam' || category === 'irrelevant'
               const needsReply = msg.needs_reply === 1
 
               return (
@@ -759,7 +1168,6 @@ export default function EmailInboxBulkView({
                   style={{
                     borderLeft: borderColor ? `4px solid ${borderColor}` : undefined,
                     background: bgTint !== 'transparent' ? bgTint : undefined,
-                    opacity: isSpamOrIrrelevant ? 0.6 : 1,
                   }}
                 >
                   {/* Left: Message card — click toggles focus */}
@@ -804,8 +1212,6 @@ export default function EmailInboxBulkView({
                             style={{
                               fontSize: 14,
                               fontWeight: 600,
-                              textDecoration: isPendingDelete ? 'line-through' : undefined,
-                              color: isPendingDelete ? MUTED : undefined,
                             }}
                           >
                             {msg.from_name || msg.from_address || '—'}
@@ -828,8 +1234,6 @@ export default function EmailInboxBulkView({
                             fontWeight: category === 'urgent' ? 700 : 500,
                             marginBottom: 4,
                             flexShrink: 0,
-                            textDecoration: isSpamOrIrrelevant || isPendingDelete ? 'line-through' : undefined,
-                            color: isSpamOrIrrelevant || isPendingDelete ? MUTED : undefined,
                           }}
                         >
                           {msg.subject || '(No subject)'}
@@ -888,24 +1292,39 @@ export default function EmailInboxBulkView({
                             <span style={{ fontSize: 12, color: '#7c3aed' }} title="Needs reply">↩</span>
                           )}
                           {isPendingDelete && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleUndoPendingDelete([msg.id])
-                              }}
-                              style={{
-                                fontSize: 10,
-                                padding: '2px 6px',
-                                borderRadius: 4,
-                                background: 'rgba(34,197,94,0.2)',
-                                border: '1px solid rgba(34,197,94,0.4)',
-                                color: '#86efac',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Undo
-                            </button>
+                            <>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  background: 'rgba(239,68,68,0.1)',
+                                  color: '#dc2626',
+                                  fontWeight: 600,
+                                }}
+                                title="Permanently deleted 7 days after moving here"
+                              >
+                                {formatPendingDeleteInfo(msg.pending_delete_at)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleUndoPendingDelete([msg.id])
+                                }}
+                                style={{
+                                  fontSize: 10,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  background: 'rgba(34,197,94,0.2)',
+                                  border: '1px solid rgba(34,197,94,0.4)',
+                                  color: '#86efac',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Undo
+                              </button>
+                            </>
                           )}
                           {isDeleted && (
                             <span
@@ -936,13 +1355,13 @@ export default function EmailInboxBulkView({
                     </div>
                   </div>
 
-                  {/* Right: AI output — click toggles focus */}
+                  {/* Right: Action Card — structured AI output or fallback */}
                   <div
                     className="bulk-view-ai"
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('button')) return
+                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('textarea')) return
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
@@ -952,39 +1371,7 @@ export default function EmailInboxBulkView({
                       }
                     }}
                   >
-                    <div className="bulk-view-ai-actions">
-                      <button
-                        type="button"
-                        onClick={() => handleSummarize(msg.id)}
-                        disabled={!!output?.loading}
-                      >
-                        ✨ Summarize
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDraftReply(msg.id)}
-                        disabled={!!output?.loading}
-                      >
-                        ✍ Draft Reply
-                      </button>
-                      <button type="button" className="bulk-view-ai-btn-muted" disabled title="Augment (coming soon)">
-                        🔍 Augment
-                      </button>
-                    </div>
-                    <div className="bulk-view-ai-output">
-                      {output?.loading ? (
-                        <span style={{ color: MUTED }}>Loading…</span>
-                      ) : output?.summary ? (
-                        output.summary
-                      ) : output?.draft ? (
-                        output.draft
-                      ) : (
-                        <div className="bulk-view-ai-empty">
-                          <span className="bulk-view-ai-empty-icon">✨</span>
-                          Summarize or draft a reply to see output here.
-                        </div>
-                      )}
-                    </div>
+                    {renderActionCard(msg, output, isCardExpanded)}
                   </div>
                   <div
                     className="bulk-card-expand-toggle"
@@ -997,9 +1384,9 @@ export default function EmailInboxBulkView({
                     }}
                     role="button"
                     tabIndex={0}
-                    title={isCardExpanded ? 'Collapse' : 'Expand full message'}
+                    title={isCardExpanded ? 'Show less' : 'Show more'}
                   >
-                    {isCardExpanded ? '▴' : '▾'}
+                    {isCardExpanded ? '▴ Show less' : '▾ Show more'}
                   </div>
                 </div>
               )
@@ -1114,10 +1501,12 @@ export default function EmailInboxBulkView({
               onClose={() => {
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
+                setReplyDraftBody('')
               }}
               onSent={() => {
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
+                setReplyDraftBody('')
                 fetchMessages()
               }}
               replyTo={
@@ -1125,7 +1514,7 @@ export default function EmailInboxBulkView({
                   ? {
                       to: replyToMessage.from_address ?? undefined,
                       subject: replyToMessage.subject ?? undefined,
-                      body: '',
+                      body: replyDraftBody,
                     }
                   : undefined
               }

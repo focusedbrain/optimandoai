@@ -13,6 +13,7 @@ import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
+import type { NormalInboxAiResult } from '../types/inboxAi'
 import '../components/handshakeViewTypes'
 
 // ── Relative date ──
@@ -34,17 +35,7 @@ function formatRelativeDate(isoString: string): string {
 }
 
 // ── InboxDetailAiPanel (right column: multi-section AI dashboard) ──
-
-type AiAnalysis = {
-  needsReply: boolean
-  needsReplyReason: string
-  summary: string
-  urgencyScore: number
-  urgencyReason: string
-  actionItems: string[]
-  archiveRecommendation: 'archive' | 'keep'
-  archiveReason: string
-}
+// Uses NormalInboxAiResult — advisory AI: informative only, no silent actions
 
 interface InboxDetailAiPanelProps {
   messageId: string
@@ -54,13 +45,12 @@ interface InboxDetailAiPanelProps {
 }
 
 function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: InboxDetailAiPanelProps) {
-  const [analysis, setAnalysis] = useState<AiAnalysis | null>(null)
+  const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftError, setDraftError] = useState(false)
-  const [isEditingDraft, setIsEditingDraft] = useState(false)
   const [editedDraft, setEditedDraft] = useState('')
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const summaryRef = useRef<HTMLDivElement>(null)
@@ -98,6 +88,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
     if (!messageId) return
     setAnalysis(null)
     setDraft(null)
+    setEditedDraft('')
     setActionChecked({})
     runAnalysis()
   }, [messageId, runAnalysis])
@@ -135,7 +126,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
     setDraftLoading(true)
     setDraft(null)
     setDraftError(false)
-    setIsEditingDraft(false)
     try {
       const res = await window.emailInbox.aiDraftReply(messageId)
       if (res.ok && res.data?.draft) {
@@ -159,9 +149,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
 
   const handleSend = useCallback(() => {
     if (!message || !onSendDraft) return
-    const draftToSend = isEditingDraft ? editedDraft : (draft ?? '')
+      const draftToSend = (editedDraft || draft) ?? ''
     if (draftToSend.trim()) onSendDraft(draftToSend, message)
-  }, [message, onSendDraft, isEditingDraft, editedDraft, draft])
+  }, [message, onSendDraft, editedDraft, draft])
 
   const handleArchive = useCallback(() => {
     if (onArchive && messageId) onArchive([messageId])
@@ -193,6 +183,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
 
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium">
+      <div className="inbox-detail-ai-advisory-banner">
+        AI suggestions — you decide what to do
+      </div>
       <div className="inbox-detail-ai-actions">
         <button type="button" onClick={handleSummarize} disabled={analysisLoading || draftLoading}>
           {analysisLoading && !analysis ? 'Analyzing…' : 'Summarize'}
@@ -273,13 +266,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
                     <button type="button" onClick={handleRetryDraft}>Retry</button>
                   </div>
                 )}
-                {isEditingDraft ? (
-                  <textarea value={editedDraft} onChange={(e) => setEditedDraft(e.target.value)} className="inbox-detail-ai-draft-textarea" />
-                ) : (
-                  <div className="inbox-detail-ai-text inbox-detail-ai-draft-preview">{draft}</div>
-                )}
+                <textarea
+                  value={editedDraft || draft}
+                  onChange={(e) => setEditedDraft(e.target.value)}
+                  className="inbox-detail-ai-draft-textarea"
+                  placeholder="Edit draft before sending…"
+                />
                 <div className="inbox-detail-ai-draft-actions">
-                  <button type="button" className="inbox-detail-ai-btn-secondary" onClick={() => setIsEditingDraft((e) => !e)}>{isEditingDraft ? 'Preview' : 'Edit'}</button>
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
                   {message && onSendDraft && (
                     <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend}>
@@ -315,19 +308,21 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: Inbo
           </div>
         </div>
 
-        {/* Archive Recommendation — always visible */}
+        {/* Archive suggestion — advisory only, user must click to act */}
         <div className="inbox-detail-ai-row">
-          <span className="inbox-detail-ai-row-label">Archive</span>
+          <span className="inbox-detail-ai-row-label">Suggested action</span>
           <div className="inbox-detail-ai-row-value">
             {analysisLoading && !analysis ? (
               <span className="inbox-detail-ai-skeleton-inline" />
             ) : analysis ? (
               <>
                 <span className="inbox-detail-ai-text">
-                  {analysis.archiveRecommendation === 'archive' ? `Recommended: Archive — ${analysis.archiveReason || '—'}` : `Keep — ${analysis.archiveReason || '—'}`}
+                  {analysis.archiveRecommendation === 'archive'
+                    ? `Consider archiving — ${analysis.archiveReason || '—'}`
+                    : `Keep for now — ${analysis.archiveReason || '—'}`}
                 </span>
                 {analysis.archiveRecommendation === 'archive' && onArchive && (
-                  <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive now</button>
+                  <button type="button" className="inbox-detail-ai-btn-secondary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
                 )}
               </>
             ) : (
