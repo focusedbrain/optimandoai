@@ -5,8 +5,9 @@
  * These handlers expose email operations to the renderer process.
  */
 
-import { ipcMain, BrowserWindow, shell } from 'electron'
+import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
 import * as fs from 'fs'
+import * as path from 'path'
 import { emailGateway } from './gateway'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
@@ -15,12 +16,60 @@ import {
   IMAP_PRESETS
 } from './types'
 import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchestrator'
-import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions } from './remoteDeletion'
+import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions, queueRemoteDeletion } from './remoteDeletion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
 import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
+import { DEFAULT_CONFIG } from '../llm/config'
 
 // ── Inbox: active auto-sync loops ──
+
+const OLLAMA_TIMEOUT_MS = 30_000
+
+/** Call Ollama chat API (non-streaming). Returns response text or throws. */
+async function callOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS)
+  try {
+    const port = DEFAULT_CONFIG.ollamaPort ?? 11434
+    const model = DEFAULT_CONFIG.activeModelId ?? 'mistral:7b-instruct-q4_0'
+    const res = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
+    const data = (await res.json()) as { message?: { content?: string } }
+    return data.message?.content?.trim() ?? 'No response from model.'
+  } catch (err: any) {
+    clearTimeout(timeout)
+    if (err?.name === 'AbortError') throw new Error('LLM request timed out (30s)')
+    throw err
+  }
+}
+
+/** Check if Ollama is reachable. */
+async function isOllamaAvailable(): Promise<boolean> {
+  try {
+    const port = DEFAULT_CONFIG.ollamaPort ?? 11434
+    const res = await fetch(`http://127.0.0.1:${port}/api/tags`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
 const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 
 /**
@@ -497,9 +546,43 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiCategorize',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiCategorize', 'inbox:cancelPendingDelete',
+    'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
+
+  /** ~2000 tokens ≈ 7500 chars */
+  const CONTEXT_TOKEN_LIMIT_CHARS = 7500
+
+  function getInboxSetting(db: any, key: string): any {
+    try {
+      const row = db.prepare('SELECT value_json FROM inbox_settings WHERE key = ?').get(key) as { value_json?: string } | undefined
+      if (!row?.value_json) return undefined
+      return JSON.parse(row.value_json)
+    } catch {
+      return undefined
+    }
+  }
+
+  function setInboxSetting(db: any, key: string, value: any): void {
+    const now = Date.now()
+    db.prepare('INSERT OR REPLACE INTO inbox_settings (key, value_json, updated_at) VALUES (?, ?, ?)').run(key, JSON.stringify(value), now)
+  }
+
+  function getContextBlockForPrompts(db: any): string {
+    const docs = getInboxSetting(db, 'inbox_ai_context_docs') as Array<{ extractedText?: string }> | undefined
+    if (!Array.isArray(docs) || docs.length === 0) return ''
+    const combined = docs.map((d) => (d.extractedText || '').trim()).filter(Boolean).join('\n\n')
+    if (!combined) return ''
+    const truncated = combined.length > CONTEXT_TOKEN_LIMIT_CHARS ? combined.slice(0, CONTEXT_TOKEN_LIMIT_CHARS) + '…' : combined
+    return `\n## Business Context\n${truncated}\n`
+  }
+
+  function getToneAndSortForPrompts(db: any): { tone: string; sortRules: string } {
+    const tone = (getInboxSetting(db, 'inbox_ai_tone') as string) || ''
+    const sortRules = (getInboxSetting(db, 'inbox_ai_sort_rules') as string) || ''
+    return { tone: tone.trim(), sortRules: sortRules.trim() }
+  }
 
   const sendToRenderer = (channel: string, data: any) => {
     const wins = mainWindow ? [mainWindow] : BrowserWindow.getAllWindows()
@@ -577,10 +660,12 @@ export function registerInboxHandlers(
       const params: any[] = []
 
       if (filter === 'deleted') conditions.push('deleted = 1')
-      else if (filter === 'unread') {
-        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0')
+      else if (filter === 'pending_delete') {
+        conditions.push('deleted = 0', 'pending_delete = 1')
+      } else if (filter === 'unread') {
+        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)')
       } else if (filter === 'starred') {
-        conditions.push('deleted = 0', 'archived = 0', 'starred = 1')
+        conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)')
       } else if (filter === 'archived') {
         conditions.push('archived = 1', 'deleted = 0')
       } else {
@@ -852,38 +937,364 @@ export function registerInboxHandlers(
     }
   })
 
-  // ── AI (placeholders) ──
+  // ── AI (real LLM calls) ──
   ipcMain.handle('inbox:aiSummarize', async (_e, messageId: string) => {
     try {
-      return { ok: true, data: { summary: '[AI summary]' } }
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
+      if (!row) return { ok: false, error: 'Message not found' }
+
+      const available = await isOllamaAvailable()
+      if (!available) {
+        return { ok: true, data: { summary: 'Error: LLM not available. Check Ollama status.', error: true } }
+      }
+
+      const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+      const body = (row.body_text || '').trim().slice(0, 8000)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
+
+      const systemPrompt = 'You are an AI assistant for WR Desk inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
+      const summary = await callOllamaChat(systemPrompt, userPrompt)
+      return { ok: true, data: { summary } }
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? 'Summarize failed' }
+      const msg = err?.message ?? 'Summarize failed'
+      return { ok: true, data: { summary: `Error: ${msg}`, error: true } }
     }
   })
 
   ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string) => {
     try {
-      return { ok: true, data: { draft: '[AI draft]' } }
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
+      if (!row) return { ok: false, error: 'Message not found' }
+
+      const available = await isOllamaAvailable()
+      if (!available) {
+        return { ok: true, data: { draft: 'Error: LLM not available. Check Ollama status.', error: true } }
+      }
+
+      const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+      const body = (row.body_text || '').trim().slice(0, 8000)
+      const userPrompt = `Original email:\nFrom: ${sender}\nSubject: ${row.subject || '(No subject)'}\n\n${body}\n\nDraft a reply:`
+
+      const { tone } = getToneAndSortForPrompts(db)
+      const contextBlock = getContextBlockForPrompts(db)
+      let systemPrompt = 'You are an AI assistant for WR Desk inbox. Draft a professional reply to the following email. Keep it concise and actionable. Match the language of the original email.'
+      if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
+      if (contextBlock) systemPrompt += contextBlock
+      const draft = await callOllamaChat(systemPrompt, userPrompt)
+      return { ok: true, data: { draft } }
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? 'Draft failed' }
+      const msg = err?.message ?? 'Draft failed'
+      return { ok: true, data: { draft: `Error: ${msg}`, error: true } }
+    }
+  })
+
+  ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
+      if (!row) return { ok: false, error: 'Message not found' }
+
+      const available = await isOllamaAvailable()
+      if (!available) {
+        return { ok: true, data: { error: 'LLM not available. Check Ollama status.' } }
+      }
+
+      const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+      const body = (row.body_text || '').trim().slice(0, 8000)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
+
+      const { tone, sortRules } = getToneAndSortForPrompts(db)
+      const contextBlock = getContextBlockForPrompts(db)
+      let systemPrompt = `You are an email triage AI for WR Desk. Analyze the following email and respond with a JSON object only (no other text). Use these exact keys:
+- needsReply: boolean — true if the user should respond to this email
+- needsReplyReason: string — one sentence explaining why (e.g. "No — this is an automated notification" or "Yes — sender is asking for clarification")
+- summary: string — 2-3 sentence summary of the message
+- urgencyScore: number — 1-10 (1=low, 10=critical)
+- urgencyReason: string — one sentence explaining the urgency
+- actionItems: string[] — bullet list of extracted action items (empty array if none)
+- archiveRecommendation: "archive" | "keep" — whether to archive or keep in inbox
+- archiveReason: string — one sentence explaining the recommendation
+
+Return ONLY a valid JSON object, no markdown.`
+      if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
+      if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
+      if (contextBlock) systemPrompt += contextBlock
+
+      const raw = await callOllamaChat(systemPrompt, userPrompt)
+      let parsed: {
+        needsReply?: boolean
+        needsReplyReason?: string
+        summary?: string
+        urgencyScore?: number
+        urgencyReason?: string
+        actionItems?: string[]
+        archiveRecommendation?: string
+        archiveReason?: string
+      }
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/)
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}
+      } catch {
+        parsed = {}
+      }
+
+      const needsReply = !!parsed.needsReply
+      const needsReplyReason = (parsed.needsReplyReason ?? '').slice(0, 300)
+      const summary = (parsed.summary ?? '').slice(0, 1000)
+      const urgencyScore = typeof parsed.urgencyScore === 'number' ? Math.max(1, Math.min(10, parsed.urgencyScore)) : 5
+      const urgencyReason = (parsed.urgencyReason ?? '').slice(0, 300)
+      const actionItems = Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : []
+      const archiveRecommendation = parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep'
+      const archiveReason = (parsed.archiveReason ?? '').slice(0, 300)
+
+      return {
+        ok: true,
+        data: {
+          needsReply,
+          needsReplyReason,
+          summary,
+          urgencyScore,
+          urgencyReason,
+          actionItems,
+          archiveRecommendation,
+          archiveReason,
+        },
+      }
+    } catch (err: any) {
+      console.error('[Inbox IPC] aiAnalyzeMessage error:', err)
+      return { ok: false, error: err?.message ?? 'Analyze failed' }
     }
   })
 
   ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {
+    const ids = messageIds ?? []
+    if (ids.length === 0) return { ok: true, data: { classifications: [] } }
     try {
-      const count = messageIds?.length ?? 0
-      return { ok: true, data: { categorized: count } }
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+
+      const available = await isOllamaAvailable()
+      if (!available) {
+        return { ok: true, data: { classifications: [], error: 'LLM not available. Check Ollama status.' } }
+      }
+
+      const messages: Array<{ id: string; from: string; subject: string; body_preview: string }> = []
+      for (const id of ids) {
+        const row = db.prepare('SELECT id, from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(id) as { id: string; from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
+        if (!row) continue
+        const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+        const body = (row.body_text || '').trim().slice(0, 500)
+        messages.push({ id: row.id, from, subject: row.subject || '(No subject)', body_preview: body })
+      }
+
+      if (messages.length === 0) return { ok: true, data: { classifications: [] } }
+
+      const { sortRules } = getToneAndSortForPrompts(db)
+      const contextBlock = getContextBlockForPrompts(db)
+      let systemPrompt = `You are an email triage AI. For each email below, respond with a JSON array only. Each entry must have:
+- id: the message id (exact string from input)
+- category: one of 'urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'
+- reason: one sentence explaining why (e.g. 'Invoice pending payment due in 3 days')
+- needs_reply: boolean
+- urgency_score: number 1-10
+
+Classify 'spam' or 'irrelevant' for: marketing newsletters the user didn't subscribe to, automated notifications with no action needed, obvious spam.
+Classify 'urgent' for: invoices, deadlines, time-sensitive requests, security alerts.
+Return ONLY a valid JSON array, no other text.`
+      if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
+      if (contextBlock) systemPrompt += contextBlock
+
+      const userPrompt = JSON.stringify(messages)
+
+      const raw = await callOllamaChat(systemPrompt, userPrompt)
+      let parsed: Array<{ id?: string; category?: string; reason?: string; needs_reply?: boolean; urgency_score?: number }>
+      try {
+        const jsonMatch = raw.match(/\[[\s\S]*\]/)
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+      } catch {
+        parsed = []
+      }
+
+      const classifications: Array<{ id: string; category: string; reason: string; needs_reply: boolean; urgency_score: number; pending_delete: boolean }> = []
+      const now = new Date().toISOString()
+
+      for (const p of parsed) {
+        const id = p.id ?? ''
+        if (!ids.includes(id)) continue
+        const category = (p.category ?? 'normal').toLowerCase()
+        const validCategory = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant'].includes(category) ? category : 'normal'
+        const reason = (p.reason ?? '').slice(0, 200)
+        const needsReply = !!p.needs_reply
+        const urgencyScore = typeof p.urgency_score === 'number' ? Math.max(1, Math.min(10, p.urgency_score)) : 5
+        const pendingDelete = validCategory === 'spam' || validCategory === 'irrelevant'
+
+        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ? WHERE id = ?').run(validCategory, reason || null, id)
+        if (pendingDelete) {
+          db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?').run(now, id)
+        }
+
+        classifications.push({ id, category: validCategory, reason, needs_reply: needsReply, urgency_score: urgencyScore, pending_delete: pendingDelete })
+      }
+
+      return { ok: true, data: { classifications } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Categorize failed' }
     }
   })
 
-  // ── Periodic: execute pending deletions every 5 minutes ──
+  ipcMain.handle('inbox:cancelPendingDelete', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      db.prepare('UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL WHERE id = ?').run(messageId)
+      return { ok: true, data: { cancelled: true } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Cancel failed' }
+    }
+  })
+
+  // ── Inbox AI Settings ──
+  ipcMain.handle('inbox:getInboxSettings', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const tone = getInboxSetting(db, 'inbox_ai_tone') ?? ''
+      const sortRules = getInboxSetting(db, 'inbox_ai_sort_rules') ?? ''
+      const contextDocs = getInboxSetting(db, 'inbox_ai_context_docs') ?? []
+      const batchSize = getInboxSetting(db, 'inbox_batch_size')
+      const batchSizeNum = typeof batchSize === 'number' ? batchSize : (typeof batchSize === 'string' ? parseInt(batchSize, 10) : 10)
+      const validBatch = [10, 12, 24, 48].includes(batchSizeNum) ? batchSizeNum : 10
+      return {
+        ok: true,
+        data: {
+          tone: typeof tone === 'string' ? tone : '',
+          sortRules: typeof sortRules === 'string' ? sortRules : '',
+          contextDocs: Array.isArray(contextDocs) ? contextDocs : [],
+          batchSize: validBatch,
+        },
+      }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Get settings failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:setInboxSettings', async (_e, partial: { tone?: string; sortRules?: string; batchSize?: number }) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      if (partial.tone !== undefined) setInboxSetting(db, 'inbox_ai_tone', partial.tone)
+      if (partial.sortRules !== undefined) setInboxSetting(db, 'inbox_ai_sort_rules', partial.sortRules)
+      if (partial.batchSize !== undefined && [10, 12, 24, 48].includes(partial.batchSize)) {
+        setInboxSetting(db, 'inbox_batch_size', partial.batchSize)
+      }
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Set settings failed' }
+    }
+  })
+
+  function getInboxAiContextDir(): string {
+    return path.join(app.getPath('userData'), 'inbox-ai-context')
+  }
+
+  ipcMain.handle('inbox:selectAndUploadContextDoc', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const docs = (getInboxSetting(db, 'inbox_ai_context_docs') ?? []) as Array<{ id: string; name: string; size: number; extractedText: string }>
+      if (docs.length >= 5) return { ok: false, error: 'Maximum 5 context documents allowed' }
+
+      const result = await dialog.showOpenDialog(mainWindow ?? null, {
+        title: 'Select PDF for Business Context',
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        properties: ['openFile'],
+      })
+      if (result.canceled || !result.filePaths?.length) return { ok: true, data: { skipped: true } }
+
+      const filePath = result.filePaths[0]
+      const buffer = fs.readFileSync(filePath)
+      if (!isPdfFile('application/pdf', filePath)) return { ok: false, error: 'File is not a valid PDF' }
+
+      const extracted = await extractPdfText(buffer)
+      const text = extracted.success ? (extracted.text || '').trim() : ''
+      const name = path.basename(filePath)
+      const size = buffer.length
+      const id = `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+      const dir = getInboxAiContextDir()
+      fs.mkdirSync(dir, { recursive: true })
+      const destPath = path.join(dir, `${id}.pdf`)
+      fs.copyFileSync(filePath, destPath)
+
+      const newDoc = { id, name, size, extractedText: text }
+      docs.push(newDoc)
+      setInboxSetting(db, 'inbox_ai_context_docs', docs)
+
+      return { ok: true, data: { doc: newDoc, docs } }
+    } catch (err: any) {
+      console.error('[Inbox IPC] selectAndUploadContextDoc error:', err)
+      return { ok: false, error: err?.message ?? 'Upload failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:deleteContextDoc', async (_e, docId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const docs = (getInboxSetting(db, 'inbox_ai_context_docs') ?? []) as Array<{ id: string; name: string; size: number; extractedText: string }>
+      const filtered = docs.filter((d) => d.id !== docId)
+      if (filtered.length === docs.length) return { ok: false, error: 'Document not found' }
+      setInboxSetting(db, 'inbox_ai_context_docs', filtered)
+      const filePath = path.join(getInboxAiContextDir(), `${docId}.pdf`)
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, data: { docs: filtered } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Delete failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:listContextDocs', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const docs = (getInboxSetting(db, 'inbox_ai_context_docs') ?? []) as Array<{ id: string; name: string; size: number; extractedText: string }>
+      return { ok: true, data: docs.map((d) => ({ id: d.id, name: d.name, size: d.size })) }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'List failed' }
+    }
+  })
+
+  // ── Periodic: execute pending deletions every 5 minutes; process 7-day pending_delete → queue ──
   let deletionInterval: ReturnType<typeof setInterval> | null = null
   deletionInterval = setInterval(async () => {
     try {
       const db = await resolveDb()
-      if (db) await executePendingDeletions(db)
+      if (!db) return
+      await executePendingDeletions(db)
+      const sevenDaysAgo = new Date()
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+      const cutoff = sevenDaysAgo.toISOString()
+      const rows = db.prepare(
+        `SELECT m.id FROM inbox_messages m
+         WHERE m.pending_delete = 1 AND m.pending_delete_at <= ?
+         AND NOT EXISTS (SELECT 1 FROM deletion_queue dq WHERE dq.message_id = m.id AND dq.executed = 0 AND dq.cancelled = 0)`
+      ).all(cutoff) as Array<{ id: string }>
+      for (const r of rows) {
+        try {
+          queueRemoteDeletion(db, r.id, 0)
+        } catch (e: any) {
+          console.error('[Inbox IPC] queueRemoteDeletion for pending_delete:', e?.message)
+        }
+      }
     } catch (err: any) {
       console.error('[Inbox IPC] executePendingDeletions error:', err?.message)
     }

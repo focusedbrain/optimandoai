@@ -688,6 +688,27 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_deletion_queue_grace_exec_cancel ON deletion_queue(grace_period_ends, executed, cancelled)`,
     ],
   },
+  {
+    version: 30,
+    description: 'Schema v30: AI Auto-Sort — pending_delete, pending_delete_at, sort_reason',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN pending_delete INTEGER DEFAULT 0`,
+      `ALTER TABLE inbox_messages ADD COLUMN pending_delete_at TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN sort_reason TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_inbox_messages_pending_delete ON inbox_messages(pending_delete)`,
+    ],
+  },
+  {
+    version: 31,
+    description: 'Schema v31: Inbox AI settings — inbox_settings key-value table',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS inbox_settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL DEFAULT 'null',
+        updated_at INTEGER NOT NULL DEFAULT 0
+      )`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

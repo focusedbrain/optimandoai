@@ -5,9 +5,10 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import EmailMessageDetail from './EmailMessageDetail'
+import EmailComposeOverlay from './EmailComposeOverlay'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
@@ -32,60 +33,392 @@ function formatRelativeDate(isoString: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
 }
 
-// ── InboxDetailAiPanel (right column: AI output or empty state) ──
+// ── InboxDetailAiPanel (right column: multi-section AI dashboard) ──
 
-function InboxDetailAiPanel({ messageId }: { messageId: string }) {
-  const [aiOutput, setAiOutput] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+type AiAnalysis = {
+  needsReply: boolean
+  needsReplyReason: string
+  summary: string
+  urgencyScore: number
+  urgencyReason: string
+  actionItems: string[]
+  archiveRecommendation: 'archive' | 'keep'
+  archiveReason: string
+}
+
+interface InboxDetailAiPanelProps {
+  messageId: string
+  message: InboxMessage | null
+  onSendDraft?: (draft: string, message: InboxMessage) => void
+  onArchive?: (messageIds: string[]) => void
+}
+
+function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive }: InboxDetailAiPanelProps) {
+  const [analysis, setAnalysis] = useState<AiAnalysis | null>(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState(false)
+  const [draft, setDraft] = useState<string | null>(null)
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [draftError, setDraftError] = useState(false)
+  const [isEditingDraft, setIsEditingDraft] = useState(false)
+  const [editedDraft, setEditedDraft] = useState('')
+  const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    responseNeeded: true,
+    summary: true,
+    urgency: true,
+    draftReply: true,
+    actionItems: true,
+    archive: true,
+  })
+  const summaryRef = useRef<HTMLDivElement>(null)
+  const draftRef = useRef<HTMLDivElement>(null)
+
+  const toggleSection = useCallback((key: string) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  }, [])
+
+  const runAnalysis = useCallback(async () => {
+    if (!window.emailInbox?.aiAnalyzeMessage) return
+    setAnalysisLoading(true)
+    setAnalysis(null)
+    setAnalysisError(false)
+    try {
+      const res = await window.emailInbox.aiAnalyzeMessage(messageId)
+      if (res.ok && res.data && !(res.data as { error?: string }).error) {
+        setAnalysis({
+          needsReply: res.data.needsReply,
+          needsReplyReason: res.data.needsReplyReason ?? '',
+          summary: res.data.summary ?? '',
+          urgencyScore: res.data.urgencyScore ?? 5,
+          urgencyReason: res.data.urgencyReason ?? '',
+          actionItems: res.data.actionItems ?? [],
+          archiveRecommendation: res.data.archiveRecommendation ?? 'keep',
+          archiveReason: res.data.archiveReason ?? '',
+        })
+      } else {
+        setAnalysisError(true)
+      }
+    } catch {
+      setAnalysisError(true)
+    } finally {
+      setAnalysisLoading(false)
+    }
+  }, [messageId])
+
+  useEffect(() => {
+    if (!messageId) return
+    setAnalysis(null)
+    setDraft(null)
+    setActionChecked({})
+    runAnalysis()
+  }, [messageId, runAnalysis])
 
   const handleSummarize = useCallback(async () => {
     if (!window.emailInbox?.aiSummarize) return
-    setLoading(true)
-    setAiOutput(null)
+    setAnalysisLoading(true)
+    setAnalysisError(false)
     try {
       const res = await window.emailInbox.aiSummarize(messageId)
-      if (res.ok && res.data?.summary) setAiOutput(res.data.summary)
+      if (res.ok && res.data?.summary) {
+        setAnalysis((prev) =>
+          prev ? { ...prev, summary: res.data!.summary } : {
+            needsReply: false,
+            needsReplyReason: '',
+            summary: res.data!.summary,
+            urgencyScore: 5,
+            urgencyReason: '',
+            actionItems: [],
+            archiveRecommendation: 'keep',
+            archiveReason: '',
+          }
+        )
+      }
+    } catch {
+      setAnalysisError(true)
     } finally {
-      setLoading(false)
+      setAnalysisLoading(false)
     }
+    summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setExpandedSections((prev) => ({ ...prev, summary: true }))
   }, [messageId])
 
   const handleDraftReply = useCallback(async () => {
     if (!window.emailInbox?.aiDraftReply) return
-    setLoading(true)
-    setAiOutput(null)
+    setDraftLoading(true)
+    setDraft(null)
+    setDraftError(false)
+    setIsEditingDraft(false)
     try {
       const res = await window.emailInbox.aiDraftReply(messageId)
-      if (res.ok && res.data?.draft) setAiOutput(res.data.draft)
+      if (res.ok && res.data?.draft) {
+        setDraft(res.data.draft)
+        setEditedDraft(res.data.draft)
+        setDraftError(!!(res.data as { error?: boolean }).error)
+      } else {
+        setDraftError(true)
+      }
+    } catch {
+      setDraftError(true)
     } finally {
-      setLoading(false)
+      setDraftLoading(false)
     }
+    draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setExpandedSections((prev) => ({ ...prev, draftReply: true }))
   }, [messageId])
 
-  const isEmpty = !aiOutput && !loading
+  const handleRegenerateDraft = useCallback(() => {
+    handleDraftReply()
+  }, [handleDraftReply])
+
+  const handleSend = useCallback(() => {
+    if (!message || !onSendDraft) return
+    const draftToSend = isEditingDraft ? editedDraft : (draft ?? '')
+    if (draftToSend.trim()) onSendDraft(draftToSend, message)
+  }, [message, onSendDraft, isEditingDraft, editedDraft, draft])
+
+  const handleArchive = useCallback(() => {
+    if (onArchive && messageId) onArchive([messageId])
+  }, [onArchive, messageId])
+
+  const toggleActionChecked = useCallback((idx: number) => {
+    setActionChecked((prev) => ({ ...prev, [idx]: !prev[idx] }))
+  }, [])
+
+  const isDepackaged = message?.source_type === 'email_plain'
+
+  const urgencyColor = analysis
+    ? analysis.urgencyScore <= 3
+      ? '#22c55e'
+      : analysis.urgencyScore <= 6
+        ? '#eab308'
+        : '#ef4444'
+    : 'var(--color-text-muted, #94a3b8)'
 
   return (
-    <div className="inbox-detail-ai-inner">
+    <div className="inbox-detail-ai-inner inbox-detail-ai-dashboard">
       <div className="inbox-detail-ai-actions">
-        <button type="button" onClick={handleSummarize} disabled={loading}>
+        <button type="button" onClick={handleSummarize} disabled={analysisLoading || draftLoading}>
           Summarize
         </button>
-        <button type="button" onClick={handleDraftReply} disabled={loading}>
+        <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
           Draft Reply
         </button>
       </div>
-      <div className="inbox-detail-ai-output">
-        {loading ? (
-          <div className="inbox-detail-ai-loading">Loading…</div>
-        ) : isEmpty ? (
-          <div className="inbox-detail-ai-empty">
-            <span className="inbox-detail-ai-empty-icon">✨</span>
-            <p>Summarize, draft reply, or augment this message.</p>
-            <p className="inbox-detail-ai-empty-hint">Use the buttons above to get started.</p>
+      <div className="inbox-detail-ai-scroll">
+        {analysisError && (
+          <div className="inbox-detail-ai-error">
+            AI returned an error. Check Ollama status.
           </div>
-        ) : (
-          <div className="inbox-detail-ai-content">{aiOutput}</div>
         )}
+
+        {/* Response Needed? */}
+        <div className="inbox-detail-ai-section">
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('responseNeeded')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.responseNeeded ? '▼' : '▶'}</span>
+            Response Needed?
+          </button>
+          {expandedSections.responseNeeded && (
+            <div className="inbox-detail-ai-section-content">
+              {analysisLoading && !analysis ? (
+                <div className="inbox-detail-ai-skeleton" />
+              ) : analysis ? (
+                <div className="inbox-detail-ai-response-needed">
+                  <span
+                    className="inbox-detail-ai-dot"
+                    style={{ background: analysis.needsReply ? '#ef4444' : '#22c55e' }}
+                  />
+                  <span>
+                    {analysis.needsReply ? 'Yes' : 'No'} — {analysis.needsReplyReason || '—'}
+                  </span>
+                </div>
+              ) : (
+                <span className="inbox-detail-ai-muted">—</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Summary */}
+        <div className="inbox-detail-ai-section" ref={summaryRef}>
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('summary')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.summary ? '▼' : '▶'}</span>
+            Summary
+          </button>
+          {expandedSections.summary && (
+            <div className="inbox-detail-ai-section-content">
+              {analysisLoading && !analysis ? (
+                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
+              ) : analysis?.summary ? (
+                <div className="inbox-detail-ai-content">{analysis.summary}</div>
+              ) : (
+                <span className="inbox-detail-ai-muted">—</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Urgency Score */}
+        <div className="inbox-detail-ai-section">
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('urgency')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.urgency ? '▼' : '▶'}</span>
+            Urgency Score
+          </button>
+          {expandedSections.urgency && (
+            <div className="inbox-detail-ai-section-content">
+              {analysisLoading && !analysis ? (
+                <div className="inbox-detail-ai-skeleton" />
+              ) : analysis ? (
+                <>
+                  <div className="inbox-detail-ai-urgency-bar">
+                    <div
+                      className="inbox-detail-ai-urgency-fill"
+                      style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }}
+                    />
+                  </div>
+                  <div className="inbox-detail-ai-urgency-label">
+                    {analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}
+                  </div>
+                </>
+              ) : (
+                <span className="inbox-detail-ai-muted">—</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Draft Reply */}
+        <div className="inbox-detail-ai-section" ref={draftRef}>
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('draftReply')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.draftReply ? '▼' : '▶'}</span>
+            Draft Reply
+          </button>
+          {expandedSections.draftReply && (
+            <div className="inbox-detail-ai-section-content">
+              {draftLoading ? (
+                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
+              ) : draft ? (
+                <>
+                  {draftError && (
+                    <div className="inbox-detail-ai-error-small">AI returned an error.</div>
+                  )}
+                  {isEditingDraft ? (
+                    <textarea
+                      value={editedDraft}
+                      onChange={(e) => setEditedDraft(e.target.value)}
+                      className="inbox-detail-ai-draft-textarea"
+                    />
+                  ) : (
+                    <div className="inbox-detail-ai-content">{draft}</div>
+                  )}
+                  <div className="inbox-detail-ai-draft-actions">
+                    <button type="button" className="inbox-detail-ai-btn-secondary" onClick={() => setIsEditingDraft((e) => !e)}>
+                      {isEditingDraft ? 'Preview' : 'Edit'}
+                    </button>
+                    <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>
+                      Regenerate
+                    </button>
+                    {message && onSendDraft && (
+                      <button
+                        type="button"
+                        className="inbox-detail-ai-btn-primary"
+                        onClick={handleSend}
+                      >
+                        {isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <span className="inbox-detail-ai-muted">Click &quot;Draft Reply&quot; to generate.</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action Items */}
+        <div className="inbox-detail-ai-section">
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('actionItems')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.actionItems ? '▼' : '▶'}</span>
+            Action Items
+          </button>
+          {expandedSections.actionItems && (
+            <div className="inbox-detail-ai-section-content">
+              {analysisLoading && !analysis ? (
+                <div className="inbox-detail-ai-skeleton inbox-detail-ai-skeleton-lines" />
+              ) : analysis?.actionItems?.length ? (
+                <ul className="inbox-detail-ai-action-list">
+                  {analysis.actionItems.map((item, idx) => (
+                    <li key={idx} className="inbox-detail-ai-action-item">
+                      <input
+                        type="checkbox"
+                        checked={!!actionChecked[idx]}
+                        onChange={() => toggleActionChecked(idx)}
+                      />
+                      <span style={{ textDecoration: actionChecked[idx] ? 'line-through' : undefined }}>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="inbox-detail-ai-muted">No action items.</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Archive Recommendation */}
+        <div className="inbox-detail-ai-section">
+          <button
+            type="button"
+            className="inbox-detail-ai-section-header"
+            onClick={() => toggleSection('archive')}
+          >
+            <span className="inbox-detail-ai-section-chevron">{expandedSections.archive ? '▼' : '▶'}</span>
+            Archive Recommendation
+          </button>
+          {expandedSections.archive && (
+            <div className="inbox-detail-ai-section-content">
+              {analysisLoading && !analysis ? (
+                <div className="inbox-detail-ai-skeleton" />
+              ) : analysis ? (
+                <>
+                  <div className="inbox-detail-ai-archive-text">
+                    {analysis.archiveRecommendation === 'archive'
+                      ? `Recommended: Archive — ${analysis.archiveReason || '—'}`
+                      : `Keep in inbox — ${analysis.archiveReason || '—'}`}
+                  </div>
+                  {analysis.archiveRecommendation === 'archive' && onArchive && (
+                    <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>
+                      Archive now
+                    </button>
+                  )}
+                </>
+              ) : (
+                <span className="inbox-detail-ai-muted">—</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -322,6 +655,10 @@ export default function EmailInboxView({
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
+  const [showEmailCompose, setShowEmailCompose] = useState(false)
+  const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
+  const [replyDraftBody, setReplyDraftBody] = useState<string>('')
+  const composeClickRef = useRef<number>(0)
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -440,6 +777,54 @@ export default function EmailInboxView({
     })
     return () => unsub?.()
   }, [fetchMessages])
+
+  const handleComposeClick = useCallback((fn: () => void) => {
+    const now = Date.now()
+    if (now - composeClickRef.current < 600) return
+    composeClickRef.current = now
+    fn()
+  }, [])
+
+  const handleOpenEmailCompose = useCallback(() => {
+    if (typeof window.analysisDashboard?.openEmailCompose === 'function') {
+      window.analysisDashboard.openEmailCompose()
+    } else {
+      setReplyToMessage(null)
+      setReplyDraftBody('')
+      setShowEmailCompose(true)
+    }
+  }, [])
+
+  const handleOpenBeapDraft = useCallback(() => {
+    if (typeof window.analysisDashboard?.openBeapDraft === 'function') {
+      window.analysisDashboard.openBeapDraft()
+    }
+  }, [])
+
+  const handleReply = useCallback((msg: InboxMessage) => {
+    const isDepackaged = msg.source_type === 'email_plain'
+    if (isDepackaged) {
+      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
+      setReplyToMessage({ ...msg, subject })
+      setReplyDraftBody('')
+      setShowEmailCompose(true)
+    } else {
+      window.analysisDashboard?.openBeapDraft?.()
+    }
+  }, [])
+
+  const handleSendDraft = useCallback((draft: string, msg: InboxMessage) => {
+    const isDepackaged = msg.source_type === 'email_plain'
+    if (isDepackaged) {
+      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
+      setReplyToMessage({ ...msg, subject })
+      setReplyDraftBody(draft)
+      setShowEmailCompose(true)
+    } else {
+      navigator.clipboard?.writeText(draft).catch(() => {})
+      window.analysisDashboard?.openBeapDraft?.()
+    }
+  }, [])
 
   const gridCols = selectedMessageId ? '320px 1fr' : '320px 1fr 320px'
 
@@ -635,10 +1020,16 @@ export default function EmailInboxView({
             <EmailMessageDetail
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
+              onReply={handleReply}
             />
           </div>
           <div className="inbox-detail-ai">
-            <InboxDetailAiPanel messageId={selectedMessageId} />
+            <InboxDetailAiPanel
+              messageId={selectedMessageId}
+              message={selectedMessage}
+              onSendDraft={handleSendDraft}
+              onArchive={archiveMessages}
+            />
           </div>
         </div>
       )}
@@ -652,6 +1043,116 @@ export default function EmailInboxView({
         }}
         theme="dark"
       />
+
+      {/* Compose buttons — floating bottom-right */}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          zIndex: 100,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => handleComposeClick(handleOpenEmailCompose)}
+          title="New Email"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '10px 14px',
+            borderRadius: 24,
+            background: '#2563eb',
+            color: '#fff',
+            border: 'none',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+          }}
+        >
+          ✉️+
+        </button>
+        <button
+          type="button"
+          onClick={() => handleComposeClick(handleOpenBeapDraft)}
+          title="New BEAP™ Message"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '10px 18px',
+            borderRadius: 24,
+            background: '#7c3aed',
+            color: '#fff',
+            border: 'none',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(124,58,237,0.3)',
+          }}
+        >
+          + BEAP
+        </button>
+      </div>
+
+      {/* Inline email compose overlay (fallback when analysisDashboard.openEmailCompose not available) */}
+      {showEmailCompose && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 200,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setShowEmailCompose(false)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              background: 'var(--color-bg, #0f172a)',
+              borderRadius: 12,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <EmailComposeOverlay
+              theme="default"
+              onClose={() => {
+                setShowEmailCompose(false)
+                setReplyToMessage(null)
+                setReplyDraftBody('')
+              }}
+              onSent={() => {
+                setShowEmailCompose(false)
+                setReplyToMessage(null)
+                setReplyDraftBody('')
+                fetchMessages()
+              }}
+              replyTo={
+                replyToMessage
+                  ? {
+                      to: replyToMessage.from_address ?? undefined,
+                      subject: replyToMessage.subject ?? undefined,
+                      body: replyDraftBody || undefined,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

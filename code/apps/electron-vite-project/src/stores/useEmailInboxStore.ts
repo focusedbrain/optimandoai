@@ -56,13 +56,16 @@ export interface InboxMessage {
   purge_after: string | null
   remote_deleted: number | null
   sort_category: string | null
+  sort_reason: string | null
+  pending_delete: number
+  pending_delete_at: string | null
   ai_summary: string | null
   ai_draft_response: string | null
   attachments?: InboxAttachment[]
 }
 
 export interface InboxFilter {
-  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived'
+  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete'
   sourceType: InboxSourceType | 'all'
   handshakeId?: string
   category?: string
@@ -98,6 +101,8 @@ interface EmailInboxState {
   setFilter: (partial: Partial<InboxFilter>) => void
   setBulkMode: (enabled: boolean) => void
   setBulkPage: (page: number) => void
+  setBulkBatchSize: (size: number) => void
+  syncBulkBatchSizeFromSettings: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
   archiveMessages: (ids: string[]) => Promise<void>
@@ -137,7 +142,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   filter: DEFAULT_FILTER,
   bulkMode: false,
   bulkPage: 0,
-  bulkBatchSize: 10,
+  bulkBatchSize: (() => {
+    try {
+      const s = localStorage?.getItem('wrdesk_bulkBatchSize')
+      const n = s ? parseInt(s, 10) : 10
+      return [10, 12, 24, 48].includes(n) ? n : 10
+    } catch {
+      return 10
+    }
+  })(),
   autoSyncEnabled: false,
   syncing: false,
   lastSyncAt: null,
@@ -250,6 +263,40 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   setBulkPage: (page) => {
     set({ bulkPage: page })
     get().fetchMessages()
+  },
+
+  setBulkBatchSize: (size) => {
+    if (![10, 12, 24, 48].includes(size)) return
+    set({ bulkBatchSize: size, bulkPage: 0 })
+    try {
+      localStorage?.setItem('wrdesk_bulkBatchSize', String(size))
+      const bridge = getBridge()
+      if (bridge?.setInboxSettings) bridge.setInboxSettings({ batchSize: size })
+    } catch {
+      /* ignore */
+    }
+    get().fetchMessages()
+  },
+
+  syncBulkBatchSizeFromSettings: async () => {
+    const bridge = getBridge()
+    if (!bridge?.getInboxSettings) return
+    try {
+      const res = await bridge.getInboxSettings()
+      if (res?.ok && res?.data?.batchSize != null) {
+        const n = res.data.batchSize
+        if ([10, 12, 24, 48].includes(n)) {
+          set({ bulkBatchSize: n })
+          try {
+            localStorage?.setItem('wrdesk_bulkBatchSize', String(n))
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
   },
 
   markRead: async (ids, read) => {

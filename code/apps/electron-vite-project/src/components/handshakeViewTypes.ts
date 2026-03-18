@@ -102,5 +102,25 @@ export interface EmailInboxBridge {
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
+  aiAnalyzeMessage: (id: string) => Promise<{
+    ok: boolean
+    data?: {
+      needsReply: boolean
+      needsReplyReason: string
+      summary: string
+      urgencyScore: number
+      urgencyReason: string
+      actionItems: string[]
+      archiveRecommendation: 'archive' | 'keep'
+      archiveReason: string
+    }
+    error?: string
+  }>
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { categorized: number }; error?: string }>
+  cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
+  getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number }; error?: string }>
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => Promise<{ ok: boolean; error?: string }>
+  selectAndUploadContextDoc: () => Promise<{ ok: boolean; data?: { skipped?: boolean; doc?: unknown; docs?: unknown[] }; error?: string }>
+  deleteContextDoc: (docId: string) => Promise<{ ok: boolean; data?: { docs: unknown[] }; error?: string }>
+  listContextDocs: () => Promise<{ ok: boolean; data?: Array<{ id: string; name: string; size: number }>; error?: string }>
 }

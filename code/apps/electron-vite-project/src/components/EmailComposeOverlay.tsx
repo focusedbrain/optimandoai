@@ -7,16 +7,25 @@ import { useState, useRef, useEffect } from 'react'
 
 const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
 
+export interface ReplyToPrefill {
+  to?: string
+  subject?: string
+  body?: string
+}
+
 interface EmailComposeOverlayProps {
   theme?: 'professional' | 'default'
   onClose: () => void
   onSent?: () => void
+  /** Pre-fill To, Subject, Body when replying to a message */
+  replyTo?: ReplyToPrefill
 }
 
 export default function EmailComposeOverlay({
   theme = 'professional',
   onClose,
   onSent,
+  replyTo,
 }: EmailComposeOverlayProps) {
   const isProfessional = theme === 'professional'
   const textColor = isProfessional ? '#0f172a' : 'white'
@@ -24,9 +33,9 @@ export default function EmailComposeOverlay({
   const borderColor = isProfessional ? 'rgba(15,23,42,0.1)' : 'rgba(255,255,255,0.1)'
   const inputBg = isProfessional ? 'white' : 'rgba(255,255,255,0.08)'
 
-  const [to, setTo] = useState('')
-  const [subject, setSubject] = useState('')
-  const [body, setBody] = useState('')
+  const [to, setTo] = useState(replyTo?.to ?? '')
+  const [subject, setSubject] = useState(replyTo?.subject ?? '')
+  const [body, setBody] = useState(replyTo?.body ?? '')
   const [attachments, setAttachments] = useState<File[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: string }>>([])
@@ -34,6 +43,14 @@ export default function EmailComposeOverlay({
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (replyTo) {
+      setTo(replyTo.to ?? '')
+      setSubject(replyTo.subject ?? '')
+      setBody(replyTo.body ?? '')
+    }
+  }, [replyTo])
 
   useEffect(() => {
     const load = async () => {

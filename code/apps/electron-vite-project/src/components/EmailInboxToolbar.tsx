@@ -26,7 +26,15 @@ export interface EmailInboxToolbarProps {
 
 // ── Filter tabs ──
 
-const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'deleted'] as const
+const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'deleted'] as const
+const FILTER_LABELS: Record<string, string> = {
+  all: 'All',
+  unread: 'Unread',
+  starred: 'Starred',
+  archived: 'Archived',
+  pending_delete: 'Pending Delete',
+  deleted: 'Deleted',
+}
 
 // ── Source type tabs ──
 
@@ -132,7 +140,7 @@ export default function EmailInboxToolbar({
                 textTransform: 'capitalize',
               }}
             >
-              {tab}
+              {FILTER_LABELS[tab] ?? tab}
             </button>
           )
         })}

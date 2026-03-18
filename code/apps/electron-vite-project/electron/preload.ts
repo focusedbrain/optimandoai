@@ -507,7 +507,14 @@ contextBridge.exposeInMainWorld('emailInbox', {
   openAttachmentOriginal: (id: string) => ipcRenderer.invoke('inbox:openAttachmentOriginal', id),
   aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
   aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
+  aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
+  cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
+  getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
+  selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),
+  deleteContextDoc: (docId: string) => ipcRenderer.invoke('inbox:deleteContextDoc', docId),
+  listContextDocs: () => ipcRenderer.invoke('inbox:listContextDocs'),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

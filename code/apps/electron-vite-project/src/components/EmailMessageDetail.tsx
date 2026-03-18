@@ -16,6 +16,8 @@ export interface EmailMessageDetailProps {
   selectedAttachmentId?: string | null
   /** When provided, called when user selects/deselects an attachment (for HybridSearch scope) */
   onSelectAttachment?: (attachmentId: string | null) => void
+  /** When provided, called when user clicks Reply — routes depackaged → EmailComposeOverlay, BEAP → openBeapDraft */
+  onReply?: (message: InboxMessage) => void
 }
 
 // ── Helpers ──
@@ -80,7 +82,7 @@ function renderDepackagedJson(jsonStr: string | null): React.ReactNode {
   }
 }
 
-export default function EmailMessageDetail({ message, selectedAttachmentId: selectedAttachmentIdProp, onSelectAttachment }: EmailMessageDetailProps) {
+export default function EmailMessageDetail({ message, selectedAttachmentId: selectedAttachmentIdProp, onSelectAttachment, onReply }: EmailMessageDetailProps) {
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const {
@@ -115,6 +117,10 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const handleCancelDeletion = useCallback(() => {
     cancelDeletion(message.id)
   }, [message.id, cancelDeletion])
+
+  const handleReply = useCallback(() => {
+    onReply?.(message)
+  }, [message, onReply])
 
   const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
   const handleLinkConfirm = useCallback(() => {
@@ -252,24 +258,25 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               >
                 Delete
               </button>
-              <button
-                type="button"
-                disabled
-                title="Reply (coming soon)"
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 6,
-                  color: 'var(--color-text-muted, #64748b)',
-                  cursor: 'not-allowed',
-                  opacity: 0.7,
-                }}
-              >
-                Reply
-              </button>
+              {onReply && (
+                <button
+                  type="button"
+                  onClick={handleReply}
+                  title={isBeap ? 'Reply with BEAP' : 'Reply with email'}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: 'rgba(139,92,246,0.15)',
+                    border: '1px solid rgba(139,92,246,0.3)',
+                    borderRadius: 6,
+                    color: '#a78bfa',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reply
+                </button>
+              )}
             </div>
           </div>
         </div>
