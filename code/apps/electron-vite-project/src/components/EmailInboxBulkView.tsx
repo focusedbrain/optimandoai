@@ -713,6 +713,7 @@ export default function EmailInboxBulkView({
       bulkSessionPendingDelete,
     addPendingDeletePreview,
     addArchivePreview,
+    addPendingReviewPreview,
     keepDuringPreview,
     keepDuringArchivePreview,
     setPendingDeleteToast,
