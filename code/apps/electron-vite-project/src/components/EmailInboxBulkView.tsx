@@ -632,88 +632,93 @@ function BulkActionCardStructured({
             </div>
           </div>
         </div>
-        {/* Draft region — full main content space when draft exists */}
+        {/* Draft — rebuilt flex subtree (editor fills height; actions pinned below) */}
         {output.draftReply != null && output.draftReply !== '' && (
-          <div className="bulk-action-card-draft-region">
-          <div
-            className={`bulk-action-card-row bulk-action-card-row-draft bulk-action-card-draft-block${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}${isDraftSubFocused ? ' bulk-action-card-row-draft--subfocused' : ''}`}
-            ref={draftRef}
-            data-subfocus="draft"
-            onClick={(e) => {
-              if ((e.target as HTMLElement).closest('button')) return
-              if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-              useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-              handleDraftRefineConnect()
-            }}
-          >
-            <div className="bulk-action-card-draft-header">
-              {isDraftSubFocused && (
-                <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>✏️</span>
-              )}
-              <span className="bulk-action-card-row-label">DRAFT REPLY</span>
-              {draftExpanded && (
-                <span className="bulk-action-card-connect-hint">click to refine with AI ↑</span>
-              )}
-            </div>
-            <div className="bulk-action-card-row-value">
-              {isConnected && (
-                <span className="bulk-action-card-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
-              )}
-              <div className="bulk-action-card-draft-textarea-wrapper">
-              <textarea
-                className="bulk-action-card-draft-textarea"
-                value={output.draftReply}
-                onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                onClick={() => {
-                  if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                  handleDraftRefineConnect()
-                }}
-                onFocus={() => {
-                  if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                  handleDraftRefineConnect()
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setSubFocus({ kind: 'none' })
-                    e.preventDefault()
-                  }
-                }}
-                placeholder="Edit draft before sending…"
-              />
-              </div>
-              {refinedDraftText && isConnected && (
-                <div className="bulk-action-card-refined-preview">
-                  <div className="bulk-action-card-refined-header">
-                    <span className="bulk-action-card-refined-label">Suggested refinement:</span>
-                    <button
-                      type="button"
-                      className="bulk-action-card-accept-refinement"
-                      onClick={acceptRefinement}
-                      title="Apply refined draft"
-                      aria-label="Apply refined draft"
-                    >
-                      ✓ Accept
-                    </button>
+          <div className={`bulk-draft-pane-region${isDraftSubFocused ? ' bulk-action-card-row-draft--subfocused' : ''}`}>
+            <div className="bulk-draft-pane-root">
+              <div className="bulk-draft-pane-grow">
+                <div
+                  ref={draftRef}
+                  data-subfocus="draft"
+                  className={`bulk-draft-pane-card${isConnected ? ' bulk-action-card-draft-connected' : ''}`}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button')) return
+                    if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                    handleDraftRefineConnect()
+                  }}
+                >
+                  <div className="bulk-draft-pane-header">
+                    {isDraftSubFocused && (
+                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>✏️</span>
+                    )}
+                    <span className="bulk-draft-pane-title">DRAFT — EDIT BEFORE SENDING</span>
+                    {draftExpanded && (
+                      <span className="bulk-action-card-connect-hint">click to refine with AI ↑</span>
+                    )}
                   </div>
-                  <div className="bulk-action-card-refined-content">{refinedDraftText}</div>
-                </div>
-              )}
-              {draftAttachments.length > 0 && (
-                <div className="draft-attachments">
-                  {draftAttachments.map((a, i) => (
-                    <div key={i} className="attachment-chip">
-                      <span>{a.name}</span>
-                      <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                      {onRemoveDraftAttachment && (
-                        <button type="button" onClick={() => onRemoveDraftAttachment(i)} aria-label="Remove">✕</button>
-                      )}
+                  {isConnected && (
+                    <span className="bulk-draft-pane-connect-hint bulk-action-card-connect-hint">
+                      Connected to chat ↑ — type instructions to refine
+                    </span>
+                  )}
+                  <div className="bulk-draft-pane-editor-wrap">
+                    <textarea
+                      className="bulk-draft-pane-textarea"
+                      value={output.draftReply}
+                      onChange={(e) => updateDraftReply(msg.id, e.target.value)}
+                      onClick={() => {
+                        if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                        useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                        handleDraftRefineConnect()
+                      }}
+                      onFocus={() => {
+                        if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                        useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                        handleDraftRefineConnect()
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setSubFocus({ kind: 'none' })
+                          e.preventDefault()
+                        }
+                      }}
+                      placeholder="Edit draft before sending…"
+                    />
+                  </div>
+                  {refinedDraftText && isConnected && (
+                    <div className="bulk-action-card-refined-preview bulk-draft-pane-refined">
+                      <div className="bulk-action-card-refined-header">
+                        <span className="bulk-action-card-refined-label">Suggested refinement:</span>
+                        <button
+                          type="button"
+                          className="bulk-action-card-accept-refinement"
+                          onClick={acceptRefinement}
+                          title="Apply refined draft"
+                          aria-label="Apply refined draft"
+                        >
+                          ✓ Accept
+                        </button>
+                      </div>
+                      <div className="bulk-action-card-refined-content">{refinedDraftText}</div>
                     </div>
-                  ))}
+                  )}
+                  {draftAttachments.length > 0 && (
+                    <div className="draft-attachments bulk-draft-pane-attachments">
+                      {draftAttachments.map((a, i) => (
+                        <div key={i} className="attachment-chip">
+                          <span>{a.name}</span>
+                          <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                          {onRemoveDraftAttachment && (
+                            <button type="button" onClick={() => onRemoveDraftAttachment(i)} aria-label="Remove">✕</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="bulk-action-card-draft-actions">
+              </div>
+              <div className="bulk-draft-pane-actions">
                 {showUndo && (
                   <button
                     type="button"
@@ -741,14 +746,43 @@ function BulkActionCardStructured({
                 )}
                 <button
                   type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
                   onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
                 >
                   {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
                 </button>
+                {rec === 'draft_reply_ready' && output.draftReply && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                    onClick={() => handleArchiveOne(msg)}
+                  >
+                    Archive
+                  </button>
+                )}
+                {(rec === 'archive' || rec === 'keep_for_manual_action') && (
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+                    📦 Archive
+                  </button>
+                )}
+                {rec === 'pending_delete' && (
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis" onClick={() => handlePendingDeleteOne(msg)}>
+                    🗑 Pending Delete
+                  </button>
+                )}
+                <div className="bulk-action-card-buttons-secondary">
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+                    ✨ Summarize
+                  </button>
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+                    ✍ Draft
+                  </button>
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+                    🗑 Delete
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
           </div>
         )}
       </div>
@@ -787,6 +821,7 @@ function BulkActionCardStructured({
           </button>
         </div>
       )}
+      {!(output.draftReply != null && output.draftReply !== '') && (
       <div className="bulk-action-card-buttons">
         {showUndo && (
           <button
@@ -839,6 +874,7 @@ function BulkActionCardStructured({
           </button>
         </div>
       </div>
+      )}
     </div>
   )
 }
