@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import './AnalysisCanvas.css'
 import { useCanvasState, type AnalysisOpenPayload, type DrawerTabId, HeroKPIStrip, type KPIData } from './analysis'
 import { StatusBadge } from './analysis/StatusBadge'
@@ -39,6 +39,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
   // Deep-link state to pass to child views (consumed once)
   const [_liveDeepLink, setLiveDeepLink] = useState<DeepLinkState | null>(null)
   void _liveDeepLink // Reserved for future use
+  const processedRef = useRef<AnalysisOpenPayload | null>(null)
   
   // Show All expansion states
   const [showPoaeHistory, setShowPoaeHistory] = useState(false)
@@ -121,16 +122,18 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
   // Handle deep-link payload from IPC
   useEffect(() => {
     if (!deepLinkPayload) return
-    
+    if (processedRef.current === deepLinkPayload) return // already processed
+    processedRef.current = deepLinkPayload
+
     console.log('[AnalysisCanvas] Processing deep-link payload:', deepLinkPayload)
-    
+
     // Extract deep-link fields for child components
     const childDeepLink: DeepLinkState = {}
     if (deepLinkPayload.traceId) childDeepLink.traceId = deepLinkPayload.traceId
     if (deepLinkPayload.eventId) childDeepLink.eventId = deepLinkPayload.eventId
     if (deepLinkPayload.drawerTab) childDeepLink.drawerTab = deepLinkPayload.drawerTab
     if (deepLinkPayload.ruleId) childDeepLink.ruleId = deepLinkPayload.ruleId
-    
+
     // Only set if we have actual deep-link fields
     if (Object.keys(childDeepLink).length > 0) {
       const targetPhase = deepLinkPayload.phase || 'live'
@@ -138,9 +141,12 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
         setLiveDeepLink(childDeepLink)
       }
     }
-    
-    // Defer to avoid React error #185 (max update depth) from synchronous parent state update
-    queueMicrotask(() => onDeepLinkConsumed?.())
+
+    // Only consume when something was actually processed (avoids React #185 infinite loop)
+    const hasConsumedPayload = Object.keys(childDeepLink).length > 0
+    if (hasConsumedPayload) {
+      queueMicrotask(() => onDeepLinkConsumed?.())
+    }
   }, [deepLinkPayload, onDeepLinkConsumed])
   
   const _handleLiveDeepLinkConsumed = useCallback(() => {
