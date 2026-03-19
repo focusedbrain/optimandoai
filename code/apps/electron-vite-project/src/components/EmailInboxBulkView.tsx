@@ -648,7 +648,7 @@ function BulkActionCardStructured({
           >
             <div className="bulk-action-card-draft-header">
               {isDraftSubFocused && (
-                <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>👉</span>
+                <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>✏️</span>
               )}
               <span className="bulk-action-card-row-label">DRAFT REPLY</span>
               {draftExpanded && (
@@ -1987,7 +1987,7 @@ export default function EmailInboxBulkView({
                 >
                   <div className="bulk-action-card-draft-header" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                     {subFocus.kind === 'draft' && subFocus.messageId === msg.id && (
-                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected" aria-hidden>👉</span>
+                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected" aria-hidden>✏️</span>
                     )}
                     <span className="bulk-action-card-row-label">Draft — edit before sending</span>
                   </div>

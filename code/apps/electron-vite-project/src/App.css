@@ -1741,7 +1741,7 @@ body {
 }
 
 .bulk-view--compact .bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
-  min-height: 120px;
+  min-height: 160px;
   padding: 8px 10px;
   font-size: 11px;
 }
@@ -2213,7 +2213,10 @@ body {
 }
 /* When row has draft, ensure enough height for analysis + usable draft editor */
 .bulk-view-row--expanded.bulk-view-row--has-draft {
-  min-height: 360px;
+  min-height: 480px;  /* increased from 360px — draft editor gets main vertical space */
+}
+.bulk-view-row--expanded.bulk-view-row--has-draft .bulk-view-ai {
+  min-height: 400px;  /* right column gets majority of space when draft present */
 }
 
 .bulk-view-row--expanded .bulk-view-message-inner,
@@ -2799,9 +2802,11 @@ body {
 /* Draft block — below analysis, gets main space; ensure interactive, not tiny/cropped */
 .bulk-action-card-draft-block {
   flex: 1;
-  min-height: 140px;  /* ensure draft contributes to layout; prevents collapse when analysis dominates */
+  min-height: 200px;  /* ensure draft contributes to layout; comfortable editor height */
   width: 100%;
   pointer-events: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 @keyframes bulk-action-card-reveal {
@@ -2998,7 +3003,7 @@ body {
 }
 .bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
   flex: 1;
-  min-height: 140px;  /* usable minimum; prevents tiny/cropped editor */
+  min-height: 200px;  /* usable minimum; prevents tiny/cropped editor; fills available space */
   width: 100%;
   resize: none;  /* flex handles sizing */
   padding: 12px;
