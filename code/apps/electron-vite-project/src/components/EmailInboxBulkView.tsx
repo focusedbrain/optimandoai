@@ -636,6 +636,7 @@ function BulkActionCardStructured({
           <div
             className={[
               isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : '',
+              'bulk-draft-pane-with-toolbar',
               'flex h-full min-h-0 w-full flex-col',
             ]
               .filter(Boolean)
@@ -675,14 +676,15 @@ function BulkActionCardStructured({
                 }}
               >
                 <div
+                  className="bulk-draft-pane-titlebar"
                   style={{
                     flexShrink: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    borderBottom: '1px solid #ddd6fe',
+                    gap: isExpanded ? 8 : 6,
+                    borderBottom: '1px solid #cbd5e1',
                     background: '#e2e8f0',
-                    padding: '12px 16px',
+                    padding: isExpanded ? '12px 16px' : '6px 10px',
                     borderRadius: '16px 16px 0 0',
                   }}
                 >
@@ -693,9 +695,9 @@ function BulkActionCardStructured({
                   ) : null}
                   <span
                     style={{
-                      fontSize: 11,
+                      fontSize: isExpanded ? 11 : 9,
                       fontWeight: 600,
-                      letterSpacing: '0.08em',
+                      letterSpacing: isExpanded ? '0.08em' : '0.06em',
                       textTransform: 'uppercase',
                       color: '#6d28d9',
                     }}
@@ -717,19 +719,19 @@ function BulkActionCardStructured({
                   </span>
                 ) : null}
                 <div
-                  className="flex min-h-0 w-full flex-1 flex-col p-4"
+                  className="flex min-h-0 w-full flex-1 flex-col p-4 bulk-draft-editor-shell"
                   style={{
                     flex: 1,
                     minHeight: 0,
                     width: '100%',
-                    padding: 16,
+                    padding: isExpanded ? 16 : 6,
                     display: 'flex',
                     flexDirection: 'column',
                     boxSizing: 'border-box',
                   }}
                 >
                   <div
-                    className="flex min-h-0 w-full flex-1 flex-col"
+                    className="flex min-h-0 w-full flex-1 flex-col bulk-draft-editor-frame"
                     style={{
                       flex: 1,
                       minHeight: 0,
@@ -737,13 +739,13 @@ function BulkActionCardStructured({
                       display: 'flex',
                       flexDirection: 'column',
                       borderRadius: 12,
-                      border: '1px solid #ddd6fe',
-                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      background: '#f1f5f9',
                       boxSizing: 'border-box',
                     }}
                   >
                     <textarea
-                      className="h-full min-h-[260px] w-full resize-none overflow-y-auto"
+                      className="h-full min-h-[260px] w-full resize-none overflow-y-auto bulk-draft-editor-textarea"
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -766,15 +768,15 @@ function BulkActionCardStructured({
                       style={{
                         width: '100%',
                         height: '100%',
-                        minHeight: 260,
+                        minHeight: isExpanded ? 260 : 48,
                         flex: 1,
                         resize: 'none',
                         overflowY: 'auto',
                         borderRadius: 12,
-                        background: 'transparent',
-                        padding: '12px 16px',
-                        fontSize: 14,
-                        lineHeight: 1.6,
+                        background: '#f8fafc',
+                        padding: isExpanded ? '12px 16px' : '6px 10px',
+                        fontSize: isExpanded ? 14 : 12,
+                        lineHeight: isExpanded ? 1.6 : 1.45,
                         outline: 'none',
                         border: 'none',
                         boxSizing: 'border-box',
@@ -818,16 +820,21 @@ function BulkActionCardStructured({
                 ) : null}
               </div>
             </div>
-            <div style={{ flexShrink: 0, width: '100%', paddingTop: 16, boxSizing: 'border-box' }}>
+            <div
+              className="bulk-draft-actions-toolbar-wrap"
+              style={{ flexShrink: 0, width: '100%', paddingTop: isExpanded ? 16 : 6, boxSizing: 'border-box' }}
+            >
               <div
+                className="bulk-draft-actions-toolbar"
                 style={{
                   display: 'flex',
                   flexWrap: 'nowrap',
                   overflowX: 'auto',
                   alignItems: 'center',
-                  gap: 8,
+                  gap: isExpanded ? 8 : 4,
                   borderTop: '1px solid #e2e8f0',
-                  paddingTop: 12,
+                  paddingTop: isExpanded ? 12 : 6,
+                  paddingBottom: isExpanded ? 0 : 2,
                 }}
               >
                 {showUndo ? (

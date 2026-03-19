@@ -2788,6 +2788,69 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+
+/* Collapsed bulk row (~320px content): give the draft editor flex space — tight “recommended” + chrome */
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  max-height: min(11vh, 68px);
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections {
+  gap: 4px;
+}
+
+.bulk-view-row:not(.bulk-view-row--expanded).bulk-view-row--has-draft .bulk-view-ai {
+  padding: 8px 10px;
+}
+
+.bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai .action-card-badges {
+  padding: 4px 6px;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-header {
+  gap: 4px;
+}
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-reasoning-box {
+  padding: 6px 8px;
+  margin-top: 2px;
+}
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-panel--recommended {
+  padding: 4px 8px;
+}
+
+.bulk-draft-pane-with-toolbar {
+  min-height: 0;
+}
+
+/* Draft footer: smaller buttons when row is collapsed (matches isExpanded === false in TSX) */
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-draft-actions-toolbar .bulk-action-card-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-width: 1px;
+  line-height: 1.2;
+}
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-draft-actions-toolbar .bulk-action-card-btn--primary-emphasis {
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
+/* Narrow windows: allow toolbar to wrap only when not enough horizontal space */
+@media (max-width: 520px) {
+  .bulk-draft-actions-toolbar {
+    flex-wrap: wrap;
+  }
+}
 /* Analysis button + popover — button in header; panel on click */
 .bulk-action-card-analysis-btn--active {
   font-weight: 600;
