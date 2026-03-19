@@ -89,6 +89,11 @@ export default defineConfig({
   // Required for Electron loadFile() with file:// protocol — relative paths must resolve
   // from the index.html location; default '/' breaks in packaged app.
   base: './',
+  // Unminified build + sourcemaps for readable React error messages (remove after debugging)
+  build: {
+    sourcemap: true,
+    minify: false,
+  },
   resolve: {
     alias: [
       // Shared package (used by extension-chromium components bundled in renderer)
