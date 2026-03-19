@@ -142,11 +142,8 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
       }
     }
 
-    // Only consume when something was actually processed (avoids React #185 infinite loop)
-    const hasConsumedPayload = Object.keys(childDeepLink).length > 0
-    if (hasConsumedPayload) {
-      queueMicrotask(() => onDeepLinkConsumed?.())
-    }
+    // Always clear payload via parent — ref guard above prevents re-processing same payload
+    queueMicrotask(() => onDeepLinkConsumed?.())
   }, [deepLinkPayload, onDeepLinkConsumed])
   
   const _handleLiveDeepLinkConsumed = useCallback(() => {
