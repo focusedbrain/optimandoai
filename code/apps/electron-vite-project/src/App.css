@@ -2777,6 +2777,39 @@ body {
   min-height: 0;
 }
 
+/* Manual Draft / draft-only: hide analysis chrome — card + sections + draft chain must consume full AI column */
+.bulk-action-card--structured.bulk-action-card--draft-compose-focus {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+.bulk-action-card--structured.bulk-action-card--draft-compose-focus .bulk-action-card-sections--has-draft {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+.bulk-action-card--structured.bulk-action-card--draft-compose-focus .bulk-draft-pane-with-toolbar {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bulk-draft-show-analysis-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #5b21b6;
+  background: #f5f3ff;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.bulk-draft-show-analysis-btn:hover {
+  background: #ede9fe;
+  border-color: #a78bfa;
+}
+
 /* When draft exists: “Why / reasoning” can be huge — cap & scroll so the draft pane gets real height */
 .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
   flex: 0 1 auto;

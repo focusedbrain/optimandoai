@@ -140,6 +140,14 @@ interface EmailInboxState {
   isSortingActive: boolean
   /** Incremented when sort completes — kicks preload queue to re-fire. */
   analysisRestartCounter: number
+  /**
+   * Bulk rows where the user manually regenerated draft — hide analysis/recommended chrome
+   * so the draft editor uses the full pane until “Show analysis” or a new Auto-Sort.
+   */
+  bulkDraftManualComposeIds: Set<string>
+  addBulkDraftManualCompose: (messageId: string) => void
+  removeBulkDraftManualCompose: (messageId: string) => void
+  clearBulkDraftManualComposeForIds: (ids: string[]) => void
 
   fetchMessages: () => Promise<void>
   /** Fetch all filter tabs in parallel — used by bulk view on mount for instant tab switching. */
@@ -352,6 +360,31 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   subFocus: { kind: 'none' },
   isSortingActive: false,
   analysisRestartCounter: 0,
+  bulkDraftManualComposeIds: new Set<string>(),
+
+  addBulkDraftManualCompose: (messageId) =>
+    set((s) => {
+      const next = new Set(s.bulkDraftManualComposeIds)
+      next.add(messageId)
+      return { bulkDraftManualComposeIds: next }
+    }),
+
+  removeBulkDraftManualCompose: (messageId) =>
+    set((s) => {
+      const next = new Set(s.bulkDraftManualComposeIds)
+      next.delete(messageId)
+      return { bulkDraftManualComposeIds: next }
+    }),
+
+  clearBulkDraftManualComposeForIds: (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((s) => {
+      const next = new Set(s.bulkDraftManualComposeIds)
+      for (const id of idSet) next.delete(id)
+      return { bulkDraftManualComposeIds: next }
+    })
+  },
 
   setEditingDraftForMessageId: (id) =>
     set((s) => {
@@ -618,8 +651,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const idSet = new Set(ids)
     set((state) => {
       const next = { ...state.bulkAiOutputs }
-      for (const id of idSet) delete next[id]
-      return { bulkAiOutputs: next }
+      const nextCompose = new Set(state.bulkDraftManualComposeIds)
+      for (const id of idSet) {
+        delete next[id]
+        nextCompose.delete(id)
+      }
+      return { bulkAiOutputs: next, bulkDraftManualComposeIds: nextCompose }
     })
   },
 

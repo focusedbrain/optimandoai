@@ -395,6 +395,8 @@ function BulkActionCardStructured({
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
+  const manualDraftCompose = useEmailInboxStore((s) => s.bulkDraftManualComposeIds.has(msg.id))
+  const removeBulkDraftManualCompose = useEmailInboxStore((s) => s.removeBulkDraftManualCompose)
 
   /** Close analysis panel on click outside or Escape */
   useEffect(() => {
@@ -452,7 +454,10 @@ function BulkActionCardStructured({
     }
   }, [draftRefineConnected, draftRefineMessageId, msg.id, output.draftReply])
 
-  const rec = output.recommendedAction!
+  const hasFullStructured = !!(output.category && output.recommendedAction)
+  const rec = (output.recommendedAction ?? 'draft_reply_ready') as BulkRecommendedAction
+  /** Draft-only or user hit “Draft” after Auto-Sort — full-height composer, no analysis header/recommended row. */
+  const hideAnalysisChrome = draftExpanded && ((!hasFullStructured) || manualDraftCompose)
   /** FIX-H4: Undo visibility based SOLELY on current filter. No other conditions. */
   const showUndo = ['pending_delete', 'pending_review', 'archived'].includes(currentFilter)
   const category = (output.category ?? 'normal') as keyof typeof CATEGORY_BORDER
@@ -470,7 +475,11 @@ function BulkActionCardStructured({
   const isConnected = draftRefineConnected && draftRefineMessageId === msg.id
 
   return (
-    <div className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}`} style={{ borderLeftColor: effectiveBorderColor }}>
+    <div
+      className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
+      style={{ borderLeftColor: effectiveBorderColor }}
+    >
+      {!hideAnalysisChrome ? (
       <div className="bulk-action-card-header">
         <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
           {(output.category ?? 'normal') === 'pending_review' ? 'REVIEW' : (output.category ?? 'normal').toUpperCase()}
@@ -580,6 +589,7 @@ function BulkActionCardStructured({
           )}
         </div>
       </div>
+      ) : null}
       <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}`}>
         {output.summaryError && (
           <div className="bulk-action-card-error-banner">
@@ -593,7 +603,8 @@ function BulkActionCardStructured({
             <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
           </div>
         )}
-        {/* Recommended Action — always visible inline as primary CTA */}
+        {/* Recommended Action — hidden in draft-compose focus so the editor uses the pane */}
+        {!hideAnalysisChrome ? (
         <div className="bulk-action-card-row bulk-action-card-row--recommended">
           <span className="bulk-action-card-row-label">Recommended Action</span>
           <div className="bulk-action-card-row-value">
@@ -632,6 +643,7 @@ function BulkActionCardStructured({
             </div>
           </div>
         </div>
+        ) : null}
         {output.draftReply != null && output.draftReply !== '' && (
           <div
             className={[
@@ -704,9 +716,36 @@ function BulkActionCardStructured({
                   >
                     DRAFT — EDIT BEFORE SENDING
                   </span>
-                  {draftExpanded ? (
-                    <span className="bulk-action-card-connect-hint" style={{ marginLeft: 'auto' }}>
-                      click to refine with AI ↑
+                  {(draftExpanded || (hideAnalysisChrome && hasFullStructured)) ? (
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexShrink: 0,
+                        flexWrap: 'wrap',
+                        justifyContent: 'flex-end',
+                      }}
+                    >
+                      {draftExpanded ? (
+                        <span className="bulk-action-card-connect-hint" style={{ marginLeft: 0 }}>
+                          click to refine with AI ↑
+                        </span>
+                      ) : null}
+                      {hideAnalysisChrome && hasFullStructured ? (
+                        <button
+                          type="button"
+                          className="bulk-draft-show-analysis-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeBulkDraftManualCompose(msg.id)
+                          }}
+                          title="Show category, urgency, and recommended action again"
+                        >
+                          Show analysis
+                        </button>
+                      ) : null}
                     </span>
                   ) : null}
                 </div>
@@ -1489,6 +1528,7 @@ export default function EmailInboxBulkView({
               }
               processedIds.push(messageId)
               setBulkAiOutputs((prev) => ({ ...prev, [messageId]: entry }))
+              useEmailInboxStore.getState().removeBulkDraftManualCompose(messageId)
             })
           )
         }
@@ -1735,6 +1775,7 @@ export default function EmailInboxBulkView({
             },
           }
         })
+        if (!isError) useEmailInboxStore.getState().addBulkDraftManualCompose(messageId)
       } catch {
         setBulkAiOutputs((prev) => ({
           ...prev,
@@ -1957,7 +1998,8 @@ export default function EmailInboxBulkView({
       /** FIX-H4: Undo visibility based SOLELY on current filter. No other conditions. */
       const currentFilter = filter.filter
       const showUndo = ['pending_delete', 'pending_review', 'archived'].includes(currentFilter)
-      const hasStructured = !!(output?.category && output?.recommendedAction)
+      const hasFullStructured = !!(output?.category && output?.recommendedAction)
+      const hasDraftReady = !!(output?.draftReply && !output?.draftError)
       const category = (output?.category ?? 'normal') as keyof typeof CATEGORY_BORDER
       const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
       const urgency = output?.urgencyScore ?? 5
@@ -2059,7 +2101,7 @@ export default function EmailInboxBulkView({
         )
       }
 
-      if (hasStructured) {
+      if (hasFullStructured || hasDraftReady) {
         return (
           <BulkActionCardStructured
             msg={msg}
@@ -2098,8 +2140,8 @@ export default function EmailInboxBulkView({
         )
       }
 
-      // Fallback: summary or draft without full structured result (from manual Summarize/Draft)
-      if (output?.summary || output?.draftReply || output?.summaryError || output?.draftError) {
+      // Fallback: summary / errors only (draft success uses BulkActionCardStructured above)
+      if (output?.summary || output?.summaryError || output?.draftError) {
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
@@ -2126,62 +2168,6 @@ export default function EmailInboxBulkView({
                   <div className="bulk-action-card-row-value">{output.summary}</div>
                 </div>
               )}
-              {output.draftReply && !output.draftError && (
-                <div
-                  className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}${subFocus.kind === 'draft' && subFocus.messageId === msg.id ? ' bulk-action-card-row-draft--subfocused' : ''}`}
-                  data-subfocus="draft"
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button')) return
-                    if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                    const text = output.draftReply ?? ''
-                    if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
-                  }}
-                >
-                  <div className="bulk-action-card-draft-header" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    {subFocus.kind === 'draft' && subFocus.messageId === msg.id && (
-                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected" aria-hidden>✏️</span>
-                    )}
-                    <span className="bulk-action-card-row-label">Draft — edit before sending</span>
-                  </div>
-                  <textarea
-                    className="bulk-action-card-draft-textarea"
-                    value={output.draftReply}
-                    onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                    onClick={() => {
-                      if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                      useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                      const text = output.draftReply ?? ''
-                      if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
-                    }}
-                    onFocus={() => {
-                      if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                      useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                      const text = output.draftReply ?? ''
-                      if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setSubFocus({ kind: 'none' })
-                        e.preventDefault()
-                      }
-                    }}
-                    placeholder="Edit draft…"
-                    rows={isExpanded ? 4 : 2}
-                  />
-                  {(draftAttachmentsByMessage[msg.id] ?? []).length > 0 && (
-                    <div className="draft-attachments">
-                      {(draftAttachmentsByMessage[msg.id] ?? []).map((a, i) => (
-                        <div key={i} className="attachment-chip">
-                          <span>{a.name}</span>
-                          <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                          <button type="button" onClick={() => handleRemoveDraftAttachment(msg.id, i)} aria-label="Remove">✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -2196,25 +2182,6 @@ export default function EmailInboxBulkView({
                   title="Move back to inbox"
                 >
                   Undo
-                </button>
-              )}
-              {msg.source_type === 'email_plain' && output.draftReply && !output.draftError && handleAddDraftAttachment && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
-                  onClick={() => handleAddDraftAttachment(msg.id)}
-                  title="Add attachment"
-                >
-                  📎 Attach
-                </button>
-              )}
-              {output.draftReply && !output.draftError && (
-                <button
-                  type="button"
-                  className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--compact"
-                  onClick={() => handleSendDraft(msg, output.draftReply!, (draftAttachmentsByMessage[msg.id] ?? []).length > 0 ? draftAttachmentsByMessage[msg.id] : undefined)}
-                >
-                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
                 </button>
               )}
               <button
