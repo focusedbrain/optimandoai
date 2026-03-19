@@ -632,39 +632,108 @@ function BulkActionCardStructured({
             </div>
           </div>
         </div>
-        {/* Draft — rebuilt flex subtree (editor fills height; actions pinned below) */}
         {output.draftReply != null && output.draftReply !== '' && (
-          <div className={`bulk-draft-pane-region${isDraftSubFocused ? ' bulk-action-card-row-draft--subfocused' : ''}`}>
-            <div className="bulk-draft-pane-root">
-              <div className="bulk-draft-pane-grow">
+          <div
+            className={isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : undefined}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              flex: '1 1 0%',
+              minHeight: 0,
+              width: '100%',
+            }}
+          >
+            <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
+              <div
+                ref={draftRef}
+                data-subfocus="draft"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest('button')) return
+                  if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                  handleDraftRefineConnect()
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  minHeight: 0,
+                  width: '100%',
+                  borderRadius: 16,
+                  border: isConnected ? '2px solid var(--color-primary, #7c3aed)' : '1px solid #c4b5fd',
+                  background: 'rgba(255, 255, 255, 0.92)',
+                  boxShadow: '0 1px 4px rgba(124, 58, 237, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04)',
+                  boxSizing: 'border-box',
+                  overflow: 'hidden',
+                }}
+              >
                 <div
-                  ref={draftRef}
-                  data-subfocus="draft"
-                  className={`bulk-draft-pane-card${isConnected ? ' bulk-action-card-draft-connected' : ''}`}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button')) return
-                    if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                    handleDraftRefineConnect()
+                  style={{
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    borderBottom: '1px solid #ddd6fe',
+                    background: '#f5f3ff',
+                    padding: '12px 16px',
+                    borderRadius: '16px 16px 0 0',
                   }}
                 >
-                  <div className="bulk-draft-pane-header">
-                    {isDraftSubFocused && (
-                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>✏️</span>
-                    )}
-                    <span className="bulk-draft-pane-title">DRAFT — EDIT BEFORE SENDING</span>
-                    {draftExpanded && (
-                      <span className="bulk-action-card-connect-hint">click to refine with AI ↑</span>
-                    )}
-                  </div>
-                  {isConnected && (
-                    <span className="bulk-draft-pane-connect-hint bulk-action-card-connect-hint">
-                      Connected to chat ↑ — type instructions to refine
+                  {isDraftSubFocused ? (
+                    <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>
+                      ✏️
                     </span>
-                  )}
-                  <div className="bulk-draft-pane-editor-wrap">
+                  ) : null}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: '#6d28d9',
+                    }}
+                  >
+                    DRAFT — EDIT BEFORE SENDING
+                  </span>
+                  {draftExpanded ? (
+                    <span className="bulk-action-card-connect-hint" style={{ marginLeft: 'auto' }}>
+                      click to refine with AI ↑
+                    </span>
+                  ) : null}
+                </div>
+                {isConnected ? (
+                  <span
+                    className="bulk-action-card-connect-hint"
+                    style={{ display: 'block', flexShrink: 0, padding: '8px 16px 0', fontSize: 11, opacity: 0.55 }}
+                  >
+                    Connected to chat ↑ — type instructions to refine
+                  </span>
+                ) : null}
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    width: '100%',
+                    padding: 16,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      height: '100%',
+                      width: '100%',
+                      borderRadius: 12,
+                      border: '1px solid #ddd6fe',
+                      background: '#ffffff',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                    }}
+                  >
                     <textarea
-                      className="bulk-draft-pane-textarea"
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -684,42 +753,73 @@ function BulkActionCardStructured({
                         }
                       }}
                       placeholder="Edit draft before sending…"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        minHeight: 260,
+                        flex: 1,
+                        resize: 'none',
+                        overflowY: 'auto',
+                        borderRadius: 12,
+                        background: 'transparent',
+                        padding: '12px 16px',
+                        fontSize: 14,
+                        lineHeight: 1.6,
+                        outline: 'none',
+                        border: 'none',
+                        boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        color: '#334155',
+                      }}
                     />
                   </div>
-                  {refinedDraftText && isConnected && (
-                    <div className="bulk-action-card-refined-preview bulk-draft-pane-refined">
-                      <div className="bulk-action-card-refined-header">
-                        <span className="bulk-action-card-refined-label">Suggested refinement:</span>
-                        <button
-                          type="button"
-                          className="bulk-action-card-accept-refinement"
-                          onClick={acceptRefinement}
-                          title="Apply refined draft"
-                          aria-label="Apply refined draft"
-                        >
-                          ✓ Accept
-                        </button>
-                      </div>
-                      <div className="bulk-action-card-refined-content">{refinedDraftText}</div>
-                    </div>
-                  )}
-                  {draftAttachments.length > 0 && (
-                    <div className="draft-attachments bulk-draft-pane-attachments">
-                      {draftAttachments.map((a, i) => (
-                        <div key={i} className="attachment-chip">
-                          <span>{a.name}</span>
-                          <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                          {onRemoveDraftAttachment && (
-                            <button type="button" onClick={() => onRemoveDraftAttachment(i)} aria-label="Remove">✕</button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
+                {refinedDraftText && isConnected ? (
+                  <div className="bulk-action-card-refined-preview" style={{ flexShrink: 0, margin: '0 16px 12px' }}>
+                    <div className="bulk-action-card-refined-header">
+                      <span className="bulk-action-card-refined-label">Suggested refinement:</span>
+                      <button
+                        type="button"
+                        className="bulk-action-card-accept-refinement"
+                        onClick={acceptRefinement}
+                        title="Apply refined draft"
+                        aria-label="Apply refined draft"
+                      >
+                        ✓ Accept
+                      </button>
+                    </div>
+                    <div className="bulk-action-card-refined-content">{refinedDraftText}</div>
+                  </div>
+                ) : null}
+                {draftAttachments.length > 0 ? (
+                  <div className="draft-attachments" style={{ flexShrink: 0, margin: '0 16px 12px' }}>
+                    {draftAttachments.map((a, i) => (
+                      <div key={i} className="attachment-chip">
+                        <span>{a.name}</span>
+                        <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                        {onRemoveDraftAttachment ? (
+                          <button type="button" onClick={() => onRemoveDraftAttachment(i)} aria-label="Remove">
+                            ✕
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              <div className="bulk-draft-pane-actions">
-                {showUndo && (
+            </div>
+            <div style={{ flexShrink: 0, paddingTop: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                  borderTop: '1px solid #e2e8f0',
+                  paddingTop: 12,
+                }}
+              >
+                {showUndo ? (
                   <button
                     type="button"
                     className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -733,17 +833,20 @@ function BulkActionCardStructured({
                   >
                     Undo
                   </button>
-                )}
-                {msg.source_type === 'email_plain' && onAddDraftAttachment && (
+                ) : null}
+                {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
                   <button
                     type="button"
                     className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => { e.stopPropagation(); onAddDraftAttachment() }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAddDraftAttachment()
+                    }}
                     title="Add attachment"
                   >
                     📎 Attach
                   </button>
-                )}
+                ) : null}
                 <button
                   type="button"
                   className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
@@ -751,25 +854,21 @@ function BulkActionCardStructured({
                 >
                   {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
                 </button>
-                {rec === 'draft_reply_ready' && output.draftReply && (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={() => handleArchiveOne(msg)}
-                  >
+                {rec === 'draft_reply_ready' && output.draftReply ? (
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
                     Archive
                   </button>
-                )}
-                {(rec === 'archive' || rec === 'keep_for_manual_action') && (
+                ) : null}
+                {(rec === 'archive' || rec === 'keep_for_manual_action') ? (
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
                     📦 Archive
                   </button>
-                )}
-                {rec === 'pending_delete' && (
+                ) : null}
+                {rec === 'pending_delete' ? (
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis" onClick={() => handlePendingDeleteOne(msg)}>
                     🗑 Pending Delete
                   </button>
-                )}
+                ) : null}
                 <div className="bulk-action-card-buttons-secondary">
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
                     ✨ Summarize
