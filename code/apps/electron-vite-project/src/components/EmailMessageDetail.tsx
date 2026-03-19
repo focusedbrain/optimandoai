@@ -394,7 +394,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
         {/* Attachments */}
         {hasAttachments && attachments.length > 0 && (
-          <div style={{ marginTop: 20 }}>
+          <div style={{ marginTop: 20 }} data-subfocus="attachment">
             <div
               style={{
                 fontSize: 11,
@@ -412,7 +412,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 key={att.id}
                 attachment={att}
                 selectedAttachmentId={selectedAttachmentIdProp ?? storeSelectedAttachmentId}
-                onSelectAttachment={onSelectAttachment ?? selectAttachment}
+                onSelectAttachment={onSelectAttachment ?? ((id) => selectAttachment(message.id, id))}
               />
             ))}
           </div>

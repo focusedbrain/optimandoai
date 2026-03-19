@@ -893,9 +893,9 @@ export default function EmailInboxView({
 
   useEffect(() => {
     if (selectedAttachmentIdProp !== undefined && selectedAttachmentIdProp !== selectedAttachmentId) {
-      selectAttachment(selectedAttachmentIdProp)
+      selectAttachment(selectedMessageId ?? '', selectedAttachmentIdProp)
     }
-  }, [selectedAttachmentIdProp, selectedAttachmentId, selectAttachment])
+  }, [selectedAttachmentIdProp, selectedAttachmentId, selectedMessageId, selectAttachment])
 
   const handleSelectMessage = useCallback(
     (id: string) => {
@@ -907,11 +907,11 @@ export default function EmailInboxView({
   )
 
   const handleSelectAttachment = useCallback(
-    (id: string | null) => {
-      selectAttachment(id)
-      onSelectAttachment?.(id)
+    (attachmentId: string | null) => {
+      selectAttachment(selectedMessageId ?? '', attachmentId)
+      onSelectAttachment?.(attachmentId)
     },
-    [selectAttachment, onSelectAttachment]
+    [selectedMessageId, selectAttachment, onSelectAttachment]
   )
   const selectedCount = multiSelectIds.size
 

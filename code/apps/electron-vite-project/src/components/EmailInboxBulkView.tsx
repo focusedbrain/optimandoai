@@ -334,6 +334,8 @@ function BulkActionCardStructured({
   handleUndoPendingDelete,
   handleUndoPendingReview,
   handleUndoArchived,
+  focusedMessageId,
+  editingDraftForMessageId,
   onSelectMessage,
   keptDuringPreviewIds,
   keptDuringArchivePreviewIds,
@@ -363,6 +365,8 @@ function BulkActionCardStructured({
   handleUndoPendingDelete: (ids: string[]) => void
   handleUndoPendingReview: (messageId: string) => void
   handleUndoArchived: (messageId: string) => void
+  focusedMessageId: string | null
+  editingDraftForMessageId: string | null
   onSelectMessage?: (messageId: string | null) => void
   keptDuringPreviewIds: Set<string>
   keptDuringArchivePreviewIds: Set<string>
@@ -375,8 +379,10 @@ function BulkActionCardStructured({
   onRemoveDraftAttachment?: (index: number) => void
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
-  /** Analysis sections stay expanded unless user manually collapses (FIX-H1). Never auto-collapse when draft is generated. */
+  const hasDraftSubFocus = editingDraftForMessageId === msg.id
+  /** Analysis sections stay expanded unless user manually collapses (FIX-H1). Auto-collapse when draft subFocus active. */
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => new Set())
+  const effectiveCollapsed = (id: string) => sectionsCollapsed.has(id) || hasDraftSubFocus
   const draftRef = useRef<HTMLDivElement>(null)
 
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
@@ -458,7 +464,7 @@ function BulkActionCardStructured({
           {urgency}/10
         </span>
       </div>
-      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}`}>
+      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}${hasDraftSubFocus ? ' bulk-action-card-sections--draft-focused' : ''}`}>
         {output.summaryError && (
           <div className="bulk-action-card-error-banner">
             <span>Summarize failed.</span>
@@ -471,8 +477,8 @@ function BulkActionCardStructured({
             <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
           </div>
         )}
-        {/* Response Needed — user-controlled collapse only */}
-        {sectionsCollapsed.has('response') ? (
+        {/* Response Needed — user-controlled collapse; auto-collapse when draft subFocus */}
+        {effectiveCollapsed('response') ? (
           <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('response')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('response')} title="Click to expand">
             <span className="bulk-action-card-row-label">Response Needed</span>
             <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
@@ -488,8 +494,8 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
-        {/* Summary — user-controlled collapse only */}
-        {sectionsCollapsed.has('summary') ? (
+        {/* Summary — user-controlled collapse; auto-collapse when draft subFocus */}
+        {effectiveCollapsed('summary') ? (
           <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('summary')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('summary')} title="Click to expand">
             <span className="bulk-action-card-row-label">Summary</span>
             <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
@@ -502,9 +508,15 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
-        {/* Urgency — always show full content (analysis stays visible with draft) */}
+        {/* Urgency — header always visible; body collapses when draft subFocus */}
+        {effectiveCollapsed('urgency') ? (
+          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('urgency')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('urgency')} title="Click to expand">
+            <span className="bulk-action-card-row-label">Urgency</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
+          </div>
+        ) : (
         <div className="bulk-action-card-row">
-          <span className="bulk-action-card-row-label">Urgency</span>
+          <span className="bulk-action-card-row-label" onClick={() => toggleSection('urgency')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('urgency')} title="Click to collapse" style={{ cursor: 'pointer' }}>Urgency ▾</span>
           <div className="bulk-action-card-row-value">
             <div className="bulk-action-card-urgency-bar">
               <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
@@ -512,11 +524,13 @@ function BulkActionCardStructured({
             <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
           </div>
         </div>
+        )}
         {/* Draft Reply — expand when draft exists, connect to chat on click */}
         {output.draftReply != null && output.draftReply !== '' && (
           <div
             className={`bulk-action-card-row bulk-action-card-row-draft${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}`}
             ref={draftRef}
+            data-subfocus="draft"
           >
             <div className="bulk-action-card-draft-header">
               <span className="bulk-action-card-row-label">DRAFT REPLY</span>
@@ -532,8 +546,13 @@ function BulkActionCardStructured({
                 className="bulk-action-card-draft-textarea"
                 value={output.draftReply}
                 onChange={(e) => updateDraftReply(msg.id, e.target.value)}
-                onClick={handleDraftRefineConnect}
+                onClick={() => {
+                  if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                  handleDraftRefineConnect()
+                }}
                 onFocus={() => {
+                  if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
                   useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                   handleDraftRefineConnect()
                 }}
@@ -607,8 +626,8 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
-        {/* Action Items — user-controlled collapse only */}
-        {sectionsCollapsed.has('action') ? (
+        {/* Action Items — user-controlled collapse; auto-collapse when draft subFocus */}
+        {effectiveCollapsed('action') ? (
           <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to expand">
             <span className="bulk-action-card-row-label">Action Items</span>
             <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
@@ -854,6 +873,7 @@ export default function EmailInboxBulkView({
       clearPendingDeleteStateForIds,
     setFilter,
     selectMessage,
+    selectAttachment,
     toggleMultiSelect,
     clearMultiSelect,
     markRead,
@@ -914,6 +934,7 @@ export default function EmailInboxBulkView({
       clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
       setFilter: s.setFilter,
       selectMessage: s.selectMessage,
+      selectAttachment: s.selectAttachment,
       toggleMultiSelect: s.toggleMultiSelect,
       clearMultiSelect: s.clearMultiSelect,
       markRead: s.markRead,
@@ -1508,6 +1529,7 @@ export default function EmailInboxBulkView({
     (msg: InboxMessage) => {
       const next = focusedMessageId === msg.id ? null : msg.id
       onSelectMessage?.(next)
+      useEmailInboxStore.getState().setSubFocus({ kind: 'none' })
     },
     [focusedMessageId, onSelectMessage]
   )
@@ -1829,6 +1851,8 @@ export default function EmailInboxBulkView({
             handleUndoPendingDelete={handleUndoPendingDelete}
             handleUndoPendingReview={handleUndoPendingReview}
             handleUndoArchived={handleUndoArchived}
+            focusedMessageId={focusedMessageId ?? null}
+            editingDraftForMessageId={editingDraftForMessageId ?? null}
             onSelectMessage={onSelectMessage}
             keptDuringPreviewIds={keptDuringPreviewIds}
             keptDuringArchivePreviewIds={keptDuringArchivePreviewIds}
@@ -1869,17 +1893,20 @@ export default function EmailInboxBulkView({
                 </div>
               )}
               {output.draftReply && !output.draftError && (
-                <div className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`}>
+                <div className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`} data-subfocus="draft">
                   <span className="bulk-action-card-row-label">Draft — edit before sending</span>
                   <textarea
                     className="bulk-action-card-draft-textarea"
                     value={output.draftReply}
                     onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                     onClick={() => {
+                      if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                      useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                       const text = output.draftReply ?? ''
                       if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
                     }}
                     onFocus={() => {
+                      if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
                       useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                       const text = output.draftReply ?? ''
                       if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
@@ -2034,6 +2061,8 @@ export default function EmailInboxBulkView({
       handleUndoPendingDelete,
       handleUndoPendingReview,
       handleUndoArchived,
+      focusedMessageId,
+      editingDraftForMessageId,
       onSelectMessage,
       runAiCategorizeForIds,
       keptDuringPreviewIds,
@@ -2651,13 +2680,13 @@ export default function EmailInboxBulkView({
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('textarea') || (e.target as HTMLElement).closest('.bulk-action-card-row-draft')) return
+                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('textarea') || (e.target as HTMLElement).closest('[data-subfocus="draft"]') || (e.target as HTMLElement).closest('[data-subfocus="attachment"]')) return
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        if (!(e.target as HTMLElement).closest('.bulk-action-card-row-draft')) handleFocusPair(msg)
+                        if (!(e.target as HTMLElement).closest('[data-subfocus="draft"]') && !(e.target as HTMLElement).closest('[data-subfocus="attachment"]')) handleFocusPair(msg)
                       }
                     }}
                     style={{
@@ -2912,7 +2941,10 @@ export default function EmailInboxBulkView({
                 <EmailMessageDetail
                   message={expandedMessage}
                   selectedAttachmentId={selectedAttachmentId}
-                  onSelectAttachment={onSelectAttachment}
+                  onSelectAttachment={(attachmentId) => {
+                    selectAttachment(expandedMessage.id, attachmentId)
+                    onSelectAttachment?.(attachmentId)
+                  }}
                   onReply={handleReply}
                 />
               ) : (

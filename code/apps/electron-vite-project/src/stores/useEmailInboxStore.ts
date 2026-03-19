@@ -77,6 +77,12 @@ export interface InboxFilter {
   search?: string
 }
 
+/** Inner sub-focus within a focused message. Separate from bulk selection and outer message focus. */
+export type SubFocus =
+  | { kind: 'none' }
+  | { kind: 'attachment'; messageId: string; attachmentId: string }
+  | { kind: 'draft'; messageId: string }
+
 // =============================================================================
 // Store Interface
 // =============================================================================
@@ -128,6 +134,8 @@ interface EmailInboxState {
   analysisCache: Record<string, NormalInboxAiResult>
   /** FIX-H6: Message ID whose draft is currently being edited. Only one at a time. */
   editingDraftForMessageId: string | null
+  /** Inner sub-focus within the focused message. Separate from bulk selection and outer message focus. */
+  subFocus: SubFocus
   /** True while AI Auto-Sort is running — prevents sync from refreshing and racing. */
   isSortingActive: boolean
   /** Incremented when sort completes — kicks preload queue to re-fire. */
@@ -139,7 +147,7 @@ interface EmailInboxState {
   /** Refresh: fetchAllMessages in bulk mode, else fetchMessages. Use after mutations. */
   refreshMessages: () => Promise<void>
   selectMessage: (id: string | null) => Promise<void>
-  selectAttachment: (id: string | null) => void
+  selectAttachment: (messageId: string, attachmentId: string | null) => void
   toggleMultiSelect: (id: string) => void
   clearMultiSelect: () => void
   setFilter: (partial: Partial<InboxFilter>) => void
@@ -182,6 +190,7 @@ interface EmailInboxState {
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
   clearAnalysisCache: () => void
   setEditingDraftForMessageId: (id: string | null) => void
+  setSubFocus: (focus: SubFocus) => void
   setSortingActive: (active: boolean) => void
   triggerAnalysisRestart: () => void
 }
@@ -340,10 +349,25 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   lastSyncAt: null,
   analysisCache: {},
   editingDraftForMessageId: null,
+  subFocus: { kind: 'none' },
   isSortingActive: false,
   analysisRestartCounter: 0,
 
-  setEditingDraftForMessageId: (id) => set({ editingDraftForMessageId: id }),
+  setEditingDraftForMessageId: (id) =>
+    set((s) => {
+      const subFocus: SubFocus = id ? { kind: 'draft', messageId: id } : { kind: 'none' }
+      return {
+        editingDraftForMessageId: id,
+        subFocus,
+        ...(id ? { selectedAttachmentId: null } : {}),
+      }
+    }),
+  setSubFocus: (focus) =>
+    set((s) => ({
+      subFocus: focus,
+      selectedAttachmentId: focus.kind === 'attachment' ? focus.attachmentId : null,
+      editingDraftForMessageId: focus.kind === 'draft' ? focus.messageId : null,
+    })),
   setSortingActive: (active) => set({ isSortingActive: active }),
   triggerAnalysisRestart: () => set((s) => ({ analysisRestartCounter: s.analysisRestartCounter + 1 })),
 
@@ -457,15 +481,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   selectMessage: async (id) => {
     if (!id) {
-      set({ selectedMessageId: null, selectedMessage: null, selectedAttachmentId: null })
+      set({ selectedMessageId: null, selectedMessage: null, selectedAttachmentId: null, subFocus: { kind: 'none' } })
       return
     }
     const bridge = getBridge()
     if (!bridge?.getMessage) {
-      set({ selectedMessageId: id, selectedMessage: null })
+      set({ selectedMessageId: id, selectedMessage: null, subFocus: { kind: 'none' } })
       return
     }
-    set({ selectedAttachmentId: null })
+    set({ selectedAttachmentId: null, subFocus: { kind: 'none' } })
     try {
       const res = await bridge.getMessage(id)
       if (res.ok && res.data) {
@@ -493,8 +517,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
-  selectAttachment: (id) => {
-    set({ selectedAttachmentId: id })
+  selectAttachment: (messageId, attachmentId) => {
+    if (!attachmentId) {
+      set({ selectedAttachmentId: null, subFocus: { kind: 'none' } })
+      return
+    }
+    set({ selectedAttachmentId: attachmentId, subFocus: { kind: 'attachment', messageId, attachmentId } })
   },
 
   toggleMultiSelect: (id) => {
