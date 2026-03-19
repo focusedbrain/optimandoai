@@ -2743,7 +2743,7 @@ body {
   margin-left: auto;
 }
 
-/* Structured sections — flex column; when draft exists, overflow hidden so draft row fills (FIX-H2) */
+/* Structured sections — flex column; analysis first, draft below; when draft exists, overflow hidden so draft row fills */
 .bulk-action-card--structured .bulk-action-card-sections {
   display: flex;
   flex-direction: column;
@@ -2756,6 +2756,13 @@ body {
 }
 .bulk-action-card--structured .bulk-action-card-sections--has-draft {
   overflow: hidden;  /* draft row flex: 1 fills; no scroll on container */
+}
+/* Draft block — below analysis, gets main space; ensure interactive */
+.bulk-action-card-draft-block {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  pointer-events: auto;
 }
 
 @keyframes bulk-action-card-reveal {
@@ -2915,7 +2922,7 @@ body {
   gap: 6px;
 }
 
-/* Collapsed section row (same as Normal Inbox ai-section-collapsed) */
+/* Collapsed section row — header only, body hidden; does not block draft below */
 .bulk-action-card-section-collapsed {
   opacity: 0.5;
   cursor: pointer;
@@ -2926,6 +2933,7 @@ body {
   user-select: none;
   margin-bottom: 0;
   border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
 }
 .bulk-action-card-section-collapsed:hover {
   opacity: 0.8;
@@ -2967,6 +2975,21 @@ body {
 .bulk-action-card-draft-connected .bulk-action-card-draft-textarea {
   border: 2px solid var(--color-primary, #7c3aed) !important;
   border-radius: 6px;
+}
+
+/* Draft inner sub-selection — visible augmentation when draft is sub-focused */
+.bulk-action-card-row-draft--subfocused {
+  outline: 2px solid var(--purple-accent, #7c3aed);
+  outline-offset: 2px;
+  border-radius: 8px;
+  background: var(--purple-accent-light, rgba(147, 51, 234, 0.12));
+  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.25);
+}
+.bulk-action-card-draft-subfocus-indicator {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--purple-accent, #7c3aed);
 }
 
 .bulk-action-card-draft-header {

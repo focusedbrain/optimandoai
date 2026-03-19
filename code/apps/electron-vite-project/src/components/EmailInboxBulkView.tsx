@@ -10,6 +10,7 @@ import {
   deriveTabCountsWithPreview,
   type InboxMessage,
   type InboxSourceType,
+  type SubFocus,
 } from '../stores/useEmailInboxStore'
 import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -336,6 +337,8 @@ function BulkActionCardStructured({
   handleUndoArchived,
   focusedMessageId,
   editingDraftForMessageId,
+  subFocus,
+  setSubFocus,
   onSelectMessage,
   keptDuringPreviewIds,
   keptDuringArchivePreviewIds,
@@ -367,6 +370,8 @@ function BulkActionCardStructured({
   handleUndoArchived: (messageId: string) => void
   focusedMessageId: string | null
   editingDraftForMessageId: string | null
+  subFocus: SubFocus
+  setSubFocus: (focus: SubFocus) => void
   onSelectMessage?: (messageId: string | null) => void
   keptDuringPreviewIds: Set<string>
   keptDuringArchivePreviewIds: Set<string>
@@ -379,10 +384,11 @@ function BulkActionCardStructured({
   onRemoveDraftAttachment?: (index: number) => void
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
-  const hasDraftSubFocus = editingDraftForMessageId === msg.id
-  /** Analysis sections stay expanded unless user manually collapses (FIX-H1). Auto-collapse when draft subFocus active. */
+  const isDraftSubFocused = subFocus.kind === 'draft' && subFocus.messageId === msg.id
+  const shouldCollapseAnalysis = draftExpanded || isDraftSubFocused
+  /** Analysis sections stay expanded unless user manually collapses. Auto-collapse when draft/summary active. */
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => new Set())
-  const effectiveCollapsed = (id: string) => sectionsCollapsed.has(id) || hasDraftSubFocus
+  const effectiveCollapsed = (id: string) => sectionsCollapsed.has(id) || shouldCollapseAnalysis
   const draftRef = useRef<HTMLDivElement>(null)
 
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
@@ -464,7 +470,7 @@ function BulkActionCardStructured({
           {urgency}/10
         </span>
       </div>
-      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}${hasDraftSubFocus ? ' bulk-action-card-sections--draft-focused' : ''}`}>
+      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}${shouldCollapseAnalysis ? ' bulk-action-card-sections--draft-focused' : ''}`}>
         {output.summaryError && (
           <div className="bulk-action-card-error-banner">
             <span>Summarize failed.</span>
@@ -525,14 +531,84 @@ function BulkActionCardStructured({
           </div>
         </div>
         )}
-        {/* Draft Reply — expand when draft exists, connect to chat on click */}
+        {/* Action Items — user-controlled collapse; auto-collapse when draft active */}
+        {effectiveCollapsed('action') ? (
+          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to expand">
+            <span className="bulk-action-card-row-label">Action Items</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
+          </div>
+        ) : (
+          <div className="bulk-action-card-row">
+            <span className="bulk-action-card-row-label" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to collapse" style={{ cursor: 'pointer' }}>Action Items ▾</span>
+            <div className="bulk-action-card-row-value">
+              {output.actionItems?.length ? (
+                <ul className="bulk-action-card-action-list">
+                  {output.actionItems.map((item, idx) => (
+                    <li key={idx} className="bulk-action-card-action-item">{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="bulk-action-card-muted">None.</span>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Recommended Action */}
+        <div className="bulk-action-card-row bulk-action-card-row--recommended">
+          <span className="bulk-action-card-row-label">Recommended Action</span>
+          <div className="bulk-action-card-row-value">
+            <div
+              role="button"
+              tabIndex={0}
+              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+              onClick={() => {
+                if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                  else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                  else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                  else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                }
+              }}
+              title="Click or press Enter to apply"
+            >
+              <span className="bulk-action-card-panel-action">
+                {rec === 'pending_delete' && '🗑 Pending Delete'}
+                {rec === 'pending_review' && '⏳ Pending Review'}
+                {rec === 'archive' && '📦 Archive'}
+                {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+              </span>
+            </div>
+            <div className="bulk-action-card-reasoning-box">
+              <span className="bulk-action-card-reasoning-label">Why:</span>
+              <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+            </div>
+          </div>
+        </div>
+        {/* Draft Reply — below analysis, gets main space when draft exists */}
         {output.draftReply != null && output.draftReply !== '' && (
           <div
-            className={`bulk-action-card-row bulk-action-card-row-draft${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}`}
+            className={`bulk-action-card-row bulk-action-card-row-draft bulk-action-card-draft-block${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}${isDraftSubFocused ? ' bulk-action-card-row-draft--subfocused' : ''}`}
             ref={draftRef}
             data-subfocus="draft"
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return
+              if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+              useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+              handleDraftRefineConnect()
+            }}
           >
             <div className="bulk-action-card-draft-header">
+              {isDraftSubFocused && (
+                <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>👉</span>
+              )}
               <span className="bulk-action-card-row-label">DRAFT REPLY</span>
               {draftExpanded && (
                 <span className="bulk-action-card-connect-hint">click to refine with AI ↑</span>
@@ -556,7 +632,12 @@ function BulkActionCardStructured({
                   useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                   handleDraftRefineConnect()
                 }}
-                onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSubFocus({ kind: 'none' })
+                    e.preventDefault()
+                  }
+                }}
                 placeholder="Edit draft before sending…"
               />
               {refinedDraftText && isConnected && (
@@ -626,67 +707,6 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
-        {/* Action Items — user-controlled collapse; auto-collapse when draft subFocus */}
-        {effectiveCollapsed('action') ? (
-          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to expand">
-            <span className="bulk-action-card-row-label">Action Items</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="bulk-action-card-row">
-            <span className="bulk-action-card-row-label" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to collapse" style={{ cursor: 'pointer' }}>Action Items ▾</span>
-            <div className="bulk-action-card-row-value">
-              {output.actionItems?.length ? (
-                <ul className="bulk-action-card-action-list">
-                  {output.actionItems.map((item, idx) => (
-                    <li key={idx} className="bulk-action-card-action-item">{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="bulk-action-card-muted">None.</span>
-              )}
-            </div>
-          </div>
-        )}
-        {/* Recommended Action */}
-        <div className="bulk-action-card-row bulk-action-card-row--recommended">
-          <span className="bulk-action-card-row-label">Recommended Action</span>
-          <div className="bulk-action-card-row-value">
-            <div
-              role="button"
-              tabIndex={0}
-              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
-              onClick={() => {
-                if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
-                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                  else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
-                  else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                  else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                }
-              }}
-              title="Click or press Enter to apply"
-            >
-              <span className="bulk-action-card-panel-action">
-                {rec === 'pending_delete' && '🗑 Pending Delete'}
-                {rec === 'pending_review' && '⏳ Pending Review'}
-                {rec === 'archive' && '📦 Archive'}
-                {rec === 'keep_for_manual_action' && '✋ Review manually'}
-                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
-              </span>
-            </div>
-            <div className="bulk-action-card-reasoning-box">
-              <span className="bulk-action-card-reasoning-label">Why:</span>
-              <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
-            </div>
-          </div>
-        </div>
       </div>
       {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
         <div className="bulk-action-card-pending-preview">
@@ -888,6 +908,8 @@ export default function EmailInboxBulkView({
     loadSyncState,
     editingDraftForMessageId,
     setEditingDraftForMessageId,
+    subFocus,
+    setSubFocus,
   } = useEmailInboxStore(
     useShallow((s) => ({
       messages: s.messages,
@@ -949,6 +971,8 @@ export default function EmailInboxBulkView({
       loadSyncState: s.loadSyncState,
       editingDraftForMessageId: s.editingDraftForMessageId,
       setEditingDraftForMessageId: s.setEditingDraftForMessageId,
+      subFocus: s.subFocus,
+      setSubFocus: s.setSubFocus,
     }))
   )
 
@@ -1199,9 +1223,9 @@ export default function EmailInboxBulkView({
    * - Valid callers: handleAiAutoSort (toolbar button), Retry Auto-Sort (per-message button).
    */
   const runAiCategorizeForIds = useCallback(
-    async (ids: string[], clearSelection: boolean, isRetry = false): Promise<{ failedIds: string[] }> => {
-      if (isSortingRef.current && !isRetry) return { failedIds: ids }
-      if (!ids.length || !window.emailInbox?.aiClassifySingle) return
+    async (ids: string[], clearSelection: boolean, isRetry = false): Promise<{ processedIds: string[]; failedIds: string[] }> => {
+      if (isSortingRef.current && !isRetry) return { processedIds: [], failedIds: ids }
+      if (!ids.length || !window.emailInbox?.aiClassifySingle) return { processedIds: [], failedIds: [] }
       isSortingRef.current = true
       useEmailInboxStore.getState().setSortingActive(true)
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
@@ -1273,23 +1297,31 @@ export default function EmailInboxBulkView({
             })
           )
         }
-        console.log('[SORT] Completed. Processed:', processedIds.length, 'Failed:', failedIds.length, 'Failed IDs:', failedIds)
-        const missedIds = ids.filter((id) => !processedIds.includes(id))
-        if (missedIds.length === 0) {
+        const missedIds = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
+        const toRetry = ids.filter((id) => !processedIds.includes(id))
+        console.log('[SORT] First pass. Processed:', processedIds.length, 'Failed:', failedIds.length, 'Missed:', missedIds.length, 'To retry:', toRetry.length)
+        let allProcessedIds = [...processedIds]
+        let allFailedIds = [...failedIds]
+        if (toRetry.length === 0) {
           console.log('[SORT] All messages sorted successfully')
         } else if (!isRetry) {
-          console.warn('[SORT] Missed messages:', missedIds.length, missedIds)
-          const retryResult = await runAiCategorizeForIds(missedIds, false, true)
-          if (retryResult.failedIds.length > 0) {
-            setSortFailureToast(`${retryResult.failedIds.length} message${retryResult.failedIds.length !== 1 ? 's' : ''} could not be sorted`)
-            setTimeout(() => setSortFailureToast(null), 4000)
-          }
+          if (missedIds.length > 0) console.warn('[SORT] Missed IDs:', missedIds)
+          const retryResult = await runAiCategorizeForIds(toRetry, false, true)
+          allProcessedIds = [...processedIds, ...retryResult.processedIds]
+          allFailedIds = retryResult.failedIds
+          console.log('[SORT] Retry. Processed:', retryResult.processedIds.length, 'Failed:', retryResult.failedIds.length)
+        }
+        const finalUnsortedIds = ids.filter((id) => !allProcessedIds.includes(id))
+        console.log('[SORT] Final. All processed:', allProcessedIds.length, 'Final unsorted:', finalUnsortedIds.length, finalUnsortedIds)
+        if (finalUnsortedIds.length > 0 && !isRetry) {
+          setSortFailureToast(`${finalUnsortedIds.length} message${finalUnsortedIds.length !== 1 ? 's' : ''} could not be auto-sorted`)
+          setTimeout(() => setSortFailureToast(null), 4000)
         }
         if (clearSelection) clearMultiSelect()
         await refreshMessages()
         setAiSortPhase('reordered')
         setTimeout(() => setAiSortPhase('idle'), 380)
-        return { failedIds }
+        return { processedIds: allProcessedIds, failedIds: allFailedIds }
       } catch {
         const failOutputs: AiOutputs = {}
         for (const id of ids) {
@@ -1302,27 +1334,32 @@ export default function EmailInboxBulkView({
         }
         setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
         setAiSortPhase('idle')
-        return { failedIds: ids }
+        return { processedIds: [], failedIds: ids }
       } finally {
         ids.forEach((id) => autoSortedIdsRef.current.add(id))
-        isSortingRef.current = false
-        useEmailInboxStore.getState().setSortingActive(false)
         useEmailInboxStore.getState().triggerAnalysisRestart()
-        setAiSortProgress(null)
+        if (!isRetry) {
+          isSortingRef.current = false
+          useEmailInboxStore.getState().setSortingActive(false)
+          setAiSortProgress(null)
+        }
       }
     },
     [clearMultiSelect, refreshMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview, setSortFailureToast]
   )
 
   /** AI Auto-Sort: ONLY runs on explicit user click. Button disabled when selectedCount === 0.
-   * Operates on message IDs only; drafts excluded (multiSelectIds contains only message IDs from checkbox). */
+   * Operates on message IDs only; drafts excluded (multiSelectIds contains only message IDs from checkbox).
+   * A. Freeze target set once — do not read mutating selection during run.
+   * Do NOT filter by allMessages; selected IDs must not be dropped due to stale/incomplete data. */
   const handleAiAutoSort = useCallback(() => {
-    const ids = Array.from(multiSelectIds).filter((id) => allMessages.some((m) => m.id === id))
-    if (!ids.length) return
-    console.log('[SORT] Starting sort for', ids.length, 'messages:', ids)
+    const targetIds = Array.from(new Set(multiSelectIds))
+      .filter((id): id is string => !!id && typeof id === 'string')
+    if (!targetIds.length) return
+    console.log('[SORT] Start. Selected:', multiSelectIds.size, 'Target:', targetIds.length, targetIds)
     autoSortedIdsRef.current.clear()
-    runAiCategorizeForIds(ids, true)
-  }, [multiSelectIds, allMessages, runAiCategorizeForIds])
+    runAiCategorizeForIds(targetIds, true)
+  }, [multiSelectIds, runAiCategorizeForIds])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -1853,7 +1890,9 @@ export default function EmailInboxBulkView({
             handleUndoArchived={handleUndoArchived}
             focusedMessageId={focusedMessageId ?? null}
             editingDraftForMessageId={editingDraftForMessageId ?? null}
-            onSelectMessage={onSelectMessage}
+  subFocus={subFocus}
+  setSubFocus={setSubFocus}
+  onSelectMessage={onSelectMessage}
             keptDuringPreviewIds={keptDuringPreviewIds}
             keptDuringArchivePreviewIds={keptDuringArchivePreviewIds}
             keptDuringReviewPreviewIds={keptDuringReviewPreviewIds}
@@ -1893,8 +1932,23 @@ export default function EmailInboxBulkView({
                 </div>
               )}
               {output.draftReply && !output.draftError && (
-                <div className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}`} data-subfocus="draft">
-                  <span className="bulk-action-card-row-label">Draft — edit before sending</span>
+                <div
+                  className={`bulk-action-card-row bulk-action-card-row-draft ${isExpanded ? 'bulk-action-card-draft--expanded' : ''}${subFocus.kind === 'draft' && subFocus.messageId === msg.id ? ' bulk-action-card-row-draft--subfocused' : ''}`}
+                  data-subfocus="draft"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button')) return
+                    if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
+                    useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
+                    const text = output.draftReply ?? ''
+                    if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
+                  }}
+                >
+                  <div className="bulk-action-card-draft-header" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    {subFocus.kind === 'draft' && subFocus.messageId === msg.id && (
+                      <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected" aria-hidden>👉</span>
+                    )}
+                    <span className="bulk-action-card-row-label">Draft — edit before sending</span>
+                  </div>
                   <textarea
                     className="bulk-action-card-draft-textarea"
                     value={output.draftReply}
@@ -1911,7 +1965,12 @@ export default function EmailInboxBulkView({
                       const text = output.draftReply ?? ''
                       if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
                     }}
-                    onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setSubFocus({ kind: 'none' })
+                        e.preventDefault()
+                      }
+                    }}
                     placeholder="Edit draft…"
                     rows={isExpanded ? 4 : 2}
                   />
@@ -2063,6 +2122,8 @@ export default function EmailInboxBulkView({
       handleUndoArchived,
       focusedMessageId,
       editingDraftForMessageId,
+      subFocus,
+      setSubFocus,
       onSelectMessage,
       runAiCategorizeForIds,
       keptDuringPreviewIds,
