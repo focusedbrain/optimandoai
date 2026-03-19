@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/kill-wr-desk.cjs && node scripts/copy-pnpm-transitive-deps.cjs && vite build && electron-builder -c electron-builder.config.cjs",
-    "rebuild": "node scripts/rebuild.js && vite build && electron-builder -c electron-builder.config.cjs",
+    "rebuild": "node scripts/kill-wr-desk.cjs && node scripts/rebuild.cjs && node scripts/copy-pnpm-transitive-deps.cjs && vite build && electron-builder -c electron-builder.config.cjs",
     "dist": "node -e \"const fs=require('fs');['dist','dist-electron'].forEach(d=>{if(fs.existsSync(d)){fs.rmSync(d,{recursive:true});console.log('Cleaned '+d)}})\" && tsc && vite build && electron-builder -c electron-builder.config.cjs",
     "dist:clean": "node -e \"const fs=require('fs');['dist','dist-electron'].forEach(d=>{if(fs.existsSync(d)){fs.rmSync(d,{recursive:true});console.log('Cleaned '+d)}})\"",
     "clean": "node scripts/clean.cjs",
