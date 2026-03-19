@@ -1776,6 +1776,10 @@ body {
   padding: 6px 8px;
 }
 
+.bulk-view--compact .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  max-height: min(30vh, 200px);
+}
+
 .bulk-view--compact .bulk-action-card-state-label {
   font-size: 10px;
 }
@@ -2769,6 +2773,18 @@ body {
   flex: 1 1 0%;
   min-height: 0;
 }
+
+/* When draft exists: “Why / reasoning” can be huge — cap & scroll so the draft pane gets real height */
+.bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  flex: 0 1 auto;
+  flex-shrink: 1;
+  min-height: 0;
+  /* vh/px so this works even when % max-height can’t resolve from parent */
+  max-height: min(36vh, 280px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 /* Analysis button + popover — button in header; panel on click */
 .bulk-action-card-analysis-btn--active {
   font-weight: 600;
@@ -2882,11 +2898,11 @@ body {
 }
 
 .bulk-draft-pane-textarea {
-  /* flex + min-height:0 — NOT height:100%, which often stays unresolved in nested flex */
+  /* Do NOT use field-sizing:fixed here — without explicit height it stays_intrinsic_ and ignores flex growth in Electron/Chromium */
   flex: 1 1 0%;
+  min-height: 0;
   align-self: stretch;
   width: 100%;
-  min-height: 11rem;
   min-width: 0;
   resize: none;
   overflow-y: auto;
@@ -2897,8 +2913,6 @@ body {
   border: 1px solid #d1d5db;
   border-radius: 6px;
   box-sizing: border-box;
-  /* Chromium: ignore intrinsic “rows” height so flex distribution wins */
-  field-sizing: fixed;
 }
 
 .bulk-action-card-draft-connected .bulk-draft-pane-textarea {
@@ -2923,7 +2937,6 @@ body {
 }
 
 .bulk-view--compact .bulk-draft-pane-textarea {
-  min-height: 8rem;
   padding: 8px 10px;
   font-size: 11px;
 }
