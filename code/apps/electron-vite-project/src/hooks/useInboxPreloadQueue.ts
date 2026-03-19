@@ -33,6 +33,10 @@ export function useInboxPreloadQueue({
 }: UseInboxPreloadQueueOptions): { prioritize: (messageId: string) => void; queueLength: number } {
   const queueRef = useRef<string[]>([])
   const inFlightRef = useRef<Set<string>>(new Set())
+  const lastAnalysisTimestamp = useRef(Date.now())
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const analysisRestartCounter = useEmailInboxStore((s) => s.analysisRestartCounter)
 
   const processQueue = useCallback(() => {
     const setAnalysisCache = useEmailInboxStore.getState().setAnalysisCache
@@ -59,6 +63,7 @@ export function useInboxPreloadQueue({
         const final = tryParseAnalysis(accumulatedText)
         if (final) {
           setAnalysisCache(messageId, final)
+          lastAnalysisTimestamp.current = Date.now()
         }
         cleanupFns.forEach((fn) => fn())
         inFlightRef.current.delete(messageId)
@@ -110,9 +115,11 @@ export function useInboxPreloadQueue({
   )
 
   useEffect(() => {
+    console.log('[ANALYSIS] Preload queue effect fired. Messages:', messages.length, 'Cached:', Object.keys(analysisCache).length)
     const newIds = messages
       .map((m) => m.id)
       .filter((id) => !analysisCache[id] && !inFlightRef.current.has(id))
+    console.log('[ANALYSIS] Unanalyzed messages:', newIds.length)
 
     queueRef.current = [
       ...newIds.filter((id) => !queueRef.current.includes(id)),
@@ -121,8 +128,22 @@ export function useInboxPreloadQueue({
 
     if (queueRef.current.length > 0) {
       scheduleNext()
+    } else {
+      console.log('[ANALYSIS] Queue skipped — reason: queue empty')
     }
-  }, [messages, analysisCache, scheduleNext])
+  }, [messages, analysisCache, scheduleNext, analysisRestartCounter])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cache = useEmailInboxStore.getState().analysisCache
+      const unanalyzed = messagesRef.current.filter((m) => !cache[m.id] && !inFlightRef.current.has(m.id))
+      if (unanalyzed.length > 0 && Date.now() - lastAnalysisTimestamp.current > 15000) {
+        console.warn('[ANALYSIS] Heartbeat: stalled. Restarting queue.')
+        useEmailInboxStore.getState().triggerAnalysisRestart()
+      }
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [])
 
   return {
     prioritize,

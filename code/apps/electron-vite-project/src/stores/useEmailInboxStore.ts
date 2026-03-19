@@ -128,6 +128,10 @@ interface EmailInboxState {
   analysisCache: Record<string, NormalInboxAiResult>
   /** FIX-H6: Message ID whose draft is currently being edited. Only one at a time. */
   editingDraftForMessageId: string | null
+  /** True while AI Auto-Sort is running — prevents sync from refreshing and racing. */
+  isSortingActive: boolean
+  /** Incremented when sort completes — kicks preload queue to re-fire. */
+  analysisRestartCounter: number
 
   fetchMessages: () => Promise<void>
   /** Fetch all filter tabs in parallel — used by bulk view on mount for instant tab switching. */
@@ -178,6 +182,8 @@ interface EmailInboxState {
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
   clearAnalysisCache: () => void
   setEditingDraftForMessageId: (id: string | null) => void
+  setSortingActive: (active: boolean) => void
+  triggerAnalysisRestart: () => void
 }
 
 // =============================================================================
@@ -334,8 +340,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   lastSyncAt: null,
   analysisCache: {},
   editingDraftForMessageId: null,
+  isSortingActive: false,
+  analysisRestartCounter: 0,
 
   setEditingDraftForMessageId: (id) => set({ editingDraftForMessageId: id }),
+  setSortingActive: (active) => set({ isSortingActive: active }),
+  triggerAnalysisRestart: () => set((s) => ({ analysisRestartCounter: s.analysisRestartCounter + 1 })),
 
   fetchMessages: async () => {
     const bridge = getBridge()
@@ -439,7 +449,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   refreshMessages: async () => {
-    const { bulkMode } = get()
+    const { bulkMode, messages } = get()
+    console.log('[SORT] refreshMessages called. Current message count:', messages.length)
     if (bulkMode) await get().fetchAllMessages()
     else await get().fetchMessages()
   },
@@ -1068,6 +1079,10 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       const res = await bridge.syncAccount(accountId)
       if (res.ok) {
         set({ lastSyncAt: new Date().toISOString(), syncing: false })
+        if (get().isSortingActive) {
+          console.log('[SYNC] Skipped — sort in progress')
+          return
+        }
         get().refreshMessages()
       } else {
         set({ syncing: false })

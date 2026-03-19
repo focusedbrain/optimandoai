@@ -74,6 +74,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
   const runAnalysisStream = useCallback(async () => {
+    console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
@@ -195,8 +196,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAnalysisExpanded((prev) => !prev)
   }, [])
 
-  /** Connect to chat bar for draft refinement — ONLY on explicit user click, NOT on focus. */
-  const handleDraftTextareaClick = useCallback(() => {
+  /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5). */
+  const handleDraftRefineConnect = useCallback(() => {
     const text = (editedDraft || draft) ?? ''
     if (!text.trim()) return
     const subject = message?.subject ?? null
@@ -351,7 +352,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     : 'var(--color-text-muted, #94a3b8)'
 
   return (
-    <div className="inbox-detail-ai-inner inbox-detail-ai-premium">
+    <div className="inbox-detail-ai-inner inbox-detail-ai-premium" data-has-draft={draft ? 'true' : undefined}>
       <div className="inbox-detail-ai-advisory-banner">
         AI suggestions — you decide what to do
       </div>
@@ -515,8 +516,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   ref={draftTextareaRef}
                   value={editedDraft || draft}
                   onChange={(e) => setEditedDraft(e.target.value)}
-                  onClick={handleDraftTextareaClick}
-                  onFocus={() => useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)}
+                  onClick={handleDraftRefineConnect}
+                  onFocus={() => {
+                    useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                    handleDraftRefineConnect()
+                  }}
                   onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
                   className="inbox-detail-ai-draft-textarea"
                   placeholder="Edit draft before sending…"
