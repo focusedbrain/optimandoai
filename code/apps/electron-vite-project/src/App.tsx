@@ -98,6 +98,8 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
+  const handleDeepLinkConsumed = useCallback(() => setDeepLinkPayload(null), [])
+
   // Clear selected message and attachment when switching to views that don't support message focus
   useEffect(() => {
     if (activeView === 'analysis' || activeView === 'settings') {
@@ -243,7 +245,7 @@ function App() {
         ) : (
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}
-            onDeepLinkConsumed={() => setDeepLinkPayload(null)}
+            onDeepLinkConsumed={handleDeepLinkConsumed}
           />
         )}
         {showInitiateModal && (

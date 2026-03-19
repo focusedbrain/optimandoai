@@ -139,7 +139,8 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
       }
     }
     
-    onDeepLinkConsumed?.()
+    // Defer to avoid React error #185 (max update depth) from synchronous parent state update
+    queueMicrotask(() => onDeepLinkConsumed?.())
   }, [deepLinkPayload, onDeepLinkConsumed])
   
   const _handleLiveDeepLinkConsumed = useCallback(() => {

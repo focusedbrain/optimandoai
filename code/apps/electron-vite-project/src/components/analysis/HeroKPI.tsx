@@ -57,7 +57,7 @@ export function KPICard({
       <div className="hero-kpi-card__content">
         <span className="hero-kpi-card__label">{label}</span>
         <span className={`hero-kpi-card__value hero-kpi-card__value--${status}`}>
-          {value}
+          {typeof value === 'object' && value !== null ? '—' : value}
         </span>
         {subtext && <span className="hero-kpi-card__subtext">{subtext}</span>}
       </div>
