@@ -395,16 +395,16 @@ function BulkActionCardStructured({
     })
   }, [])
 
-  /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5). */
+  /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5).
+   * Does NOT call onSelectMessage: draft selection is independent of message selection. */
   const handleDraftRefineConnect = useCallback(() => {
     const text = output.draftReply ?? ''
     if (!text.trim()) return
-    onSelectMessage?.(msg.id)
     const subject = msg.subject ?? null
     draftRefineConnect(msg.id, subject, text, (refined) => {
       updateDraftReply(msg.id, refined)
     })
-  }, [msg.id, msg.subject, output.draftReply, updateDraftReply, draftRefineConnect, onSelectMessage])
+  }, [msg.id, msg.subject, output.draftReply, updateDraftReply, draftRefineConnect])
 
   useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== msg.id) return
@@ -1047,6 +1047,7 @@ export default function EmailInboxBulkView({
       return next
     })
   }, [messages, loading, filter.filter])
+  /** Toolbar bulk actions operate on messages only. Count excludes drafts (no draft checkbox). */
   const selectedCount = multiSelectIds.size
   const batchMessages = sortedMessages
   const allInBatchSelected =
@@ -1292,14 +1293,15 @@ export default function EmailInboxBulkView({
     [clearMultiSelect, refreshMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview, setSortFailureToast]
   )
 
-  /** AI Auto-Sort: ONLY runs on explicit user click. Button disabled when selectedCount === 0. */
+  /** AI Auto-Sort: ONLY runs on explicit user click. Button disabled when selectedCount === 0.
+   * Operates on message IDs only; drafts excluded (multiSelectIds contains only message IDs from checkbox). */
   const handleAiAutoSort = useCallback(() => {
-    const ids = Array.from(multiSelectIds)
+    const ids = Array.from(multiSelectIds).filter((id) => allMessages.some((m) => m.id === id))
     if (!ids.length) return
     console.log('[SORT] Starting sort for', ids.length, 'messages:', ids)
     autoSortedIdsRef.current.clear()
     runAiCategorizeForIds(ids, true)
-  }, [multiSelectIds, runAiCategorizeForIds])
+  }, [multiSelectIds, allMessages, runAiCategorizeForIds])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -1875,18 +1877,12 @@ export default function EmailInboxBulkView({
                     onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                     onClick={() => {
                       const text = output.draftReply ?? ''
-                      if (text.trim()) {
-                        onSelectMessage?.(msg.id)
-                        draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
-                      }
+                      if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
                     }}
                     onFocus={() => {
                       useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                       const text = output.draftReply ?? ''
-                      if (text.trim()) {
-                        onSelectMessage?.(msg.id)
-                        draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
-                      }
+                      if (text.trim()) draftRefineConnect(msg.id, msg.subject ?? null, text, (refined) => updateDraftReply(msg.id, refined))
                     }}
                     onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
                     placeholder="Edit draft…"
@@ -2655,13 +2651,13 @@ export default function EmailInboxBulkView({
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('textarea')) return
+                      if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('textarea') || (e.target as HTMLElement).closest('.bulk-action-card-row-draft')) return
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        handleFocusPair(msg)
+                        if (!(e.target as HTMLElement).closest('.bulk-action-card-row-draft')) handleFocusPair(msg)
                       }
                     }}
                     style={{
