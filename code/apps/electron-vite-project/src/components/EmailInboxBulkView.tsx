@@ -681,7 +681,7 @@ function BulkActionCardStructured({
                     alignItems: 'center',
                     gap: 8,
                     borderBottom: '1px solid #ddd6fe',
-                    background: '#f5f3ff',
+                    background: '#e2e8f0',
                     padding: '12px 16px',
                     borderRadius: '16px 16px 0 0',
                   }}
@@ -818,11 +818,12 @@ function BulkActionCardStructured({
                 ) : null}
               </div>
             </div>
-            <div className="shrink-0 pt-4" style={{ flexShrink: 0, width: '100%', paddingTop: 16, boxSizing: 'border-box' }}>
+            <div style={{ flexShrink: 0, width: '100%', paddingTop: 16, boxSizing: 'border-box' }}>
               <div
                 style={{
                   display: 'flex',
-                  flexWrap: 'wrap',
+                  flexWrap: 'nowrap',
+                  overflowX: 'auto',
                   alignItems: 'center',
                   gap: 8,
                   borderTop: '1px solid #e2e8f0',
@@ -879,16 +880,6 @@ function BulkActionCardStructured({
                     🗑 Pending Delete
                   </button>
                 ) : null}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
                 <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
                   ✨ Summarize
                 </button>
@@ -2912,24 +2903,6 @@ export default function EmailInboxBulkView({
                         </div>
                       </div>
                     </div>
-                    <div
-                      className="bulk-card-expand-toggle bulk-card-expand-toggle--left"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleCardExpand(msg.id)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          toggleCardExpand(msg.id)
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      title={isCardExpanded ? 'Show less' : 'Show more'}
-                    >
-                      {isCardExpanded ? '▴ Show less' : '▾ Show more'}
-                    </div>
                   </div>
 
                   {/* Right: Action Card — FIX-H5: ALL badges here, never in message body */}
@@ -3008,6 +2981,25 @@ export default function EmailInboxBulkView({
                       )}
                     </div>
                     {renderActionCard(msg, output, isCardExpanded)}
+                  </div>
+                  {/* Full-row expand toggle — CSS gives this grid-column: 1/-1 so it spans both panes */}
+                  <div
+                    className="bulk-card-expand-toggle"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleCardExpand(msg.id)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleCardExpand(msg.id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    title={isCardExpanded ? 'Show less' : 'Show more'}
+                  >
+                    {isCardExpanded ? '▴ Show less' : '▾ Show more'}
                   </div>
                 </div>
               )

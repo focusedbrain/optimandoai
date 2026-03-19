@@ -2196,6 +2196,7 @@ body {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr auto;
   gap: 0;
   height: 320px;
   max-height: 320px;
@@ -2537,11 +2538,13 @@ body {
   user-select: none;
   background: rgba(124, 58, 237, 0.03);
   border-top: 1px solid rgba(124, 58, 237, 0.15);
+  /* Span both grid columns — makes toggle a true full-row control */
+  grid-column: 1 / -1;
+  grid-row: 2;
 }
 
-.bulk-card-expand-toggle--left {
-  margin-top: auto;
-}
+/* .bulk-card-expand-toggle--left is no longer applied; rule kept as no-op */
+.bulk-card-expand-toggle--left {}
 
 .bulk-card-expand-toggle:hover {
   opacity: 0.85;
