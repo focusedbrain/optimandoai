@@ -69,6 +69,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
+  const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
   const runAnalysisStream = useCallback(async () => {
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
@@ -178,23 +180,25 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (analysis?.draftReply || draft) setAnalysisExpanded(false)
   }, [analysis?.draftReply, draft])
 
-  const panelCollapsed = !analysisExpanded && !draft
+  /** Analysis collapse only hides content; panel width stays constant. Never trigger panel collapse. */
   useEffect(() => {
-    onCollapsedChange?.(panelCollapsed)
-  }, [panelCollapsed, onCollapsedChange])
+    onCollapsedChange?.(false)
+  }, [onCollapsedChange])
 
   const toggleAnalysisExpanded = useCallback(() => {
     setAnalysisExpanded((prev) => !prev)
   }, [])
 
-  const handleDraftTextareaFocus = useCallback(() => {
+  /** Connect to chat bar for draft refinement — ONLY on explicit user click, NOT on focus. */
+  const handleDraftTextareaClick = useCallback(() => {
     const text = (editedDraft || draft) ?? ''
     if (!text.trim()) return
-    draftRefineConnect(messageId, text, (refined) => {
+    const subject = message?.subject ?? null
+    draftRefineConnect(messageId, subject, text, (refined) => {
       setDraft(refined)
       setEditedDraft(refined)
     })
-  }, [messageId, editedDraft, draft, draftRefineConnect])
+  }, [messageId, message?.subject, editedDraft, draft, draftRefineConnect])
 
   useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== messageId) return
@@ -348,9 +352,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <span>{analysisExpanded ? '▾' : '▸'}</span>
         </div>
 
-        {/* Collapsible analysis body */}
-        {analysisExpanded && (
-          <div className="ai-analysis-body">
+        {/* Collapsible analysis body — toggles visibility via data-collapsed, panel width unchanged */}
+        <div className="ai-analysis-body" data-collapsed={!analysisExpanded}>
             {/* Response Needed */}
             <div className="inbox-detail-ai-row">
               <span className="inbox-detail-ai-row-label">Response Needed</span>
@@ -444,8 +447,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 )}
               </div>
             </div>
-          </div>
-        )}
+        </div>
 
         {/* Draft Reply — always below, outside collapsible; fills height when draft exists */}
         <div
@@ -454,7 +456,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
         >
           <div className="ai-section-draft-header">
-            <span className="inbox-detail-ai-row-label">{draft ? '👉 DRAFT REPLY' : 'Draft Reply'}</span>
+            <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
             {draft && (
               <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
             )}
@@ -477,10 +479,27 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   ref={draftTextareaRef}
                   value={editedDraft || draft}
                   onChange={(e) => setEditedDraft(e.target.value)}
-                  onFocus={handleDraftTextareaFocus}
+                  onClick={handleDraftTextareaClick}
                   className="inbox-detail-ai-draft-textarea"
                   placeholder="Edit draft before sending…"
                 />
+                {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
+                  <div className="inbox-detail-ai-refined-preview">
+                    <div className="inbox-detail-ai-refined-header">
+                      <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
+                      <button
+                        type="button"
+                        className="inbox-detail-ai-accept-refinement"
+                        onClick={acceptRefinement}
+                        title="Apply refined draft"
+                        aria-label="Apply refined draft"
+                      >
+                        ✓ Accept
+                      </button>
+                    </div>
+                    <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
+                  </div>
+                )}
                 <div className="inbox-detail-ai-draft-actions">
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
                   {message && onSendDraft && !draftError && (

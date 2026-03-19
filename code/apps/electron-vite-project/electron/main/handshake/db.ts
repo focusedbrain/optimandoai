@@ -725,6 +725,13 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_inbox_messages_sort_category ON inbox_messages(sort_category)`,
     ],
   },
+  {
+    version: 34,
+    description: 'Schema v34: Persist AI analysis for sorted messages',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN ai_analysis_json TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

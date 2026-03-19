@@ -529,6 +529,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
   moveToPendingReview: (ids: string[]) => ipcRenderer.invoke('inbox:moveToPendingReview', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
+  cancelPendingReview: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingReview', messageId),
+  unarchive: (messageId: string) => ipcRenderer.invoke('inbox:unarchive', messageId),
   getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
   setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
   selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),

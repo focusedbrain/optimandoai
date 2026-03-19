@@ -112,6 +112,8 @@ export interface EmailInboxBridge {
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
   moveToPendingReview: (ids: string[]) => Promise<{ ok: boolean; error?: string }>
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
+  cancelPendingReview: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
+  unarchive: (messageId: string) => Promise<{ ok: boolean; data?: { unarchived: boolean }; error?: string }>
   getInboxSettings: () => Promise<{ ok: boolean; data?: { tone: string; sortRules: string; contextDocs: unknown[]; batchSize: number }; error?: string }>
   setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => Promise<{ ok: boolean; error?: string }>
   selectAndUploadContextDoc: () => Promise<{ ok: boolean; data?: { skipped?: boolean; doc?: unknown; docs?: unknown[] }; error?: string }>

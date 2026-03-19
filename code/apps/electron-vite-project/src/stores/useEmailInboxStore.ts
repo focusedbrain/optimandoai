@@ -64,6 +64,8 @@ export interface InboxMessage {
   pending_delete_at: string | null
   ai_summary: string | null
   ai_draft_response: string | null
+  /** Persisted AI analysis JSON from Auto-Sort — survives clearBulkAiOutputsForIds. */
+  ai_analysis_json?: string | null
   attachments?: InboxAttachment[]
 }
 
@@ -91,7 +93,7 @@ interface EmailInboxState {
   filter: InboxFilter
   bulkMode: boolean
   bulkPage: number
-  bulkBatchSize: number
+  bulkBatchSize: number | 'all'
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
   /** messageId -> expiresAt ISO. Survives view switch. */
@@ -129,7 +131,7 @@ interface EmailInboxState {
   setFilter: (partial: Partial<InboxFilter>) => void
   setBulkMode: (enabled: boolean) => void
   setBulkPage: (page: number) => void
-  setBulkBatchSize: (size: number) => void
+  setBulkBatchSize: (size: number | 'all') => void
   setBulkCompactMode: (enabled: boolean) => void
   syncBulkBatchSizeFromSettings: () => Promise<void>
   setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
@@ -224,6 +226,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkBatchSize: (() => {
     try {
       const s = localStorage?.getItem('wrdesk_bulkBatchSize')
+      if (s === 'all') return 'all' as const
       const n = s ? parseInt(s, 10) : 10
       return [10, 12, 24, 48].includes(n) ? n : 10
     } catch {
@@ -252,8 +255,9 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         search: filter.search,
       }
       if (bulkMode) {
-        options.limit = bulkBatchSize
-        options.offset = bulkPage * bulkBatchSize
+        const effectiveLimit = bulkBatchSize === 'all' ? Math.min(total || 500, 500) : bulkBatchSize
+        options.limit = effectiveLimit
+        options.offset = bulkBatchSize === 'all' ? 0 : bulkPage * bulkBatchSize
       } else {
         options.limit = 50
         options.offset = 0
@@ -355,12 +359,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setBulkBatchSize: (size) => {
-    if (![10, 12, 24, 48].includes(size)) return
+    if (size !== 'all' && ![10, 12, 24, 48].includes(size)) return
     set({ bulkBatchSize: size, bulkPage: 0 })
     try {
       localStorage?.setItem('wrdesk_bulkBatchSize', String(size))
-      const bridge = getBridge()
-      if (bridge?.setInboxSettings) bridge.setInboxSettings({ batchSize: size })
+      if (size !== 'all') {
+        const bridge = getBridge()
+        if (bridge?.setInboxSettings) bridge.setInboxSettings({ batchSize: size })
+      }
     } catch {
       /* ignore */
     }
@@ -647,6 +653,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   syncBulkBatchSizeFromSettings: async () => {
+    const { bulkBatchSize } = get()
+    if (bulkBatchSize === 'all') return // preserve user's "All" choice
     const bridge = getBridge()
     if (!bridge?.getInboxSettings) return
     try {

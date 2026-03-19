@@ -9,26 +9,35 @@ import { create } from 'zustand'
 interface DraftRefineState {
   connected: boolean
   messageId: string | null
+  messageSubject: string | null
   draftText: string
+  /** AI refinement result — shown in preview; user clicks accept to apply */
+  refinedDraftText: string | null
   onResponse: ((text: string) => void) | null
-  connect: (messageId: string, draftText: string, onResponse: (text: string) => void) => void
+  connect: (messageId: string, messageSubject: string | null, draftText: string, onResponse: (text: string) => void) => void
   updateDraftText: (draftText: string) => void
   disconnect: () => void
-  /** Called by HybridSearch when response arrives in draft-refine mode */
+  /** Called by HybridSearch when AI response arrives — stores as refinedDraftText, NOT auto-applied */
   deliverResponse: (text: string) => void
+  /** Called when user clicks accept icon — applies refinedDraftText and clears it */
+  acceptRefinement: () => void
 }
 
 export const useDraftRefineStore = create<DraftRefineState>((set, get) => ({
   connected: false,
   messageId: null,
+  messageSubject: null,
   draftText: '',
+  refinedDraftText: null,
   onResponse: null,
-  connect: (messageId, draftText, onResponse) => {
+  connect: (messageId, messageSubject, draftText, onResponse) => {
     set({
       connected: true,
       messageId,
+      messageSubject,
       draftText,
       onResponse,
+      refinedDraftText: null,
     })
   },
   updateDraftText: (draftText: string) => {
@@ -38,14 +47,20 @@ export const useDraftRefineStore = create<DraftRefineState>((set, get) => ({
     set({
       connected: false,
       messageId: null,
+      messageSubject: null,
       draftText: '',
+      refinedDraftText: null,
       onResponse: null,
     })
   },
   deliverResponse: (text) => {
-    const { onResponse } = get()
-    if (onResponse) {
-      onResponse(text)
+    set({ refinedDraftText: text })
+  },
+  acceptRefinement: () => {
+    const { refinedDraftText, onResponse } = get()
+    if (refinedDraftText && onResponse) {
+      onResponse(refinedDraftText)
+      set({ refinedDraftText: null })
     }
   },
 }))

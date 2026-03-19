@@ -328,8 +328,10 @@ export default function HybridSearch({
 
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
   const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
   const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
+  const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
 
   useEffect(() => {
@@ -458,19 +460,16 @@ export default function HybridSearch({
         let chatQuery: string
         if (isDraftRefine) {
           chatQuery = currentDraft
-            ? `[DRAFT REFINE] You are editing a draft email reply.
-Current draft:
-"""
+            ? `Here is a draft email reply:
+
 ${currentDraft}
-"""
-The user will give you an instruction to modify this draft.
-Respond with ONLY the complete revised draft text — no explanation, no preamble, no markdown. Just the revised email text.
 
-User instruction: ${trimmed}`
-            : `[DRAFT REFINE] The user has no draft yet. The user will give you an instruction to create a draft email reply.
-Respond with ONLY the complete draft text — no explanation, no preamble, no markdown. Just the email text.
+The user wants you to refine it with this instruction: ${trimmed}
 
-User instruction: ${trimmed}`
+Generate a refined version of the draft that incorporates the user's instruction. Output ONLY the refined email text, no explanation.`
+            : `The user has no draft yet. Create a draft email reply based on this instruction: ${trimmed}
+
+Output ONLY the complete draft email text, no explanation.`
         } else {
           let inboxContext = ''
           if (selectedMessageId && window.emailInbox?.getMessage) {
@@ -547,7 +546,7 @@ User instruction: ${trimmed}`
               role: 'assistant',
               content: refined,
               showUseButton: true,
-              onUse: () => draftRefineDeliverResponse(refined),
+              onUse: () => draftRefineAcceptRefinement(),
             }])
             setResponse(null)
             setQuery('')
@@ -571,7 +570,7 @@ User instruction: ${trimmed}`
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineDeliverResponse])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineDeliverResponse, draftRefineAcceptRefinement])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 
@@ -617,7 +616,7 @@ User instruction: ${trimmed}`
               padding: '2px 8px', borderRadius: '6px',
               background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
             }}>
-              ✏️ Focused: Draft
+              ✏️ Refining draft{draftRefineMessageSubject ? ` for: ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}` : ''}
               <button
                 type="button"
                 onClick={handleClearMessageSelection}
@@ -655,7 +654,10 @@ User instruction: ${trimmed}`
           )}
         </div>
       )}
-      <div className="hs-bar">
+      <div
+        className="hs-bar"
+        data-draft-refine={draftRefineConnected && draftRefineMessageId === selectedMessageId ? 'true' : undefined}
+      >
 
         {/* ── Left: mode toggle + scope ── */}
         <div className="hs-bar-left">

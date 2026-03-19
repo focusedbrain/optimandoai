@@ -742,7 +742,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
   ] as const
@@ -1451,13 +1451,23 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
         : validCategory === 'urgent' && needsReply ? 'draft_reply_ready'
         : validCategory === 'action_required' && needsReply ? 'draft_reply_ready'
         : 'keep_for_manual_action'
-      const pendingDelete = validCategory === 'pending_delete'
-      const pendingReview = validCategory === 'pending_review'
+      let pendingDelete = validCategory === 'pending_delete'
+      let pendingReview = validCategory === 'pending_review'
 
-      if (pendingReview) {
+      /** Urgent messages (urgency >= 7) stay unsorted — never move to pending_delete, pending_review, or archived. */
+      const URGENCY_THRESHOLD = 7
+      const isUrgent = urgency >= URGENCY_THRESHOLD
+      if (isUrgent) {
+        pendingDelete = false
+        pendingReview = false
+      }
+
+      /** Always write sort_category, urgency, needs_reply. For urgent: use 'urgent', never add pending_review_at. */
+      const effectiveSortCategory = isUrgent ? 'urgent' : sortCategory
+      if (pendingReview && !isUrgent) {
         const now = new Date().toISOString()
         db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?').run(
-          sortCategory,
+          effectiveSortCategory,
           reason || null,
           urgency,
           needsReply ? 1 : 0,
@@ -1466,7 +1476,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
         )
       } else {
         db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(
-          sortCategory,
+          effectiveSortCategory,
           reason || null,
           urgency,
           needsReply ? 1 : 0,
@@ -1474,15 +1484,33 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
         )
       }
 
+      /** Persist AI analysis for sorted messages — survives clearBulkAiOutputsForIds. */
+      const aiAnalysisJson = JSON.stringify({
+        category: effectiveSortCategory,
+        urgencyScore: urgency,
+        urgencyReason: reason || '',
+        summary: summary || '',
+        reason: reason || '',
+        needsReply,
+        needsReplyReason: needsReply ? (reason || 'Reply warranted.') : 'No reply needed.',
+        recommendedAction: isUrgent ? 'keep_for_manual_action' : recommendedAction,
+        actionExplanation: reason || '',
+        actionItems: [],
+        draftReply: needsReply ? (parsed.draftReply ?? null) : null,
+        status: 'classified',
+      })
+      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
+
+      const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
       return {
         messageId,
-        category: sortCategory,
+        category: effectiveSortCategory,
         urgency,
         needsReply,
         summary,
         reason,
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
-        recommended_action: recommendedAction,
+        recommended_action: effectiveRecommendedAction,
         pending_delete: pendingDelete,
         pending_review: pendingReview,
       }
@@ -1641,6 +1669,28 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Cancel failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:cancelPendingReview', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      db.prepare('UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL WHERE id = ?').run(messageId)
+      return { ok: true, data: { cancelled: true } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Cancel failed' }
+    }
+  })
+
+  ipcMain.handle('inbox:unarchive', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      db.prepare('UPDATE inbox_messages SET archived = 0 WHERE id = ?').run(messageId)
+      return { ok: true, data: { unarchived: true } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Unarchive failed' }
     }
   })
 
