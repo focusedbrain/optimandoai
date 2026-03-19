@@ -634,16 +634,23 @@ function BulkActionCardStructured({
         </div>
         {output.draftReply != null && output.draftReply !== '' && (
           <div
-            className={isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : undefined}
+            className={[
+              isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : '',
+              'flex h-full min-h-0 w-full flex-col',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             style={{
               display: 'flex',
               flexDirection: 'column',
-              flex: '1 1 0%',
+              height: '100%',
               minHeight: 0,
               width: '100%',
+              flex: '1 1 0%',
+              boxSizing: 'border-box',
             }}
           >
-            <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="flex min-h-0 flex-1 flex-col" style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
               <div
                 ref={draftRef}
                 data-subfocus="draft"
@@ -653,18 +660,18 @@ function BulkActionCardStructured({
                   useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
                   handleDraftRefineConnect()
                 }}
+                className="flex h-full min-h-0 w-full flex-col"
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  flex: 1,
+                  height: '100%',
                   minHeight: 0,
                   width: '100%',
                   borderRadius: 16,
                   border: isConnected ? '2px solid var(--color-primary, #7c3aed)' : '1px solid #c4b5fd',
-                  background: 'rgba(255, 255, 255, 0.92)',
-                  boxShadow: '0 1px 4px rgba(124, 58, 237, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04)',
+                  background: '#ffffff',
+                  boxShadow: '0 1px 3px rgba(124, 58, 237, 0.12), 0 1px 2px rgba(0, 0, 0, 0.05)',
                   boxSizing: 'border-box',
-                  overflow: 'hidden',
                 }}
               >
                 <div
@@ -710,6 +717,7 @@ function BulkActionCardStructured({
                   </span>
                 ) : null}
                 <div
+                  className="flex min-h-0 w-full flex-1 flex-col p-4"
                   style={{
                     flex: 1,
                     minHeight: 0,
@@ -717,23 +725,25 @@ function BulkActionCardStructured({
                     padding: 16,
                     display: 'flex',
                     flexDirection: 'column',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <div
+                    className="flex min-h-0 w-full flex-1 flex-col"
                     style={{
                       flex: 1,
                       minHeight: 0,
-                      height: '100%',
                       width: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
                       borderRadius: 12,
                       border: '1px solid #ddd6fe',
                       background: '#ffffff',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      overflow: 'hidden',
+                      boxSizing: 'border-box',
                     }}
                   >
                     <textarea
+                      className="h-full min-h-[260px] w-full resize-none overflow-y-auto"
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -808,7 +818,7 @@ function BulkActionCardStructured({
                 ) : null}
               </div>
             </div>
-            <div style={{ flexShrink: 0, paddingTop: 16 }}>
+            <div className="shrink-0 pt-4" style={{ flexShrink: 0, width: '100%', paddingTop: 16, boxSizing: 'border-box' }}>
               <div
                 style={{
                   display: 'flex',
@@ -869,17 +879,25 @@ function BulkActionCardStructured({
                     🗑 Pending Delete
                   </button>
                 ) : null}
-                <div className="bulk-action-card-buttons-secondary">
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
-                    ✨ Summarize
-                  </button>
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
-                    ✍ Draft
-                  </button>
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
-                    🗑 Delete
-                  </button>
-                </div>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
+                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+                  ✨ Summarize
+                </button>
+                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+                  ✍ Draft
+                </button>
+                <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+                  🗑 Delete
+                </button>
               </div>
             </div>
           </div>
