@@ -819,7 +819,7 @@ export default function EmailInboxBulkView({
     selectedMessage,
     selectedMessageId,
     filter,
-    tabCounts,
+    allMessages,
     fetchMessages,
     fetchAllMessages,
     refreshMessages,
@@ -880,14 +880,7 @@ export default function EmailInboxBulkView({
       selectedMessage: s.selectedMessage,
       selectedMessageId: s.selectedMessageId,
       filter: s.filter,
-      tabCounts: deriveTabCountsWithPreview(s.allMessages, {
-        pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
-        archivePreviewExpiries: s.archivePreviewExpiries,
-        pendingReviewPreviewExpiries: s.pendingReviewPreviewExpiries,
-        keptDuringPreviewIds: s.keptDuringPreviewIds,
-        keptDuringArchivePreviewIds: s.keptDuringArchivePreviewIds,
-        keptDuringReviewPreviewIds: s.keptDuringReviewPreviewIds,
-      }),
+      allMessages: s.allMessages,
       fetchMessages: s.fetchMessages,
       fetchAllMessages: s.fetchAllMessages,
       refreshMessages: s.refreshMessages,
@@ -938,6 +931,28 @@ export default function EmailInboxBulkView({
   )
 
   const primaryAccountId = accounts[0]?.id
+
+  /** Derive tab counts from allMessages + preview state. useMemo prevents new object every render → infinite loop. */
+  const tabCounts = useMemo(
+    () =>
+      deriveTabCountsWithPreview(allMessages, {
+        pendingDeletePreviewExpiries,
+        archivePreviewExpiries,
+        pendingReviewPreviewExpiries,
+        keptDuringPreviewIds,
+        keptDuringArchivePreviewIds,
+        keptDuringReviewPreviewIds,
+      }),
+    [
+      allMessages,
+      pendingDeletePreviewExpiries,
+      archivePreviewExpiries,
+      pendingReviewPreviewExpiries,
+      keptDuringPreviewIds,
+      keptDuringArchivePreviewIds,
+      keptDuringReviewPreviewIds,
+    ]
+  )
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
