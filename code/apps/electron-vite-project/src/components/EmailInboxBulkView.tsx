@@ -385,10 +385,8 @@ function BulkActionCardStructured({
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
   const isDraftSubFocused = subFocus.kind === 'draft' && subFocus.messageId === msg.id
-  const shouldCollapseAnalysis = draftExpanded || isDraftSubFocused
-  /** Analysis sections stay expanded unless user manually collapses. Auto-collapse when draft/summary active. */
-  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => new Set())
-  const effectiveCollapsed = (id: string) => sectionsCollapsed.has(id) || shouldCollapseAnalysis
+  const [isAnalysisOpen, setIsAnalysisOpen] = useState(false)
+  const analysisButtonRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
 
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
@@ -398,14 +396,25 @@ function BulkActionCardStructured({
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
-  const toggleSection = useCallback((id: string) => {
-    setSectionsCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  /** Close analysis panel on click outside or Escape */
+  useEffect(() => {
+    if (!isAnalysisOpen) return
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node
+      if (analysisButtonRef.current && !analysisButtonRef.current.contains(target)) {
+        setIsAnalysisOpen(false)
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsAnalysisOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isAnalysisOpen])
 
   /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5).
    * Does NOT call onSelectMessage: draft selection is independent of message selection. */
@@ -469,8 +478,109 @@ function BulkActionCardStructured({
         <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
           {urgency}/10
         </span>
+        <div ref={analysisButtonRef} style={{ position: 'relative', marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className={`bulk-action-card-btn bulk-action-card-btn-tertiary${isAnalysisOpen ? ' bulk-action-card-analysis-btn--active' : ''}`}
+            onClick={() => setIsAnalysisOpen((v) => !v)}
+            aria-expanded={isAnalysisOpen}
+            aria-haspopup="dialog"
+            aria-label={isAnalysisOpen ? 'Close analysis panel' : 'View analysis'}
+          >
+            Analysis
+          </button>
+          {isAnalysisOpen && (
+            <div
+              className="bulk-action-card-analysis-popover"
+              role="dialog"
+              aria-label="AI analysis"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bulk-action-card-analysis-popover-content">
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Response Needed</span>
+                  <div className="bulk-action-card-row-value">
+                    <span className="bulk-action-card-response-needed">
+                      <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
+                      {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
+                    </span>
+                  </div>
+                </div>
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Summary</span>
+                  <div className={`bulk-action-card-row-value bulk-action-card-summary bulk-action-card-summary--expanded`}>
+                    {output.summary || '—'}
+                  </div>
+                </div>
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Urgency</span>
+                  <div className="bulk-action-card-row-value">
+                    <div className="bulk-action-card-urgency-bar">
+                      <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
+                    </div>
+                    <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
+                  </div>
+                </div>
+                <div className="bulk-action-card-row">
+                  <span className="bulk-action-card-row-label">Action Items</span>
+                  <div className="bulk-action-card-row-value">
+                    {output.actionItems?.length ? (
+                      <ul className="bulk-action-card-action-list">
+                        {output.actionItems.map((item, idx) => (
+                          <li key={idx} className="bulk-action-card-action-item">{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="bulk-action-card-muted">None.</span>
+                    )}
+                  </div>
+                </div>
+                <div className="bulk-action-card-row bulk-action-card-row--recommended">
+                  <span className="bulk-action-card-row-label">Recommended Action</span>
+                  <div className="bulk-action-card-row-value">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+                      onClick={() => {
+                        setIsAnalysisOpen(false)
+                        if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                        else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                        else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                        else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setIsAnalysisOpen(false)
+                          if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                          else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                          else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                          else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                        }
+                      }}
+                      title="Click or press Enter to apply"
+                    >
+                      <span className="bulk-action-card-panel-action">
+                        {rec === 'pending_delete' && '🗑 Pending Delete'}
+                        {rec === 'pending_review' && '⏳ Pending Review'}
+                        {rec === 'archive' && '📦 Archive'}
+                        {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                        {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+                      </span>
+                    </div>
+                    <div className="bulk-action-card-reasoning-box">
+                      <span className="bulk-action-card-reasoning-label">Why:</span>
+                      <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}${shouldCollapseAnalysis ? ' bulk-action-card-sections--draft-focused' : ''}`}>
+      <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}`}>
         {output.summaryError && (
           <div className="bulk-action-card-error-banner">
             <span>Summarize failed.</span>
@@ -483,77 +593,7 @@ function BulkActionCardStructured({
             <button type="button" onClick={() => handleDraftReply(msg.id)}>Retry</button>
           </div>
         )}
-        {/* Response Needed — user-controlled collapse; auto-collapse when draft subFocus */}
-        {effectiveCollapsed('response') ? (
-          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('response')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('response')} title="Click to expand">
-            <span className="bulk-action-card-row-label">Response Needed</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="bulk-action-card-row">
-            <span className="bulk-action-card-row-label" onClick={() => toggleSection('response')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('response')} title="Click to collapse" style={{ cursor: 'pointer' }}>Response Needed ▾</span>
-            <div className="bulk-action-card-row-value">
-              <span className="bulk-action-card-response-needed">
-                <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
-                {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
-              </span>
-            </div>
-          </div>
-        )}
-        {/* Summary — user-controlled collapse; auto-collapse when draft subFocus */}
-        {effectiveCollapsed('summary') ? (
-          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('summary')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('summary')} title="Click to expand">
-            <span className="bulk-action-card-row-label">Summary</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="bulk-action-card-row">
-            <span className="bulk-action-card-row-label" onClick={() => toggleSection('summary')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('summary')} title="Click to collapse" style={{ cursor: 'pointer' }}>Summary ▾</span>
-            <div className={`bulk-action-card-row-value bulk-action-card-summary ${isExpanded ? 'bulk-action-card-summary--expanded' : 'bulk-action-card-summary--collapsed'}`}>
-              {output.summary || '—'}
-            </div>
-          </div>
-        )}
-        {/* Urgency — header always visible; body collapses when draft subFocus */}
-        {effectiveCollapsed('urgency') ? (
-          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('urgency')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('urgency')} title="Click to expand">
-            <span className="bulk-action-card-row-label">Urgency</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-        <div className="bulk-action-card-row">
-          <span className="bulk-action-card-row-label" onClick={() => toggleSection('urgency')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('urgency')} title="Click to collapse" style={{ cursor: 'pointer' }}>Urgency ▾</span>
-          <div className="bulk-action-card-row-value">
-            <div className="bulk-action-card-urgency-bar">
-              <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
-            </div>
-            <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
-          </div>
-        </div>
-        )}
-        {/* Action Items — user-controlled collapse; auto-collapse when draft active */}
-        {effectiveCollapsed('action') ? (
-          <div className="bulk-action-card-row bulk-action-card-section-collapsed" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to expand">
-            <span className="bulk-action-card-row-label">Action Items</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>▸</span>
-          </div>
-        ) : (
-          <div className="bulk-action-card-row">
-            <span className="bulk-action-card-row-label" onClick={() => toggleSection('action')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && toggleSection('action')} title="Click to collapse" style={{ cursor: 'pointer' }}>Action Items ▾</span>
-            <div className="bulk-action-card-row-value">
-              {output.actionItems?.length ? (
-                <ul className="bulk-action-card-action-list">
-                  {output.actionItems.map((item, idx) => (
-                    <li key={idx} className="bulk-action-card-action-item">{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="bulk-action-card-muted">None.</span>
-              )}
-            </div>
-          </div>
-        )}
-        {/* Recommended Action */}
+        {/* Recommended Action — always visible inline as primary CTA */}
         <div className="bulk-action-card-row bulk-action-card-row--recommended">
           <span className="bulk-action-card-row-label">Recommended Action</span>
           <div className="bulk-action-card-row-value">
@@ -592,8 +632,9 @@ function BulkActionCardStructured({
             </div>
           </div>
         </div>
-        {/* Draft Reply — below analysis, gets main space when draft exists */}
+        {/* Draft region — full main content space when draft exists */}
         {output.draftReply != null && output.draftReply !== '' && (
+          <div className="bulk-action-card-draft-region">
           <div
             className={`bulk-action-card-row bulk-action-card-row-draft bulk-action-card-draft-block${draftExpanded ? ' bulk-action-card-draft-expanded' : ''}${isConnected ? ' bulk-action-card-draft-connected' : ''}${isDraftSubFocused ? ' bulk-action-card-row-draft--subfocused' : ''}`}
             ref={draftRef}
@@ -705,6 +746,7 @@ function BulkActionCardStructured({
                 </button>
               </div>
             </div>
+          </div>
           </div>
         )}
       </div>
@@ -2581,7 +2623,7 @@ export default function EmailInboxBulkView({
                   key={msg.id}
                   data-msg-id={msg.id}
                   data-row-index={aiSortPhase === 'reordered' ? rowIndex : undefined}
-                  className={`bulk-view-row ${isRemoving ? 'bulk-view-row--removing' : ''} ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''} ${aiSortPhase === 'reordered' && !isRemoving ? 'bulk-view-row--reorder-enter' : ''}`}
+                  className={`bulk-view-row ${isRemoving ? 'bulk-view-row--removing' : ''} ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''} ${output?.draftReply ? 'bulk-view-row--has-draft' : ''} ${aiSortPhase === 'reordered' && !isRemoving ? 'bulk-view-row--reorder-enter' : ''}`}
                   onAnimationEnd={isRemoving ? () => setRemovingItems((prev) => { const next = new Map(prev); next.delete(msg.id); return next; }) : undefined}
                   style={{
                     ...(aiSortPhase === 'reordered' && !isRemoving ? { animationDelay: `${rowIndex * 18}ms` } : {}),

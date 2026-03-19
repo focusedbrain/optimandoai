@@ -1,7 +1,15 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
+import { useEmailInboxStore } from '../stores/useEmailInboxStore'
+
+/** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
+export type UiFocusContext =
+  | { kind: 'message'; messageId: string }
+  | { kind: 'draft'; messageId: string }
+  | { kind: 'attachment'; messageId: string; attachmentId: string }
+  | { kind: 'none' }
 
 // ── Types ──
 
@@ -329,6 +337,19 @@ export default function HybridSearch({
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
+  const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : { kind: 'none' as const }))
+
+  /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
+  const uiFocusContext: UiFocusContext = useMemo(() => {
+    if (!selectedMessageId) return { kind: 'none' }
+    const msgId = selectedMessageId
+    if (activeView === 'beap-inbox') {
+      if (inboxSubFocus.kind === 'draft' && inboxSubFocus.messageId === msgId) return { kind: 'draft', messageId: msgId }
+      if (inboxSubFocus.kind === 'attachment' && inboxSubFocus.messageId === msgId && selectedAttachmentId)
+        return { kind: 'attachment', messageId: msgId, attachmentId: selectedAttachmentId }
+    }
+    return { kind: 'message', messageId: msgId }
+  }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus])
   const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
   const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
   const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
@@ -620,13 +641,14 @@ Output ONLY the complete draft email text, no explanation.`
           fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
           marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
         }}>
-          {draftRefineConnected && draftRefineMessageId === selectedMessageId ? (
+          {uiFocusContext.kind === 'draft' ? (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: '4px',
               padding: '2px 8px', borderRadius: '6px',
-              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-            }}>
-              ✏️ Refining draft{draftRefineMessageSubject ? ` for: ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}` : ''}
+              background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
+              color: '#15803d',
+            }} title="Chat scoped to draft — refine with AI">
+              ✏️ Draft{draftRefineMessageSubject ? ` · ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}` : ''}
               <button
                 type="button"
                 onClick={handleClearMessageSelection}
@@ -639,13 +661,34 @@ Output ONLY the complete draft email text, no explanation.`
                 ×
               </button>
             </span>
+          ) : uiFocusContext.kind === 'attachment' ? (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+            }} title="Chat scoped to attachment">
+              📎 Attachment
+              {onClearMessageSelection && (
+                <button
+                  type="button"
+                  onClick={handleClearMessageSelection}
+                  aria-label="Clear selection"
+                  style={{
+                    marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                    cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
           ) : (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: '4px',
               padding: '2px 8px', borderRadius: '6px',
               background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-            }}>
-              📨 Focused: Message
+            }} title="Chat scoped to message">
+              📨 Message
               {selectedAttachmentId && <span>→ Attachment</span>}
               {onClearMessageSelection && (
                 <button
@@ -740,7 +783,15 @@ Output ONLY the complete draft email text, no explanation.`
           <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected handshake">👉</span>
         )}
         {selectedMessageId && !selectedHandshakeId && (
-          <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected BEAP message">👉</span>
+          <span
+            style={{
+              marginRight: '6px', fontSize: '16px', lineHeight: 1, flexShrink: 0, cursor: 'default',
+              color: uiFocusContext.kind === 'draft' ? '#15803d' : 'var(--purple-accent, #a78bfa)',
+            }}
+            title={uiFocusContext.kind === 'draft' ? 'Chat scoped to draft' : uiFocusContext.kind === 'attachment' ? 'Chat scoped to attachment' : 'Chat scoped to message'}
+          >
+            {uiFocusContext.kind === 'draft' ? '✏️' : '👉'}
+          </span>
         )}
         <input
           ref={inputRef}
