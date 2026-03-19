@@ -659,6 +659,7 @@ function BulkActionCardStructured({
               {isConnected && (
                 <span className="bulk-action-card-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
               )}
+              <div className="bulk-action-card-draft-textarea-wrapper">
               <textarea
                 className="bulk-action-card-draft-textarea"
                 value={output.draftReply}
@@ -681,6 +682,7 @@ function BulkActionCardStructured({
                 }}
                 placeholder="Edit draft before sending…"
               />
+              </div>
               {refinedDraftText && isConnected && (
                 <div className="bulk-action-card-refined-preview">
                   <div className="bulk-action-card-refined-header">

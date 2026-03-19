@@ -1272,6 +1272,7 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+  flex-shrink: 0;
 }
 
 .attachment-chip {
@@ -2550,7 +2551,9 @@ body {
   border-radius: 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   cursor: pointer;
 }
@@ -2799,10 +2802,10 @@ body {
   min-height: 0;
   width: 100%;
 }
-/* Draft block — below analysis, gets main space; ensure interactive, not tiny/cropped */
+/* Draft block — below analysis, gets main space; flex chain requires min-height: 0 */
 .bulk-action-card-draft-block {
   flex: 1;
-  min-height: 200px;  /* ensure draft contributes to layout; comfortable editor height */
+  min-height: 0;
   width: 100%;
   pointer-events: auto;
   display: flex;
@@ -3001,18 +3004,27 @@ body {
   flex-direction: column;
   overflow: hidden;
 }
+/* Textarea wrapper — flex: 1 so editor fills available height; textarea uses height: 100% */
+.bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea-wrapper {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
   flex: 1;
-  min-height: 200px;  /* usable minimum; prevents tiny/cropped editor; fills available space */
+  min-height: 0;
+  height: 100%;
   width: 100%;
-  resize: none;  /* flex handles sizing */
+  resize: none;
   padding: 12px;
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  overflow-y: auto;  /* long draft scrolls within textarea */
+  overflow-y: auto;  /* scrollbar only when content exceeds available editor height */
 }
 
 /* Draft connected to chat — purple border (same as Normal Inbox) */
