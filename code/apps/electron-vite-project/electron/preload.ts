@@ -456,7 +456,7 @@ contextBridge.exposeInMainWorld('email', {
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
-  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) =>
+  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
@@ -539,6 +539,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   getAiRules: () => ipcRenderer.invoke('inbox:getAiRules'),
   saveAiRules: (content: string) => ipcRenderer.invoke('inbox:saveAiRules', content),
   getAiRulesDefault: () => ipcRenderer.invoke('inbox:getAiRulesDefault'),
+  showOpenDialogForAttachments: () => ipcRenderer.invoke('inbox:showOpenDialogForAttachments'),
+  readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

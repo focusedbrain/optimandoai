@@ -54,16 +54,20 @@ function parsePersistedAnalysis(json: string | null | undefined): BulkAiResultEn
   if (!json || typeof json !== 'string') return undefined
   try {
     const parsed = JSON.parse(json) as Record<string, unknown>
-    if (!parsed?.category) return undefined
+    const hasCategory = !!parsed?.category
+    const hasSummary = typeof parsed?.summary === 'string' && parsed.summary.length > 0
+    const hasDraftReply = typeof parsed?.draftReply === 'string' && parsed.draftReply.length > 0
+    if (!hasCategory && !hasSummary && !hasDraftReply) return undefined
+
     return {
-      category: parsed.category as SortCategory,
+      category: (hasCategory ? parsed.category : 'normal') as SortCategory,
       urgencyScore: typeof parsed.urgencyScore === 'number' ? parsed.urgencyScore : 5,
       urgencyReason: String(parsed.urgencyReason ?? ''),
       summary: String(parsed.summary ?? ''),
       reason: String(parsed.reason ?? ''),
       needsReply: !!parsed.needsReply,
       needsReplyReason: String(parsed.needsReplyReason ?? ''),
-      recommendedAction: (parsed.recommendedAction ?? 'keep_for_manual_action') as BulkRecommendedAction,
+      recommendedAction: (hasCategory ? (parsed.recommendedAction ?? 'keep_for_manual_action') : 'keep_for_manual_action') as BulkRecommendedAction,
       actionExplanation: String(parsed.actionExplanation ?? ''),
       actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
       draftReply: parsed.draftReply ?? undefined,
@@ -336,13 +340,16 @@ function BulkActionCardStructured({
   pendingDeletePreviewExpiries,
   archivePreviewExpiries,
   pendingReviewPreviewExpiries,
+  draftAttachments = [],
+  onAddDraftAttachment,
+  onRemoveDraftAttachment,
 }: {
   msg: InboxMessage
   output: BulkAiResultEntry
   isExpanded: boolean
   currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review'
   updateDraftReply: (messageId: string, draftReply: string) => void
-  handleSendDraft: (msg: InboxMessage, draftBody: string) => void
+  handleSendDraft: (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => void
   handleArchiveOne: (msg: InboxMessage) => void
   handleDeleteOne: (msg: InboxMessage) => void
   handlePendingDeleteOne: (msg: InboxMessage) => void
@@ -362,6 +369,9 @@ function BulkActionCardStructured({
   pendingDeletePreviewExpiries: Record<string, string | undefined>
   archivePreviewExpiries: Record<string, string | undefined>
   pendingReviewPreviewExpiries: Record<string, string | undefined>
+  draftAttachments?: Array<{ name: string; path: string; size: number }>
+  onAddDraftAttachment?: () => void
+  onRemoveDraftAttachment?: (index: number) => void
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() =>
@@ -430,6 +440,7 @@ function BulkActionCardStructured({
   }, [draftRefineConnected, draftRefineMessageId, msg.id, output.draftReply])
 
   const rec = output.recommendedAction!
+  const isSortedView = ['pending_delete', 'pending_review', 'archived'].includes(currentFilter)
   const category = (output.category ?? 'normal') as keyof typeof CATEGORY_BORDER
   const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
   const urgency = output.urgencyScore ?? 5
@@ -550,8 +561,50 @@ function BulkActionCardStructured({
                   <div className="bulk-action-card-refined-content">{refinedDraftText}</div>
                 </div>
               )}
+              {draftAttachments.length > 0 && (
+                <div className="draft-attachments">
+                  {draftAttachments.map((a, i) => (
+                    <div key={i} className="attachment-chip">
+                      <span>{a.name}</span>
+                      <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                      {onRemoveDraftAttachment && (
+                        <button type="button" onClick={() => onRemoveDraftAttachment(i)} aria-label="Remove">✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="bulk-action-card-draft-actions">
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary" onClick={() => handleSendDraft(msg, output.draftReply ?? '')}>
+                {isSortedView && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
+                      else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
+                      else handleUndoArchived(msg.id)
+                    }}
+                    title="Move back to inbox"
+                  >
+                    Undo
+                  </button>
+                )}
+                {msg.source_type === 'email_plain' && onAddDraftAttachment && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                    onClick={(e) => { e.stopPropagation(); onAddDraftAttachment() }}
+                    title="Add attachment"
+                  >
+                    📎 Attach
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--primary"
+                  onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
+                >
                   {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
                 </button>
               </div>
@@ -656,7 +709,7 @@ function BulkActionCardStructured({
         </div>
       )}
       <div className="bulk-action-card-buttons">
-        {(currentFilter === 'pending_delete' || currentFilter === 'pending_review' || currentFilter === 'archived') && (
+        {isSortedView && (
           <button
             type="button"
             className="bulk-action-card-btn bulk-action-card-btn--secondary"
@@ -774,6 +827,8 @@ export default function EmailInboxBulkView({
     selectedMessageId,
     filter,
     fetchMessages,
+    fetchAllMessages,
+    refreshMessages,
     setBulkMode,
     setBulkPage,
     setBulkBatchSize,
@@ -829,6 +884,8 @@ export default function EmailInboxBulkView({
       selectedMessageId: s.selectedMessageId,
       filter: s.filter,
       fetchMessages: s.fetchMessages,
+      fetchAllMessages: s.fetchAllMessages,
+      refreshMessages: s.refreshMessages,
       setBulkMode: s.setBulkMode,
       setBulkPage: s.setBulkPage,
       setBulkBatchSize: s.setBulkBatchSize,
@@ -914,6 +971,8 @@ export default function EmailInboxBulkView({
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
+  const [draftAttachmentsForCompose, setDraftAttachmentsForCompose] = useState<Array<{ name: string; path: string; size: number }>>([])
+  const [draftAttachmentsByMessage, setDraftAttachmentsByMessage] = useState<Record<string, Array<{ name: string; path: string; size: number }>>>({})
   const composeClickRef = useRef<number>(0)
   const [showWrExpertModal, setShowWrExpertModal] = useState(false)
   const [wrExpertContent, setWrExpertContent] = useState('')
@@ -970,6 +1029,30 @@ export default function EmailInboxBulkView({
     })
   }, [messages, loading, filter.filter])
   const selectedCount = multiSelectIds.size
+  const batchMessages = sortedMessages
+  const allInBatchSelected =
+    batchMessages.length > 0 && batchMessages.every((m) => multiSelectIds.has(m.id))
+  const someInBatchSelected = batchMessages.some((m) => multiSelectIds.has(m.id))
+
+  const handleBatchCheckboxToggle = useCallback(() => {
+    if (allInBatchSelected || someInBatchSelected) {
+      clearMultiSelect()
+    } else {
+      batchMessages.forEach((m) => {
+        if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
+      })
+    }
+  }, [allInBatchSelected, someInBatchSelected, batchMessages, multiSelectIds, clearMultiSelect, toggleMultiSelect])
+
+  const batchCheckboxRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    const el = batchCheckboxRef.current
+    if (el) {
+      ;(el as HTMLInputElement & { indeterminate?: boolean }).indeterminate =
+        someInBatchSelected && !allInBatchSelected
+    }
+  }, [someInBatchSelected, allInBatchSelected])
+
   const totalPages =
     bulkBatchSize === 'all' ? 1 : Math.max(1, Math.ceil(total / bulkBatchSize))
   const canPrev = bulkPage > 0
@@ -1014,9 +1097,14 @@ export default function EmailInboxBulkView({
     syncBulkBatchSizeFromSettings()
   }, [syncBulkBatchSizeFromSettings])
 
+  /** On mount and page 0: fetch all tabs for instant switching. On page change: fetch current page. */
   useEffect(() => {
-    fetchMessages()
-  }, [fetchMessages, bulkPage])
+    if (bulkPage === 0) {
+      fetchAllMessages()
+    } else {
+      fetchMessages()
+    }
+  }, [fetchAllMessages, fetchMessages, bulkPage])
 
   /** When user selects "All" from dropdown, select all messages once they load. */
   useEffect(() => {
@@ -1046,9 +1134,9 @@ export default function EmailInboxBulkView({
     const res = await window.emailInbox.moveToPendingReview(ids)
     if (res.ok) {
       clearMultiSelect()
-      await fetchMessages()
+      await refreshMessages()
     }
-  }, [multiSelectIds, clearMultiSelect, fetchMessages])
+  }, [multiSelectIds, clearMultiSelect, refreshMessages])
 
   const handleBulkCategorize = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1134,7 +1222,7 @@ export default function EmailInboxBulkView({
           )
         }
         if (clearSelection) clearMultiSelect()
-        await fetchMessages()
+        await refreshMessages()
         setAiSortPhase('reordered')
         setTimeout(() => setAiSortPhase('idle'), 380)
       } catch {
@@ -1155,31 +1243,15 @@ export default function EmailInboxBulkView({
         setAiSortProgress(null)
       }
     },
-    [clearMultiSelect, fetchMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview]
+    [clearMultiSelect, refreshMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview]
   )
 
   const handleAiAutoSort = useCallback(() => {
-    autoSortedIdsRef.current.clear()
     const ids = Array.from(multiSelectIds)
+    if (!ids.length) return
+    autoSortedIdsRef.current.clear()
     runAiCategorizeForIds(ids, true)
   }, [multiSelectIds, runAiCategorizeForIds])
-
-  /** Auto-run AI analysis when messages load and batch has no analysis yet. Only in inbox-like views — never in Pending Delete, Pending Review, Archived, or Deleted. */
-  const SORTABLE_FILTERS = ['all', 'unread', 'starred'] as const
-  useEffect(() => {
-    if (loading || messages.length === 0 || !window.emailInbox?.aiClassifySingle) return
-    if (!SORTABLE_FILTERS.includes(filter.filter as (typeof SORTABLE_FILTERS)[number])) return
-    if (aiSortPhase === 'analyzing') return
-    const ids = messages.map((m) => m.id)
-    const hasAnalysis = ids.some((id) => {
-      const out = bulkAiOutputs[id]
-      return !!(out?.category || out?.summary)
-    })
-    if (hasAnalysis) return
-    const unsortedIds = ids.filter((id) => !autoSortedIdsRef.current.has(id))
-    if (unsortedIds.length === 0) return
-    runAiCategorizeForIds(unsortedIds, false)
-  }, [loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase, filter.filter])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -1191,27 +1263,27 @@ export default function EmailInboxBulkView({
       removeRecentPendingDeleteBatch(ids)
       decrementBulkSessionPendingDelete(ids.length)
       clearPendingDeleteStateForIds(ids)
-      await fetchMessages()
+      await refreshMessages()
     },
-    [fetchMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
+    [refreshMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
   )
 
   const handleUndoPendingReview = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.cancelPendingReview) return
       const res = await window.emailInbox.cancelPendingReview(messageId)
-      if (res?.ok) await fetchMessages()
+      if (res?.ok) await refreshMessages()
     },
-    [fetchMessages]
+    [refreshMessages]
   )
 
   const handleUndoArchived = useCallback(
     async (messageId: string) => {
       if (!window.emailInbox?.unarchive) return
       const res = await window.emailInbox.unarchive(messageId)
-      if (res?.ok) await fetchMessages()
+      if (res?.ok) await refreshMessages()
     },
-    [fetchMessages]
+    [refreshMessages]
   )
 
   /** Cancel the scheduled pending-delete move for one message during the 5s preview. */
@@ -1440,17 +1512,45 @@ export default function EmailInboxBulkView({
   }, [])
 
   /** Open compose with draft body for reply. */
-  const handleSendDraft = useCallback((msg: InboxMessage, draftBody: string) => {
+  const handleSendDraft = useCallback((msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => {
     const isDepackaged = msg.source_type === 'email_plain'
     if (isDepackaged) {
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       setReplyToMessage({ ...msg, subject })
       setReplyDraftBody(draftBody || '')
+      setDraftAttachmentsForCompose(attachments ?? [])
       setShowEmailCompose(true)
+      setDraftAttachmentsByMessage((prev) => {
+        const { [msg.id]: _, ...rest } = prev
+        return rest
+      })
     } else {
       if (draftBody?.trim()) navigator.clipboard?.writeText(draftBody).catch(() => {})
       window.analysisDashboard?.openBeapDraft?.()
     }
+  }, [])
+
+  const handleAddDraftAttachment = useCallback(async (msgId: string) => {
+    if (!window.emailInbox?.showOpenDialogForAttachments) return
+    const res = await window.emailInbox.showOpenDialogForAttachments()
+    if (res?.ok && res?.data?.files?.length) {
+      setDraftAttachmentsByMessage((prev) => ({
+        ...prev,
+        [msgId]: [...(prev[msgId] ?? []), ...res.data.files],
+      }))
+    }
+  }, [])
+
+  const handleRemoveDraftAttachment = useCallback((msgId: string, index: number) => {
+    setDraftAttachmentsByMessage((prev) => {
+      const list = prev[msgId] ?? []
+      const next = list.filter((_, i) => i !== index)
+      if (next.length === 0) {
+        const { [msgId]: _, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [msgId]: next }
+    })
   }, [])
 
   const handleArchiveOne = useCallback(
@@ -1482,15 +1582,16 @@ export default function EmailInboxBulkView({
       const res = await window.emailInbox.moveToPendingReview([msg.id])
       if (res.ok) {
         useEmailInboxStore.getState().clearBulkAiOutputsForIds([msg.id])
-        await fetchMessages()
+        await refreshMessages()
       }
     },
-    [fetchMessages]
+    [refreshMessages]
   )
 
   /** Render structured Action Card when BulkAiResult exists; otherwise fallback. */
   const renderActionCard = useCallback(
     (msg: InboxMessage, output: BulkAiResultEntry | undefined, isExpanded: boolean) => {
+      const isSortedView = ['pending_delete', 'pending_review', 'archived'].includes(filter.filter)
       const hasStructured = !!(output?.category && output?.recommendedAction)
       const category = (output?.category ?? 'normal') as keyof typeof CATEGORY_BORDER
       const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
@@ -1504,7 +1605,7 @@ export default function EmailInboxBulkView({
               <span className="bulk-action-card-state-detail">AI is processing this message…</span>
             </div>
             <div className="bulk-action-card-actions-row">
-              {(filter.filter === 'pending_delete' || filter.filter === 'pending_review' || filter.filter === 'archived') && (
+              {isSortedView && (
                 <button
                   type="button"
                   className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -1544,7 +1645,7 @@ export default function EmailInboxBulkView({
               </span>
             </div>
             <div className="bulk-action-card-actions-row">
-              {(filter.filter === 'pending_delete' || filter.filter === 'pending_review' || filter.filter === 'archived') && (
+              {isSortedView && (
                 <button
                   type="button"
                   className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -1604,6 +1705,9 @@ export default function EmailInboxBulkView({
             handleSendDraft={handleSendDraft}
             handleArchiveOne={handleArchiveOne}
             handleDeleteOne={handleDeleteOne}
+            draftAttachments={draftAttachmentsByMessage[msg.id]}
+            onAddDraftAttachment={() => handleAddDraftAttachment(msg.id)}
+            onRemoveDraftAttachment={(i) => handleRemoveDraftAttachment(msg.id, i)}
             handlePendingDeleteOne={handlePendingDeleteOne}
             handleMoveToPendingReviewOne={handleMoveToPendingReviewOne}
             handleSummarize={handleSummarize}
@@ -1667,7 +1771,7 @@ export default function EmailInboxBulkView({
               )}
             </div>
             <div className="bulk-action-card-actions-row">
-              {(filter.filter === 'pending_delete' || filter.filter === 'pending_review' || filter.filter === 'archived') && (
+              {isSortedView && (
                 <button
                   type="button"
                   className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -1729,7 +1833,7 @@ export default function EmailInboxBulkView({
             </span>
           </div>
           <div className="bulk-action-card-actions-row bulk-action-card-actions-row--secondary">
-            {(filter.filter === 'pending_delete' || filter.filter === 'pending_review' || filter.filter === 'archived') && (
+            {isSortedView && (
               <button
                 type="button"
                 className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -1771,6 +1875,9 @@ export default function EmailInboxBulkView({
     },
     [
       filter.filter,
+      draftAttachmentsByMessage,
+      handleAddDraftAttachment,
+      handleRemoveDraftAttachment,
       updateDraftReply,
       handleSendDraft,
       handleArchiveOne,
@@ -1956,9 +2063,17 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar — compact, no duplication */}
+      {/* Toolbar — three groups: left (selection+sort), center (filter tabs), right (sync+tools) */}
       <div className="bulk-view-toolbar">
-        <div className="bulk-view-selection-group">
+        <div className="bulk-view-toolbar-left">
+          {/* GROUP 1: Selection + Sort */}
+          <input
+            type="checkbox"
+            checked={allInBatchSelected}
+            ref={batchCheckboxRef}
+            onChange={handleBatchCheckboxToggle}
+            title={allInBatchSelected ? 'Deselect all' : someInBatchSelected ? 'Deselect all' : 'Select all in batch'}
+          />
           <select
             value={bulkBatchSize}
             onChange={(e) => {
@@ -1979,13 +2094,24 @@ export default function EmailInboxBulkView({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="bulk-view-ai-sort-btn ai-auto-sort-btn"
+            onClick={handleAiAutoSort}
+            disabled={selectedCount === 0}
+            title="AI Auto-Sort selected messages"
+          >
+            ⚡ AI Auto-Sort
+          </button>
           {messages.length > 0 && (
-            <span className="bulk-view-selection-group-count">
+            <span className="bulk-view-selection-group-count selected-count">
               {selectedCount} selected
             </span>
           )}
         </div>
-        <div className="bulk-view-filter-group">
+
+        <div className="bulk-view-toolbar-center">
+          {/* GROUP 2: Filter tabs */}
           <button
             type="button"
             onClick={() => setFilter({ filter: 'all' })}
@@ -2025,7 +2151,9 @@ export default function EmailInboxBulkView({
             </button>
           )}
         </div>
-        <div className="bulk-view-sync-group">
+
+        <div className="bulk-view-toolbar-right">
+          {/* GROUP 3: Sync & Tools */}
           <label className="bulk-view-sync-label">
             <input
               type="checkbox"
@@ -2043,62 +2171,23 @@ export default function EmailInboxBulkView({
           >
             {syncing ? '↻ Syncing…' : '↻ Pull'}
           </button>
-        </div>
-        <div className="bulk-view-action-group">
-          {selectedCount > 0 && (
-            <>
-              <button
-                type="button"
-                className="bulk-view-delete-btn"
-                onClick={handleBulkDelete}
-                title="Delete selected (d)"
-              >
-                🗑
-              </button>
-              <button
-                type="button"
-                className="bulk-view-archive-btn"
-                onClick={handleBulkArchive}
-                title="Archive selected (a)"
-              >
-                Archive
-              </button>
-              <button
-                type="button"
-                className="bulk-view-review-btn"
-                onClick={handleBulkMoveToPendingReview}
-                title="Move to Pending Review"
-              >
-                ⏳ Review
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            className="bulk-view-ai-sort-btn"
-            onClick={handleAiAutoSort}
-            disabled={selectedCount === 0}
-          >
-            ✨ AI Auto-Sort
-          </button>
           <button
             type="button"
             className="bulk-view-wr-expert-btn"
             onClick={() => setShowWrExpertModal(true)}
             title="Edit AI inbox rules (WRExpert.md)"
           >
-            ⚙ WR Expert
+            WR Expert
+          </button>
+          <button
+            type="button"
+            className="bulk-view-compact-btn"
+            onClick={() => setBulkCompactMode(!bulkCompactMode)}
+            title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
+          >
+            {bulkCompactMode ? '⊟' : '⊞'}
           </button>
         </div>
-        <div className="bulk-view-toolbar-spacer" />
-        <button
-          type="button"
-          className="bulk-view-compact-btn"
-          onClick={() => setBulkCompactMode(!bulkCompactMode)}
-          title={bulkCompactMode ? 'Standard view' : 'Compact view (denser)'}
-        >
-          {bulkCompactMode ? '⊟' : '⊞'}
-        </button>
       </div>
 
       {/* Collapsible provider/account section */}
@@ -2388,96 +2477,29 @@ export default function EmailInboxBulkView({
                             )
                           )}
                         </div>
-                        <div className="bulk-view-message-bottom-bar">
-                          {isUrgent && (
-                            <span
-                              className="bulk-view-urgency-badge"
-                              title={msg.sort_reason || output?.urgencyReason || 'Requires attention'}
-                              style={{
-                                fontSize: 10,
-                                padding: '3px 8px',
-                                borderRadius: 12,
-                                background: '#dc2626',
-                                color: '#fff',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {getUrgencyBadgeText(output?.urgencyReason ?? msg.sort_reason, needsReply)}
-                            </span>
-                          )}
-                          {hasAttachments && (
-                            <span style={{ fontSize: 11, color: MUTED }}>📎 {msg.attachment_count}</span>
-                          )}
-                          {needsReply && !isUrgent && (
-                            <span style={{ fontSize: 12, color: '#7c3aed' }} title="Needs reply">↩</span>
-                          )}
-                          {isPendingDelete && (
-                            <>
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  background: 'rgba(239,68,68,0.1)',
-                                  color: '#dc2626',
-                                  fontWeight: 600,
-                                }}
-                                title="Permanently deleted 7 days after moving here"
-                              >
-                                {formatPendingDeleteInfo(msg.pending_delete_at)}
-                              </span>
-                              <UndoFadeWrapper>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleUndoPendingDelete([msg.id])
-                                  }}
-                                  style={{
-                                    fontSize: 10,
-                                    padding: '2px 6px',
-                                    borderRadius: 4,
-                                    background: 'rgba(34,197,94,0.2)',
-                                    border: '1px solid rgba(34,197,94,0.4)',
-                                    color: '#86efac',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Undo
-                                </button>
-                              </UndoFadeWrapper>
-                            </>
-                          )}
-                          {isDeleted && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                padding: '3px 8px',
-                                borderRadius: 4,
-                                background: 'rgba(239,68,68,0.15)',
-                                color: '#fca5a5',
-                              }}
-                            >
-                              Deleted
-                            </span>
-                          )}
-                          <span
-                            style={{
-                              fontSize: 10,
-                              padding: '3px 8px',
-                              borderRadius: 4,
-                              background: msg.source_type === 'email_plain' ? '#f1f5f9' : 'rgba(147,51,234,0.1)',
-                              color: msg.source_type === 'email_plain' ? '#64748b' : 'var(--purple-accent, #7c3aed)',
-                            }}
-                          >
-                            {formatSourceBadge(msg.source_type)}
-                          </span>
-                        </div>
                       </div>
+                    </div>
+                    <div
+                      className="bulk-card-expand-toggle bulk-card-expand-toggle--left"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleCardExpand(msg.id)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          toggleCardExpand(msg.id)
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={isCardExpanded ? 'Show less' : 'Show more'}
+                    >
+                      {isCardExpanded ? '▴ Show less' : '▾ Show more'}
                     </div>
                   </div>
 
-                  {/* Right: Action Card — structured AI output or fallback */}
+                  {/* Right: Action Card — status badges + structured AI output or fallback */}
                   <div
                     className="bulk-view-ai"
                     role="button"
@@ -2493,22 +2515,54 @@ export default function EmailInboxBulkView({
                       }
                     }}
                   >
+                    <div className="bulk-action-card-status">
+                      {isUrgent && (
+                        <span
+                          className="bulk-view-urgency-badge"
+                          title={msg.sort_reason || output?.urgencyReason || 'Requires attention'}
+                        >
+                          {getUrgencyBadgeText(output?.urgencyReason ?? msg.sort_reason, needsReply)}
+                        </span>
+                      )}
+                      {hasAttachments && (
+                        <span className="bulk-action-card-status-attachments">📎 {msg.attachment_count}</span>
+                      )}
+                      {needsReply && !isUrgent && (
+                        <span className="bulk-action-card-status-needs-reply" title="Needs reply">↩</span>
+                      )}
+                      {isPendingDelete && (
+                        <>
+                          <span className="deletion-date-badge" title="Permanently deleted 7 days after moving here">
+                            {formatPendingDeleteInfo(msg.pending_delete_at)}
+                          </span>
+                          <UndoFadeWrapper>
+                            <button
+                              type="button"
+                              className="bulk-action-card-status-undo"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleUndoPendingDelete([msg.id])
+                              }}
+                            >
+                              Undo
+                            </button>
+                          </UndoFadeWrapper>
+                        </>
+                      )}
+                      {isDeleted && (
+                        <span className="bulk-action-card-status-deleted">Deleted</span>
+                      )}
+                      <span
+                        className="bulk-action-card-status-source"
+                        style={{
+                          background: msg.source_type === 'email_plain' ? '#f1f5f9' : 'rgba(147,51,234,0.1)',
+                          color: msg.source_type === 'email_plain' ? '#64748b' : 'var(--purple-accent, #7c3aed)',
+                        }}
+                      >
+                        {formatSourceBadge(msg.source_type)}
+                      </span>
+                    </div>
                     {renderActionCard(msg, output, isCardExpanded)}
-                  </div>
-                  <div
-                    className="bulk-card-expand-toggle"
-                    onClick={() => toggleCardExpand(msg.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        toggleCardExpand(msg.id)
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    title={isCardExpanded ? 'Show less' : 'Show more'}
-                  >
-                    {isCardExpanded ? '▴ Show less' : '▾ Show more'}
                   </div>
                 </div>
               )
@@ -2647,12 +2701,14 @@ export default function EmailInboxBulkView({
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
                 setReplyDraftBody('')
+                setDraftAttachmentsForCompose([])
               }}
               onSent={() => {
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
                 setReplyDraftBody('')
-                fetchMessages()
+                setDraftAttachmentsForCompose([])
+                refreshMessages()
               }}
               replyTo={
                 replyToMessage
@@ -2660,6 +2716,7 @@ export default function EmailInboxBulkView({
                       to: replyToMessage.from_address ?? undefined,
                       subject: replyToMessage.subject ?? undefined,
                       body: replyDraftBody,
+                      initialAttachments: draftAttachmentsForCompose,
                     }
                   : undefined
               }

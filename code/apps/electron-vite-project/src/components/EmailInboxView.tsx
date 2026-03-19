@@ -8,7 +8,7 @@
 import { useEffect, useCallback, useState, useRef } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import EmailMessageDetail from './EmailMessageDetail'
-import EmailComposeOverlay from './EmailComposeOverlay'
+import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
@@ -43,7 +43,7 @@ function formatRelativeDate(isoString: string): string {
 interface InboxDetailAiPanelProps {
   messageId: string
   message: InboxMessage | null
-  onSendDraft?: (draft: string, message: InboxMessage) => void
+  onSendDraft?: (draft: string, message: InboxMessage, attachments?: DraftAttachment[]) => void
   onArchive?: (messageIds: string[]) => void
   onDelete?: (messageIds: string[]) => void
   onCollapsedChange?: (collapsed: boolean) => void
@@ -58,6 +58,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftError, setDraftError] = useState(false)
   const [editedDraft, setEditedDraft] = useState('')
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [analysisExpanded, setAnalysisExpanded] = useState(true)
   const summaryRef = useRef<HTMLDivElement>(null)
@@ -250,11 +251,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messageId])
 
+  useEffect(() => {
+    setAttachments([])
+  }, [messageId])
+
   const handleDraftReply = useCallback(async () => {
     if (!window.emailInbox?.aiDraftReply) return
     setDraftLoading(true)
     setDraft(null)
     setDraftError(false)
+    setAttachments([])
     try {
       const res = await window.emailInbox.aiDraftReply(messageId)
       if (res.ok && res.data?.draft) {
@@ -276,11 +282,23 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     handleDraftReply()
   }, [handleDraftReply])
 
+  const handleAddAttachment = useCallback(async () => {
+    if (!window.emailInbox?.showOpenDialogForAttachments) return
+    const res = await window.emailInbox.showOpenDialogForAttachments()
+    if (res?.ok && res?.data?.files?.length) {
+      setAttachments((prev) => [...prev, ...res.data.files])
+    }
+  }, [])
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
   const handleSend = useCallback(() => {
     if (!message || !onSendDraft) return
-      const draftToSend = (editedDraft || draft) ?? ''
-    if (draftToSend.trim()) onSendDraft(draftToSend, message)
-  }, [message, onSendDraft, editedDraft, draft])
+    const draftToSend = (editedDraft || draft) ?? ''
+    if (draftToSend.trim()) onSendDraft(draftToSend, message, attachments.length > 0 ? attachments : undefined)
+  }, [message, onSendDraft, editedDraft, draft, attachments])
 
   const handleArchive = useCallback(() => {
     if (onArchive && messageId) onArchive([messageId])
@@ -499,6 +517,22 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     </div>
                     <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
                   </div>
+                )}
+                {attachments.length > 0 && (
+                  <div className="draft-attachments">
+                    {attachments.map((a, i) => (
+                      <div key={i} className="attachment-chip">
+                        <span>{a.name}</span>
+                        <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                        <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {isDepackaged && (
+                  <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
+                    📎 Attach
+                  </button>
                 )}
                 <div className="inbox-detail-ai-draft-actions">
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
@@ -768,6 +802,7 @@ export default function EmailInboxView({
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
+  const [replyDraftAttachments, setReplyDraftAttachments] = useState<DraftAttachment[]>([])
   const composeClickRef = useRef<number>(0)
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
 
@@ -928,12 +963,13 @@ export default function EmailInboxView({
     }
   }, [])
 
-  const handleSendDraft = useCallback((draft: string, msg: InboxMessage) => {
+  const handleSendDraft = useCallback((draft: string, msg: InboxMessage, attachments?: DraftAttachment[]) => {
     const isDepackaged = msg.source_type === 'email_plain'
     if (isDepackaged) {
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
       setReplyToMessage({ ...msg, subject })
       setReplyDraftBody(draft)
+      setReplyDraftAttachments(attachments ?? [])
       setShowEmailCompose(true)
     } else {
       navigator.clipboard?.writeText(draft).catch(() => {})
@@ -1251,11 +1287,13 @@ export default function EmailInboxView({
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
                 setReplyDraftBody('')
+                setReplyDraftAttachments([])
               }}
               onSent={() => {
                 setShowEmailCompose(false)
                 setReplyToMessage(null)
                 setReplyDraftBody('')
+                setReplyDraftAttachments([])
                 fetchMessages()
               }}
               replyTo={
@@ -1264,6 +1302,7 @@ export default function EmailInboxView({
                       to: replyToMessage.from_address ?? undefined,
                       subject: replyToMessage.subject ?? undefined,
                       body: replyDraftBody || undefined,
+                      initialAttachments: replyDraftAttachments.length > 0 ? replyDraftAttachments : undefined,
                     }
                   : undefined
               }

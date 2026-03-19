@@ -1238,6 +1238,63 @@ body {
   color: #334155;
 }
 
+.draft-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: 6px;
+  color: #334155;
+}
+
+.attachment-chip .attachment-size {
+  color: #64748b;
+  font-size: 10px;
+}
+
+.attachment-chip button {
+  margin-left: 2px;
+  padding: 0 4px;
+  font-size: 10px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.attachment-chip button:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.inbox-detail-ai-btn-attach {
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+}
+
+.inbox-detail-ai-btn-attach:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
 .inbox-detail-ai-draft-actions {
   display: flex;
   gap: 8px;
@@ -1562,9 +1619,8 @@ body {
   gap: 8px;
 }
 
-.bulk-view--compact .bulk-view-selection-group {
-  padding: 4px 10px;
-  gap: 8px;
+.bulk-view--compact .bulk-view-toolbar-left {
+  gap: 6px;
 }
 
 .bulk-view--compact .bulk-view-ai {
@@ -1654,14 +1710,10 @@ body {
   font-size: 10px;
 }
 
-.bulk-view--compact .bulk-action-card-draft-textarea {
-  min-height: 32px;
-  padding: 5px 6px;
-  font-size: 10px;
-}
-
-.bulk-view--compact .bulk-action-card-draft:not(.bulk-action-card-draft--expanded) .bulk-action-card-draft-textarea {
-  min-height: 32px;
+.bulk-view--compact .bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
+  min-height: 80px;
+  padding: 8px 10px;
+  font-size: 11px;
 }
 
 .bulk-view--compact .bulk-action-card-row {
@@ -1804,33 +1856,37 @@ body {
 }
 
 .bulk-view-toolbar {
-  padding: 8px 16px;
-  border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 16px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
   flex-shrink: 0;
   background: #ffffff;
 }
 
-/* Selection group: checkbox + batch selector + selected count — enterprise-grade */
-.bulk-view-selection-group {
+.bulk-view-toolbar-left,
+.bulk-view-toolbar-center,
+.bulk-view-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: 8px;
 }
 
-.bulk-view-selection-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.bulk-view-toolbar-center {
+  flex: 1;
+  justify-content: center;
+}
+
+.bulk-view-toolbar-right {
+  flex-shrink: 0;
+}
+
+.bulk-view-toolbar-left input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
 }
 
 .bulk-view-selection-group-select {
@@ -1844,18 +1900,12 @@ body {
   cursor: pointer;
 }
 
-.bulk-view-selection-group-count {
+.bulk-view-selection-group-count,
+.bulk-view-selection-group-count.selected-count {
   font-size: 11px;
   font-weight: 600;
   color: #475569;
   min-width: 4ch;
-}
-
-/* Filter group: All | Pending Delete | Archived — compact, adjacent */
-.bulk-view-filter-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .bulk-view-toolbar-filter-btn {
@@ -1893,13 +1943,6 @@ body {
   color: #2563eb;
 }
 
-/* Sync group: Auto-sync + Pull */
-.bulk-view-sync-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .bulk-view-sync-label {
   display: flex;
   align-items: center;
@@ -1930,60 +1973,6 @@ body {
   opacity: 0.6;
 }
 
-/* Action group: Delete icon + Archive + AI Auto-Sort */
-.bulk-view-action-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bulk-view-delete-btn {
-  padding: 4px 6px;
-  font-size: 12px;
-  border-radius: 6px;
-  border: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #dc2626;
-  cursor: pointer;
-}
-
-.bulk-view-delete-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.bulk-view-archive-btn {
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-  background: #f1f5f9;
-  color: #334155;
-  cursor: pointer;
-}
-
-.bulk-view-archive-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.bulk-view-review-btn {
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
-  cursor: pointer;
-}
-
-.bulk-view-review-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .bulk-view-wr-expert-btn {
   padding: 4px 8px;
   font-size: 10px;
@@ -2010,14 +1999,10 @@ body {
   cursor: pointer;
 }
 
-.bulk-view-ai-sort-btn:disabled {
-  cursor: not-allowed;
+.bulk-view-ai-sort-btn:disabled,
+.ai-auto-sort-btn:disabled {
   opacity: 0.5;
-}
-
-.bulk-view-toolbar-spacer {
-  flex: 1;
-  min-width: 0;
+  cursor: not-allowed;
 }
 
 .bulk-view-compact-btn {
@@ -2172,7 +2157,6 @@ body {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr auto;
   gap: 0;
   height: 320px;
   max-height: 320px;
@@ -2287,6 +2271,86 @@ body {
   background: rgba(124, 58, 237, 0.03);
 }
 
+/* Status badges — moved from message body to action card (above buttons) */
+.bulk-action-card-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  flex-shrink: 0;
+}
+
+.bulk-action-card-status .bulk-view-urgency-badge {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+
+.deletion-date-badge {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bulk-action-card-status-attachments {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+}
+
+.bulk-action-card-status-needs-reply {
+  font-size: 12px;
+  color: #7c3aed;
+}
+
+.bulk-action-card-status-undo {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.bulk-action-card-status-undo:hover {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.bulk-action-card-status-deleted {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.bulk-action-card-status-source {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.bulk-view-ai .bulk-action-card-status {
+  display: flex;
+}
+
+.bulk-view-ai .bulk-action-card-status + .bulk-action-card {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .bulk-view-expand-btn {
   flex-shrink: 0;
   padding: 2px 8px;
@@ -2327,12 +2391,12 @@ body {
 }
 
 .bulk-card-expand-toggle {
-  grid-column: 1 / -1;
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
   height: 24px;
+  flex-shrink: 0;
   cursor: pointer;
   opacity: 0.5;
   transition: opacity 0.2s, background 0.2s;
@@ -2342,6 +2406,10 @@ body {
   user-select: none;
   background: rgba(124, 58, 237, 0.03);
   border-top: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+.bulk-card-expand-toggle--left {
+  margin-top: auto;
 }
 
 .bulk-card-expand-toggle:hover {
@@ -2516,7 +2584,7 @@ body {
 .bulk-action-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  height: 100%;
   min-height: 0;
   flex: 1;
   padding: 2px 0;
@@ -2754,8 +2822,15 @@ body {
 }
 .bulk-action-card-row-draft.bulk-action-card-draft-expanded .bulk-action-card-draft-textarea {
   flex: 1;
-  min-height: 200px;
-  resize: none;
+  min-height: 120px;
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
 }
 
 /* Draft connected to chat — purple border (same as Normal Inbox) */
@@ -2765,23 +2840,31 @@ body {
 }
 
 .bulk-action-card-draft-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .bulk-action-card-draft-header .bulk-action-card-row-label {
   margin-bottom: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .bulk-action-card-connect-hint {
+  flex-shrink: 0;
   font-size: 11px;
   opacity: 0.5;
   margin-left: 8px;
 }
 
 .bulk-action-card-refined-preview {
+  flex-shrink: 0;
   margin-top: 10px;
   padding: 10px 12px;
   background: rgba(147, 51, 234, 0.06);
@@ -2828,9 +2911,11 @@ body {
 }
 
 .bulk-action-card-draft-actions {
+  flex-shrink: 0;
   display: flex;
   gap: 8px;
   margin-top: 6px;
+  padding: 8px 0 0;
 }
 
 .bulk-action-card-action-list {

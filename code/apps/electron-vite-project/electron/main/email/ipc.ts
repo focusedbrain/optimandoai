@@ -1166,6 +1166,19 @@ export function registerInboxHandlers(
       console.log('[AI-SUMMARIZE] Calling LLM...')
       const summary = await callInboxOllamaChat(systemPrompt, userPrompt)
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
+
+      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
+      let merged: Record<string, unknown> = {}
+      if (existingRow?.ai_analysis_json) {
+        try {
+          merged = JSON.parse(existingRow.ai_analysis_json) as Record<string, unknown>
+        } catch { /* ignore */ }
+      }
+      merged.summary = summary.slice(0, 1000)
+      merged.status = merged.status ?? 'summarized'
+      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+
       return { ok: true, data: { summary } }
     } catch (err: any) {
       const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
@@ -1204,6 +1217,19 @@ export function registerInboxHandlers(
       console.log('[AI-DRAFT] Calling LLM...')
       const draft = await callInboxOllamaChat(systemPrompt, userPrompt)
       console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
+
+      /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
+      const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
+      let merged: Record<string, unknown> = {}
+      if (existingRow?.ai_analysis_json) {
+        try {
+          merged = JSON.parse(existingRow.ai_analysis_json) as Record<string, unknown>
+        } catch { /* ignore */ }
+      }
+      merged.draftReply = draft.slice(0, 8000)
+      merged.status = merged.status ?? 'draft_reply'
+      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+
       return { ok: true, data: { draft } }
     } catch (err: any) {
       const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
@@ -1832,6 +1858,66 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
 
   ipcMain.handle('inbox:getAiRulesDefault', async () => {
     return DEFAULT_WREXPERT_CONTENT
+  })
+
+  /** Show native file picker for draft attachments. Returns { files: { name, path, size }[] }. */
+  ipcMain.handle('inbox:showOpenDialogForAttachments', async () => {
+    const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    const result = await dialog.showOpenDialog(mainWindow ?? null, {
+      title: 'Add attachment',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'All Files', extensions: ['*'] },
+        { name: 'Documents', extensions: ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt'] },
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] },
+      ],
+    })
+    if (result.canceled || !result.filePaths?.length) return { ok: true, data: { files: [] } }
+    const files = result.filePaths.map((p) => {
+      const name = path.basename(p)
+      let size = 0
+      try {
+        size = fs.statSync(p).size
+      } catch {
+        /* ignore */
+      }
+      return { name, path: p, size }
+    })
+    return { ok: true, data: { files } }
+  })
+
+  /** Read a file from disk and return as base64 for email attachment. */
+  ipcMain.handle('inbox:readFileForAttachment', async (_e, filePath: string) => {
+    try {
+      if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'Invalid path' }
+      const normalized = path.normalize(filePath)
+      if (normalized.includes('..')) return { ok: false, error: 'Invalid path' }
+      if (!fs.existsSync(normalized)) return { ok: false, error: 'File not found' }
+      const stat = fs.statSync(normalized)
+      if (!stat.isFile()) return { ok: false, error: 'Not a file' }
+      if (stat.size > 25 * 1024 * 1024) return { ok: false, error: 'File too large (max 25MB)' }
+      const buffer = fs.readFileSync(normalized)
+      const filename = path.basename(normalized)
+      const ext = path.extname(filename).toLowerCase().slice(1)
+      const mimeMap: Record<string, string> = {
+        pdf: 'application/pdf',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        txt: 'text/plain',
+      }
+      const mimeType = mimeMap[ext] ?? 'application/octet-stream'
+      const contentBase64 = buffer.toString('base64')
+      return { ok: true, data: { filename, mimeType, contentBase64 } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Read failed' }
+    }
   })
 
   // ── Periodic: execute pending deletions every 5 minutes; process 7-day pending_delete → queue ──

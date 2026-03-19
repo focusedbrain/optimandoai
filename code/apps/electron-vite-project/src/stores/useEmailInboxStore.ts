@@ -122,8 +122,15 @@ interface EmailInboxState {
   lastSyncAt: string | null
   /** Cache of AI analysis results keyed by messageId. Cleared for messages no longer in list after fetch. */
   analysisCache: Record<string, NormalInboxAiResult>
+  /** Pre-fetched messages per filter — enables instant tab switching in bulk view. */
+  messagesByFilter: Record<string, InboxMessage[]>
+  totalByFilter: Record<string, number>
 
   fetchMessages: () => Promise<void>
+  /** Fetch all filter tabs in parallel — used by bulk view on mount for instant tab switching. */
+  fetchAllMessages: () => Promise<void>
+  /** Refresh: fetchAllMessages in bulk mode, else fetchMessages. Use after mutations. */
+  refreshMessages: () => Promise<void>
   selectMessage: (id: string | null) => Promise<void>
   selectAttachment: (id: string | null) => void
   toggleMultiSelect: (id: string) => void
@@ -237,6 +244,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   syncing: false,
   lastSyncAt: null,
   analysisCache: {},
+  messagesByFilter: {},
+  totalByFilter: {},
 
   fetchMessages: async () => {
     const bridge = getBridge()
@@ -246,7 +255,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
     set({ loading: true, error: null })
     try {
-      const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
+      const { filter, bulkMode, bulkPage, bulkBatchSize, total } = get()
       const options: Parameters<typeof bridge.listMessages>[0] = {
         filter: filter.filter,
         sourceType: filter.sourceType === 'all' ? undefined : filter.sourceType,
@@ -266,11 +275,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       if (res.ok && res.data) {
         const newMessages = (res.data.messages ?? []) as InboxMessage[]
         const currentIds = new Set(newMessages.map((m) => m.id))
+        const newTotal = res.data.total ?? 0
         set((state) => ({
           messages: newMessages,
-          total: res.data.total ?? 0,
+          total: newTotal,
           loading: false,
           error: null,
+          messagesByFilter: { ...state.messagesByFilter, [filter.filter]: newMessages },
+          totalByFilter: { ...state.totalByFilter, [filter.filter]: newTotal },
           analysisCache: Object.fromEntries(
             Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
           ),
@@ -287,6 +299,66 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Failed to fetch messages',
       })
     }
+  },
+
+  fetchAllMessages: async () => {
+    const bridge = getBridge()
+    if (!bridge?.listMessages) {
+      set({ error: 'Email inbox bridge not available' })
+      return
+    }
+    set({ loading: true, error: null })
+    const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
+    const limit = 150
+    try {
+      const results = await Promise.all(
+        filters.map((f) =>
+          bridge!.listMessages({
+            filter: f,
+            limit,
+            offset: 0,
+          })
+        )
+      )
+      const messagesByFilter: Record<string, InboxMessage[]> = {}
+      const totalByFilter: Record<string, number> = {}
+      filters.forEach((f, i) => {
+        const res = results[i]
+        if (res?.ok && res?.data) {
+          messagesByFilter[f] = (res.data.messages ?? []) as InboxMessage[]
+          totalByFilter[f] = res.data.total ?? 0
+        } else {
+          messagesByFilter[f] = []
+          totalByFilter[f] = 0
+        }
+      })
+      const { filter } = get()
+      const currentMessages = messagesByFilter[filter.filter] ?? []
+      const currentTotal = totalByFilter[filter.filter] ?? 0
+      const currentIds = new Set(currentMessages.map((m) => m.id))
+      set((state) => ({
+        messagesByFilter,
+        totalByFilter,
+        messages: currentMessages,
+        total: currentTotal,
+        loading: false,
+        error: null,
+        analysisCache: Object.fromEntries(
+          Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
+        ),
+      }))
+    } catch (err: unknown) {
+      set({
+        loading: false,
+        error: err instanceof Error ? err.message : 'Failed to fetch messages',
+      })
+    }
+  },
+
+  refreshMessages: async () => {
+    const { bulkMode } = get()
+    if (bulkMode) await get().fetchAllMessages()
+    else await get().fetchMessages()
   },
 
   selectMessage: async (id) => {
@@ -338,10 +410,20 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setFilter: (partial) => {
-    set((state) => ({
-      filter: { ...state.filter, ...partial },
-    }))
-    get().fetchMessages()
+    set((state) => {
+      const newFilter = { ...state.filter, ...partial }
+      const filterKey = newFilter.filter
+      const cached = state.messagesByFilter?.[filterKey]
+      const cachedTotal = state.totalByFilter?.[filterKey] ?? 0
+      return {
+        filter: newFilter,
+        ...(cached ? { messages: cached, total: cachedTotal } : {}),
+      }
+    })
+    const { bulkMode, messagesByFilter, filter } = get()
+    if (!bulkMode || !messagesByFilter?.[filter.filter]) {
+      get().fetchMessages()
+    }
   },
 
   setBulkMode: (enabled) => {
@@ -350,12 +432,13 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       bulkPage: 0,
       ...(enabled ? {} : { bulkSessionArchived: 0, bulkSessionPendingDelete: 0 }),
     })
-    get().fetchMessages()
+    if (!enabled) get().fetchMessages()
   },
 
   setBulkPage: (page) => {
     set({ bulkPage: page })
-    get().fetchMessages()
+    if (page === 0) get().refreshMessages()
+    else get().fetchMessages()
   },
 
   setBulkBatchSize: (size) => {
@@ -370,7 +453,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     } catch {
       /* ignore */
     }
-    get().fetchMessages()
+    get().refreshMessages()
   },
 
   setBulkCompactMode: (enabled) => {
@@ -577,7 +660,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
       }))
       get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -612,7 +695,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
       }))
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -648,7 +731,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         selectedMessage: s.selectedMessage && idsToArchive.includes(s.selectedMessage.id) ? null : s.selectedMessage,
         bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length,
       }))
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -757,7 +840,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             : state.selectedMessage,
         }
       })
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -786,7 +869,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         }
       })
       get().setPendingDeleteToast({ count: ids.length, ids })
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -804,7 +887,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             ? { ...state.selectedMessage, deleted: 0, deleted_at: null, purge_after: null }
             : state.selectedMessage,
       }))
-      get().fetchMessages()
+      get().refreshMessages()
     }
   },
 
@@ -833,7 +916,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       const res = await bridge.syncAccount(accountId)
       if (res.ok) {
         set({ lastSyncAt: new Date().toISOString(), syncing: false })
-        get().fetchMessages()
+        get().refreshMessages()
       } else {
         set({ syncing: false })
       }

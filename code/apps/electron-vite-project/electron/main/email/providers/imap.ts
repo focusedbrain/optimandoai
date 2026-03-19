@@ -435,6 +435,12 @@ export class ImapProvider extends BaseEmailProvider {
         })
       }
       
+      const attachments = (payload.attachments ?? []).map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.contentBase64, 'base64'),
+        contentType: a.mimeType,
+      }))
+
       const info = await this.transporter.sendMail({
         from: this.config.email,
         to: payload.to.join(', '),
@@ -443,7 +449,8 @@ export class ImapProvider extends BaseEmailProvider {
         subject: payload.subject,
         text: payload.bodyText,
         inReplyTo: payload.inReplyTo,
-        references: payload.references?.join(' ')
+        references: payload.references?.join(' '),
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       
       return {

@@ -7,10 +7,18 @@ import { useState, useRef, useEffect } from 'react'
 
 const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
 
+export interface DraftAttachment {
+  name: string
+  path: string
+  size: number
+}
+
 export interface ReplyToPrefill {
   to?: string
   subject?: string
   body?: string
+  /** Pre-selected attachments from draft section (path-based) */
+  initialAttachments?: DraftAttachment[]
 }
 
 interface EmailComposeOverlayProps {
@@ -37,6 +45,7 @@ export default function EmailComposeOverlay({
   const [subject, setSubject] = useState(replyTo?.subject ?? '')
   const [body, setBody] = useState(replyTo?.body ?? '')
   const [attachments, setAttachments] = useState<File[]>([])
+  const [pathAttachments, setPathAttachments] = useState<DraftAttachment[]>(replyTo?.initialAttachments ?? [])
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: string }>>([])
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true)
@@ -49,6 +58,7 @@ export default function EmailComposeOverlay({
       setTo(replyTo.to ?? '')
       setSubject(replyTo.subject ?? '')
       setBody(replyTo.body ?? '')
+      setPathAttachments(replyTo.initialAttachments ?? [])
     }
   }, [replyTo])
 
@@ -84,6 +94,10 @@ export default function EmailComposeOverlay({
     setAttachments((prev) => prev.filter((_, i) => i !== index))
   }
 
+  const removePathAttachment = (index: number) => {
+    setPathAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const handleSend = async () => {
     setError(null)
     const toTrimmed = to.trim()
@@ -103,12 +117,46 @@ export default function EmailComposeOverlay({
     setIsSending(true)
     try {
       const fullBody = body.trim() + EMAIL_SIGNATURE
+      const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
+
+      for (const f of attachments) {
+        const buf = await f.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+        const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+        const mimeMap: Record<string, string> = {
+          pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+          gif: 'image/gif', webp: 'image/webp', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', txt: 'text/plain',
+        }
+        emailAttachments.push({
+          filename: f.name,
+          mimeType: mimeMap[ext] ?? 'application/octet-stream',
+          contentBase64: base64,
+        })
+      }
+
+      if (window.emailInbox?.readFileForAttachment && pathAttachments.length > 0) {
+        for (const pa of pathAttachments) {
+          const res = await window.emailInbox.readFileForAttachment(pa.path)
+          if (res?.ok && res?.data) {
+            emailAttachments.push({
+              filename: res.data.filename,
+              mimeType: res.data.mimeType,
+              contentBase64: res.data.contentBase64,
+            })
+          }
+        }
+      }
+
       const res = await window.emailAccounts!.sendEmail(accountId, {
         to: toTrimmed.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
         subject: subject.trim() || '(No subject)',
         bodyText: fullBody,
+        attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
       })
       if (res.ok && res.data?.success) {
+        setAttachments([])
+        setPathAttachments([])
         onSent?.()
         onClose()
       } else {
@@ -260,11 +308,11 @@ export default function EmailComposeOverlay({
           >
             + Add files
           </button>
-          {attachments.length > 0 && (
+          {(attachments.length > 0 || pathAttachments.length > 0) && (
             <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {attachments.map((f, i) => (
                 <span
-                  key={i}
+                  key={`file-${i}`}
                   style={{
                     fontSize: 11,
                     padding: '4px 8px',
@@ -279,6 +327,30 @@ export default function EmailComposeOverlay({
                   <button
                     type="button"
                     onClick={() => removeAttachment(i)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: mutedColor, fontSize: 12 }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {pathAttachments.map((pa, i) => (
+                <span
+                  key={`path-${i}`}
+                  style={{
+                    fontSize: 11,
+                    padding: '4px 8px',
+                    background: 'rgba(0,0,0,0.1)',
+                    borderRadius: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {pa.name}
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>{Math.round(pa.size / 1024)}KB</span>
+                  <button
+                    type="button"
+                    onClick={() => removePathAttachment(i)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: mutedColor, fontSize: 12 }}
                   >
                     ×
