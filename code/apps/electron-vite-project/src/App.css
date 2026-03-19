@@ -2712,10 +2712,9 @@ body {
 .bulk-action-card {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   min-height: 0;
   width: 100%;
-  flex: 1;
   padding: 2px 0;
   border-left: 3px solid transparent;
   padding-left: 8px;
