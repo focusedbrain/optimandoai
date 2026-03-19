@@ -11,6 +11,9 @@ export type UiFocusContext =
   | { kind: 'attachment'; messageId: string; attachmentId: string }
   | { kind: 'none' }
 
+/** Stable reference for subFocus when not in beap-inbox — prevents React #185 (max update depth) from selector returning new object every render. */
+const SUBFOCUS_NONE = { kind: 'none' as const }
+
 // ── Types ──
 
 type SearchMode = 'chat' | 'search' | 'actions'
@@ -337,7 +340,7 @@ export default function HybridSearch({
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
-  const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : { kind: 'none' as const }))
+  const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : SUBFOCUS_NONE))
 
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
   const uiFocusContext: UiFocusContext = useMemo(() => {
