@@ -1691,7 +1691,10 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      db.prepare('UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL WHERE id = ?').run(messageId)
+      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
+      db.prepare(
+        'UPDATE inbox_messages SET pending_delete = 0, pending_delete_at = NULL, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Cancel failed' }
@@ -1702,7 +1705,10 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      db.prepare('UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL WHERE id = ?').run(messageId)
+      /* FIX-H3: Reset color coding — clear ai_analysis_json so message looks unsorted */
+      db.prepare(
+        'UPDATE inbox_messages SET sort_category = NULL, sort_reason = NULL, pending_review_at = NULL, ai_analysis_json = NULL WHERE id = ?'
+      ).run(messageId)
       return { ok: true, data: { cancelled: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Cancel failed' }
@@ -1713,7 +1719,10 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      db.prepare('UPDATE inbox_messages SET archived = 0 WHERE id = ?').run(messageId)
+      /* FIX-H3: Reset color coding — clear sort_category, sort_reason, ai_analysis_json so message looks unsorted */
+      db.prepare(
+        'UPDATE inbox_messages SET archived = 0, sort_category = NULL, sort_reason = NULL, ai_analysis_json = NULL WHERE id = ?'
+      ).run(messageId)
       return { ok: true, data: { unarchived: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Unarchive failed' }

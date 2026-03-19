@@ -43,7 +43,7 @@ function formatRelativeDate(isoString: string): string {
 interface InboxDetailAiPanelProps {
   messageId: string
   message: InboxMessage | null
-  onSendDraft?: (draft: string, message: InboxMessage, attachments?: DraftAttachment[]) => void
+  onSendDraft?: (draft: string, message: InboxMessage, attachments?: DraftAttachment[]) => void | Promise<boolean>
   onArchive?: (messageIds: string[]) => void
   onDelete?: (messageIds: string[]) => void
   onCollapsedChange?: (collapsed: boolean) => void
@@ -177,10 +177,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     }
   }, [messageId, runAnalysisStream, draftRefineDisconnect])
 
+  /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
-    if (analysis?.draftReply || draft) setAnalysisExpanded(false)
-  }, [analysis?.draftReply, draft])
+    const store = useEmailInboxStore.getState()
+    if (store.editingDraftForMessageId && store.editingDraftForMessageId !== messageId) {
+      store.setEditingDraftForMessageId(null)
+    }
+  }, [messageId])
 
+  /** Analysis visibility controlled ONLY by user toggle. Never auto-collapse when draft is generated (FIX-H1). */
   /** Analysis collapse only hides content; panel width stays constant. Never trigger panel collapse. */
   useEffect(() => {
     onCollapsedChange?.(false)
@@ -294,10 +299,23 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAttachments((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
-  const handleSend = useCallback(() => {
+  const [sending, setSending] = useState(false)
+
+  const handleSend = useCallback(async () => {
     if (!message || !onSendDraft) return
     const draftToSend = (editedDraft || draft) ?? ''
-    if (draftToSend.trim()) onSendDraft(draftToSend, message, attachments.length > 0 ? attachments : undefined)
+    if (!draftToSend.trim()) return
+    setSending(true)
+    try {
+      const result = await onSendDraft(draftToSend, message, attachments.length > 0 ? attachments : undefined)
+      if (result) {
+        setDraft(null)
+        setEditedDraft('')
+        setAttachments([])
+      }
+    } finally {
+      setSending(false)
+    }
   }, [message, onSendDraft, editedDraft, draft, attachments])
 
   const handleArchive = useCallback(() => {
@@ -498,6 +516,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   value={editedDraft || draft}
                   onChange={(e) => setEditedDraft(e.target.value)}
                   onClick={handleDraftTextareaClick}
+                  onFocus={() => useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)}
+                  onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
                   className="inbox-detail-ai-draft-textarea"
                   placeholder="Edit draft before sending…"
                 />
@@ -529,16 +549,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                     ))}
                   </div>
                 )}
-                {isDepackaged && (
-                  <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
-                    📎 Attach
-                  </button>
-                )}
                 <div className="inbox-detail-ai-draft-actions">
+                  {isDepackaged && (
+                    <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
+                      📎 Attach
+                    </button>
+                  )}
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
                   {message && onSendDraft && !draftError && (
-                    <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend}>
-                      {isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                    <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
+                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
                     </button>
                   )}
                 </div>
@@ -963,19 +983,68 @@ export default function EmailInboxView({
     }
   }, [])
 
-  const handleSendDraft = useCallback((draft: string, msg: InboxMessage, attachments?: DraftAttachment[]) => {
-    const isDepackaged = msg.source_type === 'email_plain'
-    if (isDepackaged) {
+  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  const handleSendDraft = useCallback(
+    async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
+      const isDepackaged = msg.source_type === 'email_plain'
+      if (!isDepackaged) {
+        navigator.clipboard?.writeText(draft).catch(() => {})
+        window.analysisDashboard?.openBeapDraft?.()
+        return false
+      }
+      const to = msg.from_address?.trim()
+      if (!to) {
+        setSendEmailToast({ type: 'error', message: 'No sender address' })
+        return false
+      }
+      if (typeof window.emailAccounts?.listAccounts !== 'function' || typeof window.emailAccounts?.sendEmail !== 'function') {
+        setSendEmailToast({ type: 'error', message: 'Email send not available' })
+        return false
+      }
+      const accountsRes = await window.emailAccounts.listAccounts()
+      if (!accountsRes?.ok || !accountsRes.data?.length) {
+        setSendEmailToast({ type: 'error', message: 'No email account connected' })
+        return false
+      }
+      const accountId = accountsRes.data[0].id
       const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
-      setReplyToMessage({ ...msg, subject })
-      setReplyDraftBody(draft)
-      setReplyDraftAttachments(attachments ?? [])
-      setShowEmailCompose(true)
-    } else {
-      navigator.clipboard?.writeText(draft).catch(() => {})
-      window.analysisDashboard?.openBeapDraft?.()
-    }
-  }, [])
+      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+      const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
+      if (window.emailInbox?.readFileForAttachment && attachments?.length) {
+        for (const pa of attachments) {
+          const res = await window.emailInbox.readFileForAttachment(pa.path)
+          if (res?.ok && res?.data) {
+            emailAttachments.push({
+              filename: res.data.filename,
+              mimeType: res.data.mimeType,
+              contentBase64: res.data.contentBase64,
+            })
+          }
+        }
+      }
+      try {
+        const res = await window.emailAccounts.sendEmail(accountId, {
+          to: [to],
+          subject: subject.trim() || '(No subject)',
+          bodyText: fullBody,
+          attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+        })
+        if (res.ok && res.data?.success) {
+          setSendEmailToast({ type: 'success', message: `Email sent to ${to}` })
+          setTimeout(() => setSendEmailToast(null), 3000)
+          fetchMessages()
+          return true
+        }
+        setSendEmailToast({ type: 'error', message: res.error || 'Failed to send' })
+        return false
+      } catch (err) {
+        setSendEmailToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to send' })
+        return false
+      }
+    },
+    [fetchMessages]
+  )
 
   const gridCols = selectedMessageId ? '320px 1fr' : '320px 1fr 320px'
 
@@ -990,6 +1059,44 @@ export default function EmailInboxView({
         color: 'var(--color-text, #e2e8f0)',
       }}
     >
+      {sendEmailToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 300,
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: sendEmailToast.type === 'success' ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
+            color: 'white',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          <span>{sendEmailToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setSendEmailToast(null)}
+            style={{
+              padding: '2px 8px',
+              fontSize: 11,
+              background: 'rgba(255,255,255,0.2)',
+              border: 'none',
+              borderRadius: 4,
+              color: 'white',
+              cursor: 'pointer',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Left panel: toolbar + message list */}
       <div
         style={{

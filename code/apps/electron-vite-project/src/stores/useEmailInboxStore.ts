@@ -82,6 +82,10 @@ export interface InboxFilter {
 // =============================================================================
 
 interface EmailInboxState {
+  /** Single source of truth: all messages from all filters. Bulk view derives display from this. */
+  allMessages: InboxMessage[]
+  /** Tab counts for filter labels. Derived from allMessages. */
+  tabCounts: Record<string, number>
   messages: InboxMessage[]
   total: number
   loading: boolean
@@ -122,9 +126,8 @@ interface EmailInboxState {
   lastSyncAt: string | null
   /** Cache of AI analysis results keyed by messageId. Cleared for messages no longer in list after fetch. */
   analysisCache: Record<string, NormalInboxAiResult>
-  /** Pre-fetched messages per filter — enables instant tab switching in bulk view. */
-  messagesByFilter: Record<string, InboxMessage[]>
-  totalByFilter: Record<string, number>
+  /** FIX-H6: Message ID whose draft is currently being edited. Only one at a time. */
+  editingDraftForMessageId: string | null
 
   fetchMessages: () => Promise<void>
   /** Fetch all filter tabs in parallel — used by bulk view on mount for instant tab switching. */
@@ -174,6 +177,7 @@ interface EmailInboxState {
   loadSyncState: (accountId: string) => Promise<void>
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
   clearAnalysisCache: () => void
+  setEditingDraftForMessageId: (id: string | null) => void
 }
 
 // =============================================================================
@@ -189,6 +193,89 @@ const DEFAULT_FILTER: InboxFilter = {
   sourceType: 'all',
 }
 
+/** Filter messages by inbox filter. Used for single-source-of-truth display. */
+function filterByInboxFilter(
+  messages: InboxMessage[],
+  filterKey: InboxFilter['filter']
+): InboxMessage[] {
+  return messages.filter((m) => {
+    if (m.deleted === 1) return false
+    if (filterKey === 'archived') return m.archived === 1
+    if (filterKey === 'pending_delete') return m.pending_delete === 1
+    if (filterKey === 'pending_review') return m.sort_category === 'pending_review'
+    /* all: main inbox — exclude archived, pending_delete, pending_review */
+    if (m.archived === 1) return false
+    if (m.pending_delete === 1) return false
+    if (m.sort_category === 'pending_review') return false
+    return true
+  })
+}
+
+/** Derive messages and total from allMessages + filter + pagination. */
+function deriveDisplayFromAll(
+  allMessages: InboxMessage[],
+  filterKey: InboxFilter['filter'],
+  bulkPage: number,
+  bulkBatchSize: number | 'all'
+): { messages: InboxMessage[]; total: number } {
+  const filtered = filterByInboxFilter(allMessages, filterKey)
+  const total = filtered.length
+  const limit = bulkBatchSize === 'all' ? filtered.length : bulkBatchSize
+  const offset = bulkBatchSize === 'all' ? 0 : bulkPage * limit
+  const messages = filtered.slice(offset, offset + limit)
+  return { messages, total }
+}
+
+/** Derive tab counts from allMessages for filter tab labels. */
+function deriveTabCounts(allMessages: InboxMessage[]): Record<string, number> {
+  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
+  const out: Record<string, number> = {}
+  for (const f of filters) {
+    out[f] = filterByInboxFilter(allMessages, f).length
+  }
+  return out
+}
+
+/** Preview state for real-time count derivation (FIX-C5). */
+export interface TabCountPreviewState {
+  pendingDeletePreviewExpiries: Record<string, string>
+  archivePreviewExpiries: Record<string, string>
+  pendingReviewPreviewExpiries: Record<string, string>
+  keptDuringPreviewIds: Set<string>
+  keptDuringArchivePreviewIds: Set<string>
+  keptDuringReviewPreviewIds: Set<string>
+}
+
+/**
+ * Derive tab counts from allMessages + preview state. Messages in preview are counted
+ * as already moved (real-time updates). Used by filter tab labels.
+ */
+export function deriveTabCountsWithPreview(
+  allMessages: InboxMessage[],
+  preview: TabCountPreviewState
+): Record<string, number> {
+  const counts = { all: 0, pending_delete: 0, pending_review: 0, archived: 0 }
+  for (const m of allMessages) {
+    if (m.deleted === 1) continue
+    if (preview.pendingDeletePreviewExpiries[m.id] && !preview.keptDuringPreviewIds.has(m.id)) {
+      counts.pending_delete++
+    } else if (preview.archivePreviewExpiries[m.id] && !preview.keptDuringArchivePreviewIds.has(m.id)) {
+      counts.archived++
+    } else if (preview.pendingReviewPreviewExpiries[m.id] && !preview.keptDuringReviewPreviewIds.has(m.id)) {
+      counts.pending_review++
+    } else if (m.archived === 1) {
+      counts.archived++
+    } else if (m.pending_delete === 1) {
+      counts.pending_delete++
+    } else if (m.sort_category === 'pending_review') {
+      counts.pending_review++
+    } else {
+      counts.all++
+    }
+  }
+  return counts
+}
+
 // Auto-hide for pending-delete toast: 5 seconds
 const PENDING_DELETE_TOAST_VISIBILITY_MS = 5000
 const RECENT_PENDING_DELETE_MAX = 5
@@ -200,6 +287,8 @@ let pendingDeleteToastTimeoutId: ReturnType<typeof setTimeout> | null = null
 // =============================================================================
 
 export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
+  allMessages: [],
+  tabCounts: {},
   messages: [],
   total: 0,
   loading: false,
@@ -244,8 +333,9 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   syncing: false,
   lastSyncAt: null,
   analysisCache: {},
-  messagesByFilter: {},
-  totalByFilter: {},
+  editingDraftForMessageId: null,
+
+  setEditingDraftForMessageId: (id) => set({ editingDraftForMessageId: id }),
 
   fetchMessages: async () => {
     const bridge = getBridge()
@@ -275,14 +365,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       if (res.ok && res.data) {
         const newMessages = (res.data.messages ?? []) as InboxMessage[]
         const currentIds = new Set(newMessages.map((m) => m.id))
-        const newTotal = res.data.total ?? 0
         set((state) => ({
           messages: newMessages,
-          total: newTotal,
+          total: res.data.total ?? 0,
           loading: false,
           error: null,
-          messagesByFilter: { ...state.messagesByFilter, [filter.filter]: newMessages },
-          totalByFilter: { ...state.totalByFilter, [filter.filter]: newTotal },
           analysisCache: Object.fromEntries(
             Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
           ),
@@ -309,7 +396,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
     set({ loading: true, error: null })
     const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
-    const limit = 150
+    const limit = 500
     try {
       const results = await Promise.all(
         filters.map((f) =>
@@ -320,27 +407,23 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           })
         )
       )
-      const messagesByFilter: Record<string, InboxMessage[]> = {}
-      const totalByFilter: Record<string, number> = {}
+      const byId = new Map<string, InboxMessage>()
       filters.forEach((f, i) => {
         const res = results[i]
         if (res?.ok && res?.data) {
-          messagesByFilter[f] = (res.data.messages ?? []) as InboxMessage[]
-          totalByFilter[f] = res.data.total ?? 0
-        } else {
-          messagesByFilter[f] = []
-          totalByFilter[f] = 0
+          const list = (res.data.messages ?? []) as InboxMessage[]
+          for (const m of list) byId.set(m.id, m)
         }
       })
-      const { filter } = get()
-      const currentMessages = messagesByFilter[filter.filter] ?? []
-      const currentTotal = totalByFilter[filter.filter] ?? 0
-      const currentIds = new Set(currentMessages.map((m) => m.id))
+      const allMessages = Array.from(byId.values())
+      const { filter, bulkPage, bulkBatchSize } = get()
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, bulkPage, bulkBatchSize)
+      const currentIds = new Set(allMessages.map((m) => m.id))
       set((state) => ({
-        messagesByFilter,
-        totalByFilter,
-        messages: currentMessages,
-        total: currentTotal,
+        allMessages,
+        tabCounts: deriveTabCounts(allMessages),
+        messages,
+        total,
         loading: false,
         error: null,
         analysisCache: Object.fromEntries(
@@ -380,6 +463,13 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         set((state) => {
           const idx = state.messages.findIndex((m) => m.id === id)
           if (idx < 0 || state.messages[idx].read_status === 1) return {}
+          if (state.bulkMode && state.allMessages.length > 0) {
+            const nextAll = state.allMessages.map((m) =>
+              m.id === id ? { ...m, read_status: 1 } : m
+            )
+            const { messages, total } = deriveDisplayFromAll(nextAll, state.filter.filter, state.bulkPage, state.bulkBatchSize)
+            return { allMessages: nextAll, tabCounts: state.tabCounts, messages, total }
+          }
           const next = [...state.messages]
           next[idx] = { ...next[idx], read_status: 1 }
           return { messages: next }
@@ -412,16 +502,19 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   setFilter: (partial) => {
     set((state) => {
       const newFilter = { ...state.filter, ...partial }
-      const filterKey = newFilter.filter
-      const cached = state.messagesByFilter?.[filterKey]
-      const cachedTotal = state.totalByFilter?.[filterKey] ?? 0
-      return {
-        filter: newFilter,
-        ...(cached ? { messages: cached, total: cachedTotal } : {}),
+      if (state.bulkMode && state.allMessages.length > 0) {
+        const { messages, total } = deriveDisplayFromAll(
+          state.allMessages,
+          newFilter.filter,
+          state.bulkPage,
+          state.bulkBatchSize
+        )
+        return { filter: newFilter, messages, total }
       }
+      return { filter: newFilter }
     })
-    const { bulkMode, messagesByFilter, filter } = get()
-    if (!bulkMode || !messagesByFilter?.[filter.filter]) {
+    const { bulkMode, allMessages, filter } = get()
+    if (!bulkMode || allMessages.length === 0) {
       get().fetchMessages()
     }
   },
@@ -436,14 +529,19 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setBulkPage: (page) => {
-    set({ bulkPage: page })
-    if (page === 0) get().refreshMessages()
-    else get().fetchMessages()
+    const { bulkMode, allMessages, filter, bulkBatchSize } = get()
+    if (bulkMode && allMessages.length > 0) {
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, page, bulkBatchSize)
+      set({ bulkPage: page, messages, total })
+    } else {
+      set({ bulkPage: page })
+      if (page === 0) get().refreshMessages()
+      else get().fetchMessages()
+    }
   },
 
   setBulkBatchSize: (size) => {
     if (size !== 'all' && ![10, 12, 24, 48].includes(size)) return
-    set({ bulkBatchSize: size, bulkPage: 0 })
     try {
       localStorage?.setItem('wrdesk_bulkBatchSize', String(size))
       if (size !== 'all') {
@@ -453,7 +551,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     } catch {
       /* ignore */
     }
-    get().refreshMessages()
+    const { bulkMode, allMessages, filter } = get()
+    if (bulkMode && allMessages.length > 0) {
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, 0, size)
+      set({ bulkBatchSize: size, bulkPage: 0, messages, total })
+    } else {
+      set({ bulkBatchSize: size, bulkPage: 0 })
+      get().refreshMessages()
+    }
   },
 
   setBulkCompactMode: (enabled) => {
@@ -594,30 +699,31 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         delete nextArchiveExpiries[id]
         nextKept.delete(id)
         nextArchiveKept.delete(id)
-        if (nextOutputs[id]) {
-          const entry = { ...nextOutputs[id] }
-          delete entry.pendingDeletePreviewUntil
-          delete entry.archivePreviewUntil
-          if (entry.recommendedAction === 'pending_delete') {
-            entry.recommendedAction = 'keep_for_manual_action'
-          }
-          nextOutputs[id] = entry
-        }
+        /* FIX-H3: Delete bulkAiOutputs entirely so color coding resets (no residual category) */
+        delete nextOutputs[id]
       }
-      const nextMessages = state.messages.map((m) =>
-        idSet.has(m.id) ? { ...m, pending_delete: 0, pending_delete_at: null } : m
-      )
+      const resetMsg = (m: InboxMessage) =>
+        idSet.has(m.id)
+          ? { ...m, pending_delete: 0, pending_delete_at: null, sort_category: null, sort_reason: null, ai_analysis_json: null }
+          : m
+      const nextAll = state.allMessages.map(resetMsg)
+      const { messages, total } = state.bulkMode && nextAll.length > 0
+        ? deriveDisplayFromAll(nextAll, state.filter.filter, state.bulkPage, state.bulkBatchSize)
+        : { messages: state.messages.map(resetMsg), total: state.total }
       const nextSelected =
         state.selectedMessage && idSet.has(state.selectedMessage.id)
-          ? { ...state.selectedMessage, pending_delete: 0, pending_delete_at: null }
+          ? resetMsg(state.selectedMessage)
           : state.selectedMessage
       return {
+        allMessages: nextAll,
+        tabCounts: state.bulkMode ? deriveTabCounts(nextAll) : state.tabCounts,
         pendingDeletePreviewExpiries: nextExpiries,
         archivePreviewExpiries: nextArchiveExpiries,
         keptDuringPreviewIds: nextKept,
         keptDuringArchivePreviewIds: nextArchiveKept,
         bulkAiOutputs: nextOutputs,
-        messages: nextMessages,
+        messages,
+        total,
         selectedMessage: nextSelected,
       }
     })
@@ -651,16 +757,27 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.markPendingDelete(idsToMove)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(idsToMove)
-      set((s) => ({
-        messages: s.messages.filter((m) => !idsToMove.includes(m.id)),
-        total: Math.max(0, s.total - idsToMove.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
-        selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
-      }))
+      const now = new Date().toISOString()
+      const idSet = new Set(idsToMove)
+      set((s) => {
+        const nextAll = s.allMessages.map((m) =>
+          idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
+        )
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToMove.length) }
+        return {
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
+          selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+          bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
+        }
+      })
       get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
-      get().refreshMessages()
     }
   },
 
@@ -688,14 +805,24 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.moveToPendingReview(idsToMove)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(idsToMove)
-      set((s) => ({
-        messages: s.messages.filter((m) => !idsToMove.includes(m.id)),
-        total: Math.max(0, s.total - idsToMove.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
-        selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-      }))
-      get().refreshMessages()
+      const idSet = new Set(idsToMove)
+      set((s) => {
+        const nextAll = s.allMessages.map((m) =>
+          idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m
+        )
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToMove.length) }
+        return {
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
+          selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        }
+      })
     }
   },
 
@@ -723,15 +850,25 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.archiveMessages(idsToArchive)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(idsToArchive)
-      set((s) => ({
-        messages: s.messages.filter((m) => !idsToArchive.includes(m.id)),
-        total: Math.max(0, s.total - idsToArchive.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToArchive.includes(x))),
-        selectedMessageId: s.selectedMessageId && idsToArchive.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && idsToArchive.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length,
-      }))
-      get().refreshMessages()
+      const idSet = new Set(idsToArchive)
+      set((s) => {
+        const nextAll = s.allMessages.map((m) =>
+          idSet.has(m.id) ? { ...m, archived: 1 } : m
+        )
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToArchive.length) }
+        return {
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToArchive.includes(x))),
+          selectedMessageId: s.selectedMessageId && idsToArchive.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && idsToArchive.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+          bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length,
+        }
+      })
     }
   },
 
@@ -799,20 +936,25 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.archiveMessages(ids)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(ids)
-      set((state) => ({
-        messages: state.messages.filter((m) => !ids.includes(m.id)),
-        total: Math.max(0, state.total - ids.length),
-        multiSelectIds: new Set([...state.multiSelectIds].filter((x) => !ids.includes(x))),
-        selectedMessageId:
-          state.selectedMessageId && ids.includes(state.selectedMessageId)
-            ? null
-            : state.selectedMessageId,
-        selectedMessage:
-          state.selectedMessage && ids.includes(state.selectedMessage.id)
-            ? null
-            : state.selectedMessage,
-        bulkSessionArchived: state.bulkSessionArchived + ids.length,
-      }))
+      const idSet = new Set(ids)
+      set((s) => {
+        const nextAll = s.allMessages.map((m) =>
+          idSet.has(m.id) ? { ...m, archived: 1 } : m
+        )
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+        return {
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+          bulkSessionArchived: s.bulkSessionArchived + ids.length,
+        }
+      })
     }
   },
 
@@ -823,24 +965,25 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (res.ok) {
       get().clearBulkAiOutputsForIds(ids)
       const now = new Date().toISOString()
-      set((state) => {
+      const idSet = new Set(ids)
+      set((s) => {
         const updatedMsg = (m: InboxMessage) =>
-          ids.includes(m.id)
-            ? { ...m, deleted: 1, deleted_at: now, purge_after: null }
-            : m
-        const nextMessages = state.messages.map(updatedMsg)
-        const selectedWasDeleted =
-          state.selectedMessage && ids.includes(state.selectedMessage.id)
+          idSet.has(m.id) ? { ...m, deleted: 1, deleted_at: now, purge_after: null } : m
+        const nextAll = s.allMessages.map(updatedMsg)
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.map(updatedMsg), total: s.total }
+        const selectedWasDeleted = s.selectedMessage && ids.includes(s.selectedMessage.id)
         return {
-          messages: nextMessages,
-          multiSelectIds: new Set([...state.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: state.selectedMessageId,
-          selectedMessage: selectedWasDeleted
-            ? updatedMsg(state.selectedMessage)
-            : state.selectedMessage,
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+          selectedMessageId: s.selectedMessageId,
+          selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage) : s.selectedMessage,
         }
       })
-      get().refreshMessages()
     }
   },
 
@@ -850,16 +993,26 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const res = await bridge.markPendingDelete(ids)
     if (res.ok) {
       get().clearBulkAiOutputsForIds(ids)
+      const now = new Date().toISOString()
       set((s) => {
+        const idSet = new Set(ids)
         const nextExpiries = { ...s.pendingDeletePreviewExpiries }
         const nextKept = new Set(s.keptDuringPreviewIds)
         for (const id of ids) {
           delete nextExpiries[id]
           nextKept.delete(id)
         }
+        const nextAll = s.allMessages.map((m) =>
+          idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
+        )
+        const { messages, total } = s.bulkMode && nextAll.length > 0
+          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
         return {
-          messages: s.messages.filter((m) => !ids.includes(m.id)),
-          total: Math.max(0, s.total - ids.length),
+          allMessages: nextAll,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          messages,
+          total,
           multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
           selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
           selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
@@ -869,7 +1022,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         }
       })
       get().setPendingDeleteToast({ count: ids.length, ids })
-      get().refreshMessages()
     }
   },
 

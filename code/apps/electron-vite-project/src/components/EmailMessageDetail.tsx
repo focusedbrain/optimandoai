@@ -92,6 +92,8 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     archiveMessages,
     deleteMessages,
     cancelDeletion,
+    editingDraftForMessageId,
+    setEditingDraftForMessageId,
   } = useEmailInboxStore()
 
   if (!message) return null
@@ -145,7 +147,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         onCancel={handleLinkCancel}
       />
     <div
-      className="inbox-detail-message-inner inbox-detail-message-inner--premium"
+      className={`inbox-detail-message-inner inbox-detail-message-inner--premium${editingDraftForMessageId === message.id ? ' inbox-detail-message-inner--editing-draft' : ''}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -209,6 +211,23 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
             {message.subject || '(No subject)'}
           </h2>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            {editingDraftForMessageId === message.id && (
+              <span
+                role="button"
+                tabIndex={0}
+                className="inbox-detail-editing-draft-indicator"
+                onClick={() => setEditingDraftForMessageId(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setEditingDraftForMessageId(null)
+                  }
+                }}
+                title="Click to exit edit mode"
+              >
+                Editing draft
+              </span>
+            )}
             <button
               type="button"
               onClick={handleStar}

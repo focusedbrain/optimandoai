@@ -14,29 +14,10 @@
 - **Guard:** None needed — explicit user action
 - **Re-entry:** N/A
 
-### Call site 2: Automatic (useEffect) — **ROOT CAUSE**
-- **File & line:** `EmailInboxBulkView.tsx` lines 1078–1089
-- **Trigger:** `useEffect` on `[loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase]`
-- **When it fires:** When `loading` is false, `messages.length > 0`, no message has analysis, and `aiSortPhase !== 'analyzing'`
-- **Guard `userInitiated`:** ❌ None
-- **Guard `isSorting` mutex:** ⚠️ Partial — `aiSortPhase === 'analyzing'` blocks during run, but no mutex for rapid re-triggers
-- **Guard folder context:** ❌ **MISSING** — runs in **all** folders (Inbox, Pending Delete, Pending Review, Archived, Deleted)
-- **Can fire on page load/navigation/folder change:** ✅ Yes — any `messages` or `loading` change can trigger it
-
-```javascript
-/** Auto-run AI analysis when messages load and batch has no analysis yet. */
-useEffect(() => {
-  if (loading || messages.length === 0 || !window.emailInbox?.aiClassifySingle) return
-  if (aiSortPhase === 'analyzing') return
-  const ids = messages.map((m) => m.id)
-  const hasAnalysis = ids.some((id) => {
-    const out = bulkAiOutputs[id]
-    return !!(out?.category || out?.summary)
-  })
-  if (hasAnalysis) return
-  runAiCategorizeForIds(ids, false)  // ← NO filter.filter check!
-}, [loading, messages, bulkAiOutputs, runAiCategorizeForIds, aiSortPhase])
-```
+### Call site 2: Automatic (useEffect) — **REMOVED (FIX-C4)**
+- **Status:** The auto-run `useEffect` has been **removed**. AI Auto-Sort now runs **only** on explicit user click.
+- **Valid callers:** `handleAiAutoSort` (toolbar button), Retry Auto-Sort (per-message button).
+- **Policy:** Never call `runAiCategorizeForIds` from useEffect, onNewMessages, syncAccount, fetchMessages, or store subscribers.
 
 ---
 
