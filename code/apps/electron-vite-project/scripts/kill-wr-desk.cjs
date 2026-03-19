@@ -8,19 +8,50 @@ const { execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+const { clearBuildCaches } = require('./clear-build-caches.cjs')
+
 const BUILD_BASE = 'C:\\build-output'
 
-/** Remove every subdirectory under C:\\build-output (fresh Electron output each release). */
+/**
+ * Basename of the active Windows output dir (e.g. build301) from electron-builder.config.cjs.
+ * We must NOT delete this folder before `electron-builder` runs — that leaves C:\build-output\… empty
+ * if the build fails or if only this script is run; electron-builder overwrites files in place.
+ */
+function getActiveWindowsOutputBasename() {
+  if (process.platform !== 'win32') return null
+  try {
+    const cfgPath = path.join(__dirname, '..', 'electron-builder.config.cjs')
+    const cfg = require(cfgPath)
+    const out = cfg.directories && cfg.directories.output
+    if (!out || typeof out !== 'string') return null
+    const normalized = out.split(/[/\\]/).filter(Boolean)
+    return normalized[normalized.length - 1] || null
+  } catch {
+    return null
+  }
+}
+
+/** Remove other release folders under C:\\build-output; keep the configured output dir. */
 function deleteOldBuilds() {
   if (process.platform !== 'win32') return
   if (!fs.existsSync(BUILD_BASE)) return
+  const keep = getActiveWindowsOutputBasename()
+  if (!keep) {
+    console.warn(
+      '[kill-wr-desk] Skipping build-output cleanup (could not read directories.output). Remove old folders manually if needed.'
+    )
+    return
+  }
   for (const name of fs.readdirSync(BUILD_BASE)) {
     const full = path.join(BUILD_BASE, name)
     try {
-      if (fs.statSync(full).isDirectory()) {
-        fs.rmSync(full, { recursive: true, force: true })
-        console.log(`[kill-wr-desk] Deleted ${full}`)
+      if (!fs.statSync(full).isDirectory()) continue
+      if (name === keep) {
+        console.log(`[kill-wr-desk] Keeping active output dir: ${full}`)
+        continue
       }
+      fs.rmSync(full, { recursive: true, force: true })
+      console.log(`[kill-wr-desk] Deleted ${full}`)
     } catch (e) {
       console.warn(`[kill-wr-desk] Could not delete ${full}:`, e.message)
     }
@@ -72,6 +103,12 @@ function killProcesses() {
   }
 
   deleteOldBuilds()
+  /** Vite / electron-builder / Electron disk caches (pnpm store prune does not clear these) */
+  try {
+    clearBuildCaches()
+  } catch (e) {
+    console.warn('[kill-wr-desk] clearBuildCaches:', e.message)
+  }
 }
 
 killProcesses()

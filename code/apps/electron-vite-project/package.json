@@ -10,6 +10,7 @@
     "dist": "node -e \"const fs=require('fs');['dist','dist-electron'].forEach(d=>{if(fs.existsSync(d)){fs.rmSync(d,{recursive:true});console.log('Cleaned '+d)}})\" && tsc && vite build && electron-builder -c electron-builder.config.cjs",
     "dist:clean": "node -e \"const fs=require('fs');['dist','dist-electron'].forEach(d=>{if(fs.existsSync(d)){fs.rmSync(d,{recursive:true});console.log('Cleaned '+d)}})\"",
     "clean": "node scripts/clean.cjs",
+    "clear-caches": "node scripts/clear-build-caches.cjs",
     "kill": "node scripts/kill-wr-desk.cjs",
     "build:clean": "node scripts/clean.cjs && electron-rebuild -f -w better-sqlite3,keytar,canvas && vite build && electron-builder -c electron-builder.config.cjs",
     "build:portable": "vite build && electron-builder -c electron-builder.config.cjs --win portable",

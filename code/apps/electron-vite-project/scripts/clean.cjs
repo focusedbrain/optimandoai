@@ -10,6 +10,7 @@ const path = require('path')
 const os = require('os')
 
 const appDir = path.join(__dirname, '..')
+const { clearBuildCaches } = require('./clear-build-caches.cjs')
 
 // 1. Kill running WR Desk processes
 try {
@@ -66,32 +67,11 @@ for (const d of ['dist', 'dist-electron']) {
   }
 }
 
-// 4. Remove Vite cache
-const viteCache = path.join(appDir, 'node_modules', '.cache')
-if (existsSync(viteCache)) {
-  try {
-    rmSync(viteCache, { recursive: true, force: true })
-    console.log('[clean] Removed:', 'node_modules/.cache')
-  } catch (err) {
-    console.warn('[clean] Could not remove node_modules/.cache', err.message)
-  }
-}
-
-// 5. Remove electron-builder cache
-const localAppData = process.env.LOCALAPPDATA || process.env.HOME || os.homedir()
-const ebCachePaths = [
-  path.join(localAppData, '.cache', 'electron-builder'),
-  path.join(localAppData, 'electron-builder', 'Cache'),
-]
-for (const p of ebCachePaths) {
-  if (existsSync(p)) {
-    try {
-      rmSync(p, { recursive: true, force: true })
-      console.log('[clean] Removed:', p)
-    } catch (err) {
-      console.warn('[clean] Could not remove', p, err.message)
-    }
-  }
+// 4–5. Vite / extension / electron-builder / Electron renderer caches (shared with kill-wr-desk prebuild)
+try {
+  clearBuildCaches()
+} catch (err) {
+  console.warn('[clean] clearBuildCaches:', err.message)
 }
 
 // 6. Remove native module build dirs (forces fresh rebuild of better-sqlite3, keytar, canvas)
