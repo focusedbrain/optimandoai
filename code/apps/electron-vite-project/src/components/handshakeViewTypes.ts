@@ -118,6 +118,8 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
+  /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */
+  persistManualBulkAnalysis?: (messageId: string, analysisJson: string) => Promise<{ ok: boolean; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
   moveToPendingReview: (ids: string[]) => Promise<{ ok: boolean; error?: string }>
   cancelPendingDelete: (messageId: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>

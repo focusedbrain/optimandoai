@@ -807,7 +807,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
   ] as const
@@ -1615,6 +1615,23 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
 
   ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string) => {
     return classifySingleMessage(messageId)
+  })
+
+  /**
+   * Manual bulk “Analyze” only: persist advisory analysis JSON without touching sort_category,
+   * needs_reply, urgency_score, or triggering any auto-move.
+   */
+  ipcMain.handle('inbox:persistManualBulkAnalysis', async (_e, messageId: string, analysisJson: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      JSON.parse(analysisJson)
+      db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(analysisJson, messageId)
+      return { ok: true }
+    } catch (e: any) {
+      console.warn('[Inbox IPC] persistManualBulkAnalysis failed:', e?.message)
+      return { ok: false, error: e?.message ?? 'persist failed' }
+    }
   })
 
   ipcMain.handle('inbox:aiCategorize', async (_e, messageIds: string[]) => {

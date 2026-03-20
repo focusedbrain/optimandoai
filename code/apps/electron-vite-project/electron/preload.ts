@@ -535,6 +535,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
+  persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
+    ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
   moveToPendingReview: (ids: string[]) => ipcRenderer.invoke('inbox:moveToPendingReview', ids),
   cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),

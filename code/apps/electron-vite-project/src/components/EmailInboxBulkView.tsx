@@ -139,6 +139,102 @@ function mergeNormalPartialIntoBulk(
   return next
 }
 
+/**
+ * Build full bulk card state from advisory (Normal Inbox) analysis only — no classify IPC, no auto-moves.
+ * Heuristic mapping from stream/non-stream JSON so the structured card can render category + recommended action.
+ */
+function advisoryNormalToBulkComplete(
+  normal: NormalInboxAiResult,
+  prev: BulkAiResultEntry | undefined
+): BulkAiResultEntry {
+  const urgencyScore = Math.max(1, Math.min(10, normal.urgencyScore ?? 5))
+  const summary = (normal.summary ?? '').trim().slice(0, 500)
+  const baseReason = (
+    normal.urgencyReason ||
+    normal.needsReplyReason ||
+    summary ||
+    prev?.reason ||
+    'Analyzed.'
+  )
+    .toString()
+    .slice(0, 300)
+
+  let category: SortCategory
+  let recommendedAction: BulkRecommendedAction
+
+  if (urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD) {
+    category = 'urgent'
+    recommendedAction =
+      normal.needsReply && normal.draftReply ? 'draft_reply_ready' : 'keep_for_manual_action'
+  } else if (normal.archiveRecommendation === 'archive') {
+    category = 'newsletter'
+    recommendedAction = 'archive'
+  } else if (normal.needsReply && normal.draftReply) {
+    category = 'important'
+    recommendedAction = 'draft_reply_ready'
+  } else if (normal.needsReply) {
+    category = 'important'
+    recommendedAction = 'keep_for_manual_action'
+  } else {
+    category = 'normal'
+    recommendedAction = 'keep_for_manual_action'
+  }
+
+  const draftReply =
+    normal.needsReply && typeof normal.draftReply === 'string' && normal.draftReply.trim()
+      ? normal.draftReply.slice(0, 4000)
+      : undefined
+
+  const advLine =
+    normal.archiveReason?.trim() || normal.archiveRecommendation
+      ? `${normal.archiveRecommendation === 'archive' ? 'Archive' : 'Keep'}${
+          normal.archiveReason?.trim() ? ` — ${normal.archiveReason.trim()}` : ''
+        }`
+      : ''
+
+  return {
+    ...prev,
+    category,
+    urgencyScore,
+    urgencyReason: (normal.urgencyReason || baseReason).toString().slice(0, 300),
+    summary: summary || baseReason,
+    reason: baseReason,
+    needsReply: !!normal.needsReply,
+    needsReplyReason: normal.needsReply
+      ? (normal.needsReplyReason || 'Reply warranted.').slice(0, 300)
+      : 'No reply needed.',
+    recommendedAction,
+    actionExplanation: (advLine || baseReason).slice(0, 500),
+    actionItems: Array.isArray(normal.actionItems) ? normal.actionItems.slice(0, 10) : [],
+    draftReply,
+    status: 'classified',
+    autosortOutcome: undefined,
+    autosortRetainKind: undefined,
+    autosortRetainExplanation: undefined,
+    autosortFailure: undefined,
+    failureReason: undefined,
+    bulkAnalysisStreaming: undefined,
+  }
+}
+
+/** Persist shape for `inbox:persistManualBulkAnalysis` (matches classify JSON keys; does not update sort columns). */
+function bulkEntryToManualPersistJson(entry: BulkAiResultEntry): string {
+  return JSON.stringify({
+    category: entry.category ?? 'normal',
+    urgencyScore: entry.urgencyScore ?? 5,
+    urgencyReason: entry.urgencyReason ?? '',
+    summary: entry.summary ?? '',
+    reason: entry.reason ?? '',
+    needsReply: !!entry.needsReply,
+    needsReplyReason: entry.needsReplyReason ?? '',
+    recommendedAction: entry.recommendedAction ?? 'keep_for_manual_action',
+    actionExplanation: entry.actionExplanation ?? '',
+    actionItems: entry.actionItems ?? [],
+    draftReply: entry.draftReply ?? null,
+    status: entry.status ?? 'classified',
+  })
+}
+
 /** Aggregated result of one or more `runAiCategorizeForIds` passes (toolbar Auto-Sort). */
 export type BulkSortRunAggregate = {
   processedIds: string[]
@@ -2034,115 +2130,136 @@ export default function EmailInboxBulkView({
   )
 
   /**
-   * Per-row Analyze: stream advisory JSON into this card (same IPC as Normal Inbox), then authoritative classify
-   * without global “sorting” chrome or list refresh (avoids grid analyzing state + row reorder jump).
+   * Per-row manual Analyze: stream (or one-shot) advisory analysis only — same IPC as Normal Inbox.
+   * Does NOT call classify / Auto-Sort (no DB sort_category writes, no archive/pending moves, no list rebucket).
    */
-  const handleBulkAnalyzeOne = useCallback(
-    async (messageId: string) => {
-      const bridge = window.emailInbox
-      if (!bridge?.aiClassifySingle) {
-        console.warn('[BULK-ANALYZE] aiClassifySingle not available')
-        return
-      }
-      if (bulkAnalyzeInFlightRef.current.has(messageId)) return
-      bulkAnalyzeInFlightRef.current.add(messageId)
+  const handleBulkAnalyzeOne = useCallback(async (messageId: string) => {
+    const bridge = window.emailInbox
+    if (!bridge) return
+    const hasStream =
+      typeof bridge.aiAnalyzeMessageStream === 'function' && typeof bridge.onAiAnalyzeChunk === 'function'
+    const hasOneShot = typeof bridge.aiAnalyzeMessage === 'function'
+    if (!hasStream && !hasOneShot) {
+      console.warn('[BULK-ANALYZE] Need aiAnalyzeMessageStream or aiAnalyzeMessage')
+      return
+    }
+    if (bulkAnalyzeInFlightRef.current.has(messageId)) return
+    bulkAnalyzeInFlightRef.current.add(messageId)
 
-      bulkAnalyzeStreamCleanupRef.current.get(messageId)?.()
-      bulkAnalyzeStreamCleanupRef.current.delete(messageId)
+    bulkAnalyzeStreamCleanupRef.current.get(messageId)?.()
+    bulkAnalyzeStreamCleanupRef.current.delete(messageId)
 
-      const hasStream =
-        typeof bridge.aiAnalyzeMessageStream === 'function' &&
-        typeof bridge.onAiAnalyzeChunk === 'function'
+    if (hasStream) {
+      setBulkAiOutputs((prev) => ({
+        ...prev,
+        [messageId]: {
+          ...prev[messageId],
+          bulkAnalysisStreaming: true,
+          autosortFailure: undefined,
+          failureReason: undefined,
+          summaryError: undefined,
+          summaryErrorMessage: undefined,
+        },
+      }))
+      setBulkAnalyzeUiEpoch((e) => e + 1)
+    }
 
-      if (hasStream) {
-        setBulkAiOutputs((prev) => ({
-          ...prev,
-          [messageId]: {
-            ...prev[messageId],
-            bulkAnalysisStreaming: true,
-            autosortFailure: undefined,
-            failureReason: undefined,
-            summaryError: undefined,
-            summaryErrorMessage: undefined,
-          },
-        }))
-        setBulkAnalyzeUiEpoch((e) => e + 1)
-      }
+    let accumulatedText = ''
+    let streamFailed = false
+    const unsubscribeFns: Array<() => void> = []
 
-      let accumulatedText = ''
-      let streamFailed = false
-      const unsubscribeFns: Array<() => void> = []
-
-      const cleanupListeners = () => {
-        for (const u of unsubscribeFns) {
-          try {
-            u()
-          } catch {
-            /* noop */
-          }
+    const cleanupListeners = () => {
+      for (const u of unsubscribeFns) {
+        try {
+          u()
+        } catch {
+          /* noop */
         }
-        unsubscribeFns.length = 0
-        bulkAnalyzeStreamCleanupRef.current.delete(messageId)
       }
+      unsubscribeFns.length = 0
+      bulkAnalyzeStreamCleanupRef.current.delete(messageId)
+    }
 
-      if (hasStream) {
+    if (hasStream) {
+      unsubscribeFns.push(
+        bridge.onAiAnalyzeChunk!(({ messageId: mid, chunk }) => {
+          if (mid !== messageId) return
+          accumulatedText += chunk
+          const parsed = tryParsePartialAnalysis(accumulatedText)
+          if (parsed) {
+            setBulkAiOutputs((prev) => ({
+              ...prev,
+              [messageId]: mergeNormalPartialIntoBulk(parsed.partial, prev[messageId]),
+            }))
+          }
+        })
+      )
+      if (typeof bridge.onAiAnalyzeError === 'function') {
         unsubscribeFns.push(
-          bridge.onAiAnalyzeChunk!(({ messageId: mid, chunk }) => {
+          bridge.onAiAnalyzeError!(({ messageId: mid }) => {
             if (mid !== messageId) return
-            accumulatedText += chunk
-            const parsed = tryParsePartialAnalysis(accumulatedText)
-            if (parsed) {
-              setBulkAiOutputs((prev) => ({
-                ...prev,
-                [messageId]: mergeNormalPartialIntoBulk(parsed.partial, prev[messageId]),
-              }))
-            }
+            streamFailed = true
           })
         )
-        if (typeof bridge.onAiAnalyzeError === 'function') {
-          unsubscribeFns.push(
-            bridge.onAiAnalyzeError!(({ messageId: mid }) => {
-              if (mid !== messageId) return
-              streamFailed = true
-            })
-          )
+      }
+      bulkAnalyzeStreamCleanupRef.current.set(messageId, cleanupListeners)
+    }
+
+    let persistedEntry: BulkAiResultEntry | null = null
+
+    try {
+      let finalNormal: NormalInboxAiResult | null = null
+      if (hasStream) {
+        await bridge.aiAnalyzeMessageStream!(messageId)
+        if (!streamFailed) {
+          finalNormal = tryParseAnalysis(accumulatedText)
         }
-        bulkAnalyzeStreamCleanupRef.current.set(messageId, cleanupListeners)
+      } else {
+        const res = await bridge.aiAnalyzeMessage!(messageId)
+        const data = res?.ok ? (res.data as NormalInboxAiResult & { error?: string } | undefined) : undefined
+        if (data && !data.error) {
+          finalNormal = data as NormalInboxAiResult
+        }
       }
 
-      try {
-        if (hasStream) {
-          await bridge.aiAnalyzeMessageStream!(messageId)
-          if (!streamFailed) {
-            const final = tryParseAnalysis(accumulatedText)
-            if (final) {
-              useEmailInboxStore.getState().setAnalysisCache(messageId, final)
-              setBulkAiOutputs((prev) => ({
-                ...prev,
-                [messageId]: mergeNormalPartialIntoBulk(final, prev[messageId]),
-              }))
-            }
+      if (finalNormal) {
+        useEmailInboxStore.getState().setAnalysisCache(messageId, finalNormal)
+      }
+
+      setBulkAiOutputs((prev) => {
+        const base = { ...(prev[messageId] ?? {}) }
+        delete base.bulkAnalysisStreaming
+        if (!finalNormal) {
+          return {
+            ...prev,
+            [messageId]: {
+              ...base,
+              summary: streamFailed
+                ? 'Analysis failed. Check that Ollama is running and try again.'
+                : base.summary,
+            },
           }
         }
-        await runAiCategorizeForIds([messageId], false, false, {
-          manageConcurrencyLock: false,
-          suppressGlobalSortingUi: true,
-          skipEndRefresh: true,
-        })
-      } finally {
-        cleanupListeners()
-        setBulkAiOutputs((prev) => {
-          const cur = prev[messageId]
-          if (!cur?.bulkAnalysisStreaming) return prev
-          const { bulkAnalysisStreaming: _b, ...rest } = cur
-          return { ...prev, [messageId]: rest }
-        })
-        bulkAnalyzeInFlightRef.current.delete(messageId)
-        setBulkAnalyzeUiEpoch((e) => e + 1)
+        const mergedFields = mergeNormalPartialIntoBulk(finalNormal, base)
+        const { bulkAnalysisStreaming: _bs, ...withoutFlag } = mergedFields
+        const complete = advisoryNormalToBulkComplete(finalNormal, withoutFlag)
+        persistedEntry = complete
+        return { ...prev, [messageId]: complete }
+      })
+
+      if (persistedEntry && typeof bridge.persistManualBulkAnalysis === 'function') {
+        try {
+          await bridge.persistManualBulkAnalysis(messageId, bulkEntryToManualPersistJson(persistedEntry))
+        } catch (e) {
+          console.warn('[BULK-ANALYZE] persistManualBulkAnalysis:', e)
+        }
       }
-    },
-    [runAiCategorizeForIds]
-  )
+    } finally {
+      cleanupListeners()
+      bulkAnalyzeInFlightRef.current.delete(messageId)
+      setBulkAnalyzeUiEpoch((e) => e + 1)
+    }
+  }, [])
 
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
