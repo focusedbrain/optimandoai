@@ -494,6 +494,15 @@ contextBridge.exposeInMainWorld('emailInbox', {
     offset?: number
     search?: string
   }) => ipcRenderer.invoke('inbox:listMessages', options),
+  listMessageIds: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => ipcRenderer.invoke('inbox:listMessageIds', options),
   getMessage: (messageId: string) => ipcRenderer.invoke('inbox:getMessage', messageId),
   markRead: (ids: string[], read: boolean) => ipcRenderer.invoke('inbox:markRead', ids, read),
   toggleStar: (id: string) => ipcRenderer.invoke('inbox:toggleStar', id),

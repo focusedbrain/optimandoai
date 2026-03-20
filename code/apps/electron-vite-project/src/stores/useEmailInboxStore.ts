@@ -106,24 +106,6 @@ interface EmailInboxState {
   bulkBatchSize: number | 'all'
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
-  /** messageId -> expiresAt ISO. Survives view switch. */
-  pendingDeletePreviewExpiries: Record<string, string>
-  /** messageId -> expiresAt ISO for archive grace. Survives view switch. */
-  archivePreviewExpiries: Record<string, string>
-  /** messageId -> expiresAt ISO for pending review grace. Survives view switch. */
-  pendingReviewPreviewExpiries: Record<string, string>
-  /** IDs user chose to keep during preview. Survives view switch. */
-  keptDuringPreviewIds: Set<string>
-  /** IDs user chose to keep during archive preview. Survives view switch. */
-  keptDuringArchivePreviewIds: Set<string>
-  /** IDs user chose to keep during pending review preview. Survives view switch. */
-  keptDuringReviewPreviewIds: Set<string>
-  /** Toast shown after move; Undo clears it. */
-  pendingDeleteToast: { count: number; ids: string[] } | null
-  /** Recent undoable batches (max 5) — supports recovery when multiple actions happen quickly. */
-  recentPendingDeleteBatches: Array<{ count: number; ids: string[] }>
-  /** Incremented every second when previews exist; drives live countdown. */
-  countdownTick: number
   /** Session counters: reset when bulk mode exits. */
   bulkSessionArchived: number
   bulkSessionPendingDelete: number
@@ -150,8 +132,12 @@ interface EmailInboxState {
   clearBulkDraftManualComposeForIds: (ids: string[]) => void
 
   fetchMessages: () => Promise<void>
-  /** Fetch all filter tabs in parallel — used by bulk view on mount for instant tab switching. */
+  /** Load inbox rows for all WR Desk bulk tabs (all / pending_delete / pending_review / archived) with paginated drain — no row cap. */
   fetchAllMessages: () => Promise<void>
+  /** All IDs matching the active filter (paginated drain). Same semantics as inbox tabs; ignores batch/page UI. */
+  fetchMatchingIdsForCurrentFilter: () => Promise<string[]>
+  /** Set multiSelectIds to every ID matching the current filter (for toolbar “select all” in batch mode “All”). */
+  selectAllMatchingCurrentFilter: () => Promise<void>
   /** Refresh: fetchAllMessages in bulk mode, else fetchMessages. Use after mutations. */
   refreshMessages: () => Promise<void>
   selectMessage: (id: string | null) => Promise<void>
@@ -166,29 +152,18 @@ interface EmailInboxState {
   syncBulkBatchSizeFromSettings: () => Promise<void>
   setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
   clearBulkAiOutputsForIds: (ids: string[]) => void
-  addPendingDeletePreview: (ids: string[]) => void
-  addArchivePreview: (ids: string[]) => void
-  addPendingReviewPreview: (ids: string[]) => void
-  keepDuringPreview: (id: string) => void
-  keepDuringArchivePreview: (id: string) => void
-  keepDuringReviewPreview: (id: string) => void
-  setPendingDeleteToast: (toast: { count: number; ids: string[] } | null) => void
-  /** Remove a batch from recent list after Undo. */
-  removeRecentPendingDeleteBatch: (ids: string[]) => void
   /** Decrement session pending-delete count when Undo restores messages. */
   decrementBulkSessionPendingDelete: (count: number) => void
-  /** Fully reset pending-delete state for ids after Undo. Clears preview, grace-period, and AI output flags. */
+  /** Fully reset pending-delete state for ids after Undo. Clears AI output flags and local row state. */
   clearPendingDeleteStateForIds: (ids: string[]) => void
-  incrementCountdownTick: () => void
-  processExpiredPendingDeletes: () => Promise<void>
-  processExpiredArchivePreviews: () => Promise<void>
-  processExpiredPendingReviewPreviews: () => Promise<void>
   markRead: (ids: string[], read: boolean) => Promise<void>
   toggleStar: (id: string) => Promise<void>
-  archiveMessages: (ids: string[]) => Promise<void>
+  archiveMessages: (ids: string[]) => Promise<boolean>
   deleteMessages: (ids: string[], gracePeriodHours?: number) => Promise<void>
   /** Move messages to Pending Delete (soft, 7-day grace). Use for AI-recommended pending_delete. */
-  markPendingDeleteImmediate: (ids: string[]) => Promise<void>
+  markPendingDeleteImmediate: (ids: string[]) => Promise<boolean>
+  /** Move messages to Pending Review (14-day grace in DB). Immediate IPC + local state. */
+  moveToPendingReviewImmediate: (ids: string[]) => Promise<boolean>
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
@@ -210,6 +185,25 @@ interface EmailInboxState {
 
 function getBridge() {
   return typeof window !== 'undefined' ? window.emailInbox : undefined
+}
+
+/** Page size for draining inbox list APIs (no hard cap on total rows). */
+const INBOX_LIST_PAGE_SIZE = 500
+
+function listBridgeOptionsFromFilter(filter: InboxFilter): {
+  filter: string
+  sourceType?: string
+  handshakeId?: string
+  category?: string
+  search?: string
+} {
+  return {
+    filter: filter.filter,
+    sourceType: filter.sourceType === 'all' ? undefined : filter.sourceType,
+    handshakeId: filter.handshakeId,
+    category: filter.category,
+    search: filter.search,
+  }
 }
 
 const DEFAULT_FILTER: InboxFilter = {
@@ -251,7 +245,7 @@ function deriveDisplayFromAll(
 }
 
 /** Derive tab counts from allMessages for filter tab labels. */
-function deriveTabCounts(allMessages: InboxMessage[]): Record<string, number> {
+export function deriveTabCounts(allMessages: InboxMessage[]): Record<string, number> {
   const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
   const out: Record<string, number> = {}
   for (const f of filters) {
@@ -259,52 +253,6 @@ function deriveTabCounts(allMessages: InboxMessage[]): Record<string, number> {
   }
   return out
 }
-
-/** Preview state for real-time count derivation (FIX-C5). */
-export interface TabCountPreviewState {
-  pendingDeletePreviewExpiries: Record<string, string>
-  archivePreviewExpiries: Record<string, string>
-  pendingReviewPreviewExpiries: Record<string, string>
-  keptDuringPreviewIds: Set<string>
-  keptDuringArchivePreviewIds: Set<string>
-  keptDuringReviewPreviewIds: Set<string>
-}
-
-/**
- * Derive tab counts from allMessages + preview state. Messages in preview are counted
- * as already moved (real-time updates). Used by filter tab labels.
- */
-export function deriveTabCountsWithPreview(
-  allMessages: InboxMessage[],
-  preview: TabCountPreviewState
-): Record<string, number> {
-  const counts = { all: 0, pending_delete: 0, pending_review: 0, archived: 0 }
-  for (const m of allMessages) {
-    if (m.deleted === 1) continue
-    if (preview.pendingDeletePreviewExpiries[m.id] && !preview.keptDuringPreviewIds.has(m.id)) {
-      counts.pending_delete++
-    } else if (preview.archivePreviewExpiries[m.id] && !preview.keptDuringArchivePreviewIds.has(m.id)) {
-      counts.archived++
-    } else if (preview.pendingReviewPreviewExpiries[m.id] && !preview.keptDuringReviewPreviewIds.has(m.id)) {
-      counts.pending_review++
-    } else if (m.archived === 1) {
-      counts.archived++
-    } else if (m.pending_delete === 1) {
-      counts.pending_delete++
-    } else if (m.sort_category === 'pending_review') {
-      counts.pending_review++
-    } else {
-      counts.all++
-    }
-  }
-  return counts
-}
-
-// Auto-hide for pending-delete toast: 5 seconds
-const PENDING_DELETE_TOAST_VISIBILITY_MS = 5000
-const RECENT_PENDING_DELETE_MAX = 5
-
-let pendingDeleteToastTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 // =============================================================================
 // Store Implementation
@@ -325,15 +273,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkMode: false,
   bulkPage: 0,
   bulkAiOutputs: {},
-  pendingDeletePreviewExpiries: {},
-  archivePreviewExpiries: {},
-  pendingReviewPreviewExpiries: {},
-  keptDuringPreviewIds: new Set(),
-  keptDuringArchivePreviewIds: new Set(),
-  keptDuringReviewPreviewIds: new Set(),
-  pendingDeleteToast: null,
-  recentPendingDeleteBatches: [],
-  countdownTick: 0,
   bulkSessionArchived: 0,
   bulkSessionPendingDelete: 0,
   bulkCompactMode: (() => {
@@ -421,18 +360,17 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
     set({ loading: true, error: null })
     try {
-      const { filter, bulkMode, bulkPage, bulkBatchSize, total } = get()
+      const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
+      if (bulkMode && bulkBatchSize === 'all') {
+        await get().fetchAllMessages()
+        return
+      }
       const options: Parameters<typeof bridge.listMessages>[0] = {
-        filter: filter.filter,
-        sourceType: filter.sourceType === 'all' ? undefined : filter.sourceType,
-        handshakeId: filter.handshakeId,
-        category: filter.category,
-        search: filter.search,
+        ...listBridgeOptionsFromFilter(filter),
       }
       if (bulkMode) {
-        const effectiveLimit = bulkBatchSize === 'all' ? Math.min(total || 500, 500) : bulkBatchSize
-        options.limit = effectiveLimit
-        options.offset = bulkBatchSize === 'all' ? 0 : bulkPage * bulkBatchSize
+        options.limit = bulkBatchSize as number
+        options.offset = bulkPage * (bulkBatchSize as number)
       } else {
         options.limit = 50
         options.offset = 0
@@ -472,25 +410,23 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
     set({ loading: true, error: null })
     const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
-    const limit = 500
     try {
-      const results = await Promise.all(
-        filters.map((f) =>
-          bridge!.listMessages({
-            filter: f,
-            limit,
-            offset: 0,
-          })
-        )
-      )
       const byId = new Map<string, InboxMessage>()
-      filters.forEach((f, i) => {
-        const res = results[i]
-        if (res?.ok && res?.data) {
+      for (const f of filters) {
+        let offset = 0
+        for (;;) {
+          const res = await bridge.listMessages({
+            filter: f,
+            limit: INBOX_LIST_PAGE_SIZE,
+            offset,
+          })
+          if (!res?.ok || !res?.data) break
           const list = (res.data.messages ?? []) as InboxMessage[]
           for (const m of list) byId.set(m.id, m)
+          if (list.length < INBOX_LIST_PAGE_SIZE) break
+          offset += INBOX_LIST_PAGE_SIZE
         }
-      })
+      }
       const allMessages = Array.from(byId.values())
       const { filter, bulkPage, bulkBatchSize } = get()
       const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, bulkPage, bulkBatchSize)
@@ -512,6 +448,33 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Failed to fetch messages',
       })
     }
+  },
+
+  fetchMatchingIdsForCurrentFilter: async () => {
+    const bridge = getBridge()
+    if (!bridge?.listMessageIds) return []
+    const { filter } = get()
+    const baseOpts = listBridgeOptionsFromFilter(filter)
+    const ids: string[] = []
+    let offset = 0
+    for (;;) {
+      const res = await bridge.listMessageIds({
+        ...baseOpts,
+        limit: INBOX_LIST_PAGE_SIZE,
+        offset,
+      })
+      if (!res.ok || !res.data) break
+      const chunk = res.data.ids ?? []
+      ids.push(...chunk)
+      if (chunk.length < INBOX_LIST_PAGE_SIZE) break
+      offset += INBOX_LIST_PAGE_SIZE
+    }
+    return ids
+  },
+
+  selectAllMatchingCurrentFilter: async () => {
+    const ids = await get().fetchMatchingIdsForCurrentFilter()
+    set({ multiSelectIds: new Set(ids) })
   },
 
   refreshMessages: async () => {
@@ -633,6 +596,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       /* ignore */
     }
     const { bulkMode, allMessages, filter } = get()
+    if (bulkMode && size === 'all') {
+      set({ bulkBatchSize: 'all', bulkPage: 0 })
+      void get().fetchAllMessages()
+      return
+    }
     if (bulkMode && allMessages.length > 0) {
       const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, 0, size)
       set({ bulkBatchSize: size, bulkPage: 0, messages, total })
@@ -669,103 +637,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     })
   },
 
-  addPendingDeletePreview: (ids) => {
-    if (ids.length === 0) return
-    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
-    set((state) => {
-      const next = { ...state.pendingDeletePreviewExpiries }
-      for (const id of ids) next[id] = expiresAt
-      const kept = new Set(state.keptDuringPreviewIds)
-      for (const id of ids) kept.delete(id)
-      return { pendingDeletePreviewExpiries: next, keptDuringPreviewIds: kept }
-    })
-  },
-
-  addArchivePreview: (ids) => {
-    if (ids.length === 0) return
-    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
-    set((state) => {
-      const next = { ...state.archivePreviewExpiries }
-      for (const id of ids) next[id] = expiresAt
-      const kept = new Set(state.keptDuringArchivePreviewIds)
-      for (const id of ids) kept.delete(id)
-      return { archivePreviewExpiries: next, keptDuringArchivePreviewIds: kept }
-    })
-  },
-
-  addPendingReviewPreview: (ids) => {
-    if (ids.length === 0) return
-    const expiresAt = new Date(Date.now() + 5 * 1000).toISOString()
-    set((state) => {
-      const next = { ...state.pendingReviewPreviewExpiries }
-      for (const id of ids) next[id] = expiresAt
-      const kept = new Set(state.keptDuringReviewPreviewIds)
-      for (const id of ids) kept.delete(id)
-      return { pendingReviewPreviewExpiries: next, keptDuringReviewPreviewIds: kept }
-    })
-  },
-
-  keepDuringPreview: (id) => {
-    set((state) => ({
-      keptDuringPreviewIds: new Set([...state.keptDuringPreviewIds, id]),
-    }))
-  },
-
-  keepDuringArchivePreview: (id) => {
-    set((state) => ({
-      keptDuringArchivePreviewIds: new Set([...state.keptDuringArchivePreviewIds, id]),
-    }))
-  },
-
-  keepDuringReviewPreview: (id) => {
-    set((state) => ({
-      keptDuringReviewPreviewIds: new Set([...state.keptDuringReviewPreviewIds, id]),
-    }))
-  },
-
-  setPendingDeleteToast: (toast) => {
-    if (pendingDeleteToastTimeoutId) {
-      clearTimeout(pendingDeleteToastTimeoutId)
-      pendingDeleteToastTimeoutId = null
-    }
-    const state = get()
-    if (state.pendingDeleteToast) {
-      set((s) => ({
-        recentPendingDeleteBatches: [
-          ...s.recentPendingDeleteBatches,
-          { count: state.pendingDeleteToast!.count, ids: state.pendingDeleteToast!.ids },
-        ].slice(-RECENT_PENDING_DELETE_MAX),
-      }))
-    }
-    set({ pendingDeleteToast: toast })
-    if (toast) {
-      pendingDeleteToastTimeoutId = setTimeout(() => {
-        pendingDeleteToastTimeoutId = null
-        const current = get().pendingDeleteToast
-        if (current) {
-          set((s) => ({
-            pendingDeleteToast: null,
-            recentPendingDeleteBatches: [
-              ...s.recentPendingDeleteBatches,
-              { count: current.count, ids: current.ids },
-            ].slice(-RECENT_PENDING_DELETE_MAX),
-          }))
-        } else {
-          set({ pendingDeleteToast: null })
-        }
-      }, PENDING_DELETE_TOAST_VISIBILITY_MS)
-    }
-  },
-
-  removeRecentPendingDeleteBatch: (ids) => {
-    const idSet = new Set(ids)
-    set((s) => ({
-      recentPendingDeleteBatches: s.recentPendingDeleteBatches.filter(
-        (b) => !(b.ids.length === ids.length && b.ids.every((id) => idSet.has(id)))
-      ),
-    }))
-  },
-
   decrementBulkSessionPendingDelete: (count) => {
     set((s) => ({ bulkSessionPendingDelete: Math.max(0, s.bulkSessionPendingDelete - count) }))
   },
@@ -774,16 +645,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (ids.length === 0) return
     const idSet = new Set(ids)
     set((state) => {
-      const nextExpiries = { ...state.pendingDeletePreviewExpiries }
-      const nextArchiveExpiries = { ...state.archivePreviewExpiries }
-      const nextKept = new Set(state.keptDuringPreviewIds)
-      const nextArchiveKept = new Set(state.keptDuringArchivePreviewIds)
       const nextOutputs = { ...state.bulkAiOutputs }
       for (const id of idSet) {
-        delete nextExpiries[id]
-        delete nextArchiveExpiries[id]
-        nextKept.delete(id)
-        nextArchiveKept.delete(id)
         /* FIX-H3: Delete bulkAiOutputs entirely so color coding resets (no residual category) */
         delete nextOutputs[id]
       }
@@ -802,159 +665,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       return {
         allMessages: nextAll,
         tabCounts: state.bulkMode ? deriveTabCounts(nextAll) : state.tabCounts,
-        pendingDeletePreviewExpiries: nextExpiries,
-        archivePreviewExpiries: nextArchiveExpiries,
-        keptDuringPreviewIds: nextKept,
-        keptDuringArchivePreviewIds: nextArchiveKept,
         bulkAiOutputs: nextOutputs,
         messages,
         total,
         selectedMessage: nextSelected,
       }
     })
-  },
-
-  incrementCountdownTick: () => {
-    set((s) => ({ countdownTick: s.countdownTick + 1 }))
-  },
-
-  processExpiredPendingDeletes: async () => {
-    const bridge = getBridge()
-    if (!bridge?.markPendingDelete) return
-    const state = get()
-    const now = Date.now()
-    const expired: string[] = []
-    for (const [id, expiresAt] of Object.entries(state.pendingDeletePreviewExpiries)) {
-      if (new Date(expiresAt).getTime() <= now) expired.push(id)
-    }
-    if (expired.length === 0) return
-    const idsToMove = expired.filter((id) => !state.keptDuringPreviewIds.has(id))
-    set((s) => {
-      const nextExpiries = { ...s.pendingDeletePreviewExpiries }
-      const nextKept = new Set(s.keptDuringPreviewIds)
-      for (const id of expired) {
-        delete nextExpiries[id]
-        nextKept.delete(id)
-      }
-      return { pendingDeletePreviewExpiries: nextExpiries, keptDuringPreviewIds: nextKept }
-    })
-    if (idsToMove.length === 0) return
-    const res = await bridge.markPendingDelete(idsToMove)
-    if (res.ok) {
-      get().clearBulkAiOutputsForIds(idsToMove)
-      const now = new Date().toISOString()
-      const idSet = new Set(idsToMove)
-      set((s) => {
-        const nextAll = s.allMessages.map((m) =>
-          idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
-        )
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToMove.length) }
-        return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
-          messages,
-          total,
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
-          selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-          bulkSessionPendingDelete: s.bulkSessionPendingDelete + idsToMove.length,
-        }
-      })
-      get().setPendingDeleteToast({ count: idsToMove.length, ids: idsToMove })
-    }
-  },
-
-  processExpiredPendingReviewPreviews: async () => {
-    const bridge = getBridge()
-    if (!bridge?.moveToPendingReview) return
-    const state = get()
-    const now = Date.now()
-    const expired: string[] = []
-    for (const [id, expiresAt] of Object.entries(state.pendingReviewPreviewExpiries)) {
-      if (new Date(expiresAt).getTime() <= now) expired.push(id)
-    }
-    if (expired.length === 0) return
-    const idsToMove = expired.filter((id) => !state.keptDuringReviewPreviewIds.has(id))
-    set((s) => {
-      const nextExpiries = { ...s.pendingReviewPreviewExpiries }
-      const nextKept = new Set(s.keptDuringReviewPreviewIds)
-      for (const id of expired) {
-        delete nextExpiries[id]
-        nextKept.delete(id)
-      }
-      return { pendingReviewPreviewExpiries: nextExpiries, keptDuringReviewPreviewIds: nextKept }
-    })
-    if (idsToMove.length === 0) return
-    const res = await bridge.moveToPendingReview(idsToMove)
-    if (res.ok) {
-      get().clearBulkAiOutputsForIds(idsToMove)
-      const idSet = new Set(idsToMove)
-      set((s) => {
-        const nextAll = s.allMessages.map((m) =>
-          idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m
-        )
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToMove.length) }
-        return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
-          messages,
-          total,
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToMove.includes(x))),
-          selectedMessageId: s.selectedMessageId && idsToMove.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && idsToMove.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        }
-      })
-    }
-  },
-
-  processExpiredArchivePreviews: async () => {
-    const bridge = getBridge()
-    if (!bridge?.archiveMessages) return
-    const state = get()
-    const now = Date.now()
-    const expired: string[] = []
-    for (const [id, expiresAt] of Object.entries(state.archivePreviewExpiries)) {
-      if (new Date(expiresAt).getTime() <= now) expired.push(id)
-    }
-    if (expired.length === 0) return
-    const idsToArchive = expired.filter((id) => !state.keptDuringArchivePreviewIds.has(id))
-    set((s) => {
-      const nextExpiries = { ...s.archivePreviewExpiries }
-      const nextKept = new Set(s.keptDuringArchivePreviewIds)
-      for (const id of expired) {
-        delete nextExpiries[id]
-        nextKept.delete(id)
-      }
-      return { archivePreviewExpiries: nextExpiries, keptDuringArchivePreviewIds: nextKept }
-    })
-    if (idsToArchive.length === 0) return
-    const res = await bridge.archiveMessages(idsToArchive)
-    if (res.ok) {
-      get().clearBulkAiOutputsForIds(idsToArchive)
-      const idSet = new Set(idsToArchive)
-      set((s) => {
-        const nextAll = s.allMessages.map((m) =>
-          idSet.has(m.id) ? { ...m, archived: 1 } : m
-        )
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - idsToArchive.length) }
-        return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
-          messages,
-          total,
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !idsToArchive.includes(x))),
-          selectedMessageId: s.selectedMessageId && idsToArchive.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && idsToArchive.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-          bulkSessionArchived: s.bulkSessionArchived + idsToArchive.length,
-        }
-      })
-    }
   },
 
   syncBulkBatchSizeFromSettings: async () => {
@@ -1017,30 +733,30 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   archiveMessages: async (ids) => {
     const bridge = getBridge()
-    if (!bridge?.archiveMessages) return
+    if (!bridge?.archiveMessages || ids.length === 0) return false
     const res = await bridge.archiveMessages(ids)
-    if (res.ok) {
-      get().clearBulkAiOutputsForIds(ids)
-      const idSet = new Set(ids)
-      set((s) => {
-        const nextAll = s.allMessages.map((m) =>
-          idSet.has(m.id) ? { ...m, archived: 1 } : m
-        )
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
-        return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
-          messages,
-          total,
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-          bulkSessionArchived: s.bulkSessionArchived + ids.length,
-        }
-      })
-    }
+    if (!res.ok) return false
+    get().clearBulkAiOutputsForIds(ids)
+    const idSet = new Set(ids)
+    set((s) => {
+      const nextAll = s.allMessages.map((m) =>
+        idSet.has(m.id) ? { ...m, archived: 1 } : m
+      )
+      const { messages, total } = s.bulkMode && nextAll.length > 0
+        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      return {
+        allMessages: nextAll,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        messages,
+        total,
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        bulkSessionArchived: s.bulkSessionArchived + ids.length,
+      }
+    })
+    return true
   },
 
   deleteMessages: async (ids, gracePeriodHours) => {
@@ -1074,40 +790,58 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   markPendingDeleteImmediate: async (ids) => {
     const bridge = getBridge()
-    if (!bridge?.markPendingDelete || ids.length === 0) return
+    if (!bridge?.markPendingDelete || ids.length === 0) return false
     const res = await bridge.markPendingDelete(ids)
-    if (res.ok) {
-      get().clearBulkAiOutputsForIds(ids)
-      const now = new Date().toISOString()
-      set((s) => {
-        const idSet = new Set(ids)
-        const nextExpiries = { ...s.pendingDeletePreviewExpiries }
-        const nextKept = new Set(s.keptDuringPreviewIds)
-        for (const id of ids) {
-          delete nextExpiries[id]
-          nextKept.delete(id)
-        }
-        const nextAll = s.allMessages.map((m) =>
-          idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
-        )
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
-        return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
-          messages,
-          total,
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-          pendingDeletePreviewExpiries: nextExpiries,
-          keptDuringPreviewIds: nextKept,
-          bulkSessionPendingDelete: s.bulkSessionPendingDelete + ids.length,
-        }
-      })
-      get().setPendingDeleteToast({ count: ids.length, ids })
-    }
+    if (!res.ok) return false
+    get().clearBulkAiOutputsForIds(ids)
+    const now = new Date().toISOString()
+    const idSet = new Set(ids)
+    set((s) => {
+      const nextAll = s.allMessages.map((m) =>
+        idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
+      )
+      const { messages, total } = s.bulkMode && nextAll.length > 0
+        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      return {
+        allMessages: nextAll,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        messages,
+        total,
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        bulkSessionPendingDelete: s.bulkSessionPendingDelete + ids.length,
+      }
+    })
+    return true
+  },
+
+  moveToPendingReviewImmediate: async (ids) => {
+    const bridge = getBridge()
+    if (!bridge?.moveToPendingReview || ids.length === 0) return false
+    const res = await bridge.moveToPendingReview(ids)
+    if (!res.ok) return false
+    get().clearBulkAiOutputsForIds(ids)
+    const idSet = new Set(ids)
+    set((s) => {
+      const nextAll = s.allMessages.map((m) =>
+        idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m
+      )
+      const { messages, total } = s.bulkMode && nextAll.length > 0
+        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      return {
+        allMessages: nextAll,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        messages,
+        total,
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+      }
+    })
+    return true
   },
 
   cancelDeletion: async (id) => {

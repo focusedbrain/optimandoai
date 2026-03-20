@@ -90,6 +90,15 @@ export interface EmailInboxBridge {
     offset?: number
     search?: string
   }) => Promise<{ ok: boolean; data?: { messages: unknown[]; total: number }; error?: string }>
+  listMessageIds: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => Promise<{ ok: boolean; data?: { ids: string[]; total: number }; error?: string }>
   getMessage: (messageId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   markRead: (ids: string[], read: boolean) => Promise<{ ok: boolean; error?: string }>
   toggleStar: (id: string) => Promise<{ ok: boolean; data?: { starred: boolean }; error?: string }>

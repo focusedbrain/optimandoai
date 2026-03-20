@@ -10,7 +10,6 @@ import BeapBulkInboxDashboard from './components/BeapBulkInboxDashboard'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
-import { startPendingDeletePreviewScheduler } from './pendingDeletePreviewScheduler'
 import './components/handshakeViewTypes'
 
 type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
@@ -53,10 +52,6 @@ function App() {
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
   const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string }>>([])
-
-  useEffect(() => {
-    startPendingDeletePreviewScheduler()
-  }, [])
 
   useEffect(() => {
     const root = document.documentElement

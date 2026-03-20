@@ -101,8 +101,8 @@
 | Classification hook called | ✅ | `runAiCategorizeForIds` is called; no `useBulkClassification` in Electron |
 | Classification returns data | ⚠️ | Depends on Ollama; parse failure → empty `classifications` |
 | State update applied | ✅ | `setBulkAiOutputs` correctly merges |
-| Pending Delete move | ✅ | `addPendingDeletePreview` → 5s → `processExpiredPendingDeletes` → `markPendingDelete` |
-| Animation | ✅ | `bulk-view-grid--reordered`, `bulk-view-row--reorder-enter` with staggered delay |
+| Pending Delete move | ✅ | Bulk Auto-Sort calls `markPendingDelete` / IPC immediately when classifier recommends it (no 5s card preview). |
+| Post-sort row animation | — | Removed (CSS `bulk-view-grid--reordered` / `bulk-view-row--reorder-enter` deleted; not applied in UI). |
 
 ### Auto-Run on Load
 
@@ -180,11 +180,11 @@ This is in the **AI output card header** — the outer frame of the right panel.
 |---------|---------|----------|---------------|
 | Per-message Draft button | ✅ | ✅ | `renderActionCard` — "✍ Draft" button |
 | Per-message email composer (send drafted reply) | ✅ | ✅ | `handleSendDraft` → `EmailComposeOverlay` or `openBeapDraft` |
-| Auto-move to Pending Delete after sort | ✅ | ✅ | `addPendingDeletePreview` → 5s → `processExpiredPendingDeletes` → `markPendingDelete` |
-| 5-second visual countdown | ✅ | ✅ | `PendingDeleteCountdown`, `ArchiveCountdown` + `countdownTick` |
+| Auto-move to Pending Delete after sort | ✅ | ✅ | Immediate IPC / store update from Auto-Sort when recommended (no 5s countdown on card). |
+| 5-second visual countdown | — | — | Removed with immediate-move Auto-Sort. |
 | 7-day grace period folder logic | ✅ | ✅ | `inbox:listMessages` filter `pending_delete`; main process interval queues `queueRemoteDeletion` after 7 days |
 | Remote origin deletion (move to trash via API) | ✅ | ✅ | `executePendingDeletions` → `emailGateway.deleteMessage` |
-| Sort animation / visual story-telling | ✅ | ✅ | `bulk-view-grid--reordered`, `bulk-view-row--reorder-enter`, `animationDelay` |
+| Sort animation / visual story-telling | — | — | Not used; reorder-enter keyframes removed from `App.css`. |
 | Retry Auto-Sort per message | ✅ | ✅ | "Retry Auto-Sort" in failure card |
 | Summarize per message in bulk | ✅ | ✅ | `handleSummarize` → `aiSummarize` |
 | Urgency bar in bulk card | ✅ | ✅ | `bulk-action-card-urgency-bar` |
@@ -421,11 +421,11 @@ All handlers are exposed: `aiSummarize`, `aiDraftReply`, `aiAnalyzeMessage`, `ai
 |------|------|----------|--------|
 | 1. Fix classification call | `ipc.ts` | `callInboxOllamaChat` | Add timeout (e.g. 60s) via `AbortController` or wrapper |
 | 2. Fix state update | `EmailInboxBulkView.tsx` | `runAiCategorizeForIds` | Already correct; ensure `classification_failed` entries still set `bulkAiOutputs` with error message |
-| 3. Re-wire Pending Delete | — | — | Already wired; verify `processExpiredPendingDeletes` runs (scheduler started in `App.tsx`) |
+| 3. Re-wire Pending Delete | — | — | Bulk uses immediate moves; DB 7-day grace / `executePendingDeletions` unchanged in main process. |
 | 4. Re-wire Archive | — | — | Already wired |
 | 5. Re-wire Draft for action-required | — | — | Already in classification response; ensure `draft_reply` passed when `needs_reply` |
 | 6. Restore badge placement | `EmailInboxBulkView.tsx` | Message card footer | Remove `sort_category` badge from lines 1283-1290 |
-| 7. Restore sort animation | — | — | Already present; verify CSS `bulk-view-row-enter` is applied |
+| 7. Sort animation | — | — | Intentionally not restored; classes removed from bulk view. |
 
 ---
 
@@ -434,9 +434,9 @@ All handlers are exposed: `aiSummarize`, `aiDraftReply`, `aiAnalyzeMessage`, `ai
 ### 🟢 WORKING
 
 - Normal Inbox: selection, AI panel, all 6 sections, Draft on demand, Archive/Delete.
-- Bulk Inbox: AI Auto-Sort, batch classification, DB write, 5s preview, Pending Delete, 7-day grace, remote deletion, sort animation, per-message Summarize/Draft/Retry.
+- Bulk Inbox: AI Auto-Sort, batch classification, DB write, immediate recommended moves, Pending Delete, 7-day grace, remote deletion, per-message Summarize/Draft/Retry.
 - IPC bridge: all handlers registered and exposed.
-- Scheduler: `startPendingDeletePreviewScheduler` runs every 1s when previews exist.
+- ~~Scheduler: `startPendingDeletePreviewScheduler`~~ removed; no bulk 5s preview tick.
 
 ### 🟡 FIXABLE
 

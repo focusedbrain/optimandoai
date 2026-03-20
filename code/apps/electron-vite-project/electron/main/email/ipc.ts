@@ -732,6 +732,64 @@ export function registerEmailHandlers(): void {
 /** Optional: retrieve Anthropic API key for Vision fallback when extraction fails. */
 export type GetAnthropicApiKey = () => Promise<string | null>
 
+/** Options shared by inbox:listMessages and inbox:listMessageIds (WHERE clause only). */
+type InboxListFilterOptions = {
+  filter?: string
+  sourceType?: string
+  handshakeId?: string
+  category?: string
+  search?: string
+}
+
+/**
+ * Build WHERE + bind params for inbox message lists. Must stay aligned across list handlers.
+ */
+function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { where: string; params: unknown[] } {
+  const { filter, sourceType, handshakeId, category, search } = options
+  const conditions: string[] = []
+  const params: unknown[] = []
+
+  if (filter === 'deleted') conditions.push('deleted = 1')
+  else if (filter === 'pending_delete') {
+    conditions.push('deleted = 0', 'pending_delete = 1')
+  } else if (filter === 'pending_review') {
+    conditions.push('deleted = 0', 'archived = 0', 'sort_category = ?')
+    params.push('pending_review')
+  } else if (filter === 'unread') {
+    conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+    params.push('pending_review')
+  } else if (filter === 'starred') {
+    conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+    params.push('pending_review')
+  } else if (filter === 'archived') {
+    conditions.push('archived = 1', 'deleted = 0')
+  } else {
+    /* all: main inbox — exclude archived, deleted, pending_delete, pending_review */
+    conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
+    params.push('pending_review')
+  }
+  if (sourceType) {
+    conditions.push('source_type = ?')
+    params.push(sourceType)
+  }
+  if (handshakeId) {
+    conditions.push('handshake_id = ?')
+    params.push(handshakeId)
+  }
+  if (category) {
+    conditions.push('sort_category = ?')
+    params.push(category)
+  }
+  if (search && search.trim()) {
+    const q = `%${search.trim()}%`
+    conditions.push('(subject LIKE ? OR body_text LIKE ? OR from_address LIKE ? OR from_name LIKE ?)')
+    params.push(q, q, q, q)
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  return { where, params }
+}
+
 /**
  * Register inbox IPC handlers.
  * Requires db (or getter) and optional mainWindow for sending events.
@@ -745,7 +803,7 @@ export function registerInboxHandlers(
 ): void {
   const channels = [
     'inbox:syncAccount', 'inbox:toggleAutoSync', 'inbox:getSyncState',
-    'inbox:listMessages', 'inbox:getMessage',
+    'inbox:listMessages', 'inbox:listMessageIds', 'inbox:getMessage',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
@@ -848,67 +906,22 @@ export function registerInboxHandlers(
   })
 
   // ── Messages ──
-  ipcMain.handle('inbox:listMessages', async (_e, options: {
-    filter?: string
-    sourceType?: string
-    handshakeId?: string
-    category?: string
+  ipcMain.handle('inbox:listMessages', async (_e, options: InboxListFilterOptions & {
     limit?: number
     offset?: number
-    search?: string
   } = {}) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const { filter, sourceType, handshakeId, category, limit = 50, offset = 0, search } = options ?? {}
-      const conditions: string[] = []
-      const params: any[] = []
-
-      if (filter === 'deleted') conditions.push('deleted = 1')
-      else if (filter === 'pending_delete') {
-        conditions.push('deleted = 0', 'pending_delete = 1')
-      } else if (filter === 'pending_review') {
-        conditions.push('deleted = 0', 'archived = 0', 'sort_category = ?')
-        params.push('pending_review')
-      } else if (filter === 'unread') {
-        conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-        params.push('pending_review')
-      } else if (filter === 'starred') {
-        conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-        params.push('pending_review')
-      } else if (filter === 'archived') {
-        conditions.push('archived = 1', 'deleted = 0')
-      } else {
-        /* all: main inbox — exclude archived, deleted, pending_delete, pending_review */
-        conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-        params.push('pending_review')
-      }
-      if (sourceType) {
-        conditions.push('source_type = ?')
-        params.push(sourceType)
-      }
-      if (handshakeId) {
-        conditions.push('handshake_id = ?')
-        params.push(handshakeId)
-      }
-      if (category) {
-        conditions.push('sort_category = ?')
-        params.push(category)
-      }
-      if (search && search.trim()) {
-        const q = `%${search.trim()}%`
-        conditions.push('(subject LIKE ? OR body_text LIKE ? OR from_address LIKE ? OR from_name LIKE ?)')
-        params.push(q, q, q, q)
-      }
-
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+      const { limit = 50, offset = 0, ...filterOpts } = options ?? {}
+      const { where, params } = buildInboxMessagesWhereClause(filterOpts)
       const countRow = db.prepare(`SELECT COUNT(*) as total FROM inbox_messages ${where}`).get(...params) as { total: number }
       const total = countRow?.total ?? 0
 
-      params.push(limit, offset)
+      const qParams = [...params, limit, offset]
       const rows = db.prepare(
         `SELECT * FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
-      ).all(...params) as any[]
+      ).all(...qParams) as any[]
 
       for (const m of rows) {
         if (m.has_attachments === 1) {
@@ -922,6 +935,28 @@ export function registerInboxHandlers(
       return { ok: true, data: { messages: rows, total } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'List failed' }
+    }
+  })
+
+  /** IDs only — same filters as listMessages; for bulk selection / verification without full row payload. */
+  ipcMain.handle('inbox:listMessageIds', async (_e, options: InboxListFilterOptions & {
+    limit?: number
+    offset?: number
+  } = {}) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const { limit = 500, offset = 0, ...filterOpts } = options ?? {}
+      const { where, params } = buildInboxMessagesWhereClause(filterOpts)
+      const countRow = db.prepare(`SELECT COUNT(*) as total FROM inbox_messages ${where}`).get(...params) as { total: number }
+      const total = countRow?.total ?? 0
+      const qParams = [...params, limit, offset]
+      const idRows = db.prepare(
+        `SELECT id FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
+      ).all(...qParams) as { id: string }[]
+      return { ok: true, data: { ids: idRows.map((r) => r.id), total } }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'List ids failed' }
     }
   })
 

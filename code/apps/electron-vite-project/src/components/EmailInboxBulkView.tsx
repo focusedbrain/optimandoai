@@ -1,13 +1,13 @@
 /**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
- * Toolbar: Select all, bulk actions, pagination. Uses bulkPage + bulkBatchSize from store.
+ * Toolbar: Select all, bulk actions, pagination. Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   useEmailInboxStore,
-  deriveTabCountsWithPreview,
+  deriveTabCounts,
   type InboxMessage,
   type SubFocus,
 } from '../stores/useEmailInboxStore'
@@ -18,13 +18,40 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
-import type { AiOutputs, BulkAiResult, BulkAiResultEntry, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
+import type {
+  AiOutputs,
+  AutosortRetainKind,
+  BulkAiResult,
+  BulkAiResultEntry,
+  BulkRecommendedAction,
+  SortCategory,
+} from '../types/inboxAi'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
+
+/**
+ * Urgency cutoff (1–10): at or above this score, bulk Auto-Sort does not auto-move mail.
+ * Kept in sync with “Time-sensitive” in getUrgencyBadgeText.
+ */
+const BULK_AUTO_SORT_URGENCY_THRESHOLD = 7
+
+/** Mark a classified row as intentionally left in the inbox after Auto-Sort (not a failure). */
+function withAutosortRetained(
+  entry: BulkAiResult,
+  kind: AutosortRetainKind,
+  explanation: string
+): BulkAiResultEntry {
+  return {
+    ...entry,
+    autosortOutcome: 'retained',
+    autosortRetainKind: kind,
+    autosortRetainExplanation: explanation,
+  }
+}
 
 function formatDate(isoString: string | null): string {
   if (!isoString) return '—'
@@ -125,48 +152,7 @@ function parsePersistedAnalysis(json: string | null | undefined, msg?: InboxMess
   }
 }
 
-const GRACE_SECONDS = 5
-
-/** Live countdown for pending-delete preview. Subscribes only to countdownTick to limit rerenders. */
-function PendingDeleteCountdown({ expiresAt }: { expiresAt: string | undefined }) {
-  useEmailInboxStore((s) => s.countdownTick)
-  if (!expiresAt) return <span className="bulk-action-card-pending-countdown">Delete to move to Pending Delete</span>
-  try {
-    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
-    const text = remaining > 0 ? `Moving in ${remaining}s` : 'Moving now'
-    return <span className="bulk-action-card-pending-countdown">{text}</span>
-  } catch {
-    return <span className="bulk-action-card-pending-countdown">Moving in {GRACE_SECONDS}s</span>
-  }
-}
-
-/** Live countdown for pending review preview. */
-function PendingReviewCountdown({ expiresAt }: { expiresAt: string | undefined }) {
-  useEmailInboxStore((s) => s.countdownTick)
-  if (!expiresAt) return <span className="bulk-action-card-review-countdown">Moving in {GRACE_SECONDS}s</span>
-  try {
-    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
-    const text = remaining > 0 ? `Moving in ${remaining}s` : 'Moving now'
-    return <span className="bulk-action-card-review-countdown">{text}</span>
-  } catch {
-    return <span className="bulk-action-card-review-countdown">Moving in {GRACE_SECONDS}s</span>
-  }
-}
-
-/** Live countdown for archive preview. */
-function ArchiveCountdown({ expiresAt }: { expiresAt: string | undefined }) {
-  useEmailInboxStore((s) => s.countdownTick)
-  if (!expiresAt) return <span className="bulk-action-card-archive-countdown">Archiving in {GRACE_SECONDS}s</span>
-  try {
-    const remaining = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000))
-    const text = remaining > 0 ? `Archiving in ${remaining}s` : 'Archiving now'
-    return <span className="bulk-action-card-archive-countdown">{text}</span>
-  } catch {
-    return <span className="bulk-action-card-archive-countdown">Archiving in {GRACE_SECONDS}s</span>
-  }
-}
-
-/** Wraps Undo content with 10s fade-out: starts fading at 8s, gone at 10s. */
+/** Fade-out wrapper for the per-row Pending Delete “Undo” chip (UX polish, not the old bulk banner). */
 function UndoFadeWrapper({
   children,
   onFadeComplete,
@@ -417,9 +403,6 @@ function BulkActionCardStructured({
   handleMoveToPendingReviewOne,
   handleSummarize,
   handleDraftReply,
-  handleKeepDuringPreview,
-  handleKeepDuringArchivePreview,
-  handleKeepDuringReviewPreview,
   handleUndoPendingDelete,
   handleUndoPendingReview,
   handleUndoArchived,
@@ -428,12 +411,6 @@ function BulkActionCardStructured({
   subFocus,
   setSubFocus,
   onSelectMessage,
-  keptDuringPreviewIds,
-  keptDuringArchivePreviewIds,
-  keptDuringReviewPreviewIds,
-  pendingDeletePreviewExpiries,
-  archivePreviewExpiries,
-  pendingReviewPreviewExpiries,
   draftAttachments = [],
   onAddDraftAttachment,
   onRemoveDraftAttachment,
@@ -450,9 +427,6 @@ function BulkActionCardStructured({
   handleMoveToPendingReviewOne: (msg: InboxMessage) => void
   handleSummarize: (messageId: string) => void
   handleDraftReply: (messageId: string) => void
-  handleKeepDuringPreview: (messageId: string) => void
-  handleKeepDuringArchivePreview: (messageId: string) => void
-  handleKeepDuringReviewPreview: (messageId: string) => void
   handleUndoPendingDelete: (ids: string[]) => void
   handleUndoPendingReview: (messageId: string) => void
   handleUndoArchived: (messageId: string) => void
@@ -461,12 +435,6 @@ function BulkActionCardStructured({
   subFocus: SubFocus
   setSubFocus: (focus: SubFocus) => void
   onSelectMessage?: (messageId: string | null) => void
-  keptDuringPreviewIds: Set<string>
-  keptDuringArchivePreviewIds: Set<string>
-  keptDuringReviewPreviewIds: Set<string>
-  pendingDeletePreviewExpiries: Record<string, string | undefined>
-  archivePreviewExpiries: Record<string, string | undefined>
-  pendingReviewPreviewExpiries: Record<string, string | undefined>
   draftAttachments?: Array<{ name: string; path: string; size: number }>
   onAddDraftAttachment?: () => void
   onRemoveDraftAttachment?: (index: number) => void
@@ -562,18 +530,24 @@ function BulkActionCardStructured({
   const needsReplyReason = output.needsReplyReason ?? output.reason ?? ''
   const urgencyReason = output.urgencyReason ?? output.reason ?? ''
   const panelMod = `bulk-action-card-panel--${rec}`
-  const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
-  const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
-  const inReviewGrace = rec === 'pending_review' && !keptDuringReviewPreviewIds.has(msg.id) && !!pendingReviewPreviewExpiries[msg.id]
-  const preActionMod = inPendingDeleteGrace ? 'bulk-action-card--pre-action-pending' : inArchiveGrace ? 'bulk-action-card--pre-action-archive' : inReviewGrace ? 'bulk-action-card--pre-action-review' : ''
-  const effectiveBorderColor = inPendingDeleteGrace ? '#dc2626' : inArchiveGrace ? '#2563eb' : inReviewGrace ? '#f59e0b' : borderColor
+  const effectiveBorderColor = borderColor
   const isConnected = draftRefineConnected && draftRefineMessageId === msg.id
 
   return (
     <div
-      className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''} ${preActionMod}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
+      className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
       style={{ borderLeftColor: effectiveBorderColor }}
     >
+      {output.autosortOutcome === 'retained' && output.autosortRetainExplanation ? (
+        <div
+          className="bulk-action-card-autosort-retained"
+          role="status"
+          aria-label="Auto-Sort kept this message in the inbox"
+        >
+          <span className="bulk-action-card-autosort-retained-label">Kept in inbox</span>
+          <span className="bulk-action-card-autosort-retained-text">{output.autosortRetainExplanation}</span>
+        </div>
+      ) : null}
       {!hideAnalysisChrome ? (
       <div className="bulk-action-card-header">
         {(() => {
@@ -1046,41 +1020,6 @@ function BulkActionCardStructured({
           </div>
         )}
       </div>
-      {rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id) && (
-        <div className="bulk-action-card-pending-preview">
-          <span className="bulk-action-card-pending-badge">PENDING DELETE</span>
-          <span className="bulk-action-card-next-state">
-            Will move to Pending Delete — <PendingDeleteCountdown expiresAt={pendingDeletePreviewExpiries[msg.id]} />
-          </span>
-          {pendingDeletePreviewExpiries[msg.id] && (
-            <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringPreview(msg.id)} title="Cancel auto-action">
-              Keep
-            </button>
-          )}
-        </div>
-      )}
-      {rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && archivePreviewExpiries[msg.id] && (
-        <div className="bulk-action-card-archive-preview">
-          <span className="bulk-action-card-archive-badge">ARCHIVING</span>
-          <span className="bulk-action-card-next-state">
-            Will archive — <ArchiveCountdown expiresAt={archivePreviewExpiries[msg.id]} />
-          </span>
-          <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringArchivePreview(msg.id)} title="Cancel auto-action">
-            Keep
-          </button>
-        </div>
-      )}
-      {rec === 'pending_review' && !keptDuringReviewPreviewIds.has(msg.id) && pendingReviewPreviewExpiries[msg.id] && (
-        <div className="bulk-action-card-review-preview">
-          <span className="bulk-action-card-review-badge">REVIEW</span>
-          <span className="bulk-action-card-next-state">
-            Will move to Pending Review — <PendingReviewCountdown expiresAt={pendingReviewPreviewExpiries[msg.id]} />
-          </span>
-          <button type="button" className="bulk-action-card-keep-btn" onClick={() => handleKeepDuringReviewPreview(msg.id)} title="Cancel auto-action">
-            Keep
-          </button>
-        </div>
-      )}
       {!(output.draftReply != null && output.draftReply !== '') && (
       <div className="bulk-action-card-buttons">
         {showUndo && (
@@ -1153,7 +1092,7 @@ function getUrgencyBadgeText(reason: string | null | undefined, needsReply: bool
     )
   if (promoOrFyi) return 'FYI'
   if (urgencyScore <= 3 && !needsReply) return 'Low priority'
-  if (urgencyScore >= 7) return 'Time-sensitive'
+  if (urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD) return 'Time-sensitive'
   if (urgencyScore >= 4) return 'Review suggested'
   return 'FYI'
 }
@@ -1215,6 +1154,7 @@ export default function EmailInboxBulkView({
     allMessages,
     fetchMessages,
     fetchAllMessages,
+    selectAllMatchingCurrentFilter,
     refreshMessages,
     setBulkMode,
     setBulkPage,
@@ -1223,23 +1163,8 @@ export default function EmailInboxBulkView({
     syncBulkBatchSizeFromSettings,
     setBulkAiOutputs,
     clearBulkAiOutputsForIds,
-    pendingDeletePreviewExpiries,
-    archivePreviewExpiries,
-    pendingReviewPreviewExpiries,
-    keptDuringPreviewIds,
-    keptDuringArchivePreviewIds,
-    keptDuringReviewPreviewIds,
-    pendingDeleteToast,
     bulkSessionArchived,
       bulkSessionPendingDelete,
-    addPendingDeletePreview,
-    addArchivePreview,
-    addPendingReviewPreview,
-    keepDuringPreview,
-    keepDuringArchivePreview,
-    keepDuringReviewPreview,
-    setPendingDeleteToast,
-      removeRecentPendingDeleteBatch,
       decrementBulkSessionPendingDelete,
       clearPendingDeleteStateForIds,
     setFilter,
@@ -1251,6 +1176,7 @@ export default function EmailInboxBulkView({
     archiveMessages,
     deleteMessages,
     markPendingDeleteImmediate,
+    moveToPendingReviewImmediate,
     setCategory,
     autoSyncEnabled,
     syncing,
@@ -1261,6 +1187,7 @@ export default function EmailInboxBulkView({
     setEditingDraftForMessageId,
     subFocus,
     setSubFocus,
+    isSortingActive,
   } = useEmailInboxStore(
     useShallow((s) => ({
       messages: s.messages,
@@ -1278,6 +1205,7 @@ export default function EmailInboxBulkView({
       allMessages: s.allMessages,
       fetchMessages: s.fetchMessages,
       fetchAllMessages: s.fetchAllMessages,
+      selectAllMatchingCurrentFilter: s.selectAllMatchingCurrentFilter,
       refreshMessages: s.refreshMessages,
       setBulkMode: s.setBulkMode,
       setBulkPage: s.setBulkPage,
@@ -1286,23 +1214,8 @@ export default function EmailInboxBulkView({
       syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
       setBulkAiOutputs: s.setBulkAiOutputs,
       clearBulkAiOutputsForIds: s.clearBulkAiOutputsForIds,
-      pendingDeletePreviewExpiries: s.pendingDeletePreviewExpiries,
-      archivePreviewExpiries: s.archivePreviewExpiries,
-      pendingReviewPreviewExpiries: s.pendingReviewPreviewExpiries,
-      keptDuringPreviewIds: s.keptDuringPreviewIds,
-      keptDuringArchivePreviewIds: s.keptDuringArchivePreviewIds,
-      keptDuringReviewPreviewIds: s.keptDuringReviewPreviewIds,
-      pendingDeleteToast: s.pendingDeleteToast,
       bulkSessionArchived: s.bulkSessionArchived,
       bulkSessionPendingDelete: s.bulkSessionPendingDelete,
-      addPendingDeletePreview: s.addPendingDeletePreview,
-      addArchivePreview: s.addArchivePreview,
-      addPendingReviewPreview: s.addPendingReviewPreview,
-      keepDuringPreview: s.keepDuringPreview,
-      keepDuringArchivePreview: s.keepDuringArchivePreview,
-      keepDuringReviewPreview: s.keepDuringReviewPreview,
-      setPendingDeleteToast: s.setPendingDeleteToast,
-      removeRecentPendingDeleteBatch: s.removeRecentPendingDeleteBatch,
       decrementBulkSessionPendingDelete: s.decrementBulkSessionPendingDelete,
       clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
       setFilter: s.setFilter,
@@ -1314,6 +1227,7 @@ export default function EmailInboxBulkView({
       archiveMessages: s.archiveMessages,
       deleteMessages: s.deleteMessages,
       markPendingDeleteImmediate: s.markPendingDeleteImmediate,
+      moveToPendingReviewImmediate: s.moveToPendingReviewImmediate,
       setCategory: s.setCategory,
       autoSyncEnabled: s.autoSyncEnabled,
       syncing: s.syncing,
@@ -1324,33 +1238,14 @@ export default function EmailInboxBulkView({
       setEditingDraftForMessageId: s.setEditingDraftForMessageId,
       subFocus: s.subFocus,
       setSubFocus: s.setSubFocus,
+      isSortingActive: s.isSortingActive,
     }))
   )
 
   const primaryAccountId = accounts[0]?.id
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
-  /** Derive tab counts from allMessages + preview state. useMemo prevents new object every render → infinite loop. */
-  const tabCounts = useMemo(
-    () =>
-      deriveTabCountsWithPreview(allMessages, {
-        pendingDeletePreviewExpiries,
-        archivePreviewExpiries,
-        pendingReviewPreviewExpiries,
-        keptDuringPreviewIds,
-        keptDuringArchivePreviewIds,
-        keptDuringReviewPreviewIds,
-      }),
-    [
-      allMessages,
-      pendingDeletePreviewExpiries,
-      archivePreviewExpiries,
-      pendingReviewPreviewExpiries,
-      keptDuringPreviewIds,
-      keptDuringArchivePreviewIds,
-      keptDuringReviewPreviewIds,
-    ]
-  )
+  const tabCounts = useMemo(() => deriveTabCounts(allMessages), [allMessages])
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
@@ -1381,8 +1276,11 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
-  const [aiSortPhase, setAiSortPhase] = useState<'idle' | 'analyzing' | 'reordered'>('idle')
-  const [sortFailureToast, setSortFailureToast] = useState<string | null>(null)
+  const [aiSortPhase, setAiSortPhase] = useState<'idle' | 'analyzing'>('idle')
+  /** One-line summary after a bulk Auto-Sort run (moved / kept / failed counts). */
+  const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
+  /** Shown when user triggers Auto-Sort while a run is already active. */
+  const [concurrentSortNotice, setConcurrentSortNotice] = useState<string | null>(null)
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
@@ -1404,6 +1302,7 @@ export default function EmailInboxBulkView({
   const [removingItems, setRemovingItems] = useState<Map<string, { message: InboxMessage; index: number }>>(new Map())
   const prevMessagesRef = useRef<InboxMessage[]>([])
   const prevFilterRef = useRef<string>(filter.filter)
+  /** True while a bulk sort is in flight — synchronous guard before any await (store isSortingActive lags one frame). */
   const isSortingRef = useRef(false)
   const autoSortedIdsRef = useRef<Set<string>>(new Set())
 
@@ -1451,14 +1350,30 @@ export default function EmailInboxBulkView({
   const someInBatchSelected = batchMessages.some((m) => multiSelectIds.has(m.id))
 
   const handleBatchCheckboxToggle = useCallback(() => {
-    if (allInBatchSelected || someInBatchSelected) {
-      clearMultiSelect()
-    } else {
-      batchMessages.forEach((m) => {
-        if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
-      })
-    }
-  }, [allInBatchSelected, someInBatchSelected, batchMessages, multiSelectIds, clearMultiSelect, toggleMultiSelect])
+    void (async () => {
+      if (bulkBatchSize === 'all') {
+        if (allInBatchSelected || someInBatchSelected) clearMultiSelect()
+        else await selectAllMatchingCurrentFilter()
+        return
+      }
+      if (allInBatchSelected || someInBatchSelected) {
+        clearMultiSelect()
+      } else {
+        batchMessages.forEach((m) => {
+          if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
+        })
+      }
+    })()
+  }, [
+    bulkBatchSize,
+    allInBatchSelected,
+    someInBatchSelected,
+    batchMessages,
+    multiSelectIds,
+    clearMultiSelect,
+    toggleMultiSelect,
+    selectAllMatchingCurrentFilter,
+  ])
 
   const batchCheckboxRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => {
@@ -1522,15 +1437,20 @@ export default function EmailInboxBulkView({
     }
   }, [fetchAllMessages, fetchMessages, bulkPage])
 
-  /** When user selects "All" from dropdown, select all messages once they load. */
+  /** When user selects batch size “All”, select every ID for the active tab (DB drain), not just the rendered slice. */
   useEffect(() => {
-    if (shouldSelectAllWhenReady && messages.length > 0) {
+    if (!shouldSelectAllWhenReady) return
+    if (bulkBatchSize === 'all') {
+      void selectAllMatchingCurrentFilter().finally(() => setShouldSelectAllWhenReady(false))
+      return
+    }
+    if (messages.length > 0) {
       messages.forEach((m) => {
         if (!multiSelectIds.has(m.id)) toggleMultiSelect(m.id)
       })
       setShouldSelectAllWhenReady(false)
     }
-  }, [shouldSelectAllWhenReady, messages, multiSelectIds, toggleMultiSelect])
+  }, [shouldSelectAllWhenReady, bulkBatchSize, messages, multiSelectIds, selectAllMatchingCurrentFilter, toggleMultiSelect])
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1546,13 +1466,10 @@ export default function EmailInboxBulkView({
 
   const handleBulkMoveToPendingReview = useCallback(async () => {
     const ids = Array.from(multiSelectIds)
-    if (!ids.length || !window.emailInbox?.moveToPendingReview) return
-    const res = await window.emailInbox.moveToPendingReview(ids)
-    if (res.ok) {
-      clearMultiSelect()
-      await refreshMessages()
-    }
-  }, [multiSelectIds, clearMultiSelect, refreshMessages])
+    if (!ids.length) return
+    const ok = await moveToPendingReviewImmediate(ids)
+    if (ok) clearMultiSelect()
+  }, [multiSelectIds, clearMultiSelect, moveToPendingReviewImmediate])
 
   const handleBulkCategorize = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1565,8 +1482,6 @@ export default function EmailInboxBulkView({
     }
   }, [multiSelectIds, setCategory, clearMultiSelect])
 
-  const URGENCY_THRESHOLD = 7
-
   /**
    * Run AI categorize for given ids. Per-message calls with progressive UI updates.
    * POLICY (FIX-C4): AI Auto-Sort must ONLY run on explicit user click.
@@ -1574,10 +1489,24 @@ export default function EmailInboxBulkView({
    * - Valid callers: handleAiAutoSort (toolbar button), Retry Auto-Sort (per-message button).
    */
   const runAiCategorizeForIds = useCallback(
-    async (ids: string[], clearSelection: boolean, isRetry = false): Promise<{ processedIds: string[]; failedIds: string[] }> => {
-      if (isSortingRef.current && !isRetry) return { processedIds: [], failedIds: ids }
-      if (!ids.length || !window.emailInbox?.aiClassifySingle) return { processedIds: [], failedIds: [] }
-      isSortingRef.current = true
+    async (
+      ids: string[],
+      clearSelection: boolean,
+      isRetry = false,
+      opts?: { manageConcurrencyLock?: boolean }
+    ): Promise<{ processedIds: string[]; failedIds: string[]; movedIds: string[]; missedIds: string[] }> => {
+      const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
+      if (manageConcurrencyLock) {
+        isSortingRef.current = true
+      }
+      if (!ids.length || !window.emailInbox?.aiClassifySingle) {
+        if (manageConcurrencyLock) {
+          isSortingRef.current = false
+          useEmailInboxStore.getState().setSortingActive(false)
+          setAiSortProgress(null)
+        }
+        return { processedIds: [], failedIds: [], movedIds: [], missedIds: [] }
+      }
       useEmailInboxStore.getState().setSortingActive(true)
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
       setAiSortPhase('analyzing')
@@ -1586,6 +1515,7 @@ export default function EmailInboxBulkView({
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
       const failedIds: string[] = []
+      const movedIds: string[] = []
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
           const batch = ids.slice(i, i + CONCURRENCY)
@@ -1595,13 +1525,24 @@ export default function EmailInboxBulkView({
               if (result.error) {
                 failedIds.push(messageId)
                 console.warn('[SORT] Failed to analyze message:', messageId, result.error)
-                const failureReason = (result.error === 'timeout' ? 'timeout' : 'llm_error') as 'timeout' | 'llm_error'
+                const failureReason =
+                  result.error === 'timeout'
+                    ? ('timeout' as const)
+                    : result.error === 'parse_failed'
+                      ? ('parse_failed' as const)
+                      : ('llm_error' as const)
                 setBulkAiOutputs((prev) => ({
                   ...prev,
                   [messageId]: {
-                    summary: failureReason === 'timeout' ? 'Timed out.' : result.error === 'parse_failed' ? 'AI analysis returned no result for this message.' : 'Analysis failed.',
+                    summary:
+                      failureReason === 'timeout'
+                        ? 'Timed out.'
+                        : failureReason === 'parse_failed'
+                          ? 'AI returned a result that could not be read.'
+                          : 'Analysis failed.',
                     autosortFailure: true,
                     failureReason,
+                    autosortOutcome: 'failed',
                     status: 'classified',
                   },
                 }))
@@ -1629,23 +1570,127 @@ export default function EmailInboxBulkView({
               if (result.draftReply && (result.needsReply || recommendedAction === 'draft_reply_ready')) {
                 entry.draftReply = result.draftReply.slice(0, 4000)
               }
-              /** Urgent messages stay unsorted — never add previews. */
-              const isUrgent = entry.urgencyScore >= URGENCY_THRESHOLD
-              if (!isUrgent && result.pending_delete && recommendedAction === 'pending_delete') {
-                entry.pendingDeletePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
-                addPendingDeletePreview([messageId])
+              const isUrgent = entry.urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD
+              const inboxStore = useEmailInboxStore.getState()
+
+              if (isUrgent) {
+                processedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: withAutosortRetained(
+                    entry,
+                    'urgent_threshold',
+                    `Urgency score ${entry.urgencyScore} ≥ ${BULK_AUTO_SORT_URGENCY_THRESHOLD} — high-priority mail is not auto-moved. Use the actions below if needed.`
+                  ),
+                }))
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                return
               }
-              if (!isUrgent && result.pending_review && recommendedAction === 'pending_review') {
-                entry.pendingReviewPreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
-                addPendingReviewPreview([messageId])
+
+              if (result.pending_delete && recommendedAction === 'pending_delete') {
+                const moved = await inboxStore.markPendingDeleteImmediate([messageId])
+                if (moved) {
+                  processedIds.push(messageId)
+                  movedIds.push(messageId)
+                  inboxStore.removeBulkDraftManualCompose(messageId)
+                  return
+                }
+                failedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    ...entry,
+                    summary: 'Could not move to Pending Delete (server error). Retry or use the button below.',
+                    autosortFailure: true,
+                    failureReason: 'move_failed',
+                    autosortOutcome: 'failed',
+                    status: 'classified',
+                  },
+                }))
+                return
               }
-              if (!isUrgent && recommendedAction === 'archive') {
-                entry.archivePreviewUntil = new Date(Date.now() + GRACE_SECONDS * 1000).toISOString()
-                addArchivePreview([messageId])
+              if (result.pending_review && recommendedAction === 'pending_review') {
+                const moved = await inboxStore.moveToPendingReviewImmediate([messageId])
+                if (moved) {
+                  processedIds.push(messageId)
+                  movedIds.push(messageId)
+                  inboxStore.removeBulkDraftManualCompose(messageId)
+                  return
+                }
+                failedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    ...entry,
+                    summary: 'Could not move to Pending Review (server error). Retry or use the button below.',
+                    autosortFailure: true,
+                    failureReason: 'move_failed',
+                    autosortOutcome: 'failed',
+                    status: 'classified',
+                  },
+                }))
+                return
               }
+              if (recommendedAction === 'archive') {
+                const moved = await inboxStore.archiveMessages([messageId])
+                if (moved) {
+                  processedIds.push(messageId)
+                  movedIds.push(messageId)
+                  inboxStore.removeBulkDraftManualCompose(messageId)
+                  return
+                }
+                failedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    ...entry,
+                    summary: 'Could not archive (server error). Retry or use Archive below.',
+                    autosortFailure: true,
+                    failureReason: 'move_failed',
+                    autosortOutcome: 'failed',
+                    status: 'classified',
+                  },
+                }))
+                return
+              }
+
               processedIds.push(messageId)
-              setBulkAiOutputs((prev) => ({ ...prev, [messageId]: entry }))
-              useEmailInboxStore.getState().removeBulkDraftManualCompose(messageId)
+              let retained: BulkAiResultEntry
+              if (recommendedAction === 'keep_for_manual_action') {
+                retained = withAutosortRetained(
+                  entry,
+                  'keep_for_manual_action',
+                  'AI recommends manual handling — not auto-archived, deleted, or moved.'
+                )
+              } else if (recommendedAction === 'draft_reply_ready') {
+                retained = withAutosortRetained(
+                  entry,
+                  'draft_reply_ready',
+                  entry.draftReply?.trim()
+                    ? 'Draft suggested — review or send below; replies are never auto-sent.'
+                    : 'Classified as reply-ready — no draft text returned; not auto-moved.'
+                )
+              } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
+                retained = withAutosortRetained(
+                  entry,
+                  'classified_no_auto_move',
+                  'Model suggested Pending Delete but the soft-delete flag was off — left in inbox. Use Pending Delete if you agree.'
+                )
+              } else if (recommendedAction === 'pending_review' && !result.pending_review) {
+                retained = withAutosortRetained(
+                  entry,
+                  'classified_no_auto_move',
+                  'Model suggested Pending Review but the flag was off — left in inbox. Use Pending Review if you agree.'
+                )
+              } else {
+                retained = withAutosortRetained(
+                  entry,
+                  'classified_no_auto_move',
+                  'Classified; no automatic move applies for this recommendation.'
+                )
+              }
+              setBulkAiOutputs((prev) => ({ ...prev, [messageId]: retained }))
+              inboxStore.removeBulkDraftManualCompose(messageId)
             })
           )
         }
@@ -1654,64 +1699,114 @@ export default function EmailInboxBulkView({
         console.log('[SORT] First pass. Processed:', processedIds.length, 'Failed:', failedIds.length, 'Missed:', missedIds.length, 'To retry:', toRetry.length)
         let allProcessedIds = [...processedIds]
         let allFailedIds = [...failedIds]
+        let allMovedIds = [...movedIds]
         if (toRetry.length === 0) {
           console.log('[SORT] All messages sorted successfully')
         } else if (!isRetry) {
           if (missedIds.length > 0) console.warn('[SORT] Missed IDs:', missedIds)
-          const retryResult = await runAiCategorizeForIds(toRetry, false, true)
-          allProcessedIds = [...processedIds, ...retryResult.processedIds]
-          allFailedIds = retryResult.failedIds
+          const retryResult = await runAiCategorizeForIds(toRetry, false, true, { manageConcurrencyLock: false })
+          allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
+          allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
+          allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
           console.log('[SORT] Retry. Processed:', retryResult.processedIds.length, 'Failed:', retryResult.failedIds.length)
         }
-        const finalUnsortedIds = ids.filter((id) => !allProcessedIds.includes(id))
-        console.log('[SORT] Final. All processed:', allProcessedIds.length, 'Final unsorted:', finalUnsortedIds.length, finalUnsortedIds)
-        if (finalUnsortedIds.length > 0 && !isRetry) {
-          setSortFailureToast(`${finalUnsortedIds.length} message${finalUnsortedIds.length !== 1 ? 's' : ''} could not be auto-sorted`)
-          setTimeout(() => setSortFailureToast(null), 4000)
-        }
+        const finalMissed = ids.filter((id) => !allProcessedIds.includes(id) && !allFailedIds.includes(id))
+        console.log('[SORT] Final.', {
+          targeted: ids.length,
+          moved: allMovedIds.length,
+          retained: allProcessedIds.filter((id) => !allMovedIds.includes(id)).length,
+          failed: allFailedIds.length,
+          missedAfterRetry: finalMissed.length,
+          movedIds: allMovedIds,
+          failedIds: allFailedIds,
+          missedIds: finalMissed,
+        })
         if (clearSelection) clearMultiSelect()
         await refreshMessages()
-        setAiSortPhase('reordered')
-        setTimeout(() => setAiSortPhase('idle'), 380)
-        return { processedIds: allProcessedIds, failedIds: allFailedIds }
-      } catch {
+        setAiSortPhase('idle')
+        return {
+          processedIds: allProcessedIds,
+          failedIds: allFailedIds,
+          movedIds: allMovedIds,
+          missedIds: finalMissed,
+        }
+      } catch (e) {
+        console.error('[SORT] Bulk classify batch error', e)
         const failOutputs: AiOutputs = {}
         for (const id of ids) {
           failOutputs[id] = {
             summary: 'Analysis failed.',
             autosortFailure: true,
             failureReason: 'llm_error',
+            autosortOutcome: 'failed',
             status: 'classified',
           }
         }
         setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
         setAiSortPhase('idle')
-        return { processedIds: [], failedIds: ids }
+        return { processedIds: [], failedIds: ids, movedIds: [], missedIds: ids }
       } finally {
         ids.forEach((id) => autoSortedIdsRef.current.add(id))
         useEmailInboxStore.getState().triggerAnalysisRestart()
-        if (!isRetry) {
+        if (!isRetry && manageConcurrencyLock) {
           isSortingRef.current = false
           useEmailInboxStore.getState().setSortingActive(false)
           setAiSortProgress(null)
         }
       }
     },
-    [clearMultiSelect, refreshMessages, addPendingDeletePreview, addPendingReviewPreview, addArchivePreview, setSortFailureToast]
+    [clearMultiSelect, refreshMessages]
   )
 
-  /** AI Auto-Sort: ONLY runs on explicit user click. Button disabled when selectedCount === 0.
-   * Operates on message IDs only; drafts excluded (multiSelectIds contains only message IDs from checkbox).
-   * A. Freeze target set once — do not read mutating selection during run.
-   * Do NOT filter by allMessages; selected IDs must not be dropped due to stale/incomplete data. */
-  const handleAiAutoSort = useCallback(() => {
-    const targetIds = Array.from(new Set(multiSelectIds))
-      .filter((id): id is string => !!id && typeof id === 'string')
-    if (!targetIds.length) return
-    console.log('[SORT] Start. Selected:', multiSelectIds.size, 'Target:', targetIds.length, targetIds)
-    autoSortedIdsRef.current.clear()
-    runAiCategorizeForIds(targetIds, true)
-  }, [multiSelectIds, runAiCategorizeForIds])
+  /** AI Auto-Sort: ONLY runs on explicit user click.
+   * Batch size “All”: target set = every ID matching the current tab (fresh drain), not multiSelectIds.
+   * Page-limited batch sizes: target set = checkbox selection for the current page/slice only. */
+  const handleAiAutoSort = useCallback(async () => {
+    if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) {
+      setConcurrentSortNotice('Auto-Sort is already running. Wait for it to finish, then try again.')
+      window.setTimeout(() => setConcurrentSortNotice(null), 6000)
+      return
+    }
+    isSortingRef.current = true
+    useEmailInboxStore.getState().setSortingActive(true)
+    setAiSortProgress('Gathering messages…')
+    setConcurrentSortNotice(null)
+    setAiSortOutcomeSummary(null)
+    try {
+      let targetIds: string[]
+      if (bulkBatchSize === 'all') {
+        targetIds = await useEmailInboxStore.getState().fetchMatchingIdsForCurrentFilter()
+      } else {
+        targetIds = Array.from(new Set(multiSelectIds)).filter((id): id is string => !!id && typeof id === 'string')
+      }
+      if (!targetIds.length) {
+        setAiSortProgress(null)
+        return
+      }
+      setAiSortProgress(`Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`)
+      console.log('[SORT] Start. Batch:', bulkBatchSize, 'Target:', targetIds.length)
+      autoSortedIdsRef.current.clear()
+      const { processedIds, failedIds, movedIds, missedIds } = await runAiCategorizeForIds(targetIds, true, false, {
+        manageConcurrencyLock: false,
+      })
+      const retained = processedIds.filter((id) => !movedIds.includes(id)).length
+      const parts: string[] = [
+        `${movedIds.length} moved`,
+        `${retained} kept in inbox (see row banners)`,
+        `${failedIds.length} failed (see error cards)`,
+      ]
+      if (missedIds.length > 0) {
+        parts.push(`${missedIds.length} incomplete — run Auto-Sort again if needed`)
+      }
+      setAiSortOutcomeSummary(`Auto-Sort: ${parts.join(' · ')}`)
+      window.setTimeout(() => setAiSortOutcomeSummary(null), 12000)
+    } finally {
+      isSortingRef.current = false
+      useEmailInboxStore.getState().setSortingActive(false)
+      setAiSortProgress(null)
+      setAiSortPhase('idle')
+    }
+  }, [bulkBatchSize, multiSelectIds, runAiCategorizeForIds])
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -1719,13 +1814,11 @@ export default function EmailInboxBulkView({
       for (const id of ids) {
         await window.emailInbox.cancelPendingDelete(id)
       }
-      setPendingDeleteToast(null)
-      removeRecentPendingDeleteBatch(ids)
       decrementBulkSessionPendingDelete(ids.length)
       clearPendingDeleteStateForIds(ids)
       await refreshMessages()
     },
-    [refreshMessages, setPendingDeleteToast, removeRecentPendingDeleteBatch, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
+    [refreshMessages, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
   )
 
   const handleUndoPendingReview = useCallback(
@@ -1750,30 +1843,6 @@ export default function EmailInboxBulkView({
       }
     },
     [refreshMessages, clearBulkAiOutputsForIds]
-  )
-
-  /** Cancel the scheduled pending-delete move for one message during the 5s preview. */
-  const handleKeepDuringPreview = useCallback(
-    (messageId: string) => {
-      keepDuringPreview(messageId)
-    },
-    [keepDuringPreview]
-  )
-
-  /** Cancel the scheduled archive move for one message during the 5s preview. */
-  const handleKeepDuringArchivePreview = useCallback(
-    (messageId: string) => {
-      keepDuringArchivePreview(messageId)
-    },
-    [keepDuringArchivePreview]
-  )
-
-  /** Cancel the scheduled pending-review move for one message during the 5s preview. */
-  const handleKeepDuringReviewPreview = useCallback(
-    (messageId: string) => {
-      keepDuringReviewPreview(messageId)
-    },
-    [keepDuringReviewPreview]
   )
 
   const loadProviderAccounts = useCallback(async () => {
@@ -2096,18 +2165,10 @@ export default function EmailInboxBulkView({
     [markPendingDeleteImmediate]
   )
 
-  /** Move to Pending Review (14-day grace). Use when AI recommends pending_review or manual. */
-  const handleMoveToPendingReviewOne = useCallback(
-    async (msg: InboxMessage) => {
-      if (!window.emailInbox?.moveToPendingReview) return
-      const res = await window.emailInbox.moveToPendingReview([msg.id])
-      if (res.ok) {
-        useEmailInboxStore.getState().clearBulkAiOutputsForIds([msg.id])
-        await refreshMessages()
-      }
-    },
-    [refreshMessages]
-  )
+  /** Move to Pending Review (14-day grace in DB). Use when AI recommends pending_review or manual. */
+  const handleMoveToPendingReviewOne = useCallback(async (msg: InboxMessage) => {
+    await moveToPendingReviewImmediate([msg.id])
+  }, [moveToPendingReviewImmediate])
 
   /** Render structured Action Card when BulkAiResult exists; otherwise fallback. */
   const renderActionCard = useCallback(
@@ -2157,16 +2218,31 @@ export default function EmailInboxBulkView({
       }
 
       if (output?.autosortFailure) {
-        const isTimeout = output.failureReason === 'timeout'
+        const fr = output.failureReason
+        const isTimeout = fr === 'timeout'
+        const isMoveFailed = fr === 'move_failed'
+        const isParseFailed = fr === 'parse_failed'
+        const failTitle = isTimeout
+          ? 'Timed out'
+          : isMoveFailed
+            ? 'Could not move'
+            : isParseFailed
+              ? 'Could not parse AI result'
+              : 'Analysis failed'
+        const failDetail =
+          output.summary ||
+          (isTimeout
+            ? 'The model may be slow or unavailable.'
+            : isMoveFailed
+              ? 'The server could not apply the move. Retry or use the action buttons.'
+              : isParseFailed
+                ? 'The classifier returned an unreadable response.'
+                : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
             <div className="bulk-action-card-state-content bulk-action-card-failure-content">
-              <span className="bulk-action-card-state-label bulk-action-card-failure-label">
-                {isTimeout ? 'Timed out' : 'Analysis failed'}
-              </span>
-              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">
-                {output.summary || (isTimeout ? 'Ollama may be slow or unavailable.' : 'No result from AI for this message.')}
-              </span>
+              <span className="bulk-action-card-state-label bulk-action-card-failure-label">{failTitle}</span>
+              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{failDetail}</span>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -2236,9 +2312,6 @@ export default function EmailInboxBulkView({
             handleMoveToPendingReviewOne={handleMoveToPendingReviewOne}
             handleSummarize={handleSummarize}
             handleDraftReply={handleDraftReply}
-            handleKeepDuringPreview={handleKeepDuringPreview}
-            handleKeepDuringArchivePreview={handleKeepDuringArchivePreview}
-            handleKeepDuringReviewPreview={handleKeepDuringReviewPreview}
             handleUndoPendingDelete={handleUndoPendingDelete}
             handleUndoPendingReview={handleUndoPendingReview}
             handleUndoArchived={handleUndoArchived}
@@ -2247,12 +2320,6 @@ export default function EmailInboxBulkView({
   subFocus={subFocus}
   setSubFocus={setSubFocus}
   onSelectMessage={onSelectMessage}
-            keptDuringPreviewIds={keptDuringPreviewIds}
-            keptDuringArchivePreviewIds={keptDuringArchivePreviewIds}
-            keptDuringReviewPreviewIds={keptDuringReviewPreviewIds}
-            pendingDeletePreviewExpiries={pendingDeletePreviewExpiries}
-            archivePreviewExpiries={archivePreviewExpiries}
-            pendingReviewPreviewExpiries={pendingReviewPreviewExpiries}
           />
         )
       }
@@ -2393,9 +2460,6 @@ export default function EmailInboxBulkView({
       handleMoveToPendingReviewOne,
       handleSummarize,
       handleDraftReply,
-      handleKeepDuringPreview,
-      handleKeepDuringArchivePreview,
-      handleKeepDuringReviewPreview,
       handleUndoPendingDelete,
       handleUndoPendingReview,
       handleUndoArchived,
@@ -2405,12 +2469,6 @@ export default function EmailInboxBulkView({
       setSubFocus,
       onSelectMessage,
       runAiCategorizeForIds,
-      keptDuringPreviewIds,
-      keptDuringArchivePreviewIds,
-      keptDuringReviewPreviewIds,
-      pendingDeletePreviewExpiries,
-      archivePreviewExpiries,
-      pendingReviewPreviewExpiries,
       draftRefineConnect,
     ]
   )
@@ -2473,19 +2531,6 @@ export default function EmailInboxBulkView({
         ? sortedMessages.find((m) => m.id === focusedMessageId)
         : null
       const focusedOutput = focusedMsg ? bulkAiOutputs[focusedMsg.id] : undefined
-      const inPendingDeleteGrace =
-        focusedMsg &&
-        pendingDeletePreviewExpiries[focusedMsg.id] &&
-        !keptDuringPreviewIds.has(focusedMsg.id)
-      const inArchiveGrace =
-        focusedMsg &&
-        archivePreviewExpiries[focusedMsg.id] &&
-        !keptDuringArchivePreviewIds.has(focusedMsg.id)
-      const inReviewGrace =
-        focusedMsg &&
-        pendingReviewPreviewExpiries[focusedMsg.id] &&
-        !keptDuringReviewPreviewIds.has(focusedMsg.id)
-      const inGracePeriod = inPendingDeleteGrace || inArchiveGrace || inReviewGrace
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         if (!e.ctrlKey && !e.metaKey) {
@@ -2507,13 +2552,6 @@ export default function EmailInboxBulkView({
           e.preventDefault()
           toggleCardExpand(focusedMsg.id)
         }
-        return
-      }
-      if (e.key === 'g' && inGracePeriod && focusedMsg) {
-        e.preventDefault()
-        if (inPendingDeleteGrace) handleKeepDuringPreview(focusedMsg.id)
-        else if (inArchiveGrace) handleKeepDuringArchivePreview(focusedMsg.id)
-        else if (inReviewGrace) handleKeepDuringReviewPreview(focusedMsg.id)
         return
       }
       if (e.key === ' ' && !onActionablePanel && focusedMsg && focusedOutput?.recommendedAction) {
@@ -2552,19 +2590,10 @@ export default function EmailInboxBulkView({
     sortedMessages,
     focusedMessageId,
     bulkAiOutputs,
-    pendingDeletePreviewExpiries,
-    archivePreviewExpiries,
-    pendingReviewPreviewExpiries,
-    keptDuringPreviewIds,
-    keptDuringArchivePreviewIds,
-    keptDuringReviewPreviewIds,
     expandedCardIds,
     selectedCount,
     focusAdjacentRow,
     toggleCardExpand,
-    handleKeepDuringPreview,
-    handleKeepDuringArchivePreview,
-    handleKeepDuringReviewPreview,
     triggerPrimaryAction,
     handleBulkArchive,
     handleArchiveOne,
@@ -2584,7 +2613,15 @@ export default function EmailInboxBulkView({
             checked={allInBatchSelected}
             ref={batchCheckboxRef}
             onChange={handleBatchCheckboxToggle}
-            title={allInBatchSelected ? 'Deselect all' : someInBatchSelected ? 'Deselect all' : 'Select all in batch'}
+            title={
+              bulkBatchSize === 'all'
+                ? allInBatchSelected || someInBatchSelected
+                  ? 'Deselect all in this tab'
+                  : 'Select all messages in this tab (full list)'
+                : allInBatchSelected || someInBatchSelected
+                  ? 'Deselect all on this page'
+                  : 'Select all on this page'
+            }
           />
           <select
             value={bulkBatchSize}
@@ -2609,14 +2646,26 @@ export default function EmailInboxBulkView({
           <button
             type="button"
             className="bulk-view-ai-sort-btn ai-auto-sort-btn"
-            onClick={handleAiAutoSort}
-            disabled={selectedCount === 0}
-            title={selectedCount === 0 ? 'Select messages first, then click to run AI Auto-Sort' : 'AI Auto-Sort selected messages'}
+            onClick={() => void handleAiAutoSort()}
+            disabled={
+              isSortingActive || (bulkBatchSize === 'all' ? total === 0 : selectedCount === 0)
+            }
+            title={
+              isSortingActive
+                ? 'Auto-Sort is running…'
+                : bulkBatchSize === 'all'
+                  ? total === 0
+                    ? 'No messages in this tab'
+                    : `AI Auto-Sort all ${total} message(s) in this tab`
+                  : selectedCount === 0
+                    ? 'Select messages on this page, then run AI Auto-Sort'
+                    : 'AI Auto-Sort selected messages'
+            }
           >
             ⚡ AI Auto-Sort
           </button>
           <span className="bulk-view-selection-group-count selected-count">
-            {selectedCount} selected
+            {bulkBatchSize === 'all' ? `${total} in tab · ${selectedCount} selected` : `${selectedCount} selected`}
           </span>
         </div>
 
@@ -2727,16 +2776,24 @@ export default function EmailInboxBulkView({
 
       {/* Content */}
       <div className="bulk-view-content">
-        {loading ? (
-          <div className="bulk-view-empty-state">Loading…</div>
-        ) : error ? (
+        {error ? (
           <div className="bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}
           </div>
-        ) : messages.length === 0 ? (
+        ) : loading && displayMessages.length === 0 ? (
+          <div className="bulk-view-empty-state">Loading…</div>
+        ) : !loading && messages.length === 0 ? (
           <div className="bulk-view-empty-state">No messages in this batch.</div>
         ) : (
           <>
+            {loading && displayMessages.length > 0 ? (
+              <div
+                className="bulk-view-refresh-strip"
+                role="progressbar"
+                aria-label="Refreshing inbox"
+                aria-busy="true"
+              />
+            ) : null}
             {totalPages > 1 && (
               <div className="bulk-view-pagination-bar">
                 <span style={{ fontSize: 11, color: MUTED }}>
@@ -2809,34 +2866,38 @@ export default function EmailInboxBulkView({
                 </div>
               </div>
             )}
-            {sortFailureToast && (
+            {concurrentSortNotice && (
               <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
                 <div
                   className="bulk-view-toast-primary"
-                  style={{ background: 'rgba(239,68,68,0.15)', borderColor: '#ef4444' }}
+                  style={{ background: 'rgba(234,179,8,0.18)', borderColor: '#ca8a04' }}
+                  role="status"
                 >
-                  <span>{sortFailureToast}</span>
-                  <button type="button" onClick={() => setSortFailureToast(null)}>Dismiss</button>
+                  <span>{concurrentSortNotice}</span>
+                  <button type="button" onClick={() => setConcurrentSortNotice(null)}>Dismiss</button>
                 </div>
               </div>
             )}
-            {/* FIX-ISSUE-1: Single consolidated status only — no Undo buttons (prevent layout overflow during bulk sort) */}
-            {pendingDeleteToast && (
+            {aiSortOutcomeSummary && (
               <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
-                <UndoFadeWrapper onFadeComplete={() => setPendingDeleteToast(null)}>
-                  <div className="bulk-view-toast-primary bulk-view-toast-status-only">
-                    <span>
-                      {pendingDeleteToast.count} message{pendingDeleteToast.count !== 1 ? 's' : ''} moved to Pending Delete.
-                    </span>
-                  </div>
-                </UndoFadeWrapper>
+                <div
+                  className="bulk-view-toast-primary"
+                  style={{
+                    background: 'rgba(124,58,237,0.12)',
+                    borderColor: 'rgba(124,58,237,0.45)',
+                  }}
+                  role="status"
+                >
+                  <span>{aiSortOutcomeSummary}</span>
+                  <button type="button" onClick={() => setAiSortOutcomeSummary(null)}>Dismiss</button>
+                </div>
               </div>
             )}
           <div
-            className={`bulk-view-grid ${aiSortPhase === 'analyzing' ? 'bulk-view-grid--analyzing' : ''} ${aiSortPhase === 'reordered' ? 'bulk-view-grid--reordered' : ''}`}
-            title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, g keep (grace), Space primary action"
+            className={`bulk-view-grid ${aiSortPhase === 'analyzing' ? 'bulk-view-grid--analyzing' : ''}`}
+            title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, Space primary action"
           >
-            {displayMessages.map((msg, rowIndex) => {
+            {displayMessages.map((msg) => {
               const isRemoving = removingItems.has(msg.id)
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
@@ -2851,8 +2912,8 @@ export default function EmailInboxBulkView({
               /** When we have structured AI output, do not let stale DB sort_category=urgent override a reconciled low score (e.g. promotional). */
               const hasStructuredUrgency = typeof output?.urgencyScore === 'number'
               const isUrgent = hasStructuredUrgency
-                ? urgencyScore >= URGENCY_THRESHOLD && baseCategory === 'urgent'
-                : urgencyScore >= URGENCY_THRESHOLD || msg.sort_category === 'urgent'
+                ? urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD && baseCategory === 'urgent'
+                : urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD || msg.sort_category === 'urgent'
               const category = (isUrgent ? 'urgent' : baseCategory) as keyof typeof CATEGORY_BORDER
               /* FIX-H3: When message is unsorted (no sort state), show no color — reset after undo */
               const isUnsorted = !msg.sort_category && msg.pending_delete !== 1 && msg.archived !== 1
@@ -2865,12 +2926,8 @@ export default function EmailInboxBulkView({
                 <div
                   key={msg.id}
                   data-msg-id={msg.id}
-                  data-row-index={aiSortPhase === 'reordered' ? rowIndex : undefined}
-                  className={`bulk-view-row ${isRemoving ? 'bulk-view-row--removing' : ''} ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''} ${output?.draftReply ? 'bulk-view-row--has-draft' : ''} ${aiSortPhase === 'reordered' && !isRemoving ? 'bulk-view-row--reorder-enter' : ''}`}
+                  className={`bulk-view-row ${isRemoving ? 'bulk-view-row--removing' : ''} ${isMultiSelected ? 'bulk-view-row--multi' : ''} ${isFocused ? 'bulk-view-row--focused' : ''} ${isCardExpanded ? 'bulk-view-row--expanded' : ''} ${output?.draftReply ? 'bulk-view-row--has-draft' : ''}`}
                   onAnimationEnd={isRemoving ? () => setRemovingItems((prev) => { const next = new Map(prev); next.delete(msg.id); return next; }) : undefined}
-                  style={{
-                    ...(aiSortPhase === 'reordered' && !isRemoving ? { animationDelay: `${rowIndex * 18}ms` } : {}),
-                  }}
                 >
                   {/* Left: Message card — click toggles focus */}
                   <div

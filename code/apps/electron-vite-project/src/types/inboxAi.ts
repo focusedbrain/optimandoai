@@ -84,7 +84,7 @@ export interface BulkClassification {
   recommended_action?: string
   action_explanation?: string
   draft_reply?: string
-  /** True when category is spam or irrelevant — used to trigger markPendingDelete after grace period */
+  /** True when classifier recommends soft pending-delete (paired with recommended_action). */
   pending_delete: boolean
 }
 
@@ -109,13 +109,20 @@ export interface BulkAiResult {
   /** Prepared draft. Shown inline, editable before send. */
   draftReply?: string
   status: 'pending' | 'classified' | 'action_taken'
-  /** ISO timestamp: show "pending delete" preview until this time */
-  pendingDeletePreviewUntil?: string
-  /** ISO timestamp: show "archive" preview until this time */
-  archivePreviewUntil?: string
-  /** ISO timestamp: show "pending review" preview until this time */
-  pendingReviewPreviewUntil?: string
 }
+
+/** Bulk Auto-Sort terminal outcome for a message still shown in the list. */
+export type AutosortOutcomeKind = 'retained' | 'failed'
+
+/** Why Auto-Sort left the message in the current tab on purpose. */
+export type AutosortRetainKind =
+  | 'urgent_threshold'
+  | 'keep_for_manual_action'
+  | 'draft_reply_ready'
+  | 'classified_no_auto_move'
+
+/** When autosortFailure — includes move/parse paths, not only LLM. */
+export type AutosortFailureReason = 'timeout' | 'llm_error' | 'move_failed' | 'parse_failed'
 
 /** Per-message entry: full or partial result + optional loading state. */
 export type BulkAiResultEntry = Partial<BulkAiResult> & {
@@ -127,8 +134,13 @@ export type BulkAiResultEntry = Partial<BulkAiResult> & {
   draftError?: boolean
   /** True when Bulk AI Auto-Sort failed for this message — explicit failure, not empty */
   autosortFailure?: boolean
-  /** When autosortFailure: 'timeout' | 'llm_error' — distinguishes Timed out vs Analysis failed */
-  failureReason?: 'timeout' | 'llm_error'
+  /** When autosortFailure */
+  failureReason?: AutosortFailureReason
+  /** Set when message stayed in list after a sort run with explanation (not a silent “stuck” state). */
+  autosortOutcome?: AutosortOutcomeKind
+  autosortRetainKind?: AutosortRetainKind
+  /** Short user-visible line: why we did not auto-move. */
+  autosortRetainExplanation?: string
 }
 
 /** aiOutputs state: Record<messageId, BulkAiResultEntry> */
