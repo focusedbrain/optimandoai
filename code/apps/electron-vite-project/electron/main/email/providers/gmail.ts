@@ -77,9 +77,6 @@ export function saveOAuthConfig(clientId: string, clientSecret: string): void {
   }
 }
 
-const GMAIL_WRDESK_LABEL_PENDING_REVIEW = 'WRDesk/PendingReview'
-const GMAIL_WRDESK_LABEL_PENDING_DELETE = 'WRDesk/PendingDelete'
-
 export class GmailProvider extends BaseEmailProvider {
   readonly providerType = 'gmail' as const
   
@@ -294,10 +291,10 @@ export class GmailProvider extends BaseEmailProvider {
   }
 
   /**
-   * Gmail mapping:
+   * Gmail mapping (names from `resolveOrchestratorRemoteNames`; defaults match IMAP bucket labels):
    * - **archive** — remove `INBOX` (All Mail / archive semantics).
-   * - **pending_review** — user label `WRDesk/PendingReview`, remove INBOX + conflicting WRDesk label.
-   * - **pending_delete** — user label `WRDesk/PendingDelete`, strip INBOX + PendingReview label.
+   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting pending-delete label.
+   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + pending-review label.
    */
   async applyOrchestratorRemoteOperation(
     messageId: string,

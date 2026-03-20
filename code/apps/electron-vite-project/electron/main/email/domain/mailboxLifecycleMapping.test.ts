@@ -35,6 +35,13 @@ describe('resolveOrchestratorRemoteNames', () => {
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.archiveMailbox).toBe('Archive')
   })
 
+  it('Gmail + Outlook defaults match IMAP-style Pending Review / Pending Delete names', () => {
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel).toBe('Pending Review')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingDeleteLabel).toBe('Pending Delete')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingReviewFolder).toBe('Pending Review')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingDeleteFolder).toBe('Pending Delete')
+  })
+
   it('uses product defaults for Gmail labels and archive remove list', () => {
     const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'gmail' }))
     expect(r.gmail.pendingReviewLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel)

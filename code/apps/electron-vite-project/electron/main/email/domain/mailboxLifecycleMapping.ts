@@ -17,13 +17,15 @@ import type { OrchestratorRemoteOperation } from './orchestratorRemoteTypes'
  */
 export const DEFAULT_ORCHESTRATOR_REMOTE_NAMES = {
   gmail: {
-    pendingReviewLabel: 'WRDesk/PendingReview',
-    pendingDeleteLabel: 'WRDesk/PendingDelete',
+    /** Same workflow names as IMAP mailboxes — Gmail user labels (flat names). */
+    pendingReviewLabel: 'Pending Review',
+    pendingDeleteLabel: 'Pending Delete',
     archiveRemoveLabelIds: ['INBOX'] as readonly string[],
   },
   outlook: {
-    pendingReviewFolder: 'WR Desk — Pending Review',
-    pendingDeleteFolder: 'WR Desk — Pending Delete',
+    /** Child folders under Inbox — same display names as IMAP lifecycle mailboxes. */
+    pendingReviewFolder: 'Pending Review',
+    pendingDeleteFolder: 'Pending Delete',
   },
   imap: {
     archiveMailbox: 'Archive',

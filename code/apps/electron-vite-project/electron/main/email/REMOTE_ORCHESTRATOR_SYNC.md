@@ -7,6 +7,7 @@
 | **SQLite `inbox_messages`** | Source of truth for WR Desk UI (archived, `sort_category`, `pending_delete`, deletion queue, etc.). |
 | **`remote_orchestrator_mutation_queue`** | Outbox of **best-effort** remote mutations; idempotent per `(message_id, operation)`. |
 | **Email providers** (`applyOrchestratorRemoteOperation`) | Provider-specific mapping to Gmail labels, Graph folder moves, or IMAP `MOVE`. |
+| **`domain/remoteLifecycleAbstraction.ts`** | Shared lifecycle model: canonical bucket names, backend kind (`gmail_api_labels` / `microsoft_graph_mailfolder_move` / `imap_uid_move`), `resolveRemoteLifecycleSnapshot(account)`. |
 | **`emailGateway.applyOrchestratorRemoteOperation`** | Connects account + provider; no inbox UI logic. |
 
 Local IPC handlers **always** commit local state first, then call `fireRemoteOrchestratorSync` (enqueue + async drain). Remote failures **do not** roll back local state.
@@ -16,8 +17,8 @@ Local IPC handlers **always** commit local state first, then call `fireRemoteOrc
 | Local transition | Queue `operation` | Gmail | Microsoft 365 (Graph) | IMAP |
 |------------------|---------------------|-------|------------------------|------|
 | Archive | `archive` | Remove `INBOX` | Move → well-known `archive` | `MOVE` → `Archive` (mailbox created if needed) |
-| Pending review | `pending_review` | Add `WRDesk/PendingReview`, remove `INBOX` + `WRDesk/PendingDelete` | Move → child folder `WR Desk — Pending Review` under Inbox | `MOVE` → `Pending Review` (default mailbox; locate source via `imap_remote_mailbox` + RFC Message-ID search) |
-| Pending delete | `pending_delete` | Add `WRDesk/PendingDelete`, remove `INBOX` + `WRDesk/PendingReview` | Move → child folder `WR Desk — Pending Delete` under Inbox | `MOVE` → `Pending Delete` (same locate rules) |
+| Pending review | `pending_review` | Add user label `Pending Review`, remove `INBOX` + `Pending Delete` label | Move → child folder `Pending Review` under Inbox | `MOVE` → `Pending Review` (default mailbox; locate source via `imap_remote_mailbox` + RFC Message-ID search) |
+| Pending delete | `pending_delete` | Add user label `Pending Delete`, remove `INBOX` + `Pending Review` label | Move → child folder `Pending Delete` under Inbox | `MOVE` → `Pending Delete` (same locate rules) |
 | **Final delete** (grace elapsed) | *(existing)* | `users.messages.trash` via `deleteMessage` | Move → `deleteditems` via `deleteMessage` | `\Deleted` + expunge |
 
 AI classification uses the same queue when it applies `pending_review` / `pending_delete` (not the legacy `archive` sort bucket).
@@ -32,5 +33,5 @@ AI classification uses the same queue when it applies `pending_review` / `pendin
 ## Follow-ups
 
 - Inverse operations (unarchive, cancel pending) on the remote mailbox.
-- Configurable IMAP folder names / Gmail label prefix per account.
+- Configurable IMAP folder names / Gmail label names per account (`orchestratorRemote` on `EmailAccountConfig`).
 - Backoff delay between retries (currently immediate re-queue).
