@@ -13,6 +13,8 @@ import { emailGateway } from './gateway'
 
 const MAX_ATTEMPTS = 8
 const BATCH = 20
+/** Light throttle between remote moves (Graph mail ~4 rps for delegated tokens). */
+const INTER_REMOTE_OP_DELAY_MS = 220
 
 export interface EnqueueOrchestratorRemoteResult {
   enqueued: number
@@ -175,7 +177,8 @@ export async function processOrchestratorRemoteQueueBatch(
 
   const now = () => new Date().toISOString()
 
-  for (const r of rows) {
+  for (let idx = 0; idx < rows.length; idx++) {
+    const r = rows[idx]
     markProcessing.run(now(), r.id)
     try {
       const apply = await emailGateway.applyOrchestratorRemoteOperation(
@@ -230,6 +233,9 @@ export async function processOrchestratorRemoteQueueBatch(
         touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
       }
       result.failed++
+    }
+    if (idx < rows.length - 1 && INTER_REMOTE_OP_DELAY_MS > 0) {
+      await new Promise((res) => setTimeout(res, INTER_REMOTE_OP_DELAY_MS))
     }
   }
 
@@ -353,24 +359,42 @@ export async function drainOrchestratorRemoteQueueBounded(
 }
 
 let drainChainScheduled = false
+/**
+ * When many parallel IPC handlers call `scheduleOrchestratorRemoteDrain` while a chain is already
+ * queued, we must not drop the request — otherwise the first drain can run on an empty queue (race
+ * with parallel `aiClassifySingle`) and never reschedule after later enqueues.
+ */
+let drainRescheduleRequested = false
 
 /**
  * Schedule asynchronous drain (non-blocking). Safe to call after every local transition.
  */
 export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any): void {
-  if (drainChainScheduled) return
+  if (drainChainScheduled) {
+    drainRescheduleRequested = true
+    return
+  }
   drainChainScheduled = true
   setImmediate(async () => {
     drainChainScheduled = false
     try {
       const db = await getDb()
-      if (!db) return
+      if (!db) {
+        if (drainRescheduleRequested) {
+          drainRescheduleRequested = false
+          scheduleOrchestratorRemoteDrain(getDb)
+        }
+        return
+      }
       const batch = await processOrchestratorRemoteQueueBatch(db, BATCH)
-      if (batch.pendingRemaining > 0 || batch.processed > 0) {
+      const continueChain = batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
+      if (continueChain) {
+        drainRescheduleRequested = false
         scheduleOrchestratorRemoteDrain(getDb)
       }
     } catch (e) {
       console.error('[OrchestratorRemote] drain error:', e)
+      drainRescheduleRequested = false
       /* Best-effort: retry later so a transient DB/gateway failure does not strand the queue until the next lifecycle tick. */
       setTimeout(() => {
         try {

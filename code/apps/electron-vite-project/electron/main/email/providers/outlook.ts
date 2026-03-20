@@ -504,6 +504,9 @@ export class OutlookProvider extends BaseEmailProvider {
         return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
       }
 
+      console.log(
+        `[Outlook] Moving message ${messageId.slice(0, 24)}… → folder op=${operation} (remote mirror)`,
+      )
       await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
         destinationId: destId,
       })
@@ -532,6 +535,7 @@ export class OutlookProvider extends BaseEmailProvider {
       this.orchestratorFolderCache.set(displayName, found.id)
       return found.id
     }
+    console.log('[Outlook] Creating mail folder under Inbox:', displayName)
     const created = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
       displayName,
     })

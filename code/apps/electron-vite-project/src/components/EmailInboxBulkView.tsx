@@ -1828,7 +1828,8 @@ export default function EmailInboxBulkView({
         useEmailInboxStore.getState().setSortingActive(true)
         setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
       }
-      const CONCURRENCY = 3
+      /** Parallel IPC calls — Ollama queues; 5 keeps GPU fed without huge bursts (was 3). */
+      const CONCURRENCY = 5
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
@@ -1838,8 +1839,13 @@ export default function EmailInboxBulkView({
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
           const batch = ids.slice(i, i + CONCURRENCY)
-          await Promise.all(
+          const doneAfterBatch = Math.min(i + batch.length, ids.length)
+          if (!suppressGlobalSortingUi) {
+            setAiSortProgress(`Analyzing ${doneAfterBatch}/${ids.length}…`)
+          }
+          const settled = await Promise.allSettled(
             batch.map(async (messageId) => {
+              try {
               const result = await window.emailInbox!.aiClassifySingle(messageId)
               if (result.error) {
                 failedIds.push(messageId)
@@ -2030,8 +2036,28 @@ export default function EmailInboxBulkView({
               }
               setBulkAiOutputs((prev) => ({ ...prev, [messageId]: retained }))
               inboxStore.removeBulkDraftManualCompose(messageId)
-            })
+              } catch (sortErr: unknown) {
+                const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
+                console.warn('[SORT] Classification or move failed:', messageId, msg)
+                failedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    summary: `Auto-Sort error: ${msg.slice(0, 200)}`,
+                    autosortFailure: true,
+                    failureReason: 'llm_error',
+                    autosortOutcome: 'failed',
+                    status: 'classified',
+                  },
+                }))
+              }
+            }),
           )
+          for (const s of settled) {
+            if (s.status === 'rejected') {
+              console.warn('[SORT] Batch promise rejected:', s.reason)
+            }
+          }
         }
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = ids.filter((id) => !processedIds.includes(id))
@@ -2100,6 +2126,18 @@ export default function EmailInboxBulkView({
           movedIds: allMovedIds,
           failedIds: allFailedIds,
         })
+        /** Ensure M365/IMAP mirror: parallel classify races `scheduleOrchestratorRemoteDrain`; re-upsert from DB + drain. */
+        try {
+          const mirror = window.emailInbox?.enqueueRemoteLifecycleMirror
+          if (mirror && ids.length) {
+            void mirror(ids).then((res) => {
+              if (!res?.ok) console.warn('[SORT] Remote lifecycle mirror enqueue:', res?.error)
+              else if (res.data?.enqueued) console.log('[SORT] Remote mirror re-enqueued:', res.data)
+            })
+          }
+        } catch (e) {
+          console.warn('[SORT] Remote lifecycle mirror failed:', e)
+        }
         if (clearSelection) clearMultiSelect()
         if (!skipEndRefresh) {
           await refreshMessages()

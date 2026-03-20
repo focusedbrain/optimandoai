@@ -860,7 +860,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
@@ -1668,10 +1668,11 @@ Return ONLY a JSON object with this exact shape — no explanation, no markdown:
 }`
 
     const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
+    /** Short body keeps Auto-Sort fast; subject + sender carry most triage signal. */
     const userPrompt = `Classify this email:
 From: ${from}
 Subject: ${row.subject || '(No subject)'}
-Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
+Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
 
     try {
       const raw = await Promise.race([
@@ -2028,6 +2029,25 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       return { ok: true, data: { unarchived: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Unarchive failed' }
+    }
+  })
+
+  /**
+   * Re-upsert remote move queue from current `inbox_messages` lifecycle columns for these IDs, then
+   * schedule background drain. Call after bulk parallel Auto-Sort so mirror work is not dropped when
+   * many `scheduleOrchestratorRemoteDrain` calls coalesce while the queue was still empty.
+   */
+  ipcMain.handle('inbox:enqueueRemoteLifecycleMirror', async (_e, messageIds: string[]) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = Array.isArray(messageIds) ? messageIds.filter((x) => typeof x === 'string' && x.trim()) : []
+      const r = ids.length ? enqueueRemoteOpsForLocalLifecycleState(db, ids) : { enqueued: 0, skipped: 0 }
+      scheduleOrchestratorRemoteDrain(getDb)
+      return { ok: true, data: r }
+    } catch (e: any) {
+      console.warn('[Inbox] enqueueRemoteLifecycleMirror:', e?.message)
+      return { ok: false, error: e?.message ?? 'enqueue failed' }
     }
   })
 

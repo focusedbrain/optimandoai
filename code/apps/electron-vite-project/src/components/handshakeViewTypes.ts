@@ -155,6 +155,16 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
+  aiClassifySingle?: (messageId: string) => Promise<unknown>
+  /**
+   * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.
+   * Use after bulk Auto-Sort (parallel classify) so Microsoft 365 / IMAP mirrors reliably.
+   */
+  enqueueRemoteLifecycleMirror?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    data?: { enqueued: number; skipped: number }
+    error?: string
+  }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */
   persistManualBulkAnalysis?: (messageId: string, analysisJson: string) => Promise<{ ok: boolean; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
