@@ -454,6 +454,14 @@ function BulkActionCardStructured({
     }
   }, [draftRefineConnected, draftRefineMessageId, msg.id, output.draftReply])
 
+  /** Deselecting this draft (toggle off / other row) should drop chat refine scope for this message. */
+  useEffect(() => {
+    if (isDraftSubFocused) return
+    if (draftRefineConnected && draftRefineMessageId === msg.id) {
+      draftRefineDisconnect()
+    }
+  }, [isDraftSubFocused, draftRefineConnected, draftRefineMessageId, msg.id, draftRefineDisconnect])
+
   const hasFullStructured = !!(output.category && output.recommendedAction)
   const rec = (output.recommendedAction ?? 'draft_reply_ready') as BulkRecommendedAction
   /** Draft-only or user hit “Draft” after Auto-Sort — full-height composer, no analysis header/recommended row. */
@@ -669,9 +677,13 @@ function BulkActionCardStructured({
                 data-subfocus="draft"
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest('button')) return
+                  /** Textarea clicks: always select for editing; never toggle off (second tap places caret). */
+                  if ((e.target as HTMLElement).closest('textarea')) return
                   if (focusedMessageId !== msg.id) onSelectMessage?.(msg.id)
-                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
-                  handleDraftRefineConnect()
+                  useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id, { toggle: true })
+                  if (useEmailInboxStore.getState().editingDraftForMessageId === msg.id) {
+                    handleDraftRefineConnect()
+                  }
                 }}
                 className="flex h-full min-h-0 w-full flex-col"
                 style={{

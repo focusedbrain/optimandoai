@@ -197,7 +197,8 @@ interface EmailInboxState {
   loadSyncState: (accountId: string) => Promise<void>
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
   clearAnalysisCache: () => void
-  setEditingDraftForMessageId: (id: string | null) => void
+  /** Pass `{ toggle: true }` so a second call with the same id clears selection (bulk draft chrome). Omit or false = always select that id. */
+  setEditingDraftForMessageId: (id: string | null, options?: { toggle?: boolean }) => void
   setSubFocus: (focus: SubFocus) => void
   setSortingActive: (active: boolean) => void
   triggerAnalysisRestart: () => void
@@ -386,13 +387,21 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     })
   },
 
-  setEditingDraftForMessageId: (id) =>
+  setEditingDraftForMessageId: (id, options) =>
     set((s) => {
-      const subFocus: SubFocus = id ? { kind: 'draft', messageId: id } : { kind: 'none' }
+      if (id === null) {
+        return {
+          editingDraftForMessageId: null,
+          subFocus: { kind: 'none' },
+        }
+      }
+      const useToggle = options?.toggle === true
+      const nextId = useToggle && s.editingDraftForMessageId === id ? null : id
+      const subFocus: SubFocus = nextId ? { kind: 'draft', messageId: nextId } : { kind: 'none' }
       return {
-        editingDraftForMessageId: id,
+        editingDraftForMessageId: nextId,
         subFocus,
-        ...(id ? { selectedAttachmentId: null } : {}),
+        ...(nextId ? { selectedAttachmentId: null } : {}),
       }
     }),
   setSubFocus: (focus) =>
