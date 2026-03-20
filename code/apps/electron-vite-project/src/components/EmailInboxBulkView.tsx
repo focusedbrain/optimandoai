@@ -17,7 +17,8 @@ import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay from './EmailComposeOverlay'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
-import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -1401,7 +1402,7 @@ function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
 }
 
 export interface EmailInboxBulkViewProps {
-  accounts: Array<{ id: string; email: string }>
+  accounts: Array<{ id: string; email: string; status?: string }>
   /** Focused message for chat/search scope; syncs with Hybrid Search */
   selectedMessageId?: string | null
   /** Toggle focus; does not switch views */
@@ -1519,7 +1520,7 @@ export default function EmailInboxBulkView({
     }))
   )
 
-  const primaryAccountId = accounts[0]?.id
+  const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
   const tabCounts = useMemo(() => deriveTabCounts(allMessages, filter), [allMessages, filter])
@@ -1549,7 +1550,6 @@ export default function EmailInboxBulkView({
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
-  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
@@ -2396,9 +2396,13 @@ export default function EmailInboxBulkView({
           status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
           lastError: a.lastError,
         })))
-        setSelectedProviderAccountId((prev) =>
-          prev && data.some((a: { id: string }) => a.id === prev) ? prev : data[0]?.id ?? null
-        )
+        setSelectedProviderAccountId((prev) => {
+          if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
+          const pick = pickDefaultEmailAccountRowId(
+            data.map((a) => ({ id: a.id, status: a.status })),
+          )
+          return pick ?? data[0]?.id ?? null
+        })
       } else {
         setProviderAccounts([])
       }
@@ -2418,7 +2422,15 @@ export default function EmailInboxBulkView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
-  const handleConnectEmail = useCallback(() => setShowEmailConnectModal(true), [])
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadProviderAccounts,
+    theme: 'dark',
+  })
+
+  const handleConnectEmail = useCallback(
+    () => openConnectEmail(ConnectEmailLaunchSource.BulkInbox),
+    [openConnectEmail],
+  )
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
@@ -3800,15 +3812,7 @@ export default function EmailInboxBulkView({
         onCancel={handleLinkCancel}
       />
 
-      <EmailConnectWizard
-        isOpen={showEmailConnectModal}
-        onClose={() => setShowEmailConnectModal(false)}
-        onConnected={() => {
-          loadProviderAccounts()
-          setShowEmailConnectModal(false)
-        }}
-        theme="dark"
-      />
+      {connectEmailFlowModal}
 
       {/* WR Expert modal — edit AI inbox rules */}
       {showWrExpertModal && (

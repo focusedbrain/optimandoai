@@ -6,6 +6,7 @@ apps/**/release/**
 apps/**/release-*/**
 apps/**/win-unpacked/**
 *.log
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
 .vscode/
@@ -29,6 +30,7 @@ apps/extension-chromium/build305/
 apps/extension-chromium/build705/
 apps/extension-chromium/build5/
 apps/extension-chromium/build990/
+apps/extension-chromium/build2436/
 apps/extension-chromium/build0045/
 apps/extension-chromium/build0065/
 

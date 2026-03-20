@@ -1353,7 +1353,15 @@ async function createWindow() {
         
         if (activeAccounts.length > 0) {
           // Already connected - show info and option to manage
-          const accountList = activeAccounts.map(a => `• ${a.provider === 'microsoft365' ? 'Outlook' : a.provider}: ${a.email || a.displayName}`).join('\n')
+          const accountList = activeAccounts.map((a) => {
+            const label =
+              a.provider === 'microsoft365'
+                ? 'Microsoft 365 / Outlook'
+                : a.provider === 'imap'
+                  ? 'Custom email (IMAP)'
+                  : a.provider
+            return `• ${label}: ${a.email || a.displayName}`
+          }).join('\n')
           const result = await dialog.showMessageBox({
             type: 'info',
             title: 'Email Connected',
@@ -1379,7 +1387,7 @@ async function createWindow() {
           type: 'info',
           title: 'Connect Email',
           message: 'Set up Email Connection',
-          detail: 'To view full email content securely:\n\n1. Click the WR Chat extension icon\n2. Go to the Email section\n3. Click "Connect Email"\n4. Choose Gmail or Outlook\n\nOnce connected, full email content will be fetched via the secure API.'
+          detail: 'To view full email content securely:\n\n1. Click the WR Chat extension icon\n2. Go to the Email section\n3. Click "Connect Email"\n4. Choose Gmail, Microsoft 365 / Outlook, or Custom email (IMAP + SMTP)\n\nOnce connected, full email content will be fetched via the secure API.'
         })
         return
       } catch (err: any) {
@@ -7471,6 +7479,34 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // POST /api/email/accounts/connect/custom-mailbox — IMAP + SMTP (both required)
+    httpApp.post('/api/email/accounts/connect/custom-mailbox', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/custom-mailbox')
+        const b = req.body || {}
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.connectCustomImapSmtpAccount({
+          displayName: typeof b.displayName === 'string' ? b.displayName : undefined,
+          email: String(b.email || ''),
+          imapHost: String(b.imapHost || ''),
+          imapPort: Number(b.imapPort) || 993,
+          imapSecurity: b.imapSecurity === 'starttls' || b.imapSecurity === 'none' ? b.imapSecurity : 'ssl',
+          imapUsername: typeof b.imapUsername === 'string' ? b.imapUsername : undefined,
+          imapPassword: String(b.imapPassword || ''),
+          smtpHost: String(b.smtpHost || ''),
+          smtpPort: Number(b.smtpPort) || 587,
+          smtpSecurity: b.smtpSecurity === 'ssl' || b.smtpSecurity === 'none' ? b.smtpSecurity : 'starttls',
+          smtpUseSameCredentials: b.smtpUseSameCredentials !== false,
+          smtpUsername: typeof b.smtpUsername === 'string' ? b.smtpUsername : undefined,
+          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined
+        })
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting custom mailbox:', error)
+        res.status(400).json({ ok: false, error: error.message })
+      }
+    })
     
     // DELETE /api/email/accounts/:id - Delete email account
     httpApp.delete('/api/email/accounts/:id', async (req, res) => {
@@ -7530,7 +7566,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    // POST /api/email/send-beap - Send BEAP package via email (uses first connected account)
+    // POST /api/email/send-beap - Send BEAP package via email (default account row via pickDefaultEmailAccountRowId)
     httpApp.post('/api/email/send-beap', async (req, res) => {
       try {
         const { to, subject, body, attachments } = req.body
@@ -7540,13 +7576,13 @@ app.whenReady().then(async () => {
         }
         console.log('[HTTP-EMAIL] POST /api/email/send-beap', to)
         const { emailGateway } = await import('./main/email/gateway')
+        const { pickDefaultEmailAccountRowId } = await import('./main/email/domain/accountRowPicker')
         const accounts = await emailGateway.listAccounts()
-        const active = accounts.filter((a: any) => a.status === 'active')
-        if (active.length === 0) {
+        const accountId = pickDefaultEmailAccountRowId(accounts)
+        if (!accountId) {
           res.status(400).json({ ok: false, error: 'No email account connected. Connect in Settings or use Download.' })
           return
         }
-        const accountId = active[0].id
         const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
           to: [String(to)],
           subject: subject || 'BEAP™ Secure Message',

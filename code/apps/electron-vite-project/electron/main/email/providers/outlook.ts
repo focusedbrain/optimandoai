@@ -23,6 +23,14 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+} from '../domain/orchestratorRemoteTypes'
+import {
+  resolveOrchestratorRemoteNames,
+  REMOTE_DELETION_TARGETS,
+} from '../domain/mailboxLifecycleMapping'
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
@@ -91,6 +99,7 @@ export class OutlookProvider extends BaseEmailProvider {
   private accessToken: string | null = null
   private refreshToken: string | null = null
   private tokenExpiresAt: number = 0
+  private orchestratorFolderCache: Map<string, string> = new Map()
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -116,6 +125,7 @@ export class OutlookProvider extends BaseEmailProvider {
     this.tokenExpiresAt = 0
     this.connected = false
     this.config = null
+    this.orchestratorFolderCache.clear()
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -299,8 +309,70 @@ export class OutlookProvider extends BaseEmailProvider {
 
   async deleteMessage(messageId: string): Promise<void> {
     await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
-      destinationId: 'deleteditems'
+      destinationId: REMOTE_DELETION_TARGETS.outlook.deletedItemsFolderId,
     })
+  }
+
+  /**
+   * Microsoft Graph mapping:
+   * - **archive** — move to well-known `archive` folder.
+   * - **pending_review** / **pending_delete** — child folders under Inbox (created on demand).
+   */
+  async applyOrchestratorRemoteOperation(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    try {
+      if (!this.config) {
+        return { ok: false, error: 'Not connected' }
+      }
+      const names = resolveOrchestratorRemoteNames(this.config)
+      let destId: string
+      if (operation === 'archive') {
+        const arch = await this.graphApiRequest('GET', '/me/mailFolders/archive?$select=id')
+        destId = arch.id
+      } else if (operation === 'pending_review') {
+        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingReviewFolder)
+      } else if (operation === 'pending_delete') {
+        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingDeleteFolder)
+      } else {
+        return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
+      }
+
+      await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
+        destinationId: destId,
+      })
+      return { ok: true }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      if (/same folder|already been moved|item not found|not found/i.test(msg)) {
+        return { ok: true, skipped: true }
+      }
+      return { ok: false, error: msg }
+    }
+  }
+
+  private async ensureOutlookOrchestratorChildFolder(displayName: string): Promise<string> {
+    const hit = this.orchestratorFolderCache.get(displayName)
+    if (hit) return hit
+
+    const inbox = await this.graphApiRequest('GET', '/me/mailFolders/inbox?$select=id')
+    const inboxId = inbox.id as string
+    const kids = await this.graphApiRequest(
+      'GET',
+      `/me/mailFolders/${inboxId}/childFolders?$select=id,displayName&$top=200`,
+    )
+    const found = (kids.value || []).find((f: any) => f.displayName === displayName)
+    if (found?.id) {
+      this.orchestratorFolderCache.set(displayName, found.id)
+      return found.id
+    }
+    const created = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
+      displayName,
+    })
+    if (!created?.id) throw new Error('Graph folder create returned no id')
+    this.orchestratorFolderCache.set(displayName, created.id)
+    return created.id
   }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {

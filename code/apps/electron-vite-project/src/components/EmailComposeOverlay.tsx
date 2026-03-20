@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react'
+import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 
 const EMAIL_SIGNATURE = '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
 
@@ -72,7 +73,10 @@ export default function EmailComposeOverlay({
         const res = await window.emailAccounts!.listAccounts()
         if (res.ok && res.data && res.data.length > 0) {
           setAccounts(res.data)
-          setSelectedAccountId(res.data[0].id)
+          const pick = pickDefaultEmailAccountRowId(
+            res.data.map((a: { id: string; status?: string }) => ({ id: a.id, status: a.status })),
+          )
+          setSelectedAccountId(pick ?? res.data[0].id)
         }
       } catch {
         // ignore
@@ -105,7 +109,8 @@ export default function EmailComposeOverlay({
       setError('To is required')
       return
     }
-    const accountId = selectedAccountId || accounts[0]?.id
+    const accountId =
+      selectedAccountId || pickDefaultEmailAccountRowId(accounts.map((a) => ({ id: a.id, status: a.status })))
     if (!accountId || accounts.length === 0) {
       setError('No email account connected')
       return

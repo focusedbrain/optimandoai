@@ -42,7 +42,8 @@ import { VisionFallbackButton, AttachmentStatusBadge } from './beap-builder/comp
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
-import { EmailConnectWizard } from './shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
+import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -496,13 +497,14 @@ function PopupChatApp() {
   }
   
   const [emailAccounts, setEmailAccounts] = useState<EmailAccountPopup[]>([])
+  const defaultEmailAccountRowId = useMemo(
+    () => pickDefaultEmailAccountRowId(emailAccounts),
+    [emailAccounts],
+  )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
-  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'connecting' | 'gmail-credentials' | 'outlook-credentials'>('provider')
-  const [isConnectingEmail, setIsConnectingEmail] = useState(false)
-  const [gmailCredentials, setGmailCredentials] = useState({ clientId: '', clientSecret: '' })
-  const [outlookCredentials, setOutlookCredentials] = useState({ clientId: '', clientSecret: '' })
+  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error'} | null>(null)
+  const [isSendingBeap, setIsSendingBeap] = useState(false)
   
   // Load email accounts from Electron via background script
   const loadEmailAccounts = async () => {
@@ -512,7 +514,9 @@ function PopupChatApp() {
       if (response?.ok && response?.data) {
         setEmailAccounts(response.data)
         if (response.data.length > 0 && !selectedEmailAccountId) {
-          setSelectedEmailAccountId(response.data[0].id)
+          setSelectedEmailAccountId(
+            pickDefaultEmailAccountRowId(response.data) ?? response.data[0].id,
+          )
         }
       }
     } catch (error) {
@@ -521,6 +525,11 @@ function PopupChatApp() {
       setIsLoadingEmailAccounts(false)
     }
   }
+
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadEmailAccounts,
+    theme: theme === 'standard' ? 'professional' : 'default',
+  })
   
   // Load email accounts on mount
   useEffect(() => {
@@ -551,182 +560,10 @@ function PopupChatApp() {
     }
   }
   
-  // Connect email handler - opens the wizard modal
+  // Connect email handler - opens the shared connect-email flow
   const handleConnectEmail = () => {
-    console.log('[PopupChat] handleConnectEmail called, opening wizard modal')
-    setShowEmailSetupWizard(true)
-    setEmailSetupStep('provider')
+    openConnectEmail(ConnectEmailLaunchSource.WrChatPopup)
   }
-  
-  // Helper to clean up error messages
-  const cleanErrorMessage = (error: string): string => {
-    // If it looks like HTML, extract a simple message
-    if (error.includes('<!DOCTYPE') || error.includes('<html')) {
-      return 'Backend server not available. Please ensure the server is running.'
-    }
-    // If it starts with "Request failed:", clean it up
-    if (error.startsWith('Request failed:')) {
-      const cleanedError = error.replace('Request failed:', '').trim()
-      if (cleanedError.includes('<!DOCTYPE') || cleanedError.includes('<html')) {
-        return 'Backend server not available. Please ensure the server is running.'
-      }
-      return cleanedError || 'Connection failed'
-    }
-    return error
-  }
-  
-  // Check credentials and either connect or show inline form (same flow as sidepanel)
-  const startGmailConnect = async () => {
-    if (isConnectingEmail) return
-    try {
-      const checkResponse = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
-      if (checkResponse?.ok && checkResponse?.data?.configured) {
-        connectGmailAccount()
-      } else {
-        setEmailSetupStep('gmail-credentials')
-      }
-    } catch {
-      setEmailSetupStep('gmail-credentials')
-    }
-  }
-
-  const doConnectGmail = async () => {
-    const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' })
-    if (response?.ok && response?.data) {
-      await loadEmailAccounts()
-      setSelectedEmailAccountId(response.data.id)
-      setToastMessage({ message: 'Gmail connected successfully!', type: 'success' })
-      setShowEmailSetupWizard(false)
-      setEmailSetupStep('provider')
-      setGmailCredentials({ clientId: '', clientSecret: '' })
-    } else {
-      const errorMsg = response?.error || 'Failed to connect Gmail'
-      throw new Error(cleanErrorMessage(errorMsg))
-    }
-  }
-
-  const connectGmailAccount = async () => {
-    if (isConnectingEmail) return
-    setIsConnectingEmail(true)
-    setEmailSetupStep('connecting')
-    await new Promise(resolve => setTimeout(resolve, 100))
-    try {
-      await doConnectGmail()
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : 'Failed to connect Gmail'
-      setToastMessage({ message: cleanErrorMessage(rawMessage), type: 'error' })
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setEmailSetupStep('provider')
-    } finally {
-      setIsConnectingEmail(false)
-      setTimeout(() => setToastMessage(null), 4000)
-    }
-  }
-
-  const saveGmailCredentialsAndConnect = async () => {
-    if (!gmailCredentials.clientId?.trim() || !gmailCredentials.clientSecret?.trim()) {
-      setToastMessage({ message: 'Please enter both Client ID and Client Secret', type: 'error' })
-      setTimeout(() => setToastMessage(null), 3000)
-      return
-    }
-    setIsConnectingEmail(true)
-    setEmailSetupStep('connecting')
-    try {
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_GMAIL_CREDENTIALS',
-        clientId: gmailCredentials.clientId,
-        clientSecret: gmailCredentials.clientSecret,
-      })
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      await doConnectGmail()
-    } catch (err: any) {
-      setToastMessage({ message: err.message || 'Failed to save credentials', type: 'error' })
-      setTimeout(() => setToastMessage(null), 5000)
-      setEmailSetupStep('gmail-credentials')
-    } finally {
-      setIsConnectingEmail(false)
-    }
-  }
-
-  const startOutlookConnect = async () => {
-    if (isConnectingEmail) return
-    try {
-      const checkResponse = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_OUTLOOK_CREDENTIALS' })
-      if (checkResponse?.ok && checkResponse?.data?.configured) {
-        connectOutlookAccount()
-      } else {
-        setEmailSetupStep('outlook-credentials')
-      }
-    } catch {
-      setEmailSetupStep('outlook-credentials')
-    }
-  }
-
-  const doConnectOutlook = async () => {
-    const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' })
-    if (response?.ok && response?.data) {
-      await loadEmailAccounts()
-      setSelectedEmailAccountId(response.data.id)
-      setToastMessage({ message: 'Microsoft 365 connected successfully!', type: 'success' })
-      setShowEmailSetupWizard(false)
-      setEmailSetupStep('provider')
-      setOutlookCredentials({ clientId: '', clientSecret: '' })
-    } else {
-      const errorMsg = response?.error || 'Failed to connect Outlook'
-      throw new Error(cleanErrorMessage(errorMsg))
-    }
-  }
-
-  const saveOutlookCredentialsAndConnect = async () => {
-    if (!outlookCredentials.clientId?.trim()) {
-      setToastMessage({ message: 'Please enter the Client ID', type: 'error' })
-      setTimeout(() => setToastMessage(null), 3000)
-      return
-    }
-    setIsConnectingEmail(true)
-    setEmailSetupStep('connecting')
-    try {
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_OUTLOOK_CREDENTIALS',
-        clientId: outlookCredentials.clientId,
-        clientSecret: outlookCredentials.clientSecret,
-      })
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      await doConnectOutlook()
-    } catch (err: any) {
-      setToastMessage({ message: err.message || 'Failed to save credentials', type: 'error' })
-      setTimeout(() => setToastMessage(null), 5000)
-      setEmailSetupStep('outlook-credentials')
-    } finally {
-      setIsConnectingEmail(false)
-    }
-  }
-
-  const connectOutlookAccount = async () => {
-    if (isConnectingEmail) return
-    setIsConnectingEmail(true)
-    setEmailSetupStep('connecting')
-    await new Promise(resolve => setTimeout(resolve, 100))
-    try {
-      await doConnectOutlook()
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : 'Failed to connect Outlook'
-      setToastMessage({ message: cleanErrorMessage(rawMessage), type: 'error' })
-      await new Promise(resolve => setTimeout(resolve, 500))
-      setEmailSetupStep('provider')
-    } finally {
-      setIsConnectingEmail(false)
-      setTimeout(() => setToastMessage(null), 4000)
-    }
-  }
-  
-  // BEAP Message sending state
-  const [isSendingBeap, setIsSendingBeap] = useState(false)
-  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error'} | null>(null)
   
   // Handler for sending BEAP messages (matches docked sidepanel exactly)
   const handleSendBeapMessage = async () => {
@@ -1183,7 +1020,7 @@ function PopupChatApp() {
                         Send From:
                       </label>
                       <select
-                        value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                        value={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                         onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                         style={{
                           width: '100%',
@@ -1499,7 +1336,7 @@ function PopupChatApp() {
         setEmailComposeError('To is required')
         return
       }
-      const accountId = selectedEmailAccountId || emailAccounts[0]?.id
+      const accountId = selectedEmailAccountId || defaultEmailAccountRowId
       if (!accountId || emailAccounts.length === 0) {
         setEmailComposeError('No email account connected')
         return
@@ -1557,7 +1394,7 @@ function PopupChatApp() {
               <div style={{ fontSize: '13px', color: mutedColor }}>No email accounts connected. Connect your account to send emails.</div>
             </div>
           ) : (
-            <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: '13px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor, outline: 'none', cursor: 'pointer' }}>
+            <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: '13px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor, outline: 'none', cursor: 'pointer' }}>
               {emailAccounts.map((a) => <option key={a.id} value={a.id}>{a.email || a.displayName} ({a.provider})</option>)}
             </select>
           )}
@@ -1754,7 +1591,7 @@ function PopupChatApp() {
             <SendHandshakeDelivery
               theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
               onBack={() => setDockedSubmode('command')}
-              fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+              fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
               emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
               onSelectEmailAccount={setSelectedEmailAccountId}
               onSuccess={() => setDockedSubmode('command')}
@@ -2214,16 +2051,7 @@ function PopupChatApp() {
         </footer>
       )}
       
-      {/* Email Connect Wizard - THE ONE shared component */}
-      <EmailConnectWizard
-        isOpen={showEmailSetupWizard}
-        onClose={() => setShowEmailSetupWizard(false)}
-        onConnected={() => {
-          loadEmailAccounts()
-          setShowEmailSetupWizard(false)
-        }}
-        theme={theme === 'standard' ? 'professional' : 'default'}
-      />
+      {connectEmailFlowModal}
 
     </div>
   )

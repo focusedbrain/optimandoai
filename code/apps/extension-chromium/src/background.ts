@@ -3093,6 +3093,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true // Keep channel open for async response
     }
+
+    case 'EMAIL_CONNECT_CUSTOM_MAILBOX': {
+      console.log('[BG] 📧 Email connect custom IMAP+SMTP request')
+      electronRequest('/api/email/accounts/connect/custom-mailbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: msg.displayName,
+          email: msg.email,
+          imapHost: msg.imapHost,
+          imapPort: msg.imapPort,
+          imapSecurity: msg.imapSecurity,
+          imapUsername: msg.imapUsername,
+          imapPassword: msg.imapPassword,
+          smtpHost: msg.smtpHost,
+          smtpPort: msg.smtpPort,
+          smtpSecurity: msg.smtpSecurity,
+          smtpUseSameCredentials: msg.smtpUseSameCredentials,
+          smtpUsername: msg.smtpUsername,
+          smtpPassword: msg.smtpPassword
+        })
+      })
+        .then(result => {
+          console.log('[BG] 📧 Custom mailbox connect:', result.ok ? 'success' : result.error)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      return true
+    }
     
     case 'EMAIL_DELETE_ACCOUNT': {
       console.log('[BG] 📧 Email delete account request:', msg.accountId)

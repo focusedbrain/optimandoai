@@ -29,7 +29,8 @@ import {
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
-import { EmailConnectWizard } from './shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
+import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
@@ -609,11 +610,11 @@ function SidepanelOrchestrator() {
     status: 'active' | 'error' | 'disabled'
     lastError?: string
   }>>([])
+  const defaultEmailAccountRowId = useMemo(
+    () => pickDefaultEmailAccountRowId(emailAccounts),
+    [emailAccounts],
+  )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
-  const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
-  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'credentials' | 'connecting' | 'gmail-credentials' | 'outlook-credentials'>('provider')
-  const [gmailCredentials, setGmailCredentials] = useState({ clientId: '', clientSecret: '' })
-  const [outlookCredentials, setOutlookCredentials] = useState({ clientId: '', clientSecret: '' })
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -663,6 +664,11 @@ function SidepanelOrchestrator() {
       setIsLoadingEmailAccounts(false)
     }
   }
+
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadEmailAccounts,
+    theme: theme === 'standard' ? 'professional' : 'default',
+  })
   
   // Load email accounts when BEAP Messages workspace is selected
   useEffect(() => {
@@ -670,245 +676,6 @@ function SidepanelOrchestrator() {
       loadEmailAccounts()
     }
   }, [dockedWorkspace])
-  
-  // IMAP form state
-  const [imapForm, setImapForm] = useState({
-    displayName: '',
-    email: '',
-    host: '',
-    port: 993,
-    username: '',
-    password: '',
-    security: 'ssl' as 'ssl' | 'starttls' | 'none'
-  })
-  const [imapPresets, setImapPresets] = useState<Record<string, { name: string; host: string; port: number; security: string }>>({})
-  
-  // Load IMAP presets
-  const loadImapPresets = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_GET_PRESETS' })
-      if (response?.ok && response?.data) {
-        setImapPresets(response.data)
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to load IMAP presets:', err)
-    }
-  }
-  
-  // Check if Gmail credentials are configured, show inline form if not
-  const startGmailConnect = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
-      if (response?.ok && response?.data?.configured) {
-        // Credentials exist, proceed with OAuth
-        connectGmailAccount()
-      } else {
-        // Show inline credentials form
-        setEmailSetupStep('gmail-credentials')
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to check Gmail credentials:', err)
-      // Show form anyway
-      setEmailSetupStep('gmail-credentials')
-    }
-  }
-  
-  // Save Gmail credentials and connect
-  const saveGmailCredentialsAndConnect = async () => {
-    if (!gmailCredentials.clientId || !gmailCredentials.clientSecret) {
-      setNotification({ message: 'Please enter both Client ID and Client Secret', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      // Save credentials
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_GMAIL_CREDENTIALS',
-        clientId: gmailCredentials.clientId,
-        clientSecret: gmailCredentials.clientSecret
-      })
-      
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      
-      // Now connect
-      await connectGmailAccount()
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to save Gmail credentials:', err)
-      const raw = err?.message || 'Failed to save credentials'
-      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
-      setNotification({ message: isTechnical ? 'Failed to save credentials. Please try again.' : raw, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('gmail-credentials')
-    }
-  }
-  
-  // Connect Gmail account via Electron
-  const connectGmailAccount = async () => {
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_GMAIL' 
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setGmailCredentials({ clientId: '', clientSecret: '' })
-        loadEmailAccounts()
-        setNotification({ message: 'Gmail connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('provider')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect Gmail:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('provider')
-    }
-  }
-  
-  // Check if Outlook credentials are configured, show inline form if not
-  const startOutlookConnect = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_OUTLOOK_CREDENTIALS' })
-      if (response?.ok && response?.data?.configured) {
-        // Credentials exist, proceed with OAuth
-        connectOutlookAccount()
-      } else {
-        // Show inline credentials form
-        setEmailSetupStep('outlook-credentials')
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to check Outlook credentials:', err)
-      // Show form anyway
-      setEmailSetupStep('outlook-credentials')
-    }
-  }
-  
-  // Save Outlook credentials and connect
-  const saveOutlookCredentialsAndConnect = async () => {
-    if (!outlookCredentials.clientId) {
-      setNotification({ message: 'Please enter the Client ID', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      // Save credentials
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_OUTLOOK_CREDENTIALS',
-        clientId: outlookCredentials.clientId,
-        clientSecret: outlookCredentials.clientSecret
-      })
-      
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      
-      // Now connect
-      await connectOutlookAccount()
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to save Outlook credentials:', err)
-      const raw = err?.message || 'Failed to save credentials'
-      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
-      setNotification({ message: isTechnical ? 'Failed to save credentials. Please try again.' : raw, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('outlook-credentials')
-    }
-  }
-  
-  // Connect Outlook account via Electron
-  const connectOutlookAccount = async () => {
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_OUTLOOK' 
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setOutlookCredentials({ clientId: '', clientSecret: '' })
-        loadEmailAccounts()
-        setNotification({ message: 'Outlook connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('provider')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect Outlook:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('provider')
-    }
-  }
-  
-  // Connect IMAP account
-  const connectImapAccount = async () => {
-    if (!imapForm.email || !imapForm.host || !imapForm.username || !imapForm.password) {
-      setNotification({ message: 'Please fill in all required fields', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_IMAP',
-        ...imapForm
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setImapForm({ displayName: '', email: '', host: '', port: 993, username: '', password: '', security: 'ssl' })
-        loadEmailAccounts()
-        setNotification({ message: 'Email account connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('credentials')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect IMAP:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('credentials')
-    }
-  }
-  
-  // Apply IMAP preset
-  const applyImapPreset = (presetKey: string) => {
-    const preset = imapPresets[presetKey]
-    if (preset) {
-      setImapForm(prev => ({
-        ...prev,
-        host: preset.host,
-        port: preset.port,
-        security: preset.security as 'ssl' | 'starttls' | 'none'
-      }))
-    }
-  }
   
   // Disconnect email account
   const disconnectEmailAccount = async (accountId: string) => {
@@ -4475,7 +4242,7 @@ function SidepanelOrchestrator() {
                   <SendHandshakeDelivery
                     theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
                     onBack={() => setDockedSubmode('command')}
-                    fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                    fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                     emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                     onSelectEmailAccount={setSelectedEmailAccountId}
                     onSuccess={() => setDockedSubmode('command')}
@@ -4969,7 +4736,7 @@ function SidepanelOrchestrator() {
                         <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                       </div>
                       <button
-                        onClick={() => setShowEmailSetupWizard(true)}
+                        onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                         style={{
                           background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                           border: 'none',
@@ -5076,7 +4843,7 @@ function SidepanelOrchestrator() {
                           Send From:
                         </label>
                         <select
-                          value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                          value={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                           onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                           style={{
                             width: '100%',
@@ -5470,7 +5237,12 @@ function SidepanelOrchestrator() {
                           return
                         }
                         // Handle send based on delivery method
-                        const selectedAccount = emailAccounts.find(a => a.id === selectedEmailAccountId) || emailAccounts[0]
+                        const selectedAccount =
+                          emailAccounts.find(a => a.id === selectedEmailAccountId) ||
+                          (defaultEmailAccountRowId
+                            ? emailAccounts.find(a => a.id === defaultEmailAccountRowId)
+                            : undefined) ||
+                          emailAccounts[0]
                         console.log('[BEAP Message] Sending:', { 
                           method: handshakeDelivery, 
                           to: handshakeTo, 
@@ -5601,7 +5373,7 @@ function SidepanelOrchestrator() {
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
@@ -6256,7 +6028,7 @@ height: '28px',
                 <SendHandshakeDelivery
                   theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
                   onBack={() => setDockedSubmode('command')}
-                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                  fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                   emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                   onSelectEmailAccount={setSelectedEmailAccountId}
                   onSuccess={() => setDockedSubmode('command')}
@@ -6524,7 +6296,7 @@ height: '28px',
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
-                      onClick={() => setShowEmailSetupWizard(true)}
+                      onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                       style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                         border: 'none',
@@ -6628,7 +6400,7 @@ height: '28px',
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -6705,7 +6477,7 @@ height: '28px',
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
@@ -7395,7 +7167,7 @@ height: '28px',
                 <SendHandshakeDelivery
                   theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
                   onBack={() => setDockedSubmode('command')}
-                  fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                  fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                   emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
                   onSelectEmailAccount={setSelectedEmailAccountId}
                   onSuccess={() => setDockedSubmode('command')}
@@ -7663,7 +7435,7 @@ height: '28px',
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
-                      onClick={() => setShowEmailSetupWizard(true)}
+                      onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                       style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                         border: 'none',
@@ -7767,7 +7539,7 @@ height: '28px',
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -7845,7 +7617,7 @@ height: '28px',
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
@@ -8665,16 +8437,7 @@ height: '28px',
         </div>
       </div>
 
-      {/* Email Connect Wizard - THE ONE shared component for Gmail/Outlook OAuth */}
-      <EmailConnectWizard
-        isOpen={showEmailSetupWizard}
-        onClose={() => setShowEmailSetupWizard(false)}
-        onConnected={() => {
-          loadEmailAccounts()
-          setShowEmailSetupWizard(false)
-        }}
-        theme={theme === 'standard' ? 'professional' : 'default'}
-      />
+      {connectEmailFlowModal}
 
       
 

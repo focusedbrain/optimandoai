@@ -63,8 +63,38 @@ declare global {
       importBeapMessage?: (packageJson: string) => Promise<{ success: boolean; error?: string }>
     }
     emailAccounts?: {
-      listAccounts: () => Promise<{ ok: boolean; data?: Array<{ id: string; displayName: string; email: string; provider: string; status: string; lastError?: string }>; error?: string }>
+      listAccounts: () => Promise<{
+        ok: boolean
+        data?: Array<{
+          id: string
+          displayName: string
+          email: string
+          provider: string
+          status: string
+          lastError?: string
+          capabilities?: {
+            oauthBased: boolean
+            passwordBased: boolean
+            inboundSyncCapable: boolean
+            outboundSendCapable: boolean
+            remoteFolderMutationCapable: boolean
+            multiMailboxPerAuthGrantSupported: boolean
+            supportsMultipleMailboxSlicesOnRow: boolean
+          }
+          mailboxes?: Array<{
+            mailboxId: string
+            label: string
+            isDefault: boolean
+            providerMailboxResourceRef?: string
+          }>
+        }>
+        error?: string
+      }>
       sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
+      validateImapLifecycleRemote?: (accountId: string) => Promise<
+        | { ok: true; result: { ok: boolean; entries: Array<{ role: string; mailbox: string; exists: boolean; created?: boolean; error?: string }> } }
+        | { ok: false; error: string }
+      >
       onAccountConnected?: (callback: (data: { provider: string; email: string }) => void | Promise<void>) => () => void
     }
     email?: {

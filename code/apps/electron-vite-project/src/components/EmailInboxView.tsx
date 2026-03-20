@@ -11,7 +11,8 @@ import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
-import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
@@ -842,7 +843,7 @@ function InboxMessageRow({
 // ── Main component ──
 
 export interface EmailInboxViewProps {
-  accounts: Array<{ id: string; email: string }>
+  accounts: Array<{ id: string; email: string; status?: string }>
   selectedMessageId?: string | null
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
@@ -888,7 +889,7 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
-  const primaryAccountId = accounts[0]?.id
+  const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
@@ -902,7 +903,6 @@ export default function EmailInboxView({
   const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
-  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
   const [showEmailCompose, setShowEmailCompose] = useState(false)
   const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
   const [replyDraftBody, setReplyDraftBody] = useState<string>('')
@@ -927,9 +927,13 @@ export default function EmailInboxView({
           status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
           lastError: a.lastError,
         })))
-        setSelectedProviderAccountId((prev) =>
-          prev && data.some((a: { id: string }) => a.id === prev) ? prev : data[0]?.id ?? null
-        )
+        setSelectedProviderAccountId((prev) => {
+          if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
+          const pick = pickDefaultEmailAccountRowId(
+            data.map((a) => ({ id: a.id, status: a.status })),
+          )
+          return pick ?? data[0]?.id ?? null
+        })
       } else {
         setProviderAccounts([])
       }
@@ -949,7 +953,15 @@ export default function EmailInboxView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
-  const handleConnectEmail = useCallback(() => setShowEmailConnectModal(true), [])
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadProviderAccounts,
+    theme: 'dark',
+  })
+
+  const handleConnectEmail = useCallback(
+    () => openConnectEmail(ConnectEmailLaunchSource.Inbox),
+    [openConnectEmail],
+  )
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
@@ -1379,15 +1391,7 @@ export default function EmailInboxView({
         </div>
       )}
 
-      <EmailConnectWizard
-        isOpen={showEmailConnectModal}
-        onClose={() => setShowEmailConnectModal(false)}
-        onConnected={() => {
-          loadProviderAccounts()
-          setShowEmailConnectModal(false)
-        }}
-        theme="dark"
-      />
+      {connectEmailFlowModal}
 
       {/* Compose buttons — floating bottom-right */}
       <div

@@ -7,7 +7,8 @@
  * @version 1.0.0
  */
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
+import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
 import { useWRGuardStore } from '../useWRGuardStore'
 import { WRGUARD_SECTIONS, WRGuardSection } from '../types'
 import { EmailProvidersSection, EmailAccount } from './EmailProvidersSection'
@@ -52,6 +53,10 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   const headerBg = isStandard ? '#ffffff' : 'rgba(255,255,255,0.05)'
   
   const { activeSection, setActiveSection, initialize, initialized } = useWRGuardStore()
+  const defaultEmailAccountRowId = useMemo(
+    () => pickDefaultEmailAccountRowId(emailAccounts),
+    [emailAccounts],
+  )
   
   // Initialize WRGuard on mount
   useEffect(() => {
@@ -83,7 +88,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
       case 'handshakes':
         return (
           <HandshakeManagementPanel
-            fromAccountId={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+            fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
             theme={isStandard ? 'professional' : 'default'}
             onViewInInbox={onViewInInbox}
             replyComposerConfig={replyComposerConfig}

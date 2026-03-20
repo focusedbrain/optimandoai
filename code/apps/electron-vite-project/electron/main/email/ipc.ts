@@ -136,14 +136,23 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
+import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
   MessageSearchOptions,
   SendEmailPayload,
-  IMAP_PRESETS
+  IMAP_PRESETS,
+  type CustomImapSmtpConnectPayload
 } from './types'
 import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchestrator'
-import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions, queueRemoteDeletion } from './remoteDeletion'
+import { bulkQueueDeletion, cancelRemoteDeletion } from './remoteDeletion'
+import {
+  enqueueOrchestratorRemoteMutations,
+  scheduleOrchestratorRemoteDrain,
+  listRemoteOrchestratorQueueRows,
+} from './inboxOrchestratorRemoteQueue'
+import { runInboxLifecycleTick } from './inboxLifecycleEngine'
+import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
@@ -286,7 +295,8 @@ export function registerEmailHandlers(): void {
     'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
     'email:checkGmailCredentials', 'email:checkOutlookCredentials',
-    'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap',
+    'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap', 'email:connectCustomMailbox',
+    'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
     'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail', 'email:sendBeapEmail',
     'email:syncAccount', 'email:getSyncStatus',
@@ -487,7 +497,7 @@ export function registerEmailHandlers(): void {
   })
   
   /**
-   * Connect IMAP account
+   * Connect IMAP account (legacy; optional SMTP)
    */
   ipcMain.handle('email:connectImap', async (_e, config: {
     displayName: string
@@ -497,12 +507,48 @@ export function registerEmailHandlers(): void {
     username: string
     password: string
     security: 'ssl' | 'starttls' | 'none'
+    smtpHost?: string
+    smtpPort?: number
+    smtpSecurity?: 'ssl' | 'starttls' | 'none'
+    smtpUsername?: string
+    smtpPassword?: string
   }) => {
     try {
       const account = await emailGateway.connectImapAccount(config)
+      BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
+      })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectImap error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  /**
+   * Custom mailbox: IMAP + SMTP (both required), separate connection tests in main.
+   */
+  ipcMain.handle('email:connectCustomMailbox', async (_e, payload: CustomImapSmtpConnectPayload) => {
+    try {
+      const account = await emailGateway.connectCustomImapSmtpAccount(payload)
+      BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
+      })
+      return { ok: true, data: account }
+    } catch (error: any) {
+      console.error('[Email IPC] connectCustomMailbox error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('email:validateImapLifecycleRemote', async (_e, accountId: string) => {
+    try {
+      if (typeof accountId !== 'string' || !accountId.trim()) {
+        return { ok: false, error: 'Account id is required.' }
+      }
+      return await emailGateway.validateImapLifecycleRemote(accountId.trim())
+    } catch (error: any) {
+      console.error('[Email IPC] validateImapLifecycleRemote error:', error)
       return { ok: false, error: error.message }
     }
   })
@@ -664,7 +710,7 @@ export function registerEmailHandlers(): void {
   })
 
   /**
-   * Send BEAP package via email (uses first connected account).
+   * Send BEAP package via email (uses default connected account row — see `pickDefaultEmailAccountRowId`).
    * Contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }
    */
   ipcMain.handle('email:sendBeapEmail', async (
@@ -673,11 +719,10 @@ export function registerEmailHandlers(): void {
   ) => {
     try {
       const accounts = await emailGateway.listAccounts()
-      const active = accounts.filter((a: any) => a.status === 'active')
-      if (active.length === 0) {
+      const accountId = pickDefaultEmailAccountRowId(accounts)
+      if (!accountId) {
         return { ok: false, error: 'No email account connected. Connect in Settings or use Download.' }
       }
-      const accountId = active[0].id
       const payload: SendEmailPayload = {
         to: [contract.to],
         subject: contract.subject || 'BEAP™ Secure Message',
@@ -753,7 +798,12 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
   else if (filter === 'pending_delete') {
     conditions.push('deleted = 0', 'pending_delete = 1')
   } else if (filter === 'pending_review') {
-    conditions.push('deleted = 0', 'archived = 0', 'sort_category = ?')
+    conditions.push(
+      'deleted = 0',
+      'archived = 0',
+      '(pending_delete = 0 OR pending_delete IS NULL)',
+      'sort_category = ?',
+    )
     params.push('pending_review')
   } else if (filter === 'unread') {
     conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
@@ -810,6 +860,7 @@ export function registerInboxHandlers(
     'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
+    'inbox:listRemoteOrchestratorQueue',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -855,6 +906,25 @@ export function registerInboxHandlers(
   }
 
   const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+
+  /**
+   * After a successful **local** orchestrator write, enqueue best-effort remote mailbox mutations.
+   * Never throws — failures stay in the queue / `remote_orchestrator_last_error` on the message row.
+   */
+  function fireRemoteOrchestratorSync(db: any, ids: string[], operation: OrchestratorRemoteOperation) {
+    if (!db || !ids?.length) return
+    try {
+      const r = enqueueOrchestratorRemoteMutations(db, ids, operation)
+      if (r.enqueued === 0 && r.skipped > 0) {
+        console.warn(
+          `[Inbox] Remote orchestrator: 0 enqueued, ${r.skipped} skipped (op=${operation}, batch=${ids.length}) — rows may lack account_id/email_message_id, wrong source_type, or missing account`,
+        )
+      }
+      scheduleOrchestratorRemoteDrain(getDb)
+    } catch (e) {
+      console.warn('[Inbox] Remote orchestrator enqueue failed:', e)
+    }
+  }
 
   // ── Sync ──
   ipcMain.handle('inbox:syncAccount', async (_e, accountId: string) => {
@@ -1005,8 +1075,10 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = messageIds ?? []
       const stmt = db.prepare('UPDATE inbox_messages SET archived = 1 WHERE id = ?')
-      for (const id of messageIds ?? []) stmt.run(id)
+      for (const id of ids) stmt.run(id)
+      fireRemoteOrchestratorSync(db, ids, 'archive')
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Archive failed' }
@@ -1017,8 +1089,13 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = messageIds ?? []
       const stmt = db.prepare('UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
-      for (const id of messageIds ?? []) stmt.run(category ?? null, id)
+      for (const id of ids) stmt.run(category ?? null, id)
+      const cat = (category ?? '').trim()
+      if (cat === 'pending_review') {
+        fireRemoteOrchestratorSync(db, ids, 'pending_review')
+      }
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Set category failed' }
@@ -1593,6 +1670,12 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
 
       const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
+
+      if (!isUrgent) {
+        if (pendingReview) fireRemoteOrchestratorSync(db, [messageId], 'pending_review')
+        if (pendingDelete) fireRemoteOrchestratorSync(db, [messageId], 'pending_delete')
+      }
+
       return {
         messageId,
         category: effectiveSortCategory,
@@ -1743,10 +1826,12 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = messageIds ?? []
       const now = new Date().toISOString()
       const stmt = db.prepare('UPDATE inbox_messages SET pending_delete = 1, pending_delete_at = ? WHERE id = ?')
-      for (const id of messageIds ?? []) stmt.run(now, id)
-      return { ok: true, data: { marked: (messageIds ?? []).length } }
+      for (const id of ids) stmt.run(now, id)
+      fireRemoteOrchestratorSync(db, ids, 'pending_delete')
+      return { ok: true, data: { marked: ids.length } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Mark failed' }
     }
@@ -1763,6 +1848,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       db.prepare(
         `UPDATE inbox_messages SET sort_category = 'pending_review', pending_review_at = ? WHERE id IN (${placeholders})`
       ).run(now, ...idList)
+      fireRemoteOrchestratorSync(db, idList, 'pending_review')
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Move failed' }
@@ -1808,6 +1894,19 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       return { ok: true, data: { unarchived: true } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Unarchive failed' }
+    }
+  })
+
+  /** Diagnostics: recent remote orchestrator mutation queue rows (pending / failed / completed). */
+  ipcMain.handle('inbox:listRemoteOrchestratorQueue', async (_e, limit?: number) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const n = typeof limit === 'number' && Number.isFinite(limit) ? Math.min(200, Math.max(1, limit)) : 50
+      const rows = listRemoteOrchestratorQueueRows(db, n)
+      return { ok: true, data: rows }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'List failed' }
     }
   })
 
@@ -2011,48 +2110,28 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     }
   })
 
-  // ── Periodic: execute pending deletions every 5 minutes; process 7-day pending_delete → queue ──
+  // ── Periodic: retention lifecycle (UTC) — review 14d → pending delete, pending delete 7d → final queue, remote retries ──
   let deletionInterval: ReturnType<typeof setInterval> | null = null
-  deletionInterval = setInterval(async () => {
+  const runLifecycle = async () => {
     try {
       const db = await resolveDb()
       if (!db) return
-      await executePendingDeletions(db)
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-      const cutoff = sevenDaysAgo.toISOString()
-      const rows = db.prepare(
-        `SELECT m.id FROM inbox_messages m
-         WHERE m.pending_delete = 1 AND m.pending_delete_at <= ?
-         AND NOT EXISTS (SELECT 1 FROM deletion_queue dq WHERE dq.message_id = m.id AND dq.executed = 0 AND dq.cancelled = 0)`
-      ).all(cutoff) as Array<{ id: string }>
-      for (const r of rows) {
-        try {
-          queueRemoteDeletion(db, r.id, 0)
-        } catch (e: any) {
-          console.error('[Inbox IPC] queueRemoteDeletion for pending_delete:', e?.message)
-        }
-      }
-      // Pending review: 14-day grace, then queue for remote deletion
-      const fourteenDaysAgo = new Date()
-      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
-      const reviewCutoff = fourteenDaysAgo.toISOString()
-      const reviewRows = db.prepare(
-        `SELECT id FROM inbox_messages
-         WHERE sort_category = 'pending_review' AND pending_review_at IS NOT NULL AND pending_review_at <= ?
-         AND NOT EXISTS (SELECT 1 FROM deletion_queue dq WHERE dq.message_id = inbox_messages.id AND dq.executed = 0 AND dq.cancelled = 0)`
-      ).all(reviewCutoff) as Array<{ id: string }>
-      for (const r of reviewRows) {
-        try {
-          queueRemoteDeletion(db, r.id, 0)
-        } catch (e: any) {
-          console.error('[Inbox IPC] queueRemoteDeletion for pending_review:', e?.message)
-        }
+      const tick = await runInboxLifecycleTick(db, { getDb })
+      if (
+        tick.errors.length ||
+        tick.promotedReviewToPendingDelete ||
+        tick.promotedPendingDeleteToFinalQueue ||
+        tick.executedPendingDeletionsPass1.executed ||
+        tick.executedPendingDeletionsPass2.executed
+      ) {
+        console.log('[Inbox IPC] lifecycle tick summary:', JSON.stringify(tick))
       }
     } catch (err: any) {
-      console.error('[Inbox IPC] executePendingDeletions error:', err?.message)
+      console.error('[Inbox IPC] lifecycle tick error:', err?.message)
     }
-  }, 5 * 60 * 1000)
+  }
+  deletionInterval = setInterval(runLifecycle, 5 * 60 * 1000)
+  setImmediate(runLifecycle)
 
   console.log('[Inbox IPC] Handlers registered')
 }

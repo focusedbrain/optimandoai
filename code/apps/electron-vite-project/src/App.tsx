@@ -5,8 +5,6 @@ import HandshakeView from './components/HandshakeView'
 import HybridSearch from './components/HybridSearch'
 import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
-import BeapInboxDashboard from './components/BeapInboxDashboard'
-import BeapBulkInboxDashboard from './components/BeapBulkInboxDashboard'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
@@ -51,7 +49,7 @@ function App() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string }>>([])
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string; status?: string }>>([])
 
   useEffect(() => {
     const root = document.documentElement
@@ -122,7 +120,7 @@ function App() {
     const unsub = window.emailAccounts?.onAccountConnected?.(async (data?: { provider?: string; email?: string }) => {
       const res = await window.emailAccounts?.listAccounts?.()
       if (res?.ok && res?.data && res.data.length > 0 && window.emailInbox) {
-        const accounts = res.data as Array<{ id: string; email: string }>
+        const accounts = res.data as Array<{ id: string; email: string; status?: string }>
         const match = data?.email
           ? accounts.find((a) => a.email?.toLowerCase() === data.email?.toLowerCase())
           : accounts[accounts.length - 1]

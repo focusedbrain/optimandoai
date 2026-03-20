@@ -732,6 +732,38 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN ai_analysis_json TEXT`,
     ],
   },
+  {
+    version: 35,
+    description:
+      'Schema v35: Remote orchestrator mutation queue + per-message last remote error (mirrors local lifecycle to mailbox)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS remote_orchestrator_mutation_queue (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        email_message_id TEXT NOT NULL,
+        provider_type TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','processing','completed','failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(message_id, operation)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_remote_orch_queue_status ON remote_orchestrator_mutation_queue(status, updated_at)`,
+      `ALTER TABLE inbox_messages ADD COLUMN remote_orchestrator_last_error TEXT`,
+    ],
+  },
+  {
+    version: 36,
+    description:
+      'Schema v36: Lifecycle audit columns — review exit + final-delete queue timestamps (UTC ISO)',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN lifecycle_exited_review_utc TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN lifecycle_final_delete_queued_utc TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

@@ -1,13 +1,13 @@
 /**
- * EmailConnectWizard — THE ONE shared email connect UI for the entire codebase.
- * Used in: BeapInboxDashboard, BeapBulkInboxDashboard, sidepanel, popup-chat,
- * EmailProvidersSection parents, WRGuardWorkspace, HandshakeRequestForm.
+ * EmailConnectWizard — shared provider UI (Gmail, Microsoft 365, Custom IMAP+SMTP).
+ * Do not mount this directly from product surfaces — use `useConnectEmailFlow` so open/close,
+ * `launchSource`, and account refresh stay consistent (Inbox, Bulk Inbox, WR Chat docked/popup, legacy BEAP dashboards).
  *
- * Platform-aware: works in Electron (window.emailAccounts) and Chrome extension
- * (chrome.runtime.sendMessage). Same flow everywhere.
+ * Platform-aware: Electron (`window.emailAccounts`) and extension (`chrome.runtime.sendMessage`).
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { ConnectEmailLaunchSource, formatConnectEmailLaunchSource } from '../email/connectEmailTypes'
 
 const OAUTH_CALLBACK_PORT = 51249
 const CREDENTIALS_NEEDED_GMAIL = 'credentials not configured'
@@ -18,11 +18,14 @@ export interface EmailConnectWizardProps {
   onClose: () => void
   onConnected: (account: { provider: string; email: string }) => void
   theme?: 'professional' | 'default'
+  /** Optional UI shell context (which surface opened the wizard). */
+  launchSource?: ConnectEmailLaunchSource
 }
 
 type Step = 'provider' | 'credentials' | 'connecting' | 'result'
-type Provider = 'gmail' | 'outlook'
+type Provider = 'gmail' | 'outlook' | 'custom'
 type ResultType = 'success' | 'failure'
+type SecurityModeUi = 'ssl' | 'starttls' | 'none'
 
 declare global {
   interface Window {
@@ -35,12 +38,31 @@ declare global {
       checkOutlookCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
       checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
       listAccounts?: () => Promise<{ ok: boolean; data?: unknown[] }>
+      connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
     }
   }
 }
 
 const isElectron = (): boolean =>
   typeof window !== 'undefined' && typeof (window as any).emailAccounts?.connectGmail === 'function'
+
+function emptyCustomForm() {
+  return {
+    email: '',
+    displayName: '',
+    imapHost: '',
+    imapPort: '993',
+    imapSecurity: 'ssl' as SecurityModeUi,
+    imapUsername: '',
+    imapPassword: '',
+    smtpHost: '',
+    smtpPort: '587',
+    smtpSecurity: 'starttls' as SecurityModeUi,
+    smtpUseSameCredentials: true,
+    smtpUsername: '',
+    smtpPassword: '',
+  }
+}
 
 const isExtension = (): boolean =>
   typeof chrome !== 'undefined' && !!chrome?.runtime?.sendMessage
@@ -50,6 +72,7 @@ export function EmailConnectWizard({
   onClose,
   onConnected,
   theme = 'default',
+  launchSource,
 }: EmailConnectWizardProps) {
   const [step, setStep] = useState<Step>('provider')
   const [provider, setProvider] = useState<Provider | null>(null)
@@ -69,6 +92,7 @@ export function EmailConnectWizard({
   const [vaultUnlocked, setVaultUnlocked] = useState<boolean | undefined>(undefined)
   const [storeInVault, setStoreInVault] = useState(true)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [customForm, setCustomForm] = useState(emptyCustomForm)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -93,6 +117,7 @@ export function EmailConnectWizard({
     setVaultUnlocked(undefined)
     setStoreInVault(true)
     setSaveFeedback(null)
+    setCustomForm(emptyCustomForm())
   }, [])
 
   useEffect(() => {
@@ -259,11 +284,30 @@ export function EmailConnectWizard({
     return { ok: false, error: 'Email connection requires the desktop app or extension.' }
   }, [])
 
+  const connectCustomMailbox = useCallback(
+    async (payload: Record<string, unknown>): Promise<{ ok: boolean; email?: string; error?: string }> => {
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.connectCustomMailbox?.(payload)
+        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+      }
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_CUSTOM_MAILBOX', ...payload })
+        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+      }
+      return { ok: false, error: 'Email connection requires the desktop app or extension.' }
+    },
+    [],
+  )
+
   const handleSelectProvider = useCallback(
     async (p: Provider) => {
       setProvider(p)
       setCredError(null)
       setStep('credentials')
+      if (p === 'custom') {
+        setCustomForm(emptyCustomForm())
+        return
+      }
       if (p === 'gmail') {
         try {
           const check = await checkGmailCreds()
@@ -319,6 +363,51 @@ export function EmailConnectWizard({
     if (!provider) return
     setCredError(null)
     setSaveFeedback(null)
+    if (provider === 'custom') {
+      const cf = customForm
+      const email = cf.email.trim()
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setCredError('Enter a valid email address.')
+        return
+      }
+      if (!cf.imapHost.trim()) {
+        setCredError('IMAP server host is required.')
+        return
+      }
+      const imapPort = parseInt(cf.imapPort, 10)
+      if (!Number.isInteger(imapPort) || imapPort < 1 || imapPort > 65535) {
+        setCredError('IMAP port must be a number from 1 to 65535 (common: 993 for SSL).')
+        return
+      }
+      if (!cf.smtpHost.trim()) {
+        setCredError('SMTP server host is required for sending mail.')
+        return
+      }
+      const smtpPort = parseInt(cf.smtpPort, 10)
+      if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+        setCredError('SMTP port must be a number from 1 to 65535 (common: 587 STARTTLS or 465 SSL).')
+        return
+      }
+      if (!cf.imapPassword.trim()) {
+        setCredError('IMAP password or app password is required.')
+        return
+      }
+      if (!cf.smtpUseSameCredentials) {
+        if (!cf.smtpUsername.trim()) {
+          setCredError('SMTP username is required when it is not the same as IMAP.')
+          return
+        }
+        if (!cf.smtpPassword.trim()) {
+          setCredError('SMTP password is required when it is not the same as IMAP.')
+          return
+        }
+      }
+      setStep('connecting')
+      setConnecting(true)
+      setConnectingElapsed(0)
+      setConnectingTimedOut(false)
+      return
+    }
     if (provider === 'gmail') {
       const c = gmailCreds
       if (!c.clientId?.trim() || !c.clientSecret?.trim()) {
@@ -362,7 +451,7 @@ export function EmailConnectWizard({
     setConnecting(true)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
-  }, [provider, gmailCreds, outlookCreds, storeInVault, saveGmailCreds, saveOutlookCreds])
+  }, [provider, gmailCreds, outlookCreds, storeInVault, saveGmailCreds, saveOutlookCreds, customForm])
 
   const handleConnectWithExisting = useCallback(() => {
     setCredError(null)
@@ -375,16 +464,41 @@ export function EmailConnectWizard({
   useEffect(() => {
     if (step !== 'connecting' || !connecting) return
     const connect = async () => {
-      const doConnect = provider === 'gmail' ? connectGmail : connectOutlook
       try {
-        const res = await doConnect()
+        let res: { ok: boolean; email?: string; error?: string }
+        if (provider === 'gmail') {
+          res = await connectGmail()
+        } else if (provider === 'outlook') {
+          res = await connectOutlook()
+        } else {
+          const cf = customForm
+          const imapPort = parseInt(cf.imapPort, 10)
+          const smtpPort = parseInt(cf.smtpPort, 10)
+          res = await connectCustomMailbox({
+            displayName: cf.displayName.trim() || undefined,
+            email: cf.email.trim(),
+            imapHost: cf.imapHost.trim(),
+            imapPort,
+            imapSecurity: cf.imapSecurity,
+            imapUsername: cf.imapUsername.trim() || undefined,
+            imapPassword: cf.imapPassword,
+            smtpHost: cf.smtpHost.trim(),
+            smtpPort,
+            smtpSecurity: cf.smtpSecurity,
+            smtpUseSameCredentials: cf.smtpUseSameCredentials,
+            smtpUsername: cf.smtpUseSameCredentials ? undefined : cf.smtpUsername.trim() || undefined,
+            smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
+          })
+        }
         setConnecting(false)
         setStep('result')
         if (res.ok) {
           setResult('success')
-          setResultEmail(res.email || '')
+          const em = res.email || (provider === 'custom' ? customForm.email.trim() : '')
+          setResultEmail(em)
+          const providerTag = provider === 'custom' ? 'imap' : provider!
           setTimeout(() => {
-            onConnected({ provider: provider!, email: res.email || '' })
+            onConnected({ provider: providerTag, email: em })
             onClose()
           }, 3000)
         } else {
@@ -399,7 +513,7 @@ export function EmailConnectWizard({
       }
     }
     connect()
-  }, [step, connecting, provider, connectGmail, connectOutlook, onConnected, onClose])
+  }, [step, connecting, provider, connectGmail, connectOutlook, connectCustomMailbox, customForm, onConnected, onClose])
 
   useEffect(() => {
     if (step !== 'connecting' || !connecting) return
@@ -439,7 +553,8 @@ export function EmailConnectWizard({
 
   const handleDone = useCallback(() => {
     if (result === 'success' && resultEmail) {
-      onConnected({ provider: provider!, email: resultEmail })
+      const providerTag = provider === 'custom' ? 'imap' : provider!
+      onConnected({ provider: providerTag, email: resultEmail })
     }
     onClose()
   }, [result, resultEmail, provider, onConnected, onClose])
@@ -449,6 +564,7 @@ export function EmailConnectWizard({
   const hasElectron = isElectron()
   const hasExtension = isExtension()
   const canConnect = hasElectron || hasExtension
+  const modalWidth = provider === 'custom' ? 'min(500px, 96vw)' : '400px'
 
   return (
     <div
@@ -465,7 +581,7 @@ export function EmailConnectWizard({
     >
       <div
         style={{
-          width: '400px',
+          width: modalWidth,
           maxHeight: '90vh',
           background: isPro ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
           borderRadius: '16px',
@@ -491,7 +607,12 @@ export function EmailConnectWizard({
             <span style={{ fontSize: '24px' }}>📧</span>
             <div>
               <div style={{ fontSize: '16px', fontWeight: '600' }}>Connect Your Email</div>
-              <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via official API</div>
+              <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via OAuth or IMAP/SMTP</div>
+              {launchSource != null && (
+                <div style={{ fontSize: '10px', opacity: 0.88, marginTop: '3px' }}>
+                  {formatConnectEmailLaunchSource(launchSource)}
+                </div>
+              )}
             </div>
           </div>
           <button
@@ -580,6 +701,30 @@ export function EmailConnectWizard({
                 </div>
                 <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
               </button>
+              <button
+                onClick={() => canConnect && handleSelectProvider('custom')}
+                disabled={!canConnect}
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  background: inputBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '10px',
+                  cursor: canConnect ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  marginBottom: '10px',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: '24px' }}>⚙️</span>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Custom Email (IMAP + SMTP)</div>
+                  <div style={{ fontSize: '11px', color: mutedColor }}>Any provider — inbox via IMAP, sending via SMTP</div>
+                </div>
+                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
+              </button>
               <div style={{ marginTop: '16px', padding: '12px', background: isPro ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                   <span style={{ fontSize: '14px' }}>🔒</span>
@@ -615,17 +760,19 @@ export function EmailConnectWizard({
                 ← Back to provider selection
               </button>
               <div style={{ fontSize: '14px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>
-                Set up {provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth
+                {provider === 'custom'
+                  ? 'Custom email (IMAP + SMTP)'
+                  : `Set up ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth`}
               </div>
 
               {/* Vault status (for new saves) — only when no existing creds or source is none */}
-              {!existingGmail && !existingOutlook && vaultUnlocked === true && (
+              {provider !== 'custom' && !existingGmail && !existingOutlook && vaultUnlocked === true && (
                 <div style={{ padding: '10px 12px', background: isPro ? '#ecfdf5' : 'rgba(34,197,94,0.15)', borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: isPro ? '#166534' : 'rgba(34,197,94,0.95)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>🔐</span>
                   <span>Credentials will be stored encrypted in your vault.</span>
                 </div>
               )}
-              {!existingGmail && !existingOutlook && vaultUnlocked === false && (
+              {provider !== 'custom' && !existingGmail && !existingOutlook && vaultUnlocked === false && (
                 <div style={{ padding: '10px 12px', background: isPro ? '#fef3c7' : 'rgba(245,158,11,0.2)', borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: isPro ? '#92400e' : 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>⚠️</span>
                   <span>Vault is locked. Your credentials will be stored temporarily. Unlock your vault for permanent encrypted storage.</span>
@@ -959,6 +1106,192 @@ export function EmailConnectWizard({
                   )}
                 </>
               )}
+
+              {provider === 'custom' && (
+                <>
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: isPro ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.12)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(59,130,246,0.25)',
+                      marginBottom: '12px',
+                      fontSize: '11px',
+                      color: isPro ? '#1e40af' : 'rgba(255,255,255,0.88)',
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    <strong>Inbox</strong> uses IMAP. <strong>Sending</strong> uses SMTP — both are tested before the account is saved. Passwords are stored encrypted on disk when your OS secure storage is available (same as OAuth tokens).
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Email address *</label>
+                    <input
+                      type="email"
+                      value={customForm.email}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="you@company.com"
+                      autoComplete="email"
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Display name (optional)</label>
+                    <input
+                      type="text"
+                      value={customForm.displayName}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, displayName: e.target.value }))}
+                      placeholder="Work mailbox"
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    />
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginTop: '8px' }}>IMAP (inbox)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 88px', gap: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Host *</label>
+                      <input
+                        type="text"
+                        value={customForm.imapHost}
+                        onChange={(e) => setCustomForm((p) => ({ ...p, imapHost: e.target.value }))}
+                        placeholder="imap.example.com"
+                        autoComplete="off"
+                        style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Port *</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={customForm.imapPort}
+                        onChange={(e) => setCustomForm((p) => ({ ...p, imapPort: e.target.value }))}
+                        placeholder="993"
+                        style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
+                    <select
+                      value={customForm.imapSecurity}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, imapSecurity: e.target.value as SecurityModeUi }))}
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    >
+                      <option value="ssl">SSL/TLS (typical port 993)</option>
+                      <option value="starttls">STARTTLS (often port 143)</option>
+                      <option value="none">None (not recommended)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Username (optional)</label>
+                    <input
+                      type="text"
+                      value={customForm.imapUsername}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, imapUsername: e.target.value }))}
+                      placeholder="Defaults to your email address"
+                      autoComplete="username"
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Password or app password *</label>
+                    <input
+                      type="password"
+                      value={customForm.imapPassword}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, imapPassword: e.target.value }))}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    />
+                  </div>
+
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginTop: '12px' }}>SMTP (sending)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 88px', gap: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Host *</label>
+                      <input
+                        type="text"
+                        value={customForm.smtpHost}
+                        onChange={(e) => setCustomForm((p) => ({ ...p, smtpHost: e.target.value }))}
+                        placeholder="smtp.example.com"
+                        autoComplete="off"
+                        style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Port *</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={customForm.smtpPort}
+                        onChange={(e) => setCustomForm((p) => ({ ...p, smtpPort: e.target.value }))}
+                        placeholder="587"
+                        style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
+                    <select
+                      value={customForm.smtpSecurity}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, smtpSecurity: e.target.value as SecurityModeUi }))}
+                      style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                    >
+                      <option value="starttls">STARTTLS (typical port 587)</option>
+                      <option value="ssl">SSL/TLS (typical port 465)</option>
+                      <option value="none">None (not recommended)</option>
+                    </select>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: textColor, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={customForm.smtpUseSameCredentials}
+                      onChange={(e) => setCustomForm((p) => ({ ...p, smtpUseSameCredentials: e.target.checked }))}
+                    />
+                    Use same username and password for SMTP as for IMAP
+                  </label>
+                  {!customForm.smtpUseSameCredentials && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>SMTP username *</label>
+                        <input
+                          type="text"
+                          value={customForm.smtpUsername}
+                          onChange={(e) => setCustomForm((p) => ({ ...p, smtpUsername: e.target.value }))}
+                          style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>SMTP password *</label>
+                        <input
+                          type="password"
+                          value={customForm.smtpPassword}
+                          onChange={(e) => setCustomForm((p) => ({ ...p, smtpPassword: e.target.value }))}
+                          style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {credError && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px' }}>{credError}</div>}
+                  <button
+                    type="button"
+                    onClick={handleSaveAndConnect}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      marginTop: '12px',
+                      background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: 'white',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Test IMAP &amp; SMTP and connect
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -967,14 +1300,23 @@ export function EmailConnectWizard({
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
               <div style={{ fontSize: '36px', marginBottom: '16px', animation: 'spin 1s linear infinite' }}>⏳</div>
               <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-                Connecting to {provider === 'gmail' ? 'Gmail' : 'Outlook'}...
+                {provider === 'custom'
+                  ? 'Testing IMAP and SMTP...'
+                  : `Connecting to ${provider === 'gmail' ? 'Gmail' : 'Outlook'}...`}
               </div>
               <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '16px' }}>
-                Please complete the authorization in your browser window.
+                {provider === 'custom'
+                  ? 'Checking inbox login and send authentication. This usually takes a few seconds.'
+                  : 'Please complete the authorization in your browser window.'}
               </div>
-              {connectingElapsed >= 30 && connectingElapsed < 90 && (
+              {provider !== 'custom' && connectingElapsed >= 30 && connectingElapsed < 90 && (
                 <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '12px' }}>
                   Still waiting... Make sure you completed the sign-in in your browser.
+                </div>
+              )}
+              {provider === 'custom' && connectingElapsed >= 25 && connectingElapsed < 90 && (
+                <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '12px' }}>
+                  Still working… If this hangs, confirm firewall/VPN allows IMAP/SMTP to your server.
                 </div>
               )}
               {connectingTimedOut && (

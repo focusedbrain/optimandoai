@@ -14,7 +14,7 @@ import { BeapMessageDetailPanel } from '@ext/beap-messages/components/BeapMessag
 import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import type { BeapMessageDetailPanelHandle } from '@ext/beap-messages/components/BeapMessageDetailPanel'
-import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { useBeapInboxStore } from '@ext/beap-messages/useBeapInboxStore'
 import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/beapInboxTypes'
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
@@ -98,7 +98,6 @@ export default function BeapInboxDashboard({
   const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
 
   const notify = useCallback((msg: string, type: 'success' | 'error' | 'info') => {
@@ -133,9 +132,14 @@ export default function BeapInboxDashboard({
     return () => unsub?.()
   }, [loadEmailAccounts])
 
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadEmailAccounts,
+    theme: THEME,
+  })
+
   const handleConnectEmail = useCallback(() => {
-    setShowEmailConnectModal(true)
-  }, [])
+    openConnectEmail(ConnectEmailLaunchSource.BeapInboxDashboard)
+  }, [openConnectEmail])
 
   const handleDisconnectEmail = useCallback(async (id: string) => {
     try {
@@ -477,17 +481,7 @@ export default function BeapInboxDashboard({
         </div>
       )}
 
-      {/* Email Connect Wizard */}
-      <EmailConnectWizard
-        isOpen={showEmailConnectModal}
-        onClose={() => setShowEmailConnectModal(false)}
-        onConnected={() => {
-          notify('Email connected', 'success')
-          loadEmailAccounts()
-          setShowEmailConnectModal(false)
-        }}
-        theme="professional"
-      />
+      {connectEmailFlowModal}
 
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>

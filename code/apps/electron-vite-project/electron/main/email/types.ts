@@ -49,6 +49,64 @@ export interface ImapPreset {
 /**
  * Built-in IMAP presets for common providers
  */
+/**
+ * Payload for “Custom email (IMAP + SMTP)” connect — both transports are required.
+ * Validated in the main-process gateway before persistence.
+ */
+export interface CustomImapSmtpConnectPayload {
+  displayName?: string
+  email: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: SecurityMode
+  /** If omitted, the gateway uses `email` as the IMAP login username. */
+  imapUsername?: string
+  imapPassword: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: SecurityMode
+  /** When true, SMTP uses the same username/password as IMAP. */
+  smtpUseSameCredentials: boolean
+  smtpUsername?: string
+  smtpPassword?: string
+  /** Optional lifecycle mailbox names — stored on the account as `orchestratorRemote` (see `mailboxLifecycleMapping`). */
+  imapLifecycleArchiveMailbox?: string
+  imapLifecyclePendingReviewMailbox?: string
+  imapLifecyclePendingDeleteMailbox?: string
+  imapLifecycleTrashMailbox?: string
+}
+
+/** One row from IMAP lifecycle folder validation (`validateLifecycleRemoteBoxes` / IPC). */
+export interface ImapLifecycleValidationEntry {
+  role: 'archive' | 'pending_review' | 'pending_delete' | 'trash'
+  mailbox: string
+  exists: boolean
+  /** Set when the server had no mailbox but `CREATE` succeeded. */
+  created?: boolean
+  error?: string
+}
+
+export interface ImapLifecycleValidationResult {
+  ok: boolean
+  entries: ImapLifecycleValidationEntry[]
+}
+
+/**
+ * Per-account overrides for remote lifecycle mirroring (labels / folders / IMAP mailboxes).
+ * Merged with defaults in `domain/mailboxLifecycleMapping.ts` → `resolveOrchestratorRemoteNames`.
+ */
+export interface OrchestratorRemoteNamesInput {
+  gmailPendingReviewLabel?: string
+  gmailPendingDeleteLabel?: string
+  gmailArchiveRemoveLabelIds?: string[]
+  outlookPendingReviewFolder?: string
+  outlookPendingDeleteFolder?: string
+  imapArchiveMailbox?: string
+  imapPendingReviewMailbox?: string
+  imapPendingDeleteMailbox?: string
+  imapTrashMailbox?: string
+}
+
 export const IMAP_PRESETS: Record<string, ImapPreset> = {
   'web.de': {
     name: 'WEB.DE',
@@ -139,13 +197,69 @@ export const IMAP_PRESETS: Record<string, ImapPreset> = {
 }
 
 // =============================================================================
-// Account Configuration
+// Provider capabilities (derived; not stored per row except via authType + provider)
 // =============================================================================
 
 /**
- * Email account configuration
- * Stored securely in the local database
+ * What this **account row** can do, combining static provider implementation traits
+ * with the row's `authType` (OAuth vs password).
+ *
+ * Computed in the main process — see `domain/capabilitiesRegistry.ts`.
  */
+export interface ProviderAccountCapabilities {
+  oauthBased: boolean
+  passwordBased: boolean
+  inboundSyncCapable: boolean
+  outboundSendCapable: boolean
+  remoteFolderMutationCapable: boolean
+  /**
+   * True when this build’s provider adapter can **discover** extra distinct mailboxes from the
+   * vendor API under one saved account without user-defined slices (e.g. auto-listed shared mailboxes).
+   * Does **not** claim vendor API limits — only what we implemented.
+   */
+  multiMailboxPerAuthGrantSupported: boolean
+  /**
+   * True when `EmailAccountConfig.mailboxes` may hold multiple logical mailbox/postbox slices on one row.
+   * Structural feature of our persistence model (always true); slices may still be length 1 in practice.
+   */
+  supportsMultipleMailboxSlicesOnRow: boolean
+}
+
+// =============================================================================
+// Account Configuration (persistence DTO — `email-accounts.json`)
+// =============================================================================
+
+/**
+ * Persisted **provider account** row: credentials + folder routing + sync prefs.
+ *
+ * Domain separation (logical, not separate tables yet):
+ * - **Provider** — `provider` + static profile in `domain/capabilitiesRegistry.ts`
+ * - **Connected identity** — `email`, `displayName`, optional `externalPrincipalId`
+ * - **Secrets** — `oauth` | `imap` | optional `smtp` (SMTP not wired for all paths yet)
+ * - **Mailbox / sync targets** — root `folders` plus optional `mailboxes[]` slices (same OAuth/IMAP row)
+ * - Normalized plans via `domain/mailboxResolution` + `domain/mailboxSyncPlan`
+ */
+/** Optional slice of a remote mailbox/postbox under one saved connection (same credentials). */
+export interface ProviderMailboxSlice {
+  /** Stable id within this account row (used with `MessageSearchOptions.mailboxId`). */
+  mailboxId: string
+  /** Shown in future multi-mailbox UI. */
+  label: string
+  /**
+   * Provider-specific resource (e.g. shared mailbox SMTP address, Graph mailbox id).
+   * Omit for the default mailbox served by the current credentials.
+   */
+  providerMailboxResourceRef?: string
+  /** Per-slice folder routing; omitted fields inherit from the account root `folders`. */
+  folders?: {
+    monitored?: string[]
+    inbox?: string
+    sent?: string
+  }
+  /** Exactly one slice per row should be default; if omitted, first slice or implicit default is used. */
+  isDefault?: boolean
+}
+
 export interface EmailAccountConfig {
   /** Unique account identifier */
   id: string
@@ -161,6 +275,11 @@ export interface EmailAccountConfig {
   
   /** Authentication type */
   authType: AuthType
+
+  /**
+   * Optional IdP / API principal id (e.g. OAuth `sub`, Graph user id) for linking or future multi-mailbox.
+   */
+  externalPrincipalId?: string
   
   /** OAuth tokens (for gmail/microsoft365) */
   oauth?: {
@@ -176,7 +295,9 @@ export interface EmailAccountConfig {
     port: number
     security: SecurityMode
     username: string
-    password: string  // Encrypted at rest
+    password: string  // Encrypted at rest when `_encrypted` is true
+    /** When true, `password` was stored with OS secure storage (see gateway save/load). */
+    _encrypted?: boolean
   }
   
   /** SMTP settings for sending (optional) */
@@ -185,10 +306,11 @@ export interface EmailAccountConfig {
     port: number
     security: SecurityMode
     username: string
-    password: string  // Encrypted at rest
+    password: string  // Encrypted at rest when `_encrypted` is true
+    _encrypted?: boolean
   }
   
-  /** Folder/label configuration */
+  /** Folder/label configuration for the default mailbox (and inherited base for slices). */
   folders: {
     /** Folders to monitor for new emails */
     monitored: string[]
@@ -197,6 +319,18 @@ export interface EmailAccountConfig {
     /** Sent folder name */
     sent?: string
   }
+
+  /**
+   * Remote lifecycle label/folder names (archive, pending review/delete, trash) — merged with product defaults
+   * in `domain/mailboxLifecycleMapping.ts`.
+   */
+  orchestratorRemote?: OrchestratorRemoteNamesInput
+
+  /**
+   * Optional: multiple logical mailboxes/postboxes sharing this row’s credentials.
+   * When absent, a single implicit slice is assumed (`mailboxId` `default` in resolution).
+   */
+  mailboxes?: ProviderMailboxSlice[]
   
   /** Sync settings */
   sync: {
@@ -224,9 +358,17 @@ export interface EmailAccountConfig {
   updatedAt: number
 }
 
+/** Safe summary of a mailbox slice for UI / IPC (no folder passwords). */
+export interface EmailAccountMailboxSummary {
+  mailboxId: string
+  label: string
+  isDefault: boolean
+  providerMailboxResourceRef?: string
+}
+
 /**
- * Safe subset of account config for UI display
- * (excludes sensitive credentials)
+ * Safe subset of account config for UI / IPC
+ * (excludes sensitive credentials).
  */
 export interface EmailAccountInfo {
   id: string
@@ -240,6 +382,10 @@ export interface EmailAccountInfo {
     monitored: string[]
     inbox: string
   }
+  /** Derived capability flags (OAuth vs password + provider features). */
+  capabilities?: ProviderAccountCapabilities
+  /** Resolved mailbox/postbox slices for this row (always ≥1: implicit default or explicit `mailboxes`). */
+  mailboxes?: EmailAccountMailboxSummary[]
 }
 
 // =============================================================================
@@ -399,6 +545,12 @@ export interface ExtractedAttachmentText {
 export interface MessageSearchOptions {
   /** Folder to search in (default: all monitored) */
   folder?: string
+
+  /**
+   * When the account row has multiple `mailboxes` slices, selects which slice’s folder defaults apply.
+   * Omit to use the default slice for that row.
+   */
+  mailboxId?: string
   
   /** Maximum results to return */
   limit?: number
@@ -580,6 +732,11 @@ export interface IEmailGateway {
   // OAuth helpers
   getOAuthUrl(provider: 'gmail' | 'microsoft365'): string
   handleOAuthCallback(provider: 'gmail' | 'microsoft365', code: string): Promise<EmailAccountInfo>
+
+  /** IMAP only: LIST + optional CREATE for lifecycle mailboxes (see `domain/mailboxLifecycleMapping.ts`). */
+  validateImapLifecycleRemote(
+    accountId: string,
+  ): Promise<{ ok: true; result: ImapLifecycleValidationResult } | { ok: false; error: string }>
 }
 
 

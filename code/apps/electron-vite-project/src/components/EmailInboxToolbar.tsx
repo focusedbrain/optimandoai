@@ -4,6 +4,7 @@
 
 import React from 'react'
 import type { InboxFilter } from '../stores/useEmailInboxStore'
+import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 
 // ── Types ──
 
@@ -108,7 +109,7 @@ export default function EmailInboxToolbar({
   onBulkMoveToPendingReview,
   onBulkCategorize,
 }: EmailInboxToolbarProps) {
-  const primaryAccountId = accounts[0]?.id
+  const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   return (
     <div

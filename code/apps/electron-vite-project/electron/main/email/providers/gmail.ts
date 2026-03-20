@@ -23,6 +23,14 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+} from '../domain/orchestratorRemoteTypes'
+import {
+  resolveOrchestratorRemoteNames,
+  REMOTE_DELETION_TARGETS,
+} from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
 
@@ -69,12 +77,17 @@ export function saveOAuthConfig(clientId: string, clientSecret: string): void {
   }
 }
 
+const GMAIL_WRDESK_LABEL_PENDING_REVIEW = 'WRDesk/PendingReview'
+const GMAIL_WRDESK_LABEL_PENDING_DELETE = 'WRDesk/PendingDelete'
+
 export class GmailProvider extends BaseEmailProvider {
   readonly providerType = 'gmail' as const
   
   private accessToken: string | null = null
   private refreshToken: string | null = null
   private tokenExpiresAt: number = 0
+  /** User-label name → Gmail label id */
+  private wrDeskLabelIdCache: Map<string, string> = new Map()
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -100,6 +113,7 @@ export class GmailProvider extends BaseEmailProvider {
     this.tokenExpiresAt = 0
     this.connected = false
     this.config = null
+    this.wrDeskLabelIdCache.clear()
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -273,7 +287,105 @@ export class GmailProvider extends BaseEmailProvider {
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    await this.apiRequest('POST', `/users/me/messages/${messageId}/trash`)
+    await this.apiRequest(
+      'POST',
+      `/users/me/messages/${messageId}${REMOTE_DELETION_TARGETS.gmail.trashApiSuffix}`,
+    )
+  }
+
+  /**
+   * Gmail mapping:
+   * - **archive** — remove `INBOX` (All Mail / archive semantics).
+   * - **pending_review** — user label `WRDesk/PendingReview`, remove INBOX + conflicting WRDesk label.
+   * - **pending_delete** — user label `WRDesk/PendingDelete`, strip INBOX + PendingReview label.
+   */
+  async applyOrchestratorRemoteOperation(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    try {
+      if (!this.config) {
+        return { ok: false, error: 'Not connected' }
+      }
+      const names = resolveOrchestratorRemoteNames(this.config)
+      const reviewId = await this.ensureWrDeskUserLabel(names.gmail.pendingReviewLabel)
+      const deleteId = await this.ensureWrDeskUserLabel(names.gmail.pendingDeleteLabel)
+
+      if (operation === 'archive') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          removeLabelIds: names.gmail.archiveRemoveLabelIds,
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'pending_review') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [reviewId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId],
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'pending_delete') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [deleteId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId],
+        })
+        return { ok: true }
+      }
+
+      return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      if (this.isGmailIdempotentModifyError(msg)) {
+        return { ok: true, skipped: true }
+      }
+      return { ok: false, error: msg }
+    }
+  }
+
+  private isGmailIdempotentModifyError(message: string): boolean {
+    const m = message.toLowerCase()
+    return (
+      m.includes('invalid label') ||
+      m.includes('label not found') ||
+      m.includes('cannot remove label') ||
+      m.includes('already exists')
+    )
+  }
+
+  private async gmailModifyOrIdempotent(
+    messageId: string,
+    body: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<void> {
+    try {
+      await this.apiRequest('POST', `/users/me/messages/${messageId}/modify`, body)
+    } catch (e: any) {
+      if (this.isGmailIdempotentModifyError(e?.message || '')) return
+      throw e
+    }
+  }
+
+  private async ensureWrDeskUserLabel(displayName: string): Promise<string> {
+    const cached = this.wrDeskLabelIdCache.get(displayName)
+    if (cached) return cached
+
+    const listed = await this.apiRequest('GET', '/users/me/labels')
+    const labels = listed.labels || []
+    const found = labels.find((l: any) => l.name === displayName && l.type === 'user')
+    if (found?.id) {
+      this.wrDeskLabelIdCache.set(displayName, found.id)
+      return found.id
+    }
+
+    const created = await this.apiRequest('POST', '/users/me/labels', {
+      name: displayName,
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    })
+    if (!created?.id) throw new Error('Gmail label create returned no id')
+    this.wrDeskLabelIdCache.set(displayName, created.id)
+    return created.id
   }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {

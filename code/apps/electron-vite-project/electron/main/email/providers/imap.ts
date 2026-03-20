@@ -18,8 +18,43 @@ import {
   EmailAccountConfig, 
   MessageSearchOptions, 
   SendEmailPayload, 
-  SendResult 
+  SendResult,
+  type ImapLifecycleValidationEntry,
+  type ImapLifecycleValidationResult,
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+} from '../domain/orchestratorRemoteTypes'
+import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
+
+export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
+
+function imapFolderListHasMailbox(folders: FolderInfo[], want: string): boolean {
+  const w = want.toLowerCase().trim()
+  if (!w) return false
+  return folders.some((f) => {
+    const n = f.name.toLowerCase()
+    const p = f.path.toLowerCase()
+    const d = f.delimiter || '/'
+    return n === w || p === w || p.endsWith(`${d}${w}`)
+  })
+}
+
+/** Nodemailer transport options aligned with SecurityMode (SSL/465 vs STARTTLS/587). */
+export function createSmtpTransport(smtp: NonNullable<EmailAccountConfig['smtp']>) {
+  return nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.security === 'ssl',
+    requireTLS: smtp.security === 'starttls',
+    auth: {
+      user: smtp.username,
+      pass: smtp.password
+    },
+    tls: { rejectUnauthorized: false }
+  })
+}
 
 /**
  * IMAP Provider class
@@ -92,6 +127,28 @@ export class ImapProvider extends BaseEmailProvider {
       return { success: true }
     } catch (err: any) {
       return { success: false, error: err.message || 'Connection failed' }
+    }
+  }
+
+  /**
+   * Verify SMTP authentication and TLS handshake (does not send a message).
+   */
+  static async testSmtpConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
+    if (!config.smtp) {
+      return { success: false, error: 'SMTP is not configured' }
+    }
+    const transporter = createSmtpTransport(config.smtp)
+    try {
+      await transporter.verify()
+      transporter.close()
+      return { success: true }
+    } catch (err: any) {
+      try { transporter.close() } catch { /* ignore */ }
+      const msg = err?.message || err?.response || 'SMTP connection failed'
+      return {
+        success: false,
+        error: typeof msg === 'string' ? msg : 'SMTP connection failed'
+      }
     }
   }
   
@@ -401,17 +458,123 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    if (!this.client) throw new Error('Not connected')
-    const folder = this.config?.folders.inbox || 'INBOX'
-    await new Promise<void>((resolve, reject) => {
-      this.client!.openBox(folder, false, (err) => {
-        if (err) { reject(err); return }
-        this.client!.addFlags(messageId, ['\\Deleted'], (addErr) => {
-          if (addErr) { reject(addErr); return }
-          this.client!.expunge((expErr) => {
-            if (expErr) reject(expErr)
-            else resolve()
-          })
+    if (!this.client || !this.config) throw new Error('Not connected')
+    const names = resolveOrchestratorRemoteNames(this.config)
+    await this.imapEnsureMailbox(names.imap.trashMailbox)
+    await this.imapMoveFromInbox(messageId, names.imap.trashMailbox)
+  }
+
+  /**
+   * IMAP mapping: ensure destination mailbox exists, then `MOVE` from the configured inbox folder.
+   * May fail on servers with different folder naming — operators can create folders manually with these names.
+   */
+  /**
+   * LIST mailboxes, then for each configured lifecycle name either confirm it exists or try `CREATE`.
+   * Does not guarantee nested paths (e.g. `INBOX/Archive`) — use flat names or pre-create on the server.
+   */
+  async validateLifecycleRemoteBoxes(): Promise<ImapLifecycleValidationResult> {
+    if (!this.client || !this.config) {
+      throw new Error('Not connected')
+    }
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const folders = await this.listFolders()
+    const specs: { role: ImapLifecycleValidationEntry['role']; mailbox: string }[] = [
+      { role: 'archive', mailbox: names.imap.archiveMailbox },
+      { role: 'pending_review', mailbox: names.imap.pendingReviewMailbox },
+      { role: 'pending_delete', mailbox: names.imap.pendingDeleteMailbox },
+      { role: 'trash', mailbox: names.imap.trashMailbox },
+    ]
+    const entries: ImapLifecycleValidationEntry[] = []
+    for (const { role, mailbox } of specs) {
+      const m = mailbox.trim()
+      if (!m) {
+        entries.push({ role, mailbox, exists: false, error: 'Mailbox name is empty' })
+        continue
+      }
+      if (imapFolderListHasMailbox(folders, m)) {
+        entries.push({ role, mailbox: m, exists: true })
+        continue
+      }
+      try {
+        await this.imapEnsureMailbox(m)
+        entries.push({ role, mailbox: m, exists: true, created: true })
+      } catch (e: any) {
+        entries.push({
+          role,
+          mailbox: m,
+          exists: false,
+          error: e?.message || String(e),
+        })
+      }
+    }
+    return { ok: entries.every((e) => e.exists), entries }
+  }
+
+  async applyOrchestratorRemoteOperation(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    if (!this.config) {
+      return { ok: false, error: 'Not connected' }
+    }
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const dest =
+      operation === 'archive'
+        ? names.imap.archiveMailbox
+        : operation === 'pending_review'
+          ? names.imap.pendingReviewMailbox
+          : operation === 'pending_delete'
+            ? names.imap.pendingDeleteMailbox
+            : ''
+    if (!dest) {
+      return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
+    }
+    try {
+      await this.imapEnsureMailbox(dest)
+      await this.imapMoveFromInbox(messageId, dest)
+      return { ok: true }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      if (/no such message|not found|does not exist|try again/i.test(msg)) {
+        return { ok: true, skipped: true }
+      }
+      return { ok: false, error: msg }
+    }
+  }
+
+  private imapEnsureMailbox(mailboxName: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.client) {
+        reject(new Error('Not connected'))
+        return
+      }
+      this.client.addBox(mailboxName, (err) => {
+        if (!err) {
+          resolve()
+          return
+        }
+        const m = String((err as Error).message || err)
+        if (/exists|EXISTS|already/i.test(m)) resolve()
+        else reject(err)
+      })
+    })
+  }
+
+  private imapMoveFromInbox(uid: string, destMailbox: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.client) {
+        reject(new Error('Not connected'))
+        return
+      }
+      const inbox = this.config?.folders.inbox || 'INBOX'
+      this.client.openBox(inbox, false, (err) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        this.client!.move(uid, destMailbox, (moveErr) => {
+          if (moveErr) reject(moveErr)
+          else resolve()
         })
       })
     })
@@ -424,15 +587,7 @@ export class ImapProvider extends BaseEmailProvider {
     
     try {
       if (!this.transporter) {
-        this.transporter = nodemailer.createTransport({
-          host: this.config.smtp.host,
-          port: this.config.smtp.port,
-          secure: this.config.smtp.security === 'ssl',
-          auth: {
-            user: this.config.smtp.username,
-            pass: this.config.smtp.password
-          }
-        })
+        this.transporter = createSmtpTransport(this.config.smtp)
       }
       
       const attachments = (payload.attachments ?? []).map((a) => ({

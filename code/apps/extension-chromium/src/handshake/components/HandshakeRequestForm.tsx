@@ -23,6 +23,7 @@ import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import type { ProfileContextItem } from '@shared/handshake/types'
 import { getVaultStatus } from '../../vault/api'
+import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
 
 export interface EmailAccount {
   id: string
@@ -79,6 +80,7 @@ export function HandshakeRequestForm({
   onSuccess,
   canUseHsContextProfiles = false,
 }: HandshakeRequestFormProps) {
+  const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isStandard = theme === 'standard'
   const textColor = isStandard ? '#1f2937' : 'white'
   const mutedColor = isStandard ? '#6b7280' : 'rgba(255,255,255,0.7)'
@@ -271,7 +273,7 @@ export function HandshakeRequestForm({
             <div style={{ marginTop: '12px' }}>
               <label style={labelStyle}>Send From:</label>
               <select
-                value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                value={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                 onChange={(e) => onSelectEmailAccount(e.target.value)}
                 style={{ ...inputStyle, cursor: 'pointer' }}
               >

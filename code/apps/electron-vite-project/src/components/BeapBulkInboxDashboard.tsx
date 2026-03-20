@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
-import { EmailConnectWizard } from '@ext/shared/components/EmailConnectWizard'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 
 interface BeapBulkInboxDashboardProps {
   onMessageSelect?: (messageId: string | null) => void
@@ -26,7 +26,6 @@ export default function BeapBulkInboxDashboard({
   const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  const [showEmailConnectModal, setShowEmailConnectModal] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
   const composeClickRef = useRef<number>(0)
 
@@ -69,9 +68,14 @@ export default function BeapBulkInboxDashboard({
     return () => unsub?.()
   }, [loadEmailAccounts])
 
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadEmailAccounts,
+    theme: 'professional',
+  })
+
   const handleConnectEmail = useCallback(() => {
-    setShowEmailConnectModal(true)
-  }, [])
+    openConnectEmail(ConnectEmailLaunchSource.BeapBulkInboxDashboard)
+  }, [openConnectEmail])
 
   const handleDisconnectEmail = useCallback(async (id: string) => {
     try {
@@ -145,17 +149,7 @@ export default function BeapBulkInboxDashboard({
         </div>
       )}
 
-      {/* Email Connect Wizard */}
-      <EmailConnectWizard
-        isOpen={showEmailConnectModal}
-        onClose={() => setShowEmailConnectModal(false)}
-        onConnected={() => {
-          notify('Email connected', 'success')
-          loadEmailAccounts()
-          setShowEmailConnectModal(false)
-        }}
-        theme="professional"
-      />
+      {connectEmailFlowModal}
 
       {/* Connected Email Accounts */}
       <EmailProvidersSection

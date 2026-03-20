@@ -51,6 +51,115 @@ function assertString(v: unknown, name: string): string {
   return v
 }
 
+/** IMAP/SMTP passwords & app passwords (bounded for IPC). */
+function assertSecretString(v: unknown, name: string, maxLen = 512): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
+    throw new Error(`${name}: expected non-empty string (max ${maxLen} chars)`)
+  }
+  return v
+}
+
+function assertSecurityMode(v: unknown, field: string): 'ssl' | 'starttls' | 'none' {
+  if (v === 'ssl' || v === 'starttls' || v === 'none') return v
+  throw new Error(`${field}: expected ssl | starttls | none`)
+}
+
+function assertMailboxPort(v: unknown, field: string): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(String(v).trim(), 10) : NaN
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    throw new Error(`${field}: expected integer port 1–65535`)
+  }
+  return n
+}
+
+function assertHostLike(v: unknown, name: string): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (s.length < 1 || s.length > 253) {
+    throw new Error(`${name}: invalid host (1–253 chars)`)
+  }
+  if (/\s/.test(s)) {
+    throw new Error(`${name}: host must not contain whitespace`)
+  }
+  return s
+}
+
+function optionalImapLifecycleMailbox(v: unknown, field: string): string | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v !== 'string') throw new Error(`${field}: expected string or omit`)
+  const t = v.trim()
+  if (!t) return undefined
+  if (t.length > 200) throw new Error(`${field}: max 200 characters`)
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(t)) throw new Error(`${field}: invalid characters`)
+  return t
+}
+
+function assertCustomMailboxPayload(v: unknown): {
+  displayName?: string
+  email: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: 'ssl' | 'starttls' | 'none'
+  imapUsername?: string
+  imapPassword: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: 'ssl' | 'starttls' | 'none'
+  smtpUseSameCredentials: boolean
+  smtpUsername?: string
+  smtpPassword?: string
+  imapLifecycleArchiveMailbox?: string
+  imapLifecyclePendingReviewMailbox?: string
+  imapLifecyclePendingDeleteMailbox?: string
+  imapLifecycleTrashMailbox?: string
+} {
+  if (!v || typeof v !== 'object') throw new Error('customMailbox: expected object')
+  const o = v as Record<string, unknown>
+  const emailRaw = typeof o.email === 'string' ? o.email.trim() : ''
+  if (!emailRaw || emailRaw.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+    throw new Error('customMailbox.email: valid email required')
+  }
+  const displayName =
+    typeof o.displayName === 'string' && o.displayName.trim()
+      ? o.displayName.trim().slice(0, 200)
+      : undefined
+  const imapHost = assertHostLike(o.imapHost, 'imapHost')
+  const smtpHost = assertHostLike(o.smtpHost, 'smtpHost')
+  /** Default: same as IMAP (unless explicitly `false`). */
+  const useSame = o.smtpUseSameCredentials !== false
+  const imapUser =
+    typeof o.imapUsername === 'string' && o.imapUsername.trim()
+      ? o.imapUsername.trim().slice(0, 320)
+      : undefined
+  let smtpUser: string | undefined
+  let smtpPass: string | undefined
+  if (!useSame) {
+    if (typeof o.smtpUsername !== 'string' || !o.smtpUsername.trim()) {
+      throw new Error('customMailbox.smtpUsername required when not using same credentials as IMAP')
+    }
+    smtpUser = o.smtpUsername.trim().slice(0, 320)
+    smtpPass = assertSecretString(o.smtpPassword, 'smtpPassword')
+  }
+  const lifeArchive = optionalImapLifecycleMailbox(o.imapLifecycleArchiveMailbox, 'imapLifecycleArchiveMailbox')
+  const lifeReview = optionalImapLifecycleMailbox(o.imapLifecyclePendingReviewMailbox, 'imapLifecyclePendingReviewMailbox')
+  const lifeDelete = optionalImapLifecycleMailbox(o.imapLifecyclePendingDeleteMailbox, 'imapLifecyclePendingDeleteMailbox')
+  const lifeTrash = optionalImapLifecycleMailbox(o.imapLifecycleTrashMailbox, 'imapLifecycleTrashMailbox')
+  return {
+    ...(displayName ? { displayName } : {}),
+    email: emailRaw,
+    imapHost,
+    imapPort: assertMailboxPort(o.imapPort, 'imapPort'),
+    imapSecurity: assertSecurityMode(o.imapSecurity, 'imapSecurity'),
+    ...(imapUser ? { imapUsername: imapUser } : {}),
+    imapPassword: assertSecretString(o.imapPassword, 'imapPassword'),
+    smtpHost,
+    smtpPort: assertMailboxPort(o.smtpPort, 'smtpPort'),
+    smtpSecurity: assertSecurityMode(o.smtpSecurity, 'smtpSecurity'),
+    smtpUseSameCredentials: useSame,
+    ...(smtpUser ? { smtpUsername: smtpUser } : {}),
+    ...(smtpPass ? { smtpPassword: smtpPass } : {}),
+  }
+}
+
 function assertTheme(v: unknown): string {
   const ALLOWED = new Set(['default', 'dark', 'professional', 'pro', 'standard'])
   const s = assertString(v, 'theme')
@@ -461,6 +570,10 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
   connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
   connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
+  connectCustomMailbox: (payload: unknown) =>
+    ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
+  validateImapLifecycleRemote: (accountId: string) =>
+    ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
   setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
   setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>

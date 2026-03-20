@@ -45,6 +45,15 @@ export function queueRemoteDeletion(
       return { ok: false, error: 'Message not found or not from email' }
     }
 
+    let providerType: string
+    try {
+      providerType = emailGateway.getProviderSync(row.account_id)
+    } catch (e: any) {
+      const msg = e?.message ?? 'Account not available'
+      console.warn('[RemoteDeletion] queueRemoteDeletion: skip —', msg)
+      return { ok: false, error: msg }
+    }
+
     const now = new Date()
     const graceEnd = new Date(now.getTime() + gracePeriodHours * 60 * 60 * 1000)
     const gracePeriodEnds = graceEnd.toISOString()
@@ -53,8 +62,6 @@ export function queueRemoteDeletion(
     db.prepare(
       `UPDATE inbox_messages SET deleted = 1, deleted_at = ?, purge_after = ? WHERE id = ?`
     ).run(nowStr, gracePeriodEnds, messageId)
-
-    const providerType = emailGateway.getProviderSync(row.account_id)
     const queueId = randomUUID()
 
     db.prepare(
