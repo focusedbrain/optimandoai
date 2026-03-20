@@ -982,9 +982,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.getSyncState) return
     try {
       const res = await bridge.getSyncState(accountId)
-      if (res.ok && res.data) {
+      if (!res.ok) return
+      if (res.data) {
         const row = res.data as { auto_sync_enabled?: number }
         set({ autoSyncEnabled: row.auto_sync_enabled === 1 })
+      } else {
+        set({ autoSyncEnabled: false })
       }
     } catch {
       /* ignore */

@@ -955,6 +955,10 @@ class EmailGateway implements IEmailGateway {
         isDefault: s.isDefault,
         providerMailboxResourceRef: s.providerMailboxResourceRef,
       })),
+      sync: {
+        maxAgeDays: account.sync?.maxAgeDays ?? 90,
+        batchSize: account.sync?.batchSize ?? 50,
+      },
     }
   }
   

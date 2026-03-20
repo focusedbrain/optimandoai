@@ -1529,6 +1529,13 @@ export default function EmailInboxBulkView({
     if (primaryAccountId) loadSyncState(primaryAccountId)
   }, [primaryAccountId, loadSyncState])
 
+  useEffect(() => {
+    const unsub = window.emailInbox?.onNewMessages?.(() => {
+      void refreshMessages()
+    })
+    return () => unsub?.()
+  }, [refreshMessages])
+
   const handleSync = useCallback(() => {
     if (primaryAccountId) syncAccount(primaryAccountId)
   }, [primaryAccountId, syncAccount])

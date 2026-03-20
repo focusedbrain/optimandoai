@@ -386,6 +386,12 @@ export interface EmailAccountInfo {
   capabilities?: ProviderAccountCapabilities
   /** Resolved mailbox/postbox slices for this row (always ≥1: implicit default or explicit `mailboxes`). */
   mailboxes?: EmailAccountMailboxSummary[]
+
+  /** Sync window / batch prefs (no secrets) — used by inbox sync orchestrator. */
+  sync?: {
+    maxAgeDays: number
+    batchSize: number
+  }
 }
 
 // =============================================================================
@@ -581,6 +587,15 @@ export interface MessageSearchOptions {
   
   /** Filter by has attachments */
   hasAttachments?: boolean
+
+  /**
+   * When true (sync orchestrator only), provider follows pagination (`pageToken` / `@odata.nextLink` /
+   * IMAP chunking) until no more results or `syncMaxMessages` is reached.
+   */
+  syncFetchAllPages?: boolean
+
+  /** Hard cap on how many messages one list operation may return (default: high; sync layer sets explicitly). */
+  syncMaxMessages?: number
 }
 
 /**

@@ -208,34 +208,156 @@ export class ImapProvider extends BaseEmailProvider {
   }
   
   /**
-   * Incremental pull: UID SEARCH SINCE, then FETCH newest `limit` UIDs (sync passes fromDate).
+   * SEARCH SINCE → sequence numbers; fetch headers in chunks via `seq.fetch` (search returns seq, not UID).
    */
-  private fetchMessagesSince(folder: string, since: Date, limit: number): Promise<RawEmailMessage[]> {
+  private fetchMessagesSince(folder: string, since: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const limit = options?.limit || 50
+    const syncAll = options?.syncFetchAllPages === true
+    const maxM = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : limit)), 100_000)
+    const chunkSize = 60
+
+    const attachParser = (msg: ImapConnection.ImapMessage, msgData: Partial<RawEmailMessage>) => {
+      msg.on('body', (stream, info) => {
+        let buffer = ''
+        stream.on('data', (chunk) => {
+          buffer += chunk.toString('utf8')
+        })
+        stream.once('end', () => {
+          if (info.which.includes('HEADER')) {
+            const headers = ImapCtor.parseHeader(buffer)
+            msgData.subject = headers.subject?.[0] || '(No Subject)'
+            msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+            msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+            msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+            msgData.date = new Date(headers.date?.[0] || Date.now())
+            msgData.headers = {
+              messageId: headers['message-id']?.[0],
+              inReplyTo: headers['in-reply-to']?.[0],
+              references: headers.references?.[0]?.split(/\s+/) || [],
+            }
+          }
+        })
+      })
+      msg.once('attributes', (attrs) => {
+        msgData.id = String(attrs.uid)
+        if (attrs.flags) {
+          msgData.flags = {
+            seen: attrs.flags.includes('\\Seen'),
+            flagged: attrs.flags.includes('\\Flagged'),
+            answered: attrs.flags.includes('\\Answered'),
+            draft: attrs.flags.includes('\\Draft'),
+            deleted: attrs.flags.includes('\\Deleted'),
+          }
+        }
+      })
+    }
+
     return new Promise((resolve, reject) => {
       this.client!.openBox(folder, true, (err) => {
         if (err) {
           reject(err)
           return
         }
-        this.client!.search([['SINCE', since]], (sErr, uids: number[]) => {
+        this.client!.search([['SINCE', since]], (sErr, seqnums: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
-          if (!uids?.length) {
+          if (!seqnums?.length) {
             resolve([])
             return
           }
-          const sorted = [...uids].sort((a, b) => a - b)
-          const pick = sorted.slice(Math.max(0, sorted.length - limit))
-          const fetch = this.client!.fetch(
-            pick.join(','),
-            {
+          const sorted = [...seqnums].sort((a, b) => a - b)
+          let pick = syncAll ? sorted : sorted.slice(Math.max(0, sorted.length - limit))
+          if (pick.length > maxM) {
+            pick = pick.slice(-maxM)
+          }
+
+          const all: RawEmailMessage[] = []
+          let i = 0
+
+          const nextChunk = () => {
+            if (i >= pick.length) {
+              resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
+              return
+            }
+            const slice = pick.slice(i, i + chunkSize)
+            i += chunkSize
+            const spec = slice.join(',')
+            const batch: RawEmailMessage[] = []
+            const fetch = this.client!.seq.fetch(spec, {
               bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
               struct: true,
-            },
-          )
+            })
+            fetch.on('message', (msg) => {
+              const msgData: Partial<RawEmailMessage> = {
+                id: '',
+                folder,
+                flags: {
+                  seen: false,
+                  flagged: false,
+                  answered: false,
+                  draft: false,
+                  deleted: false,
+                },
+                labels: [],
+              }
+              attachParser(msg, msgData)
+              msg.once('end', () => {
+                batch.push(msgData as RawEmailMessage)
+              })
+            })
+            fetch.once('error', reject)
+            fetch.once('end', () => {
+              all.push(...batch)
+              nextChunk()
+            })
+          }
+
+          nextChunk()
+        })
+      })
+    })
+  }
+
+  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    if (!this.client) {
+      throw new Error('Not connected')
+    }
+
+    const limit = options?.limit || 50
+    const syncAll = options?.syncFetchAllPages === true
+    const maxM = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : limit)), 100_000)
+    const chunkSize = 60
+
+    if (options?.fromDate) {
+      const since = new Date(options.fromDate)
+      if (!Number.isNaN(since.getTime())) {
+        return this.fetchMessagesSince(folder, since, options)
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      this.client!.openBox(folder, true, (err, box) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        const total = box.messages.total
+        if (total === 0) {
+          resolve([])
+          return
+        }
+
+        if (!syncAll) {
+          const start = Math.max(1, total - limit + 1)
+          const end = total
           const messages: RawEmailMessage[] = []
+          const fetch = this.client!.seq.fetch(`${start}:${end}`, {
+            bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+            struct: true,
+          })
           fetch.on('message', (msg) => {
             const msgData: Partial<RawEmailMessage> = {
               id: '',
@@ -288,109 +410,88 @@ export class ImapProvider extends BaseEmailProvider {
           })
           fetch.once('error', reject)
           fetch.once('end', () => {
-            resolve(messages.sort((a, b) => Number(b.id) - Number(a.id)))
+            resolve(messages.reverse())
           })
-        })
-      })
-    })
-  }
-
-  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    if (!this.client) {
-      throw new Error('Not connected')
-    }
-    
-    const limit = options?.limit || 50
-
-    if (options?.fromDate) {
-      const since = new Date(options.fromDate)
-      if (!Number.isNaN(since.getTime())) {
-        return this.fetchMessagesSince(folder, since, limit)
-      }
-    }
-    
-    return new Promise((resolve, reject) => {
-      this.client!.openBox(folder, true, (err, box) => {
-        if (err) {
-          reject(err)
           return
         }
-        
-        const total = box.messages.total
-        if (total === 0) {
-          resolve([])
-          return
-        }
-        
-        // Fetch latest messages
-        const start = Math.max(1, total - limit + 1)
-        const end = total
-        
-        const fetch = this.client!.seq.fetch(`${start}:${end}`, {
-          bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
-          struct: true
-        })
-        
-        const messages: RawEmailMessage[] = []
-        
-        fetch.on('message', (msg, seqno) => {
-          const msgData: Partial<RawEmailMessage> = {
-            id: String(seqno),
-            folder,
-            flags: {
-              seen: false,
-              flagged: false,
-              answered: false,
-              draft: false,
-              deleted: false
-            },
-            labels: []
+
+        const all: RawEmailMessage[] = []
+        let startSeq = 1
+
+        const nextRange = () => {
+          if (startSeq > total || all.length >= maxM) {
+            resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
+            return
           }
-          
-          msg.on('body', (stream, info) => {
-            let buffer = ''
-            stream.on('data', (chunk) => {
-              buffer += chunk.toString('utf8')
+          const endSeq = Math.min(total, startSeq + chunkSize - 1)
+          const spec = `${startSeq}:${endSeq}`
+          startSeq = endSeq + 1
+          const batch: RawEmailMessage[] = []
+          const fetch = this.client!.seq.fetch(spec, {
+            bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+            struct: true,
+          })
+          fetch.on('message', (msg) => {
+            const msgData: Partial<RawEmailMessage> = {
+              id: '',
+              folder,
+              flags: {
+                seen: false,
+                flagged: false,
+                answered: false,
+                draft: false,
+                deleted: false,
+              },
+              labels: [],
+            }
+            msg.on('body', (stream, info) => {
+              let buffer = ''
+              stream.on('data', (chunk) => {
+                buffer += chunk.toString('utf8')
+              })
+              stream.once('end', () => {
+                if (info.which.includes('HEADER')) {
+                  const headers = ImapCtor.parseHeader(buffer)
+                  msgData.subject = headers.subject?.[0] || '(No Subject)'
+                  msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+                  msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+                  msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+                  msgData.date = new Date(headers.date?.[0] || Date.now())
+                  msgData.headers = {
+                    messageId: headers['message-id']?.[0],
+                    inReplyTo: headers['in-reply-to']?.[0],
+                    references: headers.references?.[0]?.split(/\s+/) || [],
+                  }
+                }
+              })
             })
-            stream.once('end', () => {
-              if (info.which.includes('HEADER')) {
-                const headers = ImapCtor.parseHeader(buffer)
-                msgData.subject = headers.subject?.[0] || '(No Subject)'
-                msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
-                msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
-                msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
-                msgData.date = new Date(headers.date?.[0] || Date.now())
-                msgData.headers = {
-                  messageId: headers['message-id']?.[0],
-                  inReplyTo: headers['in-reply-to']?.[0],
-                  references: headers.references?.[0]?.split(/\s+/)
+            msg.once('attributes', (attrs) => {
+              msgData.id = String(attrs.uid)
+              if (attrs.flags) {
+                msgData.flags = {
+                  seen: attrs.flags.includes('\\Seen'),
+                  flagged: attrs.flags.includes('\\Flagged'),
+                  answered: attrs.flags.includes('\\Answered'),
+                  draft: attrs.flags.includes('\\Draft'),
+                  deleted: attrs.flags.includes('\\Deleted'),
                 }
               }
             })
+            msg.once('end', () => {
+              batch.push(msgData as RawEmailMessage)
+            })
           })
-          
-          msg.once('attributes', (attrs) => {
-            msgData.id = String(attrs.uid)
-            if (attrs.flags) {
-              msgData.flags = {
-                seen: attrs.flags.includes('\\Seen'),
-                flagged: attrs.flags.includes('\\Flagged'),
-                answered: attrs.flags.includes('\\Answered'),
-                draft: attrs.flags.includes('\\Draft'),
-                deleted: attrs.flags.includes('\\Deleted')
-              }
+          fetch.once('error', reject)
+          fetch.once('end', () => {
+            for (const m of batch) {
+              if (all.length >= maxM) break
+              all.push(m)
             }
+            nextRange()
           })
-          
-          msg.once('end', () => {
-            messages.push(msgData as RawEmailMessage)
-          })
-        })
-        
-        fetch.once('error', reject)
-        fetch.once('end', () => {
-          resolve(messages.reverse()) // Most recent first
-        })
+        }
+
+        nextRange()
       })
     })
   }

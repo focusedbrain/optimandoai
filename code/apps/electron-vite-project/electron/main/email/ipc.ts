@@ -933,7 +933,7 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const result = await syncAccountEmails(db, { accountId })
+      const result = await syncAccountEmails(db, { accountId, fullSync: true })
       processPendingPlainEmails(db)
       if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
       return { ok: true, data: result }
@@ -976,6 +976,28 @@ export function registerInboxHandlers(
       return { ok: false, error: err?.message ?? 'Failed' }
     }
   })
+
+  /** Resume auto-sync loops after app restart (rows with auto_sync_enabled = 1). */
+  void (async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return
+      const rows = db
+        .prepare('SELECT account_id, sync_interval_ms FROM email_sync_state WHERE auto_sync_enabled = 1')
+        .all() as Array<{ account_id: string; sync_interval_ms?: number }>
+      for (const r of rows) {
+        if (activeAutoSyncLoops.has(r.account_id)) continue
+        const intervalMs = r.sync_interval_ms ?? 30_000
+        const loop = startAutoSync(db, r.account_id, intervalMs, (syncRes) => {
+          if (syncRes.newMessages > 0) sendToRenderer('inbox:newMessages', syncRes)
+        })
+        activeAutoSyncLoops.set(r.account_id, loop)
+        console.log('[Inbox] Resumed auto-sync loop for account', r.account_id, 'interval', intervalMs)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Failed to resume auto-sync loops:', (e as Error)?.message)
+    }
+  })()
 
   // ── Messages ──
   ipcMain.handle('inbox:listMessages', async (_e, options: InboxListFilterOptions & {

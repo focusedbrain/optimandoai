@@ -162,64 +162,79 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    // Build query parameters
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
+    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
+    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+
     const params = new URLSearchParams()
-    params.append('$top', String(options?.limit || 50))
+    params.append('$top', String(pageTop))
     params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
-    
-    // Build filter array
+
     const filters: string[] = []
-    
+
     if (options?.unreadOnly) {
       filters.push('isRead eq false')
     }
-    
+
     if (options?.flaggedOnly) {
       filters.push("flag/flagStatus eq 'flagged'")
     }
-    
+
     if (options?.hasAttachments) {
       filters.push('hasAttachments eq true')
     }
-    
+
     if (options?.fromDate) {
       filters.push(`receivedDateTime ge ${options.fromDate}`)
     }
-    
+
     if (options?.toDate) {
       filters.push(`receivedDateTime le ${options.toDate}`)
     }
-    
-    // For search - use simpler approach without $search (more reliable)
-    // Microsoft Graph $search can be unreliable, so we fetch messages and filter client-side
+
     const useClientFilter = !!(options?.from || options?.subject)
-    
+
     if (filters.length > 0) {
       params.append('$filter', filters.join(' and '))
     }
-    
-    // Always order by date when not using search
+
     if (!options?.search) {
       params.append('$orderby', 'receivedDateTime desc')
     }
-    
-    // Only use $search for full-text search, not for from/subject
+
     if (options?.search) {
       params.append('$search', `"${options.search}"`)
     }
-    
+
     const folderId = folder || 'inbox'
     const requestUrl = `/me/mailFolders/${folderId}/messages?${params.toString()}`
-    
-    const response = await this.graphApiRequest('GET', requestUrl)
-    
-    let messages = response.value || []
-    
-    // Client-side filtering for from/subject (more reliable than Graph $search)
+
+    const collected: any[] = []
+    let response = await this.graphApiRequest('GET', requestUrl)
+    let page = response.value || []
+    collected.push(...page)
+
+    if (syncAll) {
+      let nextLink: string | undefined = response['@odata.nextLink']
+      while (nextLink && collected.length < maxTotal) {
+        response = await this.graphApiRequestAbsolute('GET', nextLink)
+        page = response.value || []
+        if (!page.length) break
+        for (const msg of page) {
+          if (collected.length >= maxTotal) break
+          collected.push(msg)
+        }
+        nextLink = response['@odata.nextLink']
+      }
+    }
+
+    let messages = collected
+
     if (useClientFilter && messages.length > 0) {
       const fromFilter = options?.from?.toLowerCase()
       const subjectFilter = options?.subject?.toLowerCase()
-      
+
       messages = messages.filter((msg: any) => {
         let match = true
         if (fromFilter) {
@@ -234,7 +249,7 @@ export class OutlookProvider extends BaseEmailProvider {
         return match
       })
     }
-    
+
     return messages.map((msg: any) => this.parseOutlookMessage(msg, folder))
   }
   
@@ -705,6 +720,61 @@ export class OutlookProvider extends BaseEmailProvider {
     })
   }
   
+  /** Follow `@odata.nextLink` from list responses (full URL from Graph). */
+  private async graphApiRequestAbsolute(method: string, absoluteUrl: string, body?: any): Promise<any> {
+    if (this.isTokenExpired() && this.refreshToken) {
+      await this.refreshAccessToken()
+    }
+    let hostname = 'graph.microsoft.com'
+    let path = ''
+    try {
+      const u = new URL(absoluteUrl)
+      hostname = u.hostname || hostname
+      path = (u.pathname || '') + (u.search || '')
+    } catch {
+      throw new Error('Invalid Graph nextLink URL')
+    }
+
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname,
+        path,
+        method,
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+      }
+
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (chunk) => {
+          data += chunk
+        })
+        res.on('end', () => {
+          try {
+            const json = data ? JSON.parse(data) : {}
+            if (json.error) {
+              reject(new Error(json.error.message || 'API error'))
+            } else {
+              resolve(json)
+            }
+          } catch (err) {
+            reject(err)
+          }
+        })
+      })
+
+      req.on('error', reject)
+
+      if (body) {
+        req.write(JSON.stringify(body))
+      }
+
+      req.end()
+    })
+  }
+
   private async graphApiRequest(method: string, endpoint: string, body?: any): Promise<any> {
     if (this.isTokenExpired() && this.refreshToken) {
       await this.refreshAccessToken()

@@ -147,72 +147,90 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const toGmailAfterDate = (isoOrRaw: string): string => {
+      const d = new Date(isoOrRaw)
+      if (Number.isNaN(d.getTime())) {
+        return isoOrRaw.replace(/-/g, '/').slice(0, 10)
+      }
+      const y = d.getUTCFullYear()
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(d.getUTCDate()).padStart(2, '0')
+      return `${y}/${m}/${day}`
+    }
+
     // Build query
     const queryParts: string[] = []
-    
+
     // Folder filter (Gmail uses label IDs)
     if (folder) {
       queryParts.push(`in:${folder}`)
     }
-    
+
     if (options?.search) {
       queryParts.push(options.search)
     }
-    
+
     if (options?.from) {
       queryParts.push(`from:${options.from}`)
     }
-    
+
     if (options?.subject) {
       queryParts.push(`subject:${options.subject}`)
     }
-    
+
     if (options?.unreadOnly) {
       queryParts.push('is:unread')
     }
-    
+
     if (options?.flaggedOnly) {
       queryParts.push('is:starred')
     }
-    
+
     if (options?.hasAttachments) {
       queryParts.push('has:attachment')
     }
-    
+
     if (options?.fromDate) {
-      queryParts.push(`after:${options.fromDate}`)
+      queryParts.push(`after:${toGmailAfterDate(options.fromDate)}`)
     }
-    
+
     if (options?.toDate) {
-      queryParts.push(`before:${options.toDate}`)
+      queryParts.push(`before:${toGmailAfterDate(options.toDate)}`)
     }
-    
+
     const query = queryParts.join(' ')
-    const limit = options?.limit || 50
-    
-    // List messages
-    const listParams = new URLSearchParams({
-      maxResults: limit.toString(),
-      ...(query ? { q: query } : {})
-    })
-    
-    const listResponse = await this.apiRequest(
-      'GET', 
-      `/users/me/messages?${listParams.toString()}`
-    )
-    
-    const messageIds = (listResponse.messages || []).map((m: any) => m.id)
-    
-    // Fetch each message
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
+    const singleLimit = Math.min(Math.max(1, options?.limit ?? 50), 500)
+    const pageSize = syncAll ? Math.min(500, maxTotal) : singleLimit
+
     const messages: RawEmailMessage[] = []
-    
-    for (const id of messageIds) {
-      const msg = await this.fetchMessage(id)
-      if (msg) {
-        messages.push(msg)
+    let pageToken: string | undefined
+
+    for (;;) {
+      const remaining = maxTotal - messages.length
+      if (remaining <= 0) break
+
+      const listParams = new URLSearchParams({
+        maxResults: Math.min(pageSize, remaining).toString(),
+        ...(query ? { q: query } : {}),
+        ...(pageToken ? { pageToken } : {}),
+      })
+
+      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+
+      const batch = (listResponse.messages || []) as Array<{ id: string }>
+      pageToken = listResponse.nextPageToken
+
+      for (const row of batch) {
+        if (messages.length >= maxTotal) break
+        const msg = await this.fetchMessage(row.id)
+        if (msg) messages.push(msg)
       }
+
+      if (!syncAll || !pageToken || batch.length === 0) break
     }
-    
+
     return messages
   }
   

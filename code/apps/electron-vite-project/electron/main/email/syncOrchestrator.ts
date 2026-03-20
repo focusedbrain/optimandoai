@@ -1,20 +1,37 @@
 /**
  * Sync Orchestrator — Pulls emails from connected providers and routes through message detection.
  *
+ * **Model**
+ * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — re-lists the whole account sync window
+ *   (`sync.maxAgeDays` lower bound when set) with `syncFetchAllPages` until caps; existing rows are skipped.
+ * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
+ * - **Auto-sync tick**: incremental from `last_sync_at`, capped at `SYNC_AUTO_SYNC_MAX_MESSAGES` per tick.
+ * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
+ *
  * @version 1.0.0
  */
 
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
-import type { SanitizedMessageDetail } from './types'
+import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
 
 // ── Types ──
 
 export interface SyncAccountOptions {
   accountId: string
   limit?: number
+  /**
+   * Manual Pull: list the whole sync window on the host (subject to `sync.maxAgeDays` and `SYNC_PULL_MAX_MESSAGES`),
+   * not only messages newer than `last_sync_at`.
+   */
   fullSync?: boolean
 }
+
+/** One Pull / first bootstrap may import up to this many new rows (per account). */
+export const SYNC_PULL_MAX_MESSAGES = 25_000
+
+/** Each auto-sync tick fetches at most this many new list rows (then processes). */
+export const SYNC_AUTO_SYNC_MAX_MESSAGES = 2_000
 
 export interface SyncResult {
   ok: boolean
@@ -136,18 +153,52 @@ export async function syncAccountEmails(
   db: any,
   options: SyncAccountOptions,
 ): Promise<SyncResult> {
-  const { accountId, limit = 50, fullSync = false } = options
+  const { accountId, fullSync = false } = options
   const result: SyncResult = { ok: true, newMessages: 0, beapMessages: 0, plainMessages: 0, errors: [] }
 
   try {
+    const accountInfo = await emailGateway.getAccount(accountId)
+    const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 90
+
+    let oldestIso: string | undefined
+    if (maxAgeDays > 0) {
+      const d = new Date()
+      d.setUTCDate(d.getUTCDate() - maxAgeDays)
+      oldestIso = d.toISOString()
+    }
+
     const stateRow = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId) as Record<string, unknown> | undefined
     const lastSyncAt = stateRow?.last_sync_at as string | undefined
     const lastUid = stateRow?.last_uid as string | undefined
     const syncCursor = stateRow?.sync_cursor as string | undefined
 
-    const listOptions: { limit: number; fromDate?: string } = { limit }
-    if (!fullSync && lastSyncAt) {
-      listOptions.fromDate = lastSyncAt
+    const hasPriorSync = Boolean(lastSyncAt)
+    const bootstrap = !hasPriorSync
+    const treatAsFullImport = fullSync || bootstrap
+
+    let effectiveFrom: string | undefined
+    if (treatAsFullImport) {
+      effectiveFrom = oldestIso
+    } else if (lastSyncAt) {
+      effectiveFrom = lastSyncAt
+      if (oldestIso) {
+        const a = new Date(effectiveFrom).getTime()
+        const b = new Date(oldestIso).getTime()
+        if (!Number.isNaN(a) && !Number.isNaN(b) && a < b) {
+          effectiveFrom = oldestIso
+        }
+      }
+    } else {
+      effectiveFrom = oldestIso
+    }
+
+    const syncMaxMessages = treatAsFullImport ? SYNC_PULL_MAX_MESSAGES : SYNC_AUTO_SYNC_MAX_MESSAGES
+
+    const listOptions: MessageSearchOptions = {
+      limit: 200,
+      syncFetchAllPages: true,
+      syncMaxMessages,
+      ...(effectiveFrom ? { fromDate: effectiveFrom } : {}),
     }
 
     const messages = await emailGateway.listMessages(accountId, listOptions)
