@@ -98,6 +98,17 @@ function shortIdForSummary(id: string): string {
   return `${id.slice(0, 8)}…`
 }
 
+/** True when bulk triage has both category and recommended action (full structured analysis). */
+function hasFullBulkAnalysis(output: BulkAiResultEntry | undefined): boolean {
+  return !!(output?.category && output?.recommendedAction)
+}
+
+/** Show explicit Analyze when triage is incomplete; hide on failure rows (Retry Auto-Sort covers that). */
+function shouldShowBulkAnalyzeButton(output: BulkAiResultEntry | undefined): boolean {
+  if (output?.autosortFailure) return false
+  return !hasFullBulkAnalysis(output)
+}
+
 /** Aggregated result of one or more `runAiCategorizeForIds` passes (toolbar Auto-Sort). */
 export type BulkSortRunAggregate = {
   processedIds: string[]
@@ -458,6 +469,9 @@ function BulkActionCardStructured({
   handleMoveToPendingReviewOne,
   handleSummarize,
   handleDraftReply,
+  handleBulkAnalyze,
+  analyzeRunning,
+  showAnalyzeButton,
   handleUndoPendingDelete,
   handleUndoPendingReview,
   handleUndoArchived,
@@ -482,6 +496,9 @@ function BulkActionCardStructured({
   handleMoveToPendingReviewOne: (msg: InboxMessage) => void
   handleSummarize: (messageId: string) => void
   handleDraftReply: (messageId: string) => void
+  handleBulkAnalyze: (messageId: string) => void
+  analyzeRunning: boolean
+  showAnalyzeButton: boolean
   handleUndoPendingDelete: (ids: string[]) => void
   handleUndoPendingReview: (messageId: string) => void
   handleUndoArchived: (messageId: string) => void
@@ -573,7 +590,7 @@ function BulkActionCardStructured({
     }
   }, [isDraftSubFocused, draftRefineConnected, draftRefineMessageId, msg.id, draftRefineDisconnect])
 
-  const hasFullStructured = !!(output.category && output.recommendedAction)
+  const hasFullStructured = hasFullBulkAnalysis(output)
   const rec = (output.recommendedAction ?? 'draft_reply_ready') as BulkRecommendedAction
   /** Draft-only or user hit “Draft” after Auto-Sort — full-height composer, no analysis header/recommended row. */
   const hideAnalysisChrome = draftExpanded && ((!hasFullStructured) || manualDraftCompose)
@@ -1080,6 +1097,20 @@ function BulkActionCardStructured({
                     📦 Archive
                   </button>
                 ) : null}
+                {showAnalyzeButton ? (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleBulkAnalyze(msg.id)
+                    }}
+                    disabled={analyzeRunning || !!output?.loading}
+                    title="Run full AI triage (classify) for this message"
+                  >
+                    {analyzeRunning ? 'Analyzing…' : 'Analyze'}
+                  </button>
+                ) : null}
                 <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
                   ✨ Summarize
                 </button>
@@ -1131,6 +1162,17 @@ function BulkActionCardStructured({
           </button>
         )}
         <div className="bulk-action-card-buttons-secondary">
+          {showAnalyzeButton ? (
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--secondary"
+              onClick={() => handleBulkAnalyze(msg.id)}
+              disabled={analyzeRunning || !!output?.loading}
+              title="Run full AI triage (classify) for this message"
+            >
+              {analyzeRunning ? 'Analyzing…' : 'Analyze'}
+            </button>
+          ) : null}
           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
             ✨ Summarize
           </button>
@@ -1368,6 +1410,10 @@ export default function EmailInboxBulkView({
   const prevFilterRef = useRef<string>(filter.filter)
   /** True while a bulk sort is in flight — synchronous guard before any await (store isSortingActive lags one frame). */
   const isSortingRef = useRef(false)
+  /** Per-message guard for explicit “Analyze” so double-clicks don’t start concurrent classify runs. */
+  const bulkAnalyzeInFlightRef = useRef<Set<string>>(new Set())
+  /** Bumps when Analyze starts/ends so action rows re-read in-flight state from the ref. */
+  const [bulkAnalyzeUiEpoch, setBulkAnalyzeUiEpoch] = useState(0)
 
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
@@ -1888,6 +1934,26 @@ export default function EmailInboxBulkView({
     [clearMultiSelect, refreshMessages]
   )
 
+  /** Per-row Analyze: same classify path as Auto-Sort / Retry (aiClassifySingle → bulk outputs + moves). */
+  const handleBulkAnalyzeOne = useCallback(
+    async (messageId: string) => {
+      if (!window.emailInbox?.aiClassifySingle) {
+        console.warn('[BULK-ANALYZE] aiClassifySingle not available')
+        return
+      }
+      if (bulkAnalyzeInFlightRef.current.has(messageId)) return
+      bulkAnalyzeInFlightRef.current.add(messageId)
+      setBulkAnalyzeUiEpoch((e) => e + 1)
+      try {
+        await runAiCategorizeForIds([messageId], false)
+      } finally {
+        bulkAnalyzeInFlightRef.current.delete(messageId)
+        setBulkAnalyzeUiEpoch((e) => e + 1)
+      }
+    },
+    [runAiCategorizeForIds]
+  )
+
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
     if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) {
@@ -2377,7 +2443,7 @@ export default function EmailInboxBulkView({
       /** FIX-H4: Undo visibility based SOLELY on current filter. No other conditions. */
       const currentFilter = filter.filter
       const showUndo = ['pending_delete', 'pending_review', 'archived'].includes(currentFilter)
-      const hasFullStructured = !!(output?.category && output?.recommendedAction)
+      const hasFullStructured = hasFullBulkAnalysis(output)
       const hasDraftReady = !!(output?.draftReply && !output?.draftError)
       const category = (output?.category ?? 'normal') as keyof typeof CATEGORY_BORDER
       const borderColor = CATEGORY_BORDER[category] ?? 'transparent'
@@ -2500,7 +2566,9 @@ export default function EmailInboxBulkView({
         )
       }
 
-      if (hasFullStructured || hasDraftReady) {
+      if (output && (hasFullStructured || hasDraftReady)) {
+        const analyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
+        const showAnalyzeBtn = shouldShowBulkAnalyzeButton(output)
         return (
           <BulkActionCardStructured
             msg={msg}
@@ -2518,6 +2586,9 @@ export default function EmailInboxBulkView({
             handleMoveToPendingReviewOne={handleMoveToPendingReviewOne}
             handleSummarize={handleSummarize}
             handleDraftReply={handleDraftReply}
+            handleBulkAnalyze={handleBulkAnalyzeOne}
+            analyzeRunning={analyzeRunning}
+            showAnalyzeButton={showAnalyzeBtn}
             handleUndoPendingDelete={handleUndoPendingDelete}
             handleUndoPendingReview={handleUndoPendingReview}
             handleUndoArchived={handleUndoArchived}
@@ -2532,6 +2603,8 @@ export default function EmailInboxBulkView({
 
       // Fallback: summary / errors only (draft success uses BulkActionCardStructured above)
       if (output?.summary || output?.summaryError || output?.draftError) {
+        const fbShowAnalyze = shouldShowBulkAnalyzeButton(output)
+        const fbAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
@@ -2577,6 +2650,17 @@ export default function EmailInboxBulkView({
                   Undo
                 </button>
               )}
+              {fbShowAnalyze ? (
+                <button
+                  type="button"
+                  className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
+                  onClick={() => handleBulkAnalyzeOne(msg.id)}
+                  disabled={fbAnalyzeRunning || !!output?.loading}
+                  title="Run full AI triage (classify) for this message"
+                >
+                  {fbAnalyzeRunning ? 'Analyzing…' : 'Analyze'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -2607,6 +2691,7 @@ export default function EmailInboxBulkView({
       }
 
       // Guidance state: not yet analyzed
+      const guidanceAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
       return (
         <div className="bulk-action-card bulk-action-card--guidance">
           <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
@@ -2630,6 +2715,15 @@ export default function EmailInboxBulkView({
                 Undo
               </button>
             )}
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
+              onClick={() => handleBulkAnalyzeOne(msg.id)}
+              disabled={guidanceAnalyzeRunning}
+              title="Run full AI triage (classify) for this message"
+            >
+              {guidanceAnalyzeRunning ? 'Analyzing…' : 'Analyze'}
+            </button>
             <button
               type="button"
               className="bulk-action-card-btn bulk-action-card-btn--secondary bulk-action-card-btn--compact"
@@ -2658,6 +2752,7 @@ export default function EmailInboxBulkView({
     },
     [
       filter.filter,
+      bulkAnalyzeUiEpoch,
       draftAttachmentsByMessage,
       handleAddDraftAttachment,
       handleRemoveDraftAttachment,
@@ -2678,6 +2773,7 @@ export default function EmailInboxBulkView({
       setSubFocus,
       onSelectMessage,
       runAiCategorizeForIds,
+      handleBulkAnalyzeOne,
       draftRefineConnect,
     ]
   )
