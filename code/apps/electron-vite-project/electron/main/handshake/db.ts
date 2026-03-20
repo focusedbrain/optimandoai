@@ -773,6 +773,22 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN imap_rfc_message_id TEXT`,
     ],
   },
+  {
+    version: 38,
+    description:
+      'Schema v38: p2p_pending_beap.package_json — repair DBs where table existed without column (CREATE IF NOT EXISTS skipped full DDL)',
+    sql: [
+      `ALTER TABLE p2p_pending_beap ADD COLUMN package_json TEXT`,
+    ],
+  },
+  {
+    version: 39,
+    description:
+      'Schema v39: Reset forced auto-sync — clear auto_sync_enabled previously turned on by onAccountConnected (user opts in via Inbox)',
+    sql: [
+      `UPDATE email_sync_state SET auto_sync_enabled = 0 WHERE auto_sync_enabled = 1`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {
