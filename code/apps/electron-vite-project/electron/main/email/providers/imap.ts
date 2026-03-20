@@ -5,8 +5,9 @@
  * Supports WEB.DE, GMX, Yahoo, iCloud, AOL, and custom IMAP servers.
  */
 
-import * as Imap from 'imap'
+import * as ImapMod from 'imap'
 import * as nodemailer from 'nodemailer'
+import type ImapApi from 'imap'
 import { simpleParser, ParsedMail } from 'mailparser'
 import { 
   BaseEmailProvider, 
@@ -29,6 +30,12 @@ import type {
 import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
 
 export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
+
+/** Runtime constructor: bundled ESM may expose CJS `module.exports` as `.default`. */
+const ImapCtor = (ImapMod as any).default ?? ImapMod
+
+/** Connection instance type from @types/imap (`export = Connection`). */
+type ImapConnection = ImapApi
 
 function imapFolderListHasMailbox(folders: FolderInfo[], want: string): boolean {
   const w = want.toLowerCase().trim()
@@ -62,7 +69,7 @@ export function createSmtpTransport(smtp: NonNullable<EmailAccountConfig['smtp']
 export class ImapProvider extends BaseEmailProvider {
   readonly providerType = 'imap' as const
   
-  private client: Imap | null = null
+  private client: ImapConnection | null = null
   private transporter: nodemailer.Transporter | null = null
   private messageCache: Map<string, RawEmailMessage> = new Map()
   
@@ -72,9 +79,17 @@ export class ImapProvider extends BaseEmailProvider {
     }
     
     this.config = config
-    
+
+    if (typeof ImapCtor !== 'function') {
+      const keys =
+        ImapMod && typeof ImapMod === 'object' ? Object.keys(ImapMod as object).join(', ') : String(ImapMod)
+      throw new Error(
+        `[IMAP] imap package interop failed: expected constructor function, got ${typeof ImapCtor}. Module keys: ${keys}`,
+      )
+    }
+
     return new Promise((resolve, reject) => {
-      this.client = new Imap({
+      const client = new ImapCtor({
         user: config.imap!.username,
         password: config.imap!.password,
         host: config.imap!.host,
@@ -84,25 +99,26 @@ export class ImapProvider extends BaseEmailProvider {
         connTimeout: 10000,
         authTimeout: 10000
       })
-      
-      this.client.once('ready', () => {
+      this.client = client
+
+      client.once('ready', () => {
         console.log('[IMAP] Connected to:', config.imap!.host)
         this.connected = true
         resolve()
       })
-      
-      this.client.once('error', (err: Error) => {
+
+      client.once('error', (err: Error) => {
         console.error('[IMAP] Connection error:', err)
         this.connected = false
         reject(err)
       })
-      
-      this.client.once('end', () => {
+
+      client.once('end', () => {
         console.log('[IMAP] Connection ended')
         this.connected = false
       })
-      
-      this.client.connect()
+
+      client.connect()
     })
   }
   
@@ -166,7 +182,7 @@ export class ImapProvider extends BaseEmailProvider {
         
         const folders: FolderInfo[] = []
         
-        const processBoxes = (boxObj: Imap.MailBoxes, prefix = '') => {
+        const processBoxes = (boxObj: ImapApi.MailBoxes, prefix = '') => {
           for (const [name, box] of Object.entries(boxObj)) {
             const path = prefix ? `${prefix}${box.delimiter || '/'}${name}` : name
             folders.push({
@@ -242,7 +258,7 @@ export class ImapProvider extends BaseEmailProvider {
             })
             stream.once('end', () => {
               if (info.which.includes('HEADER')) {
-                const headers = Imap.parseHeader(buffer)
+                const headers = ImapCtor.parseHeader(buffer)
                 msgData.subject = headers.subject?.[0] || '(No Subject)'
                 msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
                 msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
