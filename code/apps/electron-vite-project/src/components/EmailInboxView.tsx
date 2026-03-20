@@ -17,6 +17,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
+import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
 
@@ -79,11 +80,29 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
-      setAnalysis(cached)
+      const tri = reconcileAnalyzeTriage(
+        {
+          urgencyScore: cached.urgencyScore,
+          needsReply: cached.needsReply,
+          urgencyReason: cached.urgencyReason,
+          summary: cached.summary,
+        },
+        { subject: message?.subject, body: message?.body_text }
+      )
+      const cachedAdj = {
+        ...cached,
+        urgencyScore: tri.urgencyScore,
+        needsReply: tri.needsReply,
+        draftReply: tri.needsReply ? cached.draftReply : null,
+      }
+      setAnalysis(cachedAdj)
       setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
-      if (cached.draftReply) {
-        setDraft(cached.draftReply)
-        setEditedDraft(cached.draftReply)
+      if (cachedAdj.draftReply) {
+        setDraft(cachedAdj.draftReply)
+        setEditedDraft(cachedAdj.draftReply)
+      } else {
+        setDraft(null)
+        setEditedDraft('')
       }
       setAnalysisLoading(false)
       return
@@ -131,13 +150,31 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisLoading(false)
       const final = tryParseAnalysis(accumulatedText)
       if (final) {
-        setAnalysis(final)
-        setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
-        if (final.draftReply) {
-          setDraft(final.draftReply)
-          setEditedDraft(final.draftReply)
+        const tri = reconcileAnalyzeTriage(
+          {
+            urgencyScore: final.urgencyScore,
+            needsReply: final.needsReply,
+            urgencyReason: final.urgencyReason,
+            summary: final.summary,
+          },
+          { subject: message?.subject, body: message?.body_text }
+        )
+        const adjusted = {
+          ...final,
+          urgencyScore: tri.urgencyScore,
+          needsReply: tri.needsReply,
+          draftReply: tri.needsReply ? final.draftReply : null,
         }
-        useEmailInboxStore.getState().setAnalysisCache(messageId, final)
+        setAnalysis(adjusted)
+        setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
+        if (adjusted.draftReply) {
+          setDraft(adjusted.draftReply)
+          setEditedDraft(adjusted.draftReply)
+        } else {
+          setDraft(null)
+          setEditedDraft('')
+        }
+        useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
       }
       cleanup()
     })
@@ -162,7 +199,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
     }
-  }, [messageId])
+  }, [messageId, message?.subject, message?.body_text])
 
   useEffect(() => {
     if (!messageId) return

@@ -21,6 +21,7 @@ import { extractLinkParts } from '../utils/safeLinks'
 import type { AiOutputs, BulkAiResult, BulkAiResultEntry, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
+import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -38,8 +39,38 @@ function formatDate(isoString: string | null): string {
   }
 }
 
+/** Map persisted sort_category / stored category → classifier labels used by reconcile. */
+function sortCategoryToClassifier(cat: string): string {
+  const c = (cat || 'normal').toLowerCase()
+  if (c === 'important') return 'action_required'
+  if (c === 'newsletter') return 'archive'
+  if (c === 'spam' || c === 'irrelevant') return 'pending_delete'
+  if (c === 'pending_review' || c === 'urgent' || c === 'normal') return c
+  return 'normal'
+}
+
+function classifierToSortCategory(cat: string): SortCategory {
+  const m: Record<string, SortCategory> = {
+    pending_delete: 'spam',
+    pending_review: 'pending_review',
+    archive: 'newsletter',
+    urgent: 'urgent',
+    action_required: 'important',
+    normal: 'normal',
+  }
+  return m[cat] ?? 'normal'
+}
+
+function recommendedActionForClassifier(cat: string, needsReply: boolean): BulkRecommendedAction {
+  if (cat === 'pending_delete') return 'pending_delete'
+  if (cat === 'pending_review') return 'pending_review'
+  if (cat === 'archive') return 'archive'
+  if ((cat === 'urgent' || cat === 'action_required') && needsReply) return 'draft_reply_ready'
+  return 'keep_for_manual_action'
+}
+
 /** Parse persisted ai_analysis_json into BulkAiResultEntry — used when bulkAiOutputs was cleared. */
-function parsePersistedAnalysis(json: string | null | undefined): BulkAiResultEntry | undefined {
+function parsePersistedAnalysis(json: string | null | undefined, msg?: InboxMessage): BulkAiResultEntry | undefined {
   if (!json || typeof json !== 'string') return undefined
   try {
     const parsed = JSON.parse(json) as Record<string, unknown>
@@ -48,18 +79,45 @@ function parsePersistedAnalysis(json: string | null | undefined): BulkAiResultEn
     const hasDraftReply = typeof parsed?.draftReply === 'string' && parsed.draftReply.length > 0
     if (!hasCategory && !hasSummary && !hasDraftReply) return undefined
 
+    const rawCategory = (hasCategory ? String(parsed.category) : 'normal') as SortCategory
+    let urgencyScore = typeof parsed.urgencyScore === 'number' ? parsed.urgencyScore : 5
+    let needsReply = !!parsed.needsReply
+    const reason = String(parsed.reason ?? '')
+    const summary = String(parsed.summary ?? '')
+    const urgencyReason = String(parsed.urgencyReason ?? '')
+
+    let classifierCat = sortCategoryToClassifier(rawCategory)
+    if (msg) {
+      const reco = reconcileInboxClassification(
+        {
+          category: classifierCat,
+          urgency: urgencyScore,
+          needsReply,
+          reason: reason || urgencyReason,
+          summary,
+        },
+        { subject: msg.subject ?? '', body: msg.body_text ?? '' }
+      )
+      classifierCat = reco.category
+      urgencyScore = reco.urgency
+      needsReply = reco.needsReply
+    }
+
+    const displayCategory = classifierToSortCategory(classifierCat)
+    const recommendedAction = recommendedActionForClassifier(classifierCat, needsReply)
+
     return {
-      category: (hasCategory ? parsed.category : 'normal') as SortCategory,
-      urgencyScore: typeof parsed.urgencyScore === 'number' ? parsed.urgencyScore : 5,
-      urgencyReason: String(parsed.urgencyReason ?? ''),
-      summary: String(parsed.summary ?? ''),
-      reason: String(parsed.reason ?? ''),
-      needsReply: !!parsed.needsReply,
-      needsReplyReason: String(parsed.needsReplyReason ?? ''),
-      recommendedAction: (hasCategory ? (parsed.recommendedAction ?? 'keep_for_manual_action') : 'keep_for_manual_action') as BulkRecommendedAction,
-      actionExplanation: String(parsed.actionExplanation ?? ''),
+      category: displayCategory,
+      urgencyScore,
+      urgencyReason,
+      summary,
+      reason,
+      needsReply,
+      needsReplyReason: needsReply ? String(parsed.needsReplyReason ?? 'Reply warranted.') : 'No reply needed.',
+      recommendedAction,
+      actionExplanation: String(parsed.actionExplanation ?? reason ?? ''),
       actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
-      draftReply: parsed.draftReply ?? undefined,
+      draftReply: needsReply ? (typeof parsed.draftReply === 'string' ? parsed.draftReply : undefined) : undefined,
       status: (parsed.status ?? 'classified') as 'classified',
     }
   } catch {
@@ -1081,12 +1139,23 @@ function BulkActionCardStructured({
   )
 }
 
-/** Derive urgency badge text from reason/needsReply. */
-function getUrgencyBadgeText(reason: string | null | undefined, needsReply: boolean): string {
+/**
+ * Derive row badge text from reason, needsReply, and score.
+ * Avoid defaulting to "Action Required" for low-urgency / FYI mail (was misleading for marketing).
+ */
+function getUrgencyBadgeText(reason: string | null | undefined, needsReply: boolean, urgencyScore = 5): string {
   const r = (reason ?? '').toLowerCase()
   if (/\b(payment|invoice|due|bill|amount)\b/.test(r)) return 'Payment Due'
   if (needsReply || /\b(reply|response|answer)\b/.test(r)) return 'Response Expected'
-  return 'Action Required'
+  const promoOrFyi =
+    /\b(promotional|newsletter|marketing|unsolicited\s+commercial|advertisement|special offer|no\s+clear\s+action|without\s+clear\s+action|informational only|automated notification|unsubscribe)\b/.test(
+      r
+    )
+  if (promoOrFyi) return 'FYI'
+  if (urgencyScore <= 3 && !needsReply) return 'Low priority'
+  if (urgencyScore >= 7) return 'Time-sensitive'
+  if (urgencyScore >= 4) return 'Review suggested'
+  return 'FYI'
 }
 
 const CATEGORY_BG: Record<string, string> = {
@@ -2772,19 +2841,25 @@ export default function EmailInboxBulkView({
               const isMultiSelected = multiSelectIds.has(msg.id)
               const isFocused = focusedMessageId === msg.id
               const isCardExpanded = expandedCardIds.has(msg.id)
-              const output = bulkAiOutputs[msg.id] ?? parsePersistedAnalysis(msg.ai_analysis_json)
+              const output = bulkAiOutputs[msg.id] ?? parsePersistedAnalysis(msg.ai_analysis_json, msg)
               const bodyContent = (msg.body_text || '').trim() || '(No body)'
               const hasAttachments = msg.has_attachments === 1
               const isDeleted = msg.deleted === 1
               const isPendingDelete = (msg as InboxMessage & { pending_delete?: number }).pending_delete === 1
               const urgencyScore = output?.urgencyScore ?? msg.urgency_score ?? 5
-              const isUrgent = urgencyScore >= URGENCY_THRESHOLD || msg.sort_category === 'urgent'
-              const category = (isUrgent ? 'urgent' : (output?.category ?? msg.sort_category ?? 'normal')) as keyof typeof CATEGORY_BORDER
+              const baseCategory = (output?.category ?? msg.sort_category ?? 'normal') as keyof typeof CATEGORY_BORDER
+              /** When we have structured AI output, do not let stale DB sort_category=urgent override a reconciled low score (e.g. promotional). */
+              const hasStructuredUrgency = typeof output?.urgencyScore === 'number'
+              const isUrgent = hasStructuredUrgency
+                ? urgencyScore >= URGENCY_THRESHOLD && baseCategory === 'urgent'
+                : urgencyScore >= URGENCY_THRESHOLD || msg.sort_category === 'urgent'
+              const category = (isUrgent ? 'urgent' : baseCategory) as keyof typeof CATEGORY_BORDER
               /* FIX-H3: When message is unsorted (no sort state), show no color — reset after undo */
               const isUnsorted = !msg.sort_category && msg.pending_delete !== 1 && msg.archived !== 1
               const borderColor = isUnsorted ? undefined : (CATEGORY_BORDER[category] ?? 'transparent')
               const bgTint = isUnsorted ? undefined : (CATEGORY_BG[category] ?? 'transparent')
-              const needsReply = msg.needs_reply === 1
+              /** Prefer reconciled AI output over DB when present (promotional cap clears needs_reply). */
+              const needsReply = output ? !!output.needsReply : msg.needs_reply === 1
 
               return (
                 <div
@@ -2975,7 +3050,7 @@ export default function EmailInboxBulkView({
                           className="action-card-badge action-card-badge--urgency"
                           title={msg.sort_reason || output?.urgencyReason || 'Requires attention'}
                         >
-                          {getUrgencyBadgeText(output?.urgencyReason ?? msg.sort_reason, needsReply)}
+                          {getUrgencyBadgeText(output?.urgencyReason ?? msg.sort_reason, needsReply, urgencyScore)}
                         </span>
                       )}
                       {hasAttachments && (

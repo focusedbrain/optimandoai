@@ -75,6 +75,12 @@ Move here if:
 7–8: Action required within 48 hours
 9–10: Immediate action required (legal, financial, security)
 
+## OUTPUT COHERENCE (mandatory)
+category, urgency (1–10), needsReply, reason, and summary MUST agree:
+- Promotional offers, newsletters, marketing blasts, and unsolicited commercial email with NO billing/legal/security angle MUST use category pending_delete (or archive if it is reference material you want to keep), urgency 1–3, and needsReply false. NEVER use urgent or action_required for those.
+- Do NOT assign urgency 9–10 unless the reason explicitly cites a legal deadline, financial consequence, security incident, account lockout, or same-day human deadline from a real counterparty.
+- If the reason describes "no action required" or "informational/promotional only", urgency MUST be 1–3 and needsReply MUST be false.
+
 ## DRAFT REPLY RULES
 Generate a draft reply (draftReply field) when:
 - needsReply is true
@@ -139,6 +145,7 @@ import {
 import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchestrator'
 import { bulkQueueDeletion, cancelRemoteDeletion, executePendingDeletions, queueRemoteDeletion } from './remoteDeletion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
+import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
 import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
 
@@ -1294,15 +1301,28 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       }
 
       const parseFailed = !parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0
-      const needsReply = parseFailed ? false : !!parsed.needsReply
+      let needsReply = parseFailed ? false : !!parsed.needsReply
       const needsReplyReason = (parseFailed ? 'Could not analyze' : (parsed.needsReplyReason ?? '')).slice(0, 300)
       const summary = (parseFailed ? 'Analysis failed — could not parse AI response' : (parsed.summary ?? '')).slice(0, 1000)
-      const urgencyScore = parseFailed ? 5 : (typeof parsed.urgencyScore === 'number' ? Math.max(1, Math.min(10, parsed.urgencyScore)) : 5)
-      const urgencyReason = (parseFailed ? 'Unknown' : (parsed.urgencyReason ?? '')).slice(0, 300)
+      let urgencyScore = parseFailed ? 5 : (typeof parsed.urgencyScore === 'number' ? Math.max(1, Math.min(10, parsed.urgencyScore)) : 5)
+      let urgencyReason = (parseFailed ? 'Unknown' : (parsed.urgencyReason ?? '')).slice(0, 300)
+      if (!parseFailed) {
+        const tri = reconcileAnalyzeTriage(
+          { urgencyScore, needsReply, urgencyReason, summary },
+          { subject: row.subject, body: row.body_text ?? '' }
+        )
+        urgencyScore = tri.urgencyScore
+        needsReply = tri.needsReply
+      }
       const actionItems = parseFailed ? [] : (Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : [])
       const archiveRecommendation = parseFailed ? 'keep' : (parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep')
       const archiveReason = (parseFailed ? 'Could not determine' : (parsed.archiveReason ?? '')).slice(0, 300)
-      const draftReply = parseFailed ? null : (typeof parsed.draftReply === 'string' ? parsed.draftReply.slice(0, 8000) : null)
+      const draftReply =
+        parseFailed || !needsReply
+          ? null
+          : typeof parsed.draftReply === 'string'
+            ? parsed.draftReply.slice(0, 8000)
+            : null
 
       console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation, hasDraftReply: !!draftReply }).slice(0, 500))
 
@@ -1455,11 +1475,21 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
 
       const cat = String(parsed.category).toLowerCase()
       const VALID_NEW = ['pending_delete', 'pending_review', 'archive', 'urgent', 'action_required', 'normal'] as const
-      const validCategory = VALID_NEW.includes(cat as any) ? cat : 'normal'
-      const urgency = typeof parsed.urgency === 'number' ? Math.max(1, Math.min(10, parsed.urgency)) : 5
-      const needsReply = !!parsed.needsReply
-      const reason = (parsed.reason ?? '').slice(0, 500)
+      let validCategory = VALID_NEW.includes(cat as any) ? cat : 'normal'
+      let urgency = typeof parsed.urgency === 'number' ? Math.max(1, Math.min(10, parsed.urgency)) : 5
+      let needsReply = !!parsed.needsReply
+      let reason = (parsed.reason ?? '').slice(0, 500)
       const summary = (parsed.summary ?? '').slice(0, 500)
+
+      /** WRExpert coherence: promotional / unsolicited cannot be urgent+critical. */
+      const reco = reconcileInboxClassification(
+        { category: validCategory, urgency, needsReply, reason, summary },
+        { subject: row.subject, body: row.body_text ?? '' }
+      )
+      validCategory = reco.category
+      urgency = reco.urgency
+      needsReply = reco.needsReply
+      reason = reco.reason.slice(0, 500)
 
       const sortCategoryMap: Record<string, string> = {
         pending_delete: 'spam',

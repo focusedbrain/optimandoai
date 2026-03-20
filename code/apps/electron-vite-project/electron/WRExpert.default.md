@@ -60,6 +60,12 @@ Move here if:
 7–8: Action required within 48 hours
 9–10: Immediate action required (legal, financial, security)
 
+## OUTPUT COHERENCE (mandatory)
+category, urgency (1–10), needsReply, reason, and summary MUST agree:
+- Promotional offers, newsletters, marketing blasts, and unsolicited commercial email with NO billing/legal/security angle MUST use category pending_delete (or archive if it is reference material you want to keep), urgency 1–3, and needsReply false. NEVER use urgent or action_required for those.
+- Do NOT assign urgency 9–10 unless the reason explicitly cites a legal deadline, financial consequence, security incident, account lockout, or same-day human deadline from a real counterparty.
+- If the reason describes "no action required" or "informational/promotional only", urgency MUST be 1–3 and needsReply MUST be false.
+
 ## DRAFT REPLY RULES
 Generate a draft reply (draftReply field) when:
 - needsReply is true
