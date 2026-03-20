@@ -279,14 +279,24 @@ export class ImapProvider extends BaseEmailProvider {
 
           const all: RawEmailMessage[] = []
           let i = 0
+          let imapChunkIdx = 0
 
           const nextChunk = () => {
             if (i >= pick.length) {
+              if (syncAll && pick.length > 0) {
+                console.log(`[IMAP] SINCE fetch done: ${all.length} message(s) from ${pick.length} match(es)`)
+              }
               resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
               return
             }
+            imapChunkIdx++
             const slice = pick.slice(i, i + chunkSize)
             i += chunkSize
+            if (syncAll) {
+              console.log(
+                `[IMAP] SINCE fetch chunk ${imapChunkIdx}: seq ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length} total matches)`,
+              )
+            }
             const spec = slice.join(',')
             const batch: RawEmailMessage[] = []
             const fetch = this.client!.seq.fetch(spec, {
@@ -425,14 +435,22 @@ export class ImapProvider extends BaseEmailProvider {
 
         const all: RawEmailMessage[] = []
         let startSeq = 1
+        let imapRangeIdx = 0
 
         const nextRange = () => {
           if (startSeq > total || all.length >= maxM) {
+            if (syncAll && total > 0) {
+              console.log(`[IMAP] full mailbox fetch done: ${all.length} message(s) from ${total} in folder`)
+            }
             resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
             return
           }
+          imapRangeIdx++
           const endSeq = Math.min(total, startSeq + chunkSize - 1)
           const spec = `${startSeq}:${endSeq}`
+          if (syncAll) {
+            console.log(`[IMAP] full mailbox range ${imapRangeIdx}: ${spec} (total msgs=${total}, loaded ${all.length})`)
+          }
           startSeq = endSeq + 1
           const batch: RawEmailMessage[] = []
           const fetch = this.client!.seq.fetch(spec, {

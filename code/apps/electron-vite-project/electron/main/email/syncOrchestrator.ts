@@ -222,6 +222,11 @@ async function syncAccountEmailsImpl(
 
     const messages = await emailGateway.listMessages(accountId, listOptions)
     const existingIds = getExistingEmailMessageIds(db, accountId)
+    let skippedDuplicate = 0
+
+    console.log(
+      `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'})`,
+    )
 
     let newCount = 0
     let beapCount = 0
@@ -230,7 +235,10 @@ async function syncAccountEmailsImpl(
     let cursorSeen = syncCursor
 
     for (const msg of messages) {
-      if (existingIds.has(msg.id)) continue
+      if (existingIds.has(msg.id)) {
+        skippedDuplicate++
+        continue
+      }
 
       try {
         const detail = await emailGateway.getMessage(accountId, msg.id)
@@ -279,6 +287,10 @@ async function syncAccountEmailsImpl(
     result.newMessages = newCount
     result.beapMessages = beapCount
     result.plainMessages = plainCount
+
+    console.log(
+      `[SyncOrchestrator] Ingested ${newCount} new message(s), skipped ${skippedDuplicate} duplicate id(s) already in inbox`,
+    )
 
     const totalSynced = (stateRow?.total_synced as number | undefined) ?? 0
     updateSyncState(db, accountId, {

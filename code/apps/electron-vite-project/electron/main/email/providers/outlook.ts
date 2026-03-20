@@ -218,18 +218,27 @@ export class OutlookProvider extends BaseEmailProvider {
     let response = await this.graphApiRequest('GET', requestUrl)
     let page = response.value || []
     collected.push(...page)
+    let graphPageIdx = 1
+    console.log(
+      `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}, $top=${pageTop})`,
+    )
 
     if (syncAll) {
       let nextLink: string | undefined = response['@odata.nextLink']
       while (nextLink && collected.length < maxTotal) {
+        graphPageIdx++
         response = await this.graphApiRequestAbsolute('GET', nextLink)
         page = response.value || []
-        if (!page.length) break
         for (const msg of page) {
           if (collected.length >= maxTotal) break
           collected.push(msg)
         }
+        console.log(
+          `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}${response['@odata.nextLink'] ? ', nextLink' : ', end'})`,
+        )
+        // Keep following @odata.nextLink until absent — do not stop just because this page is empty.
         nextLink = response['@odata.nextLink']
+        if (!page.length && !nextLink) break
       }
     }
 

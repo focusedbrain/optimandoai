@@ -206,33 +206,65 @@ export class GmailProvider extends BaseEmailProvider {
         ? Math.max(1, options.syncMaxMessages)
         : Number.MAX_SAFE_INTEGER
       : Math.min(Math.max(1, options?.syncMaxMessages ?? singleLimit), 500)
-    const pageSize = syncAll ? Math.min(500, maxTotal) : singleLimit
+    /** Gmail allows up to 500 ids per messages.list page — use full page size for sync so we minimize list round-trips. */
+    const listPageSize = syncAll ? 500 : Math.min(singleLimit, 500)
 
-    const messages: RawEmailMessage[] = []
+    // ── Phase 1: paginate messages.list until no nextPageToken (never stop early because a page had zero *new* bodies). ──
+    const allIds: string[] = []
+    let listPageIdx = 0
     let pageToken: string | undefined
 
-    for (;;) {
-      const remaining = maxTotal - messages.length
-      if (remaining <= 0) break
+    if (syncAll) {
+      for (;;) {
+        const remainingSlots = maxTotal - allIds.length
+        if (remainingSlots <= 0) break
 
-      const listParams = new URLSearchParams({
-        maxResults: Math.min(pageSize, remaining).toString(),
-        ...(query ? { q: query } : {}),
-        ...(pageToken ? { pageToken } : {}),
-      })
+        listPageIdx++
+        const listParams = new URLSearchParams({
+          maxResults: Math.min(listPageSize, remainingSlots).toString(),
+          ...(query ? { q: query } : {}),
+          ...(pageToken ? { pageToken } : {}),
+        })
 
-      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+        const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+        const batch = (listResponse.messages || []) as Array<{ id: string }>
+        pageToken = listResponse.nextPageToken
 
-      const batch = (listResponse.messages || []) as Array<{ id: string }>
-      pageToken = listResponse.nextPageToken
+        for (const row of batch) {
+          if (allIds.length >= maxTotal) break
+          if (row?.id) allIds.push(row.id)
+        }
 
-      for (const row of batch) {
-        if (messages.length >= maxTotal) break
-        const msg = await this.fetchMessage(row.id)
-        if (msg) messages.push(msg)
+        console.log(
+          `[Gmail] messages.list page ${listPageIdx}: +${batch.length} id(s), cumulative ${allIds.length}${pageToken ? ', nextPageToken present' : ', no more pages'}`,
+        )
+
+        // Continue while the API says there is another page — do NOT break on batch.length===0 if nextPageToken exists.
+        if (!pageToken) break
       }
+    } else {
+      const listParams = new URLSearchParams({
+        maxResults: Math.min(listPageSize, maxTotal).toString(),
+        ...(query ? { q: query } : {}),
+      })
+      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+      const batch = (listResponse.messages || []) as Array<{ id: string }>
+      for (const row of batch) {
+        if (allIds.length >= maxTotal) break
+        if (row?.id) allIds.push(row.id)
+      }
+    }
 
-      if (!syncAll || !pageToken || batch.length === 0) break
+    // ── Phase 2: fetch full messages (dedupe / “already in DB” is handled in syncOrchestrator). ──
+    const messages: RawEmailMessage[] = []
+    const LOG_FETCH_EVERY = 50
+    for (let i = 0; i < allIds.length; i++) {
+      if (messages.length >= maxTotal) break
+      const msg = await this.fetchMessage(allIds[i])
+      if (msg) messages.push(msg)
+      if (syncAll && (i === 0 || (i + 1) % LOG_FETCH_EVERY === 0 || i === allIds.length - 1)) {
+        console.log(`[Gmail] fetch full ${i + 1}/${allIds.length} listed (${messages.length} loaded)`)
+      }
     }
 
     return messages
