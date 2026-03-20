@@ -1187,6 +1187,96 @@ body {
   gap: 8px;
 }
 
+/* Shared inbox urgency meter (bulk header + bulk popover + normal inbox analysis) */
+.inbox-urgency-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
+}
+
+.inbox-urgency-meter--compact {
+  max-width: 148px;
+}
+
+.inbox-urgency-meter--panel {
+  gap: 6px;
+}
+
+.inbox-urgency-meter__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inbox-urgency-meter__score {
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.inbox-urgency-meter--compact .inbox-urgency-meter__score {
+  font-size: 11px;
+}
+
+.inbox-urgency-meter--panel .inbox-urgency-meter__score {
+  font-size: 13px;
+}
+
+.inbox-urgency-meter__tier {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.inbox-urgency-meter--panel .inbox-urgency-meter__tier {
+  font-size: 10px;
+}
+
+.inbox-urgency-meter__track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f8fafc 0%, #e8edf3 100%);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+.inbox-urgency-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 0;
+  transition:
+    width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.3s ease;
+}
+
+.inbox-urgency-meter__reason {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.inbox-urgency-meter--panel .inbox-urgency-meter__reason {
+  font-size: 12px;
+}
+
+.bulk-action-card-header-urgency-slot {
+  flex: 1;
+  min-width: 0;
+  max-width: 160px;
+}
+
 .inbox-detail-ai-urgency-bar {
   height: 8px;
   background: #e2e8f0;
@@ -1692,10 +1782,6 @@ body {
   padding: 1px 4px;
 }
 
-.bulk-view--compact .bulk-action-card-urgency {
-  font-size: 8px;
-}
-
 .bulk-view--compact .bulk-action-card-btn {
   padding: 2px 6px;
   font-size: 8px;
@@ -1759,12 +1845,25 @@ body {
   font-size: 10px;
 }
 
-.bulk-view--compact .bulk-action-card-urgency-bar {
-  height: 4px;
+.bulk-view--compact .inbox-urgency-meter__track {
+  height: 5px;
 }
 
-.bulk-view--compact .bulk-action-card-urgency-label {
-  font-size: 9px;
+.bulk-view--compact .inbox-urgency-meter__score {
+  font-size: 10px;
+}
+
+.bulk-view--compact .inbox-urgency-meter__tier {
+  font-size: 8px;
+}
+
+.bulk-view--compact .bulk-action-card-header-urgency-slot {
+  max-width: 120px;
+}
+
+.bulk-view--compact .bulk-action-card-meta-flag {
+  font-size: 10px;
+  padding: 3px 7px;
 }
 
 .bulk-view--compact .bulk-action-card-reasoning {
@@ -2754,12 +2853,6 @@ body {
   text-transform: uppercase;
 }
 
-.bulk-action-card-urgency-badge {
-  font-size: 11px;
-  font-weight: 700;
-  margin-left: auto;
-}
-
 /* Structured sections — flex column; recommended action + draft; draft gets full space when present */
 .bulk-action-card--structured .bulk-action-card-sections {
   display: flex;
@@ -3153,24 +3246,27 @@ body {
   margin-top: 5px;
 }
 
-.bulk-action-card-urgency-bar {
-  height: 6px;
-  background: #e2e8f0;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 4px;
+/* Recommended action — only positive signals (no “Answer required: No” filler) */
+.bulk-action-card-meta-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-top: 8px;
+  list-style: none;
+  padding: 0;
 }
 
-.bulk-action-card-urgency-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.2s ease;
-}
-
-.bulk-action-card-urgency-label {
-  font-size: 12px;
-  color: #334155;
+.bulk-action-card-meta-flag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
   font-weight: 600;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 9px;
+  line-height: 1.2;
 }
 
 .bulk-action-card-reasoning-box {
@@ -3373,12 +3469,6 @@ body {
 .bulk-action-card-action-item {
   margin-bottom: 2px;
   line-height: 1.4;
-}
-
-.bulk-action-card-urgency {
-  font-size: 10px;
-  font-weight: 600;
-  color: #64748b;
 }
 
 .bulk-action-card-summary {

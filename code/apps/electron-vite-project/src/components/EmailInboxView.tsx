@@ -17,6 +17,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
+import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
 
 // ── Relative date ──
@@ -343,14 +344,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const isDepackaged = message?.source_type === 'email_plain'
 
-  const urgencyColor = analysis
-    ? analysis.urgencyScore <= 3
-      ? '#22c55e'
-      : analysis.urgencyScore <= 6
-        ? '#eab308'
-        : '#ef4444'
-    : 'var(--color-text-muted, #94a3b8)'
-
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" data-has-draft={draft ? 'true' : undefined}>
       <div className="inbox-detail-ai-advisory-banner">
@@ -429,12 +422,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 {analysisLoading && !receivedFields.has('urgencyScore') ? (
                   <span className="inbox-detail-ai-skeleton-inline" />
                 ) : analysis ? (
-                  <>
-                    <div className="inbox-detail-ai-urgency-bar">
-                      <div className="inbox-detail-ai-urgency-fill" style={{ width: `${(analysis.urgencyScore / 10) * 100}%`, background: urgencyColor }} />
-                    </div>
-                    <span className="inbox-detail-ai-urgency-label">{analysis.urgencyScore}/10 — {analysis.urgencyReason || '—'}</span>
-                  </>
+                  <InboxUrgencyMeter
+                    score={analysis.urgencyScore}
+                    variant="panel"
+                    reason={analysis.urgencyReason || '—'}
+                  />
                 ) : (
                   <span className="inbox-detail-ai-muted">—</span>
                 )}

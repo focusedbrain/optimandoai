@@ -9,7 +9,6 @@ import {
   useEmailInboxStore,
   deriveTabCountsWithPreview,
   type InboxMessage,
-  type InboxSourceType,
   type SubFocus,
 } from '../stores/useEmailInboxStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -21,6 +20,7 @@ import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type { AiOutputs, BulkAiResult, BulkAiResultEntry, BulkRecommendedAction, SortCategory } from '../types/inboxAi'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
+import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -35,19 +35,6 @@ function formatDate(isoString: string | null): string {
     })
   } catch {
     return '—'
-  }
-}
-
-function formatSourceBadge(sourceType: InboxSourceType): string {
-  switch (sourceType) {
-    case 'direct_beap':
-      return 'Direct'
-    case 'email_beap':
-      return 'BEAP'
-    case 'email_plain':
-      return 'Plain'
-    default:
-      return 'Email'
   }
 }
 
@@ -148,6 +135,40 @@ function UndoFadeWrapper({
   return (
     <div className="undo-btn-wrapper" data-fading={fading}>
       {children}
+    </div>
+  )
+}
+
+/**
+ * Under “Recommended action”: show only positive, meaningful signals.
+ * Omits negative filler (e.g. “Answer required: No”) per product UX.
+ */
+function BulkRecommendedActionMetaFlags({ msg, output }: { msg: InboxMessage; output: BulkAiResultEntry }) {
+  const flags: ReactNode[] = []
+  if (output.needsReply) {
+    flags.push(
+      <span key="needs-reply" className="bulk-action-card-meta-flag" role="listitem">
+        Answer required: Yes
+      </span>
+    )
+  }
+  const ac = msg.attachment_count ?? 0
+  if (ac > 0) {
+    flags.push(
+      <span
+        key="attachments"
+        className="bulk-action-card-meta-flag"
+        role="listitem"
+        title={`${ac} attachment${ac === 1 ? '' : 's'}`}
+      >
+        {ac === 1 ? 'Attachments: Yes' : `Attachments: Yes (${ac})`}
+      </span>
+    )
+  }
+  if (flags.length === 0) return null
+  return (
+    <div className="bulk-action-card-meta-flags" role="list" aria-label="Relevant action signals">
+      {flags}
     </div>
   )
 }
@@ -315,6 +336,15 @@ const CATEGORY_BORDER: Record<string, string> = {
   pending_review: '#f59e0b',
 }
 
+/** Analysis header category chip — omit “normal” and “spam” (spam uses row badge; urgency uses InboxUrgencyMeter only). */
+function bulkHeaderCategoryBadge(category: SortCategory | undefined): { label: string; color: string } | null {
+  const cat = category ?? 'normal'
+  if (cat === 'normal' || cat === 'spam') return null
+  const color = CATEGORY_BORDER[cat] ?? '#a855f7'
+  const label = cat === 'pending_review' ? 'REVIEW' : cat.toUpperCase()
+  return { label, color }
+}
+
 /** Structured bulk action card with draft collapse/connect UX (same as Normal Inbox). */
 function BulkActionCardStructured({
   msg,
@@ -473,7 +503,6 @@ function BulkActionCardStructured({
   const urgency = output.urgencyScore ?? 5
   const needsReplyReason = output.needsReplyReason ?? output.reason ?? ''
   const urgencyReason = output.urgencyReason ?? output.reason ?? ''
-  const urgencyColor = urgency <= 3 ? '#22c55e' : urgency <= 6 ? '#eab308' : '#ef4444'
   const panelMod = `bulk-action-card-panel--${rec}`
   const inPendingDeleteGrace = rec === 'pending_delete' && !keptDuringPreviewIds.has(msg.id)
   const inArchiveGrace = rec === 'archive' && !keptDuringArchivePreviewIds.has(msg.id) && !!archivePreviewExpiries[msg.id]
@@ -489,12 +518,18 @@ function BulkActionCardStructured({
     >
       {!hideAnalysisChrome ? (
       <div className="bulk-action-card-header">
-        <span className="bulk-action-card-badge" style={{ background: `${borderColor}33`, color: borderColor }}>
-          {(output.category ?? 'normal') === 'pending_review' ? 'REVIEW' : (output.category ?? 'normal').toUpperCase()}
-        </span>
-        <span className="bulk-action-card-urgency-badge" style={{ color: urgencyColor }} title="Urgency 1–10">
-          {urgency}/10
-        </span>
+        {(() => {
+          const hb = bulkHeaderCategoryBadge(output.category)
+          if (!hb) return null
+          return (
+            <span className="bulk-action-card-badge" style={{ background: `${hb.color}33`, color: hb.color }}>
+              {hb.label}
+            </span>
+          )
+        })()}
+        <div className="bulk-action-card-header-urgency-slot">
+          <InboxUrgencyMeter score={urgency} variant="compact" />
+        </div>
         <div ref={analysisButtonRef} style={{ position: 'relative', marginLeft: 'auto' }}>
           <button
             type="button"
@@ -514,15 +549,17 @@ function BulkActionCardStructured({
               onClick={(e) => e.stopPropagation()}
             >
               <div className="bulk-action-card-analysis-popover-content">
-                <div className="bulk-action-card-row">
-                  <span className="bulk-action-card-row-label">Response Needed</span>
-                  <div className="bulk-action-card-row-value">
-                    <span className="bulk-action-card-response-needed">
-                      <span className="bulk-action-card-dot" style={{ background: output.needsReply ? '#ef4444' : '#22c55e' }} />
-                      {output.needsReply ? 'Yes' : 'No'} — {needsReplyReason || '—'}
-                    </span>
+                {output.needsReply ? (
+                  <div className="bulk-action-card-row">
+                    <span className="bulk-action-card-row-label">Response needed</span>
+                    <div className="bulk-action-card-row-value">
+                      <span className="bulk-action-card-response-needed">
+                        <span className="bulk-action-card-dot" style={{ background: '#ef4444' }} />
+                        Yes — {needsReplyReason || '—'}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                ) : null}
                 <div className="bulk-action-card-row">
                   <span className="bulk-action-card-row-label">Summary</span>
                   <div className={`bulk-action-card-row-value bulk-action-card-summary bulk-action-card-summary--expanded`}>
@@ -532,10 +569,7 @@ function BulkActionCardStructured({
                 <div className="bulk-action-card-row">
                   <span className="bulk-action-card-row-label">Urgency</span>
                   <div className="bulk-action-card-row-value">
-                    <div className="bulk-action-card-urgency-bar">
-                      <div className="bulk-action-card-urgency-fill" style={{ width: `${(urgency / 10) * 100}%`, background: urgencyColor }} />
-                    </div>
-                    <span className="bulk-action-card-urgency-label">{urgency}/10 — {urgencyReason || '—'}</span>
+                    <InboxUrgencyMeter score={urgency} variant="panel" reason={urgencyReason || '—'} />
                   </div>
                 </div>
                 <div className="bulk-action-card-row">
@@ -586,6 +620,7 @@ function BulkActionCardStructured({
                         {rec === 'draft_reply_ready' && '✉ Send draft reply'}
                       </span>
                     </div>
+                    <BulkRecommendedActionMetaFlags msg={msg} output={output} />
                     <div className="bulk-action-card-reasoning-box">
                       <span className="bulk-action-card-reasoning-label">Why:</span>
                       <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
@@ -645,6 +680,7 @@ function BulkActionCardStructured({
                 {rec === 'draft_reply_ready' && '✉ Send draft reply'}
               </span>
             </div>
+            <BulkRecommendedActionMetaFlags msg={msg} output={output} />
             <div className="bulk-action-card-reasoning-box">
               <span className="bulk-action-card-reasoning-label">Why:</span>
               <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
@@ -2934,15 +2970,6 @@ export default function EmailInboxBulkView({
                           </button>
                         </UndoFadeWrapper>
                       )}
-                      <span
-                        className="action-card-badge action-card-badge--type"
-                        style={{
-                          background: msg.source_type === 'email_plain' ? '#f1f5f9' : 'rgba(147,51,234,0.1)',
-                          color: msg.source_type === 'email_plain' ? '#64748b' : 'var(--purple-accent, #7c3aed)',
-                        }}
-                      >
-                        {formatSourceBadge(msg.source_type)}
-                      </span>
                       {isUrgent && (
                         <span
                           className="action-card-badge action-card-badge--urgency"
