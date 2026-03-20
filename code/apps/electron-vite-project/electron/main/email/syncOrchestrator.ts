@@ -179,7 +179,8 @@ async function syncAccountEmailsImpl(
 
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
-    const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 90
+    /** Default 0 = no lower date bound unless account sets sync.maxAgeDays (Pull / full sync lists entire mailbox window). */
+    const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 0
 
     let oldestIso: string | undefined
     if (maxAgeDays > 0) {

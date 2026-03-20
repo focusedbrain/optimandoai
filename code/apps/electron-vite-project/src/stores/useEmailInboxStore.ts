@@ -1118,14 +1118,28 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const warnings: string[] = []
     let okCount = 0
     try {
-      for (const accountId of accountIds) {
-        const res = await bridge.syncAccount(accountId)
-        if (res.ok) okCount++
-        if (res.syncWarnings?.length) {
-          warnings.push(...res.syncWarnings.map((w) => `[${accountId}] ${w}`))
-        }
-        if (!res.ok) {
-          warnings.push(`[${accountId}] ${res.error ?? 'Sync failed'}`)
+      const results = await Promise.allSettled(accountIds.map((accountId) => bridge.syncAccount(accountId)))
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
+        const accountId = accountIds[i]
+        if (r.status === 'fulfilled') {
+          const res = r.value as {
+            ok: boolean
+            error?: string
+            syncWarnings?: string[]
+          }
+          if (res.ok) okCount++
+          if (res.syncWarnings?.length) {
+            warnings.push(...res.syncWarnings.map((w) => `[${accountId}] ${w}`))
+          }
+          if (!res.ok) {
+            warnings.push(`[${accountId}] ${res.error ?? 'Sync failed'}`)
+          }
+        } else {
+          const reason = r.reason
+          warnings.push(
+            `[${accountId}] ${reason instanceof Error ? reason.message : String(reason ?? 'Sync failed')}`,
+          )
         }
       }
 

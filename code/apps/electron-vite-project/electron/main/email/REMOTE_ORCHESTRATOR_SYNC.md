@@ -25,13 +25,16 @@ AI classification enqueues `pending_review`, `pending_delete`, and **`archive`**
 
 ## Post-pull / auto-sync mirror
 
-After **`inbox:syncAccount`** (Pull) and after each **auto-sync tick**:
+After **`inbox:syncAccount`** (Pull):
 
 1. `syncAccountEmails` collects `newInboxMessageIds` for rows ingested in that run.
 2. `processPendingPlainEmails` / `processPendingP2PBeapEmails` run (same as before).
 3. **`enqueueRemoteOpsForLocalLifecycleState`** enqueues remote ops from current local columns for those IDs (archive → `pending_delete` → `pending_review` precedence).
-4. **`drainOrchestratorRemoteQueueBounded`** runs inline (time/batch capped ~28s / 150 batches) so the server catches up before IPC returns when possible.
-5. **`scheduleOrchestratorRemoteDrain`** runs so any remaining / concurrent queue work continues in the background.
+4. **`scheduleOrchestratorRemoteDrain`** only — IPC returns without waiting; remote mailbox mirror continues in the background.
+
+After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** still runs inline (capped ~28s / 150 batches) before the next tick is scheduled, plus **`scheduleOrchestratorRemoteDrain`** for overflow.
+
+**`inbox:aiClassifySingle`** / **`inbox:aiCategorize`** schedule background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
 
 IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** before `MOVE`. Gmail uses **`ensureWrDeskUserLabel`** to create missing user labels.
 

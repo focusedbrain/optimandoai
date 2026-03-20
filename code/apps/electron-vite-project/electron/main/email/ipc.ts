@@ -151,7 +151,6 @@ import {
   scheduleOrchestratorRemoteDrain,
   listRemoteOrchestratorQueueRows,
   enqueueRemoteOpsForLocalLifecycleState,
-  drainOrchestratorRemoteQueueBounded,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
@@ -944,7 +943,7 @@ export function registerInboxHandlers(
         if (result.newInboxMessageIds?.length) {
           enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
         }
-        await drainOrchestratorRemoteQueueBounded(db)
+        // Remote drain in background — do not block IPC (Pull UI clears as soon as local ingest finishes).
         scheduleOrchestratorRemoteDrain(resolveDb)
       } catch (e: any) {
         console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
@@ -1785,12 +1784,10 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
     try {
       const db = await resolveDb()
       if (db) {
-        await drainOrchestratorRemoteQueueBounded(db)
         scheduleOrchestratorRemoteDrain(resolveDb)
       }
     } catch (e: any) {
-      console.warn('[Inbox] Post-aiClassifySingle remote drain:', e?.message)
-      scheduleOrchestratorRemoteDrain(resolveDb)
+      console.warn('[Inbox] Post-aiClassifySingle remote schedule:', e?.message)
     }
     return out
   })
@@ -1907,11 +1904,9 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       console.log('[AI-CATEGORIZE] Per-message classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
 
       try {
-        await drainOrchestratorRemoteQueueBounded(db)
         scheduleOrchestratorRemoteDrain(resolveDb)
       } catch (e: any) {
-        console.warn('[Inbox] Post-aiCategorize remote drain:', e?.message)
-        scheduleOrchestratorRemoteDrain(resolveDb)
+        console.warn('[Inbox] Post-aiCategorize remote schedule:', e?.message)
       }
 
       return { ok: true, data: { classifications } }

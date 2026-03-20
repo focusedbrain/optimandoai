@@ -255,15 +255,24 @@ export class GmailProvider extends BaseEmailProvider {
       }
     }
 
-    // ── Phase 2: fetch full messages (dedupe / “already in DB” is handled in syncOrchestrator). ──
+    // ── Phase 2: fetch full messages in concurrent batches (dedupe is in syncOrchestrator). ──
     const messages: RawEmailMessage[] = []
-    const LOG_FETCH_EVERY = 50
-    for (let i = 0; i < allIds.length; i++) {
+    const CONCURRENT_BATCH = 10
+    for (let i = 0; i < allIds.length; i += CONCURRENT_BATCH) {
       if (messages.length >= maxTotal) break
-      const msg = await this.fetchMessage(allIds[i])
-      if (msg) messages.push(msg)
-      if (syncAll && (i === 0 || (i + 1) % LOG_FETCH_EVERY === 0 || i === allIds.length - 1)) {
-        console.log(`[Gmail] fetch full ${i + 1}/${allIds.length} listed (${messages.length} loaded)`)
+      const sliceEnd = Math.min(i + CONCURRENT_BATCH, allIds.length)
+      const batchIds = allIds.slice(i, sliceEnd)
+      const batchResults = await Promise.allSettled(batchIds.map((id) => this.fetchMessage(id)))
+      for (const r of batchResults) {
+        if (messages.length >= maxTotal) break
+        if (r.status === 'fulfilled' && r.value) {
+          messages.push(r.value)
+        }
+      }
+      if (syncAll) {
+        console.log(
+          `[Gmail] fetch full ${sliceEnd}/${allIds.length} listed (${messages.length} loaded, batch ${CONCURRENT_BATCH} concurrent)`,
+        )
       }
     }
 
