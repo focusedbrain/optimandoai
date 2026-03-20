@@ -102,16 +102,29 @@ export class ImapProvider extends BaseEmailProvider {
       })
       this.client = client
 
-      client.once('ready', () => {
-        console.log('[IMAP] Connected to:', config.imap!.host)
-        this.connected = true
-        resolve()
-      })
-
-      client.once('error', (err: Error) => {
+      /**
+       * During connect, first `error` rejects the promise. After `ready`, Node's `imap` may emit
+       * further `error` events on the same socket; with **no** listener that crashes the main process
+       * and IPC returns "reply was never sent". Always attach a persistent handler post-ready.
+       */
+      const onConnectError = (err: Error) => {
         console.error('[IMAP] Connection error:', err)
         this.connected = false
         reject(err)
+      }
+
+      client.once('error', onConnectError)
+
+      client.once('ready', () => {
+        /* `once` wraps the listener — removeListener(fn) may not match; clear pre-ready error handlers. */
+        client.removeAllListeners('error')
+        client.on('error', (err: Error) => {
+          console.error('[IMAP] Runtime connection error (listener prevents process crash):', err?.message || err)
+          this.connected = false
+        })
+        console.log('[IMAP] Connected to:', config.imap!.host)
+        this.connected = true
+        resolve()
       })
 
       client.once('end', () => {

@@ -935,25 +935,50 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const result = await syncAccountEmails(db, { accountId, fullSync: true })
-      processPendingPlainEmails(db)
-      processPendingP2PBeapEmails(db)
+
+      let result: Awaited<ReturnType<typeof syncAccountEmails>>
+      try {
+        result = await syncAccountEmails(db, { accountId, fullSync: true })
+      } catch (syncErr: any) {
+        console.error('[Inbox] syncAccountEmails threw:', syncErr)
+        const msg = syncErr?.message ?? 'Sync failed'
+        return {
+          ok: false,
+          error: msg,
+          data: undefined,
+          warningCount: 1,
+          syncWarnings: [msg],
+        }
+      }
+
+      try {
+        processPendingPlainEmails(db)
+      } catch (e: any) {
+        console.warn('[Inbox] Plain email post-sync processing:', e?.message)
+      }
+      try {
+        processPendingP2PBeapEmails(db)
+      } catch (e: any) {
+        console.warn('[Inbox] BEAP post-sync processing:', e?.message)
+      }
 
       try {
         if (result.newInboxMessageIds?.length) {
           enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
         }
-        // Remote drain in background — do not block IPC (Pull UI clears as soon as local ingest finishes).
         scheduleOrchestratorRemoteDrain(resolveDb)
       } catch (e: any) {
         console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
-        scheduleOrchestratorRemoteDrain(resolveDb)
+        try {
+          scheduleOrchestratorRemoteDrain(resolveDb)
+        } catch {
+          /* ignore */
+        }
       }
 
       const errors = result.errors ?? []
       const warnCount = errors.length
 
-      // Hard failure (e.g. list API threw)
       if (!result.ok) {
         return {
           ok: false,
@@ -964,7 +989,6 @@ export function registerInboxHandlers(
         }
       }
 
-      // Every message failed to ingest; nothing new despite errors
       if (result.newMessages === 0 && warnCount > 0) {
         return {
           ok: false,
@@ -975,7 +999,13 @@ export function registerInboxHandlers(
         }
       }
 
-      if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
+      if (result.newMessages > 0) {
+        try {
+          sendToRenderer('inbox:newMessages', result)
+        } catch (e: any) {
+          console.warn('[Inbox] sendToRenderer inbox:newMessages:', e?.message)
+        }
+      }
 
       if (warnCount > 0) {
         return {
@@ -988,7 +1018,8 @@ export function registerInboxHandlers(
 
       return { ok: true, data: result }
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? 'Sync failed' }
+      console.error('[Inbox] inbox:syncAccount unhandled error:', err)
+      return { ok: false, error: err?.message ?? 'Sync failed (unhandled)' }
     }
   })
 
