@@ -161,57 +161,49 @@ export class OutlookProvider extends BaseEmailProvider {
     }))
   }
   
-  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    const syncAll = options?.syncFetchAllPages === true
-    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
-    const maxTotal = syncAll
-      ? options?.syncMaxMessages != null
-        ? Math.max(1, options.syncMaxMessages)
-        : Number.MAX_SAFE_INTEGER
-      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleTop), 999)
-    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+  /**
+   * Graph mail folder segment: well-known `inbox` or a folder UUID. Avoid upper-case `INBOX` (IMAP) in the path.
+   */
+  private normalizeGraphMailFolderId(folder: string): string {
+    const f = (folder || 'inbox').trim()
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(f)) {
+      return f
+    }
+    if (f.toUpperCase() === 'INBOX') return 'inbox'
+    return f
+  }
 
+  private buildMessagesODataQuery(options?: MessageSearchOptions): URLSearchParams {
     const params = new URLSearchParams()
-    params.append('$top', String(pageTop))
-    params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
-
     const filters: string[] = []
 
-    if (options?.unreadOnly) {
-      filters.push('isRead eq false')
-    }
+    if (options?.unreadOnly) filters.push('isRead eq false')
+    if (options?.flaggedOnly) filters.push("flag/flagStatus eq 'flagged'")
+    if (options?.hasAttachments) filters.push('hasAttachments eq true')
+    if (options?.fromDate) filters.push(`receivedDateTime ge ${options.fromDate}`)
+    if (options?.toDate) filters.push(`receivedDateTime le ${options.toDate}`)
 
-    if (options?.flaggedOnly) {
-      filters.push("flag/flagStatus eq 'flagged'")
-    }
+    if (filters.length > 0) params.append('$filter', filters.join(' and '))
+    if (!options?.search) params.append('$orderby', 'receivedDateTime desc')
+    if (options?.search) params.append('$search', `"${options.search}"`)
 
-    if (options?.hasAttachments) {
-      filters.push('hasAttachments eq true')
-    }
+    return params
+  }
 
-    if (options?.fromDate) {
-      filters.push(`receivedDateTime ge ${options.fromDate}`)
-    }
-
-    if (options?.toDate) {
-      filters.push(`receivedDateTime le ${options.toDate}`)
-    }
+  /**
+   * UI / single-page list: one Graph request (optionally paginated when syncFetchAllPages and a low cap).
+   */
+  private async fetchMessagesListResponse(
+    folderId: string,
+    options: MessageSearchOptions | undefined,
+    pageTop: number,
+    selectFields: string,
+  ): Promise<{ collected: any[]; useClientFilter: boolean }> {
+    const params = this.buildMessagesODataQuery(options)
+    params.append('$top', String(pageTop))
+    params.append('$select', selectFields)
 
     const useClientFilter = !!(options?.from || options?.subject)
-
-    if (filters.length > 0) {
-      params.append('$filter', filters.join(' and '))
-    }
-
-    if (!options?.search) {
-      params.append('$orderby', 'receivedDateTime desc')
-    }
-
-    if (options?.search) {
-      params.append('$search', `"${options.search}"`)
-    }
-
-    const folderId = folder || 'inbox'
     const requestUrl = `/me/mailFolders/${folderId}/messages?${params.toString()}`
 
     const collected: any[] = []
@@ -222,6 +214,13 @@ export class OutlookProvider extends BaseEmailProvider {
     console.log(
       `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}, $top=${pageTop})`,
     )
+
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? pageTop), 999)
 
     if (syncAll) {
       let nextLink: string | undefined = response['@odata.nextLink']
@@ -236,18 +235,133 @@ export class OutlookProvider extends BaseEmailProvider {
         console.log(
           `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}${response['@odata.nextLink'] ? ', nextLink' : ', end'})`,
         )
-        // Keep following @odata.nextLink until absent — do not stop just because this page is empty.
         nextLink = response['@odata.nextLink']
         if (!page.length && !nextLink) break
       }
     }
 
-    let messages = collected
+    return { collected, useClientFilter }
+  }
 
+  /**
+   * Full sync: list **all** message IDs with stable paging ($top=100), then GET each message (concurrency 10).
+   * Matches Graph guidance for reliable pagination; list+item avoids truncated list payloads.
+   */
+  private async fetchAllMessagesTwoPhase(
+    folderId: string,
+    options: MessageSearchOptions | undefined,
+    maxIds: number,
+  ): Promise<RawEmailMessage[]> {
+    const listParamsBase = this.buildMessagesODataQuery(options)
+    listParamsBase.append('$select', 'id')
+    const LIST_TOP = 100
+    listParamsBase.append('$top', String(LIST_TOP))
+
+    const ids: string[] = []
+    const seen = new Set<string>()
+    const requestUrl = `/me/mailFolders/${folderId}/messages?${listParamsBase.toString()}`
+    let response = await this.graphApiRequest('GET', requestUrl)
+    let page = response.value || []
+    for (const row of page) {
+      const id = row?.id as string | undefined
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        ids.push(id)
+        if (ids.length >= maxIds) break
+      }
+    }
+    let nextLink: string | undefined = response['@odata.nextLink']
+    let pageIdx = 1
+    console.log(
+      `[Outlook] sync list-ids page ${pageIdx}: +${page.length} ids (cumulative ${ids.length}, max=${maxIds === Number.MAX_SAFE_INTEGER ? 'unlimited' : maxIds})`,
+    )
+
+    while (nextLink && ids.length < maxIds) {
+      pageIdx++
+      response = await this.graphApiRequestAbsolute('GET', nextLink)
+      page = response.value || []
+      for (const row of page) {
+        const id = row?.id as string | undefined
+        if (id && !seen.has(id)) {
+          seen.add(id)
+          ids.push(id)
+          if (ids.length >= maxIds) break
+        }
+      }
+      console.log(
+        `[Outlook] sync list-ids page ${pageIdx}: +${page.length} ids (cumulative ${ids.length}${response['@odata.nextLink'] ? ', nextLink' : ', end'})`,
+      )
+      nextLink = response['@odata.nextLink']
+      if (!page.length && !nextLink) break
+    }
+
+    const CONCURRENCY = 10
+    const out: RawEmailMessage[] = []
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const chunk = ids.slice(i, i + CONCURRENCY)
+      const settled = await Promise.allSettled(chunk.map((id) => this.fetchMessage(id, folderId)))
+      for (let j = 0; j < settled.length; j++) {
+        const r = settled[j]
+        if (r.status === 'fulfilled' && r.value) {
+          out.push(r.value)
+        } else if (r.status === 'rejected') {
+          console.warn('[Outlook] fetchMessage failed in batch:', chunk[j], (r as PromiseRejectedResult).reason)
+        }
+      }
+    }
+
+    console.log(`[Outlook] two-phase sync: ${ids.length} id(s) listed, ${out.length} full message(s) retrieved`)
+    return out
+  }
+
+  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const syncAll = options?.syncFetchAllPages === true
+    const folderId = this.normalizeGraphMailFolderId(folder)
+
+    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleTop), 999)
+    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+
+    if (syncAll) {
+      const raw = await this.fetchAllMessagesTwoPhase(folderId, options, maxTotal)
+      let messages: any[] = raw
+
+      const useClientFilter = !!(options?.from || options?.subject)
+      if (useClientFilter && messages.length > 0) {
+        const fromFilter = options?.from?.toLowerCase()
+        const subjectFilter = options?.subject?.toLowerCase()
+        messages = messages.filter((msg: any) => {
+          let match = true
+          if (fromFilter) {
+            const msgFrom = (msg.from?.email || '').toLowerCase()
+            const msgFromName = (msg.from?.name || '').toLowerCase()
+            match = match && (msgFrom.includes(fromFilter) || msgFromName.includes(fromFilter) || fromFilter.includes(msgFrom))
+          }
+          if (subjectFilter && match) {
+            const msgSubject = (msg.subject || '').toLowerCase()
+            match = match && (msgSubject.includes(subjectFilter) || subjectFilter.includes(msgSubject))
+          }
+          return match
+        })
+      }
+      return messages
+    }
+
+    const { collected, useClientFilter } = await this.fetchMessagesListResponse(
+      folderId,
+      options,
+      pageTop,
+      'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments',
+    )
+
+    let messages = collected
     if (useClientFilter && messages.length > 0) {
       const fromFilter = options?.from?.toLowerCase()
       const subjectFilter = options?.subject?.toLowerCase()
-
       messages = messages.filter((msg: any) => {
         let match = true
         if (fromFilter) {
@@ -263,17 +377,17 @@ export class OutlookProvider extends BaseEmailProvider {
       })
     }
 
-    return messages.map((msg: any) => this.parseOutlookMessage(msg, folder))
+    return messages.map((msg: any) => this.parseOutlookMessage(msg, folderId))
   }
   
-  async fetchMessage(messageId: string): Promise<RawEmailMessage | null> {
+  async fetchMessage(messageId: string, folderHint?: string): Promise<RawEmailMessage | null> {
     try {
       const response = await this.graphApiRequest(
         'GET',
         `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders`
       )
       
-      return this.parseOutlookMessage(response, 'inbox')
+      return this.parseOutlookMessage(response, folderHint || 'inbox')
     } catch (err) {
       console.error('[Outlook] Error fetching message:', messageId, err)
       return null

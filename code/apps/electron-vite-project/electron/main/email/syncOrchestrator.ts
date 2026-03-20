@@ -2,8 +2,8 @@
  * Sync Orchestrator — Pulls emails from connected providers and routes through message detection.
  *
  * **Model**
- * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — re-lists the whole account sync window
- *   (`sync.maxAgeDays` lower bound when set) with `syncFetchAllPages` until the provider has no more pages.
+ * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — lists the **entire** mailbox (no `maxAgeDays` bound);
+ *   uses `syncFetchAllPages` until the provider has no more pages.
  * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
  * - **Auto-sync tick**: incremental from `last_sync_at`, same full pagination for new mail (no message-count cap).
  * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
@@ -21,6 +21,15 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
+
+function isLikelyEmailAuthError(message: string): boolean {
+  const m = (message || '').toLowerCase()
+  return (
+    /not authenticated|authentication failed|unauthorized|invalid_grant|invalid credentials|login failed|auth(?:orization)? failed|401|403/.test(
+      m,
+    ) || m.includes('eauthentication')
+  )
+}
 
 // ── Types ──
 
@@ -179,7 +188,7 @@ async function syncAccountEmailsImpl(
 
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
-    /** Default 0 = no lower date bound unless account sets sync.maxAgeDays (Pull / full sync lists entire mailbox window). */
+    /** Default 0 = no lower date bound unless account sets sync.maxAgeDays (incremental / auto-sync window). */
     const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 0
 
     let oldestIso: string | undefined
@@ -200,7 +209,8 @@ async function syncAccountEmailsImpl(
 
     let effectiveFrom: string | undefined
     if (treatAsFullImport) {
-      effectiveFrom = oldestIso
+      /** Manual Pull (`fullSync: true`) must list the whole mailbox — ignore account `maxAgeDays` lower bound. */
+      effectiveFrom = fullSync ? undefined : oldestIso
     } else if (lastSyncAt) {
       effectiveFrom = lastSyncAt
       if (oldestIso) {
@@ -304,12 +314,23 @@ async function syncAccountEmailsImpl(
     })
   } catch (err: any) {
     result.ok = false
-    result.errors.push(err?.message ?? 'Sync failed')
+    const errMsg = err?.message ?? 'Sync failed'
+    result.errors.push(errMsg)
     console.error('[SyncOrchestrator] syncAccountEmails error:', err)
     updateSyncState(db, accountId, {
-      last_error: err?.message ?? 'Sync failed',
+      last_error: errMsg,
       last_error_at: new Date().toISOString(),
     })
+    if (isLikelyEmailAuthError(errMsg)) {
+      try {
+        await emailGateway.updateAccount(accountId, {
+          status: 'error',
+          lastError: 'Not authenticated or session expired. Reconnect this account in Email settings.',
+        })
+      } catch (persistErr: any) {
+        console.warn('[SyncOrchestrator] Could not persist account auth state:', persistErr?.message)
+      }
+    }
   }
 
   return result

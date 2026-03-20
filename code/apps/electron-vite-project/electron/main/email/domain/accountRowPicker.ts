@@ -10,5 +10,6 @@ export function pickDefaultEmailAccountRowId(
   if (active.length) return active[0].id
   const notError = accounts.filter((a) => a.status !== 'error' && a.status !== 'disabled')
   if (notError.length) return notError[0].id
-  return accounts[0].id
+  /** All rows are error/disabled — do not default to a broken account for send/sync UI. */
+  return undefined
 }

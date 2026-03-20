@@ -789,6 +789,12 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE email_sync_state SET auto_sync_enabled = 0 WHERE auto_sync_enabled = 1`,
     ],
   },
+  {
+    version: 40,
+    description:
+      'Schema v40: Auto-sync off by default — one-time reset of all email_sync_state rows (user opts in per account)',
+    sql: [`UPDATE email_sync_state SET auto_sync_enabled = 0`],
+  },
 ]
 
 /**

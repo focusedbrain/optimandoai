@@ -197,7 +197,8 @@ export function activeEmailAccountIdsForSync(
   if (active.length) return [...new Set(active.map((a) => a.id))]
   const rest = accounts.filter((a) => a.status !== 'error' && a.status !== 'disabled')
   if (rest.length) return [...new Set(rest.map((a) => a.id))]
-  return [...new Set(accounts.map((a) => a.id))]
+  /** Do not Pull accounts that are all in error/disabled — avoids hammering bad IMAP creds. */
+  return []
 }
 
 /**

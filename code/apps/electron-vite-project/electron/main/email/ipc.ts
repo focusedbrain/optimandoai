@@ -1904,6 +1904,10 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       console.log('[AI-CATEGORIZE] Per-message classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
 
       try {
+        const classifiedOk = classifications.filter((c) => !c.classification_failed).map((c) => c.id)
+        if (classifiedOk.length) {
+          enqueueRemoteOpsForLocalLifecycleState(db, classifiedOk)
+        }
         scheduleOrchestratorRemoteDrain(resolveDb)
       } catch (e: any) {
         console.warn('[Inbox] Post-aiCategorize remote schedule:', e?.message)

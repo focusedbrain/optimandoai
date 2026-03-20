@@ -146,7 +146,14 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       background: account.status === 'active' ? '#22c55e' : '#ef4444' 
                     }} />
                     <span style={{ color: mutedColor }}>
-                      {account.status === 'active' ? 'Connected' : account.lastError || 'Error'}
+                      {account.status === 'active'
+                        ? 'Connected'
+                        : account.lastError &&
+                            /not authenticated|reconnect|session expired|re-auth|needs?\s*auth/i.test(
+                              account.lastError,
+                            )
+                          ? `Needs re-authentication — ${account.lastError}`
+                          : account.lastError || 'Error'}
                     </span>
                   </div>
                 </div>

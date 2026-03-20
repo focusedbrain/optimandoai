@@ -646,7 +646,7 @@ class EmailGateway implements IEmailGateway {
         sent: 'SENT'
       },
       sync: {
-        maxAgeDays: 30,
+        maxAgeDays: 0,
         analyzePdfs: true,
         batchSize: 50
       },
@@ -675,7 +675,7 @@ class EmailGateway implements IEmailGateway {
         sent: 'sentitems'
       },
       sync: {
-        maxAgeDays: 30,
+        maxAgeDays: 0,
         analyzePdfs: true,
         batchSize: 50
       },
@@ -737,7 +737,7 @@ class EmailGateway implements IEmailGateway {
         sent: 'Sent'
       },
       sync: {
-        maxAgeDays: 30,
+        maxAgeDays: 0,
         analyzePdfs: true,
         batchSize: 50
       },
@@ -808,7 +808,7 @@ class EmailGateway implements IEmailGateway {
         sent: 'Sent'
       },
       sync: {
-        maxAgeDays: 30,
+        maxAgeDays: 0,
         analyzePdfs: true,
         batchSize: 50
       },
@@ -956,7 +956,8 @@ class EmailGateway implements IEmailGateway {
         providerMailboxResourceRef: s.providerMailboxResourceRef,
       })),
       sync: {
-        maxAgeDays: account.sync?.maxAgeDays ?? 90,
+        /** 0 = full history window for orchestrator (matches syncOrchestrator default). */
+        maxAgeDays: account.sync?.maxAgeDays ?? 0,
         batchSize: account.sync?.batchSize ?? 50,
       },
     }

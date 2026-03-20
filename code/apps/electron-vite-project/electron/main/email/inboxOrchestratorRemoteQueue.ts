@@ -253,7 +253,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   if (!db || !messageIds?.length) return { enqueued, skipped }
 
   const select = db.prepare(
-    `SELECT id, archived, pending_delete, sort_category FROM inbox_messages WHERE id = ?`,
+    `SELECT id, archived, pending_delete, sort_category, pending_review_at FROM inbox_messages WHERE id = ?`,
   ) as { get: (id: string) => any }
 
   const archiveIds: string[] = []
@@ -268,7 +268,12 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     }
     if (row.archived === 1) archiveIds.push(mid)
     else if (row.pending_delete === 1) pendingDeleteIds.push(mid)
-    else if (row.sort_category === 'pending_review') pendingReviewIds.push(mid)
+    else if (
+      row.sort_category === 'pending_review' ||
+      (row.pending_review_at != null && String(row.pending_review_at).trim() !== '')
+    ) {
+      pendingReviewIds.push(mid)
+    }
   }
 
   if (archiveIds.length) {
