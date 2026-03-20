@@ -13,13 +13,23 @@ export type OrchestratorRemoteOperation =
   /** Local `pending_delete = 1` (not yet grace-queue delete) */
   | 'pending_delete'
 
+/** Optional IMAP locate context (from `inbox_messages`) — enables chained MOVE across mailboxes. */
+export interface OrchestratorRemoteApplyContext {
+  imapRemoteMailbox?: string | null
+  imapRfcMessageId?: string | null
+}
+
 /**
  * Result of applying one remote mutation. Providers should return `skipped: true`
- * when the server already reflects the desired state (idempotent success).
+ * only when the server already reflects the desired state (verified idempotency).
  */
 export interface OrchestratorRemoteApplyResult {
   ok: boolean
   /** True when remote was already in the target state or op was a no-op. */
   skipped?: boolean
   error?: string
+  /** After a successful IMAP MOVE, UID in the destination mailbox (UID changes per folder). */
+  imapUidAfterMove?: string
+  /** IMAP mailbox path (same string used for OPEN/MOVE) after success. */
+  imapMailboxAfterMove?: string
 }

@@ -140,10 +140,12 @@ export async function processOrchestratorRemoteQueueBatch(
   ).run(resetStuckAt, stuckCutoffIso)
 
   const pick = db.prepare(`
-    SELECT id, message_id, account_id, email_message_id, operation, attempts
-    FROM remote_orchestrator_mutation_queue
-    WHERE status = 'pending' AND attempts < ?
-    ORDER BY updated_at ASC
+    SELECT q.id, q.message_id, q.account_id, q.email_message_id, q.operation, q.attempts,
+           m.imap_remote_mailbox, m.imap_rfc_message_id
+    FROM remote_orchestrator_mutation_queue q
+    LEFT JOIN inbox_messages m ON m.id = q.message_id
+    WHERE q.status = 'pending' AND q.attempts < ?
+    ORDER BY q.updated_at ASC
     LIMIT ?
   `)
 
@@ -167,6 +169,8 @@ export async function processOrchestratorRemoteQueueBatch(
     email_message_id: string
     operation: OrchestratorRemoteOperation
     attempts: number
+    imap_remote_mailbox?: string | null
+    imap_rfc_message_id?: string | null
   }>
 
   const now = () => new Date().toISOString()
@@ -178,10 +182,23 @@ export async function processOrchestratorRemoteQueueBatch(
         r.account_id,
         r.email_message_id,
         r.operation,
+        {
+          imapRemoteMailbox: r.imap_remote_mailbox ?? null,
+          imapRfcMessageId: r.imap_rfc_message_id ?? null,
+        },
       )
       if (apply.ok) {
         markCompleted.run(now(), r.id)
         touchMessageError.run(null, r.message_id)
+        if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
+          try {
+            db.prepare(
+              `UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`,
+            ).run(apply.imapUidAfterMove, apply.imapMailboxAfterMove, r.message_id)
+          } catch (persistErr: any) {
+            console.warn('[OrchestratorRemote] persist IMAP uid/mailbox failed:', persistErr?.message)
+          }
+        }
         result.processed++
       } else {
         const err = (apply.error || 'Remote mutation failed').slice(0, 2000)

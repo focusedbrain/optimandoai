@@ -302,6 +302,7 @@ export class GmailProvider extends BaseEmailProvider {
   async applyOrchestratorRemoteOperation(
     messageId: string,
     operation: OrchestratorRemoteOperation,
+    _context?: import('../domain/orchestratorRemoteTypes').OrchestratorRemoteApplyContext,
   ): Promise<OrchestratorRemoteApplyResult> {
     try {
       if (!this.config) {

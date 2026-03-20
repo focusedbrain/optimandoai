@@ -27,8 +27,8 @@ export const DEFAULT_ORCHESTRATOR_REMOTE_NAMES = {
   },
   imap: {
     archiveMailbox: 'Archive',
-    pendingReviewMailbox: 'WRDesk-PendingReview',
-    pendingDeleteMailbox: 'WRDesk-PendingDelete',
+    pendingReviewMailbox: 'Pending Review',
+    pendingDeleteMailbox: 'Pending Delete',
     trashMailbox: 'Trash',
   },
 } as const

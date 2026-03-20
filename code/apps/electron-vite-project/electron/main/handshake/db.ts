@@ -764,6 +764,15 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN lifecycle_final_delete_queued_utc TEXT`,
     ],
   },
+  {
+    version: 37,
+    description:
+      'Schema v37: IMAP remote mirror — last known mailbox + RFC Message-ID for chained MOVE / reconcile',
+    sql: [
+      `ALTER TABLE inbox_messages ADD COLUMN imap_remote_mailbox TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN imap_rfc_message_id TEXT`,
+    ],
+  },
 ]
 
 export function migrateHandshakeTables(db: any): void {

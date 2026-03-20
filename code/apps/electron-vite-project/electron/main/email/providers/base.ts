@@ -16,6 +16,7 @@ import {
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,
+  OrchestratorRemoteApplyContext,
 } from '../domain/orchestratorRemoteTypes'
 
 /**
@@ -154,12 +155,6 @@ export interface IEmailProvider {
   setFlagged(messageId: string, flagged: boolean): Promise<void>
   
   /**
-   * Delete/trash a message from the remote mailbox
-   * @param messageId - Message ID
-   */
-  deleteMessage?(messageId: string): Promise<void>
-  
-  /**
    * Send an email
    * @param payload - Email content
    */
@@ -187,7 +182,13 @@ export interface IEmailProvider {
   applyOrchestratorRemoteOperation?(
     messageId: string,
     operation: OrchestratorRemoteOperation,
+    context?: OrchestratorRemoteApplyContext,
   ): Promise<OrchestratorRemoteApplyResult>
+
+  /**
+   * Delete/trash a message on the remote mailbox (IMAP: optional context for locate-before-move).
+   */
+  deleteMessage?(messageId: string, context?: OrchestratorRemoteApplyContext): Promise<void>
 }
 
 /**

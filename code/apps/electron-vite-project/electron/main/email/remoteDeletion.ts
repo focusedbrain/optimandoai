@@ -110,14 +110,27 @@ export async function executePendingDeletions(db: any): Promise<ExecutePendingDe
   try {
     const now = new Date().toISOString()
     const rows = db.prepare(
-      `SELECT id, message_id, account_id, email_message_id FROM deletion_queue
-       WHERE executed = 0 AND cancelled = 0 AND grace_period_ends <= ?
-       ORDER BY grace_period_ends ASC LIMIT 10`
-    ).all(now) as Array<{ id: string; message_id: string; account_id: string; email_message_id: string }>
+      `SELECT dq.id, dq.message_id, dq.account_id, dq.email_message_id,
+              m.imap_remote_mailbox, m.imap_rfc_message_id
+       FROM deletion_queue dq
+       JOIN inbox_messages m ON m.id = dq.message_id
+       WHERE dq.executed = 0 AND dq.cancelled = 0 AND dq.grace_period_ends <= ?
+       ORDER BY dq.grace_period_ends ASC LIMIT 10`,
+    ).all(now) as Array<{
+      id: string
+      message_id: string
+      account_id: string
+      email_message_id: string
+      imap_remote_mailbox?: string | null
+      imap_rfc_message_id?: string | null
+    }>
 
     for (const r of rows) {
       try {
-        await emailGateway.deleteMessage(r.account_id, r.email_message_id)
+        await emailGateway.deleteMessage(r.account_id, r.email_message_id, {
+          imapRemoteMailbox: r.imap_remote_mailbox ?? null,
+          imapRfcMessageId: r.imap_rfc_message_id ?? null,
+        })
         db.prepare(
           'UPDATE deletion_queue SET executed = 1, executed_at = ?, execution_error = NULL WHERE id = ?'
         ).run(now, r.id)

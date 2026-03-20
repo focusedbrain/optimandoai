@@ -56,6 +56,7 @@ import { getFoldersForAccountOperation, resolveMailboxesForAccount } from './dom
 import type {
   OrchestratorRemoteOperation,
   OrchestratorRemoteApplyResult,
+  OrchestratorRemoteApplyContext,
 } from './domain/orchestratorRemoteTypes'
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
@@ -384,11 +385,15 @@ class EmailGateway implements IEmailGateway {
     await provider.setFlagged(messageId, flagged)
   }
 
-  async deleteMessage(accountId: string, messageId: string): Promise<void> {
+  async deleteMessage(
+    accountId: string,
+    messageId: string,
+    context?: OrchestratorRemoteApplyContext,
+  ): Promise<void> {
     const account = this.findAccount(accountId)
     const provider = await this.getConnectedProvider(account)
     if (typeof provider.deleteMessage === 'function') {
-      await provider.deleteMessage(messageId)
+      await provider.deleteMessage(messageId, context)
     } else {
       throw new Error(`Provider ${account.provider} does not support message deletion`)
     }
@@ -402,6 +407,7 @@ class EmailGateway implements IEmailGateway {
     accountId: string,
     emailMessageId: string,
     operation: OrchestratorRemoteOperation,
+    context?: OrchestratorRemoteApplyContext,
   ): Promise<OrchestratorRemoteApplyResult> {
     const account = this.accounts.find((a) => a.id === accountId)
     if (!account) {
@@ -418,7 +424,7 @@ class EmailGateway implements IEmailGateway {
         error: `Provider ${account.provider} does not implement remote orchestrator mutations`,
       }
     }
-    return fn.call(provider, emailMessageId, operation)
+    return fn.call(provider, emailMessageId, operation, context)
   }
   
   // =================================================================

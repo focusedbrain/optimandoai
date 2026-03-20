@@ -112,6 +112,10 @@ function mapToRawEmailMessage(
     text: detail.bodyText,
     html: detail.bodySafeHtml,
     date: detail.date ?? new Date(detail.timestamp).toISOString(),
+    folder: detail.folder || 'INBOX',
+    headers: detail.headers?.messageId
+      ? { messageId: detail.headers.messageId }
+      : undefined,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,

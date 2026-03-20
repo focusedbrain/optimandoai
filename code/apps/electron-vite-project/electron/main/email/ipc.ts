@@ -152,6 +152,7 @@ import {
   listRemoteOrchestratorQueueRows,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
+import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
 import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
@@ -861,6 +862,7 @@ export function registerInboxHandlers(
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
+    'inbox:reconcileImapRemoteLifecycle',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -1907,6 +1909,24 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       return { ok: true, data: rows }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'List failed' }
+    }
+  })
+
+  /**
+   * IMAP only: re-enqueue remote lifecycle mutations from current local SQLite state (repair drift).
+   * Processes asynchronously via the existing orchestrator queue drain.
+   */
+  ipcMain.handle('inbox:reconcileImapRemoteLifecycle', async (_e, accountId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      if (typeof accountId !== 'string' || !accountId.trim()) {
+        return { ok: false, error: 'accountId required' }
+      }
+      const r = reconcileImapLifecycleFromLocalState(db, accountId.trim(), getDb)
+      return { ok: r.ok, data: { enqueued: r.enqueued, skipped: r.skipped }, error: r.error }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Reconcile failed' }
     }
   })
 

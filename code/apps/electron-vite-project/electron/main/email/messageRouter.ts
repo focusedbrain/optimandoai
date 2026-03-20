@@ -21,6 +21,9 @@ export interface RawEmailMessage {
   messageId?: string
   id?: string
   uid?: string
+  /** IMAP folder the message was listed under (for remote MOVE chaining). */
+  folder?: string
+  headers?: { messageId?: string; inReplyTo?: string; references?: string[] }
   from: { address: string; name?: string }
   to: Array<{ address: string; name?: string }>
   cc?: Array<{ address: string; name?: string }>
@@ -269,13 +272,16 @@ export function detectAndRouteMessage(
 
   // Build inbox_messages row
   const hasAttachments = attachments.length > 0
+  const imapRemoteMailbox = (rawMsg.folder || 'INBOX').trim() || 'INBOX'
+  const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
   const insertInbox = db.prepare(`
     INSERT INTO inbox_messages (
       id, source_type, handshake_id, account_id, email_message_id,
       from_address, from_name, to_addresses, cc_addresses,
       subject, body_text, body_html, beap_package_json,
-      has_attachments, attachment_count, received_at, ingested_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      has_attachments, attachment_count, received_at, ingested_at,
+      imap_remote_mailbox, imap_rfc_message_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   insertInbox.run(
@@ -296,6 +302,8 @@ export function detectAndRouteMessage(
     attachments.length,
     receivedAt,
     now,
+    imapRemoteMailbox,
+    imapRfcMessageId,
   )
 
   // Store attachments to disk and register in inbox_attachments

@@ -29,6 +29,12 @@ function baseAccount(overrides: Partial<EmailAccountConfig> = {}): EmailAccountC
 }
 
 describe('resolveOrchestratorRemoteNames', () => {
+  it('IMAP defaults use exact lifecycle folder names (no app prefix)', () => {
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.pendingReviewMailbox).toBe('Pending Review')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.pendingDeleteMailbox).toBe('Pending Delete')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.archiveMailbox).toBe('Archive')
+  })
+
   it('uses product defaults for Gmail labels and archive remove list', () => {
     const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'gmail' }))
     expect(r.gmail.pendingReviewLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel)

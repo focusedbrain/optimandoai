@@ -665,6 +665,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   getAiRulesDefault: () => ipcRenderer.invoke('inbox:getAiRulesDefault'),
   showOpenDialogForAttachments: () => ipcRenderer.invoke('inbox:showOpenDialogForAttachments'),
   readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
+  reconcileImapRemoteLifecycle: (accountId: string) =>
+    ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────
