@@ -200,8 +200,12 @@ export class GmailProvider extends BaseEmailProvider {
 
     const query = queryParts.join(' ')
     const syncAll = options?.syncFetchAllPages === true
-    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
     const singleLimit = Math.min(Math.max(1, options?.limit ?? 50), 500)
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleLimit), 500)
     const pageSize = syncAll ? Math.min(500, maxTotal) : singleLimit
 
     const messages: RawEmailMessage[] = []

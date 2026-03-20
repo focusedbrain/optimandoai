@@ -150,10 +150,13 @@ import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
   listRemoteOrchestratorQueueRows,
+  enqueueRemoteOpsForLocalLifecycleState,
+  drainOrchestratorRemoteQueueBounded,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
 import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
+import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
@@ -935,7 +938,55 @@ export function registerInboxHandlers(
       if (!db) return { ok: false, error: 'Database unavailable' }
       const result = await syncAccountEmails(db, { accountId, fullSync: true })
       processPendingPlainEmails(db)
+      processPendingP2PBeapEmails(db)
+
+      try {
+        if (result.newInboxMessageIds?.length) {
+          enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
+        }
+        await drainOrchestratorRemoteQueueBounded(db)
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      } catch (e: any) {
+        console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      }
+
+      const errors = result.errors ?? []
+      const warnCount = errors.length
+
+      // Hard failure (e.g. list API threw)
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: errors[0] ?? 'Sync failed',
+          data: result,
+          warningCount: warnCount,
+          syncWarnings: errors,
+        }
+      }
+
+      // Every message failed to ingest; nothing new despite errors
+      if (result.newMessages === 0 && warnCount > 0) {
+        return {
+          ok: false,
+          error: 'All messages failed to sync',
+          data: result,
+          warningCount: warnCount,
+          syncWarnings: errors,
+        }
+      }
+
       if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
+
+      if (warnCount > 0) {
+        return {
+          ok: true,
+          data: result,
+          warningCount: warnCount,
+          syncWarnings: errors,
+        }
+      }
+
       return { ok: true, data: result }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Sync failed' }
@@ -957,7 +1008,7 @@ export function registerInboxHandlers(
         const intervalMs = row?.sync_interval_ms ?? 30_000
         const loop = startAutoSync(db, accountId, intervalMs, (result) => {
           if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
-        })
+        }, resolveDb)
         activeAutoSyncLoops.set(accountId, loop)
       }
       return { ok: true }
@@ -990,7 +1041,7 @@ export function registerInboxHandlers(
         const intervalMs = r.sync_interval_ms ?? 30_000
         const loop = startAutoSync(db, r.account_id, intervalMs, (syncRes) => {
           if (syncRes.newMessages > 0) sendToRenderer('inbox:newMessages', syncRes)
-        })
+        }, resolveDb)
         activeAutoSyncLoops.set(r.account_id, loop)
         console.log('[Inbox] Resumed auto-sync loop for account', r.account_id, 'interval', intervalMs)
       }
@@ -1656,24 +1707,32 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
 
       /** Always write sort_category, urgency, needs_reply. For urgent: use 'urgent', never add pending_review_at. */
       const effectiveSortCategory = isUrgent ? 'urgent' : sortCategory
-      if (pendingReview && !isUrgent) {
-        const now = new Date().toISOString()
-        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?').run(
-          effectiveSortCategory,
-          reason || null,
-          urgency,
-          needsReply ? 1 : 0,
-          now,
-          messageId
-        )
+      const nowIso = new Date().toISOString()
+      if (isUrgent) {
+        db.prepare(
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingReview) {
+        db.prepare(
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ?, pending_review_at = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, nowIso, messageId)
+      } else if (validCategory === 'archive') {
+        db.prepare(
+          `UPDATE inbox_messages SET archived = 1, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
+      } else if (pendingDelete) {
+        db.prepare(
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 1, pending_delete_at = ?, pending_review_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
       } else {
-        db.prepare('UPDATE inbox_messages SET sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?').run(
-          effectiveSortCategory,
-          reason || null,
-          urgency,
-          needsReply ? 1 : 0,
-          messageId
-        )
+        db.prepare(
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
+           sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
+        ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
       }
 
       /** Persist AI analysis for sorted messages — survives clearBulkAiOutputsForIds. */
@@ -1698,6 +1757,7 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       if (!isUrgent) {
         if (pendingReview) fireRemoteOrchestratorSync(db, [messageId], 'pending_review')
         if (pendingDelete) fireRemoteOrchestratorSync(db, [messageId], 'pending_delete')
+        if (validCategory === 'archive') fireRemoteOrchestratorSync(db, [messageId], 'archive')
       }
 
       return {
@@ -1721,7 +1781,18 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
   }
 
   ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string) => {
-    return classifySingleMessage(messageId)
+    const out = await classifySingleMessage(messageId)
+    try {
+      const db = await resolveDb()
+      if (db) {
+        await drainOrchestratorRemoteQueueBounded(db)
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      }
+    } catch (e: any) {
+      console.warn('[Inbox] Post-aiClassifySingle remote drain:', e?.message)
+      scheduleOrchestratorRemoteDrain(resolveDb)
+    }
+    return out
   })
 
   /**
@@ -1834,6 +1905,15 @@ Body (first 3000 chars): ${(row.body_text ?? '').slice(0, 3000)}`
       }
 
       console.log('[AI-CATEGORIZE] Per-message classifications:', classifications.length, classifications.slice(0, 3).map((c) => ({ id: c.id, category: c.category, recommended_action: c.recommended_action })))
+
+      try {
+        await drainOrchestratorRemoteQueueBounded(db)
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      } catch (e: any) {
+        console.warn('[Inbox] Post-aiCategorize remote drain:', e?.message)
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      }
+
       return { ok: true, data: { classifications } }
     } catch (err: any) {
       console.error('[Inbox IPC] aiCategorize error:', err)

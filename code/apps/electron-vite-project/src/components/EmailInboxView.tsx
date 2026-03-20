@@ -13,7 +13,7 @@ import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
-import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
+import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
@@ -862,6 +862,7 @@ export default function EmailInboxView({
     total,
     loading,
     error,
+    lastSyncWarnings,
     selectedMessageId,
     selectedMessage,
     selectedAttachmentId,
@@ -882,7 +883,7 @@ export default function EmailInboxView({
     archiveMessages,
     deleteMessages,
     setCategory,
-    syncAccount,
+    syncAllAccounts,
     toggleAutoSync,
     loadSyncState,
   } = useEmailInboxStore()
@@ -1008,8 +1009,11 @@ export default function EmailInboxView({
   const selectedCount = multiSelectIds.size
 
   const handleSync = useCallback(() => {
-    if (primaryAccountId) syncAccount(primaryAccountId)
-  }, [primaryAccountId, syncAccount])
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    void syncAllAccounts(toSync)
+  }, [accounts, primaryAccountId, syncAllAccounts])
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1039,7 +1043,8 @@ export default function EmailInboxView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onNewMessages?.(() => {
-      fetchMessages()
+      if (useEmailInboxStore.getState().syncing) return
+      void fetchMessages()
     })
     return () => unsub?.()
   }, [fetchMessages])
@@ -1229,6 +1234,25 @@ export default function EmailInboxView({
               : undefined
           }
         />
+
+        {lastSyncWarnings && lastSyncWarnings.length > 0 && (
+          <div
+            role="status"
+            style={{
+              padding: '8px 12px',
+              fontSize: 11,
+              color: '#fbbf24',
+              background: 'rgba(251,191,36,0.08)',
+              borderBottom: '1px solid rgba(251,191,36,0.25)',
+            }}
+          >
+            {lastSyncWarnings.length === 1
+              ? lastSyncWarnings[0]
+              : `${lastSyncWarnings.length} sync issues: ${lastSyncWarnings.slice(0, 3).join(' · ')}${
+                  lastSyncWarnings.length > 3 ? '…' : ''
+                }`}
+          </div>
+        )}
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {loading ? (

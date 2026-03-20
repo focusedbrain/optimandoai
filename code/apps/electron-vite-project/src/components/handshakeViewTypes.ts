@@ -107,7 +107,14 @@ declare global {
 
 /** Email Inbox IPC bridge interface */
 export interface EmailInboxBridge {
-  syncAccount: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  syncAccount: (accountId: string) => Promise<{
+    ok: boolean
+    data?: unknown
+    error?: string
+    /** Present when some messages failed to ingest but sync continued */
+    warningCount?: number
+    syncWarnings?: string[]
+  }>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
   getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   onNewMessages: (handler: (data: unknown) => void) => () => void

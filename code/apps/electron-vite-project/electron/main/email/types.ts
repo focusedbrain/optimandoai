@@ -590,11 +590,11 @@ export interface MessageSearchOptions {
 
   /**
    * When true (sync orchestrator only), provider follows pagination (`pageToken` / `@odata.nextLink` /
-   * IMAP chunking) until no more results or `syncMaxMessages` is reached.
+   * IMAP chunking) until the provider returns no more pages. If `syncMaxMessages` is set, stops when that count is reached.
    */
   syncFetchAllPages?: boolean
 
-  /** Hard cap on how many messages one list operation may return (default: high; sync layer sets explicitly). */
+  /** Optional hard cap on listed messages (sync); omit for uncapped pagination when `syncFetchAllPages` is true. */
   syncMaxMessages?: number
 }
 

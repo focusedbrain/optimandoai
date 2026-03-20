@@ -117,18 +117,8 @@ function App() {
       }
     }
     loadEmailAccounts()
-    const unsub = window.emailAccounts?.onAccountConnected?.(async (data?: { provider?: string; email?: string }) => {
-      const res = await window.emailAccounts?.listAccounts?.()
-      if (res?.ok && res?.data && res.data.length > 0 && window.emailInbox) {
-        const accounts = res.data as Array<{ id: string; email: string; status?: string }>
-        const match = data?.email
-          ? accounts.find((a) => a.email?.toLowerCase() === data.email?.toLowerCase())
-          : accounts[accounts.length - 1]
-        if (match?.id) {
-          await window.emailInbox.toggleAutoSync(match.id, true)
-          await window.emailInbox.syncAccount(match.id)
-        }
-      }
+    const unsub = window.emailAccounts?.onAccountConnected?.(async () => {
+      // Refresh account list only — do not enable auto-sync or Pull; user opts in via Inbox UI.
       await loadEmailAccounts()
     })
     return () => unsub?.()

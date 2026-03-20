@@ -21,7 +21,19 @@ Local IPC handlers **always** commit local state first, then call `fireRemoteOrc
 | Pending delete | `pending_delete` | Add user label `Pending Delete`, remove `INBOX` + `Pending Review` label | Move → child folder `Pending Delete` under Inbox | `MOVE` → `Pending Delete` (same locate rules) |
 | **Final delete** (grace elapsed) | *(existing)* | `users.messages.trash` via `deleteMessage` | Move → `deleteditems` via `deleteMessage` | `\Deleted` + expunge |
 
-AI classification uses the same queue when it applies `pending_review` / `pending_delete` (not the legacy `archive` sort bucket).
+AI classification enqueues `pending_review`, `pending_delete`, and **`archive`** (when the model chooses `archive`, local `archived = 1` and the `archive` remote op runs).
+
+## Post-pull / auto-sync mirror
+
+After **`inbox:syncAccount`** (Pull) and after each **auto-sync tick**:
+
+1. `syncAccountEmails` collects `newInboxMessageIds` for rows ingested in that run.
+2. `processPendingPlainEmails` / `processPendingP2PBeapEmails` run (same as before).
+3. **`enqueueRemoteOpsForLocalLifecycleState`** enqueues remote ops from current local columns for those IDs (archive → `pending_delete` → `pending_review` precedence).
+4. **`drainOrchestratorRemoteQueueBounded`** runs inline (time/batch capped ~28s / 150 batches) so the server catches up before IPC returns when possible.
+5. **`scheduleOrchestratorRemoteDrain`** runs so any remaining / concurrent queue work continues in the background.
+
+IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** before `MOVE`. Gmail uses **`ensureWrDeskUserLabel`** to create missing user labels.
 
 ## Idempotency & retries
 

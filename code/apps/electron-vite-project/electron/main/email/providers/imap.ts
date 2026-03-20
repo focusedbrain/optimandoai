@@ -213,7 +213,11 @@ export class ImapProvider extends BaseEmailProvider {
   private fetchMessagesSince(folder: string, since: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     const limit = options?.limit || 50
     const syncAll = options?.syncFetchAllPages === true
-    const maxM = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : limit)), 100_000)
+    const maxM = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
     const chunkSize = 60
 
     const attachParser = (msg: ImapConnection.ImapMessage, msgData: Partial<RawEmailMessage>) => {
@@ -327,7 +331,11 @@ export class ImapProvider extends BaseEmailProvider {
 
     const limit = options?.limit || 50
     const syncAll = options?.syncFetchAllPages === true
-    const maxM = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : limit)), 100_000)
+    const maxM = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
     const chunkSize = 60
 
     if (options?.fromDate) {

@@ -3,14 +3,21 @@
  *
  * **Model**
  * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — re-lists the whole account sync window
- *   (`sync.maxAgeDays` lower bound when set) with `syncFetchAllPages` until caps; existing rows are skipped.
+ *   (`sync.maxAgeDays` lower bound when set) with `syncFetchAllPages` until the provider has no more pages.
  * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
- * - **Auto-sync tick**: incremental from `last_sync_at`, capped at `SYNC_AUTO_SYNC_MAX_MESSAGES` per tick.
+ * - **Auto-sync tick**: incremental from `last_sync_at`, same full pagination for new mail (no message-count cap).
  * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
  *
  * @version 1.0.0
  */
 
+import { processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { processPendingPlainEmails } from './plainEmailIngestion'
+import {
+  drainOrchestratorRemoteQueueBounded,
+  enqueueRemoteOpsForLocalLifecycleState,
+  scheduleOrchestratorRemoteDrain,
+} from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
@@ -21,17 +28,11 @@ export interface SyncAccountOptions {
   accountId: string
   limit?: number
   /**
-   * Manual Pull: list the whole sync window on the host (subject to `sync.maxAgeDays` and `SYNC_PULL_MAX_MESSAGES`),
+   * Manual Pull: list the whole sync window on the host (subject to account `sync.maxAgeDays`),
    * not only messages newer than `last_sync_at`.
    */
   fullSync?: boolean
 }
-
-/** One Pull / first bootstrap may import up to this many new rows (per account). */
-export const SYNC_PULL_MAX_MESSAGES = 25_000
-
-/** Each auto-sync tick fetches at most this many new list rows (then processes). */
-export const SYNC_AUTO_SYNC_MAX_MESSAGES = 2_000
 
 export interface SyncResult {
   ok: boolean
@@ -39,6 +40,8 @@ export interface SyncResult {
   beapMessages: number
   plainMessages: number
   errors: string[]
+  /** `inbox_messages.id` for rows ingested in this run (for remote lifecycle mirror). */
+  newInboxMessageIds: string[]
 }
 
 export interface EmailSyncStateUpdates {
@@ -144,17 +147,35 @@ function mapToRawEmailMessage(
   }
 }
 
-// ── Main exports ──
+// ── Per-account sync serialization (manual Pull + auto-sync ticks share one queue) ──
+
+const syncChains = new Map<string, Promise<unknown>>()
 
 /**
  * Sync emails for an account: pull from provider, deduplicate, route through message detection.
+ * Serialized per `accountId` so manual Pull and auto-sync never run concurrently for the same account.
  */
-export async function syncAccountEmails(
+export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
+  const accountId = options.accountId
+  const prev = syncChains.get(accountId) ?? Promise.resolve()
+  const current = prev.then(() => syncAccountEmailsImpl(db, options))
+  syncChains.set(accountId, current.then(() => undefined, () => undefined))
+  return current
+}
+
+async function syncAccountEmailsImpl(
   db: any,
   options: SyncAccountOptions,
 ): Promise<SyncResult> {
   const { accountId, fullSync = false } = options
-  const result: SyncResult = { ok: true, newMessages: 0, beapMessages: 0, plainMessages: 0, errors: [] }
+  const result: SyncResult = {
+    ok: true,
+    newMessages: 0,
+    beapMessages: 0,
+    plainMessages: 0,
+    errors: [],
+    newInboxMessageIds: [],
+  }
 
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
@@ -192,12 +213,10 @@ export async function syncAccountEmails(
       effectiveFrom = oldestIso
     }
 
-    const syncMaxMessages = treatAsFullImport ? SYNC_PULL_MAX_MESSAGES : SYNC_AUTO_SYNC_MAX_MESSAGES
-
     const listOptions: MessageSearchOptions = {
       limit: 200,
       syncFetchAllPages: true,
-      syncMaxMessages,
+      // Omit syncMaxMessages — providers paginate until exhaustion (still bounded by maxAgeDays when set).
       ...(effectiveFrom ? { fromDate: effectiveFrom } : {}),
     }
 
@@ -246,6 +265,7 @@ export async function syncAccountEmails(
         const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
 
         newCount++
+        result.newInboxMessageIds.push(routeResult.inboxMessageId)
         if (routeResult.type === 'beap') beapCount++
         else plainCount++
 
@@ -290,6 +310,8 @@ export function startAutoSync(
   accountId: string,
   intervalMs: number = 30_000,
   onNewMessages?: (result: SyncResult) => void,
+  /** Resume background remote-queue drain when bounded inline drain does not finish. */
+  getDbForRemoteDrain?: () => Promise<any> | any,
 ): { stop: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
 
@@ -302,6 +324,18 @@ export function startAutoSync(
       }
 
       const result = await syncAccountEmails(db, { accountId })
+      processPendingPlainEmails(db)
+      processPendingP2PBeapEmails(db)
+      try {
+        if (result.newInboxMessageIds.length > 0) {
+          enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
+        }
+        await drainOrchestratorRemoteQueueBounded(db)
+        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
+      } catch (e: any) {
+        console.warn('[SyncOrchestrator] Post-sync remote drain:', e?.message)
+        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
+      }
       if (result.newMessages > 0 && onNewMessages) {
         onNewMessages(result)
       }

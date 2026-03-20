@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   useEmailInboxStore,
+  activeEmailAccountIdsForSync,
   deriveTabCounts,
   type InboxMessage,
   type SubFocus,
@@ -1426,6 +1427,7 @@ export default function EmailInboxBulkView({
     loading,
     bulkBackgroundRefresh,
     error,
+    lastSyncWarnings,
     bulkPage,
     bulkBatchSize,
     bulkCompactMode,
@@ -1460,7 +1462,7 @@ export default function EmailInboxBulkView({
     setCategory,
     autoSyncEnabled,
     syncing,
-    syncAccount,
+    syncAllAccounts,
     toggleAutoSync,
     loadSyncState,
     editingDraftForMessageId,
@@ -1475,6 +1477,7 @@ export default function EmailInboxBulkView({
       loading: s.loading,
       bulkBackgroundRefresh: s.bulkBackgroundRefresh,
       error: s.error,
+      lastSyncWarnings: s.lastSyncWarnings,
       bulkPage: s.bulkPage,
       bulkBatchSize: s.bulkBatchSize,
       bulkCompactMode: s.bulkCompactMode,
@@ -1509,7 +1512,7 @@ export default function EmailInboxBulkView({
       setCategory: s.setCategory,
       autoSyncEnabled: s.autoSyncEnabled,
       syncing: s.syncing,
-      syncAccount: s.syncAccount,
+      syncAllAccounts: s.syncAllAccounts,
       toggleAutoSync: s.toggleAutoSync,
       loadSyncState: s.loadSyncState,
       editingDraftForMessageId: s.editingDraftForMessageId,
@@ -1531,14 +1534,18 @@ export default function EmailInboxBulkView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onNewMessages?.(() => {
+      if (useEmailInboxStore.getState().syncing) return
       void refreshMessages()
     })
     return () => unsub?.()
   }, [refreshMessages])
 
   const handleSync = useCallback(() => {
-    if (primaryAccountId) syncAccount(primaryAccountId)
-  }, [primaryAccountId, syncAccount])
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    void syncAllAccounts(toSync)
+  }, [accounts, primaryAccountId, syncAllAccounts])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
@@ -3371,6 +3378,25 @@ export default function EmailInboxBulkView({
           </button>
         </div>
       </div>
+
+      {lastSyncWarnings && lastSyncWarnings.length > 0 && (
+        <div
+          role="status"
+          style={{
+            padding: '8px 12px',
+            fontSize: 11,
+            color: '#fbbf24',
+            background: 'rgba(251,191,36,0.08)',
+            borderBottom: '1px solid rgba(251,191,36,0.25)',
+          }}
+        >
+          {lastSyncWarnings.length === 1
+            ? lastSyncWarnings[0]
+            : `${lastSyncWarnings.length} sync issues: ${lastSyncWarnings.slice(0, 3).join(' · ')}${
+                lastSyncWarnings.length > 3 ? '…' : ''
+              }`}
+        </div>
+      )}
 
       {/* Collapsible provider/account section */}
       <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>

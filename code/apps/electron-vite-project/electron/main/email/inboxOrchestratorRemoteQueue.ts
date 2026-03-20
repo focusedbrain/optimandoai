@@ -243,6 +243,110 @@ export async function processOrchestratorRemoteQueueBatch(
   return result
 }
 
+/**
+ * Enqueue remote mirror ops from current local lifecycle columns (authoritative orchestrator state).
+ * Priority per row: archived → pending_delete → pending_review (sort_category).
+ */
+export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: string[]): EnqueueOrchestratorRemoteResult {
+  let enqueued = 0
+  let skipped = 0
+  if (!db || !messageIds?.length) return { enqueued, skipped }
+
+  const select = db.prepare(
+    `SELECT id, archived, pending_delete, sort_category FROM inbox_messages WHERE id = ?`,
+  ) as { get: (id: string) => any }
+
+  const archiveIds: string[] = []
+  const pendingDeleteIds: string[] = []
+  const pendingReviewIds: string[] = []
+
+  for (const mid of messageIds) {
+    const row = select.get(mid)
+    if (!row) {
+      skipped++
+      continue
+    }
+    if (row.archived === 1) archiveIds.push(mid)
+    else if (row.pending_delete === 1) pendingDeleteIds.push(mid)
+    else if (row.sort_category === 'pending_review') pendingReviewIds.push(mid)
+  }
+
+  if (archiveIds.length) {
+    const r = enqueueOrchestratorRemoteMutations(db, archiveIds, 'archive')
+    enqueued += r.enqueued
+    skipped += r.skipped
+  }
+  if (pendingDeleteIds.length) {
+    const r = enqueueOrchestratorRemoteMutations(db, pendingDeleteIds, 'pending_delete')
+    enqueued += r.enqueued
+    skipped += r.skipped
+  }
+  if (pendingReviewIds.length) {
+    const r = enqueueOrchestratorRemoteMutations(db, pendingReviewIds, 'pending_review')
+    enqueued += r.enqueued
+    skipped += r.skipped
+  }
+
+  return { enqueued, skipped }
+}
+
+export interface DrainOrchestratorRemoteBoundedResult {
+  processedTotal: number
+  pendingRemaining: number
+  timedOut: boolean
+}
+
+/**
+ * Process pending remote queue rows in batches until empty, or time/batch budget exhausted.
+ * Use after Pull / auto-sync so mailbox moves run before IPC returns (bounded — does not hang forever).
+ */
+export async function drainOrchestratorRemoteQueueBounded(
+  db: any,
+  options?: { maxMs?: number; maxBatches?: number },
+): Promise<DrainOrchestratorRemoteBoundedResult> {
+  const maxMs = options?.maxMs ?? 28_000
+  const maxBatches = options?.maxBatches ?? 150
+  const start = Date.now()
+  let processedTotal = 0
+  let batches = 0
+  let timedOut = false
+
+  const countPending = (): number => {
+    const row = db
+      .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+      .get() as { c: number } | undefined
+    return row?.c ?? 0
+  }
+
+  while (batches < maxBatches) {
+    if (Date.now() - start > maxMs) {
+      timedOut = true
+      break
+    }
+    const pending = countPending()
+    if (pending === 0) break
+
+    const before = pending
+    const r = await processOrchestratorRemoteQueueBatch(db, BATCH)
+    processedTotal += r.processed
+    batches++
+
+    if (r.processed === 0 && r.pendingRemaining >= before) {
+      /* Nothing dequeued (e.g. all stuck) — avoid spinning */
+      break
+    }
+  }
+
+  const pendingRemaining = countPending()
+  if (timedOut && pendingRemaining > 0) {
+    console.warn(
+      `[OrchestratorRemote] Bounded drain stopped (timeout): ${pendingRemaining} pending — background drain will continue`,
+    )
+  }
+
+  return { processedTotal, pendingRemaining, timedOut }
+}
+
 let drainChainScheduled = false
 
 /**

@@ -163,8 +163,12 @@ export class OutlookProvider extends BaseEmailProvider {
   
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     const syncAll = options?.syncFetchAllPages === true
-    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
     const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleTop), 999)
     const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
 
     const params = new URLSearchParams()

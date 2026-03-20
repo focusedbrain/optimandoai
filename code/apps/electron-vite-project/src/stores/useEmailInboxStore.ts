@@ -111,6 +111,8 @@ interface EmailInboxState {
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
+  /** Non-fatal sync issues from last Pull (partial failures). Cleared on next Pull start. */
+  lastSyncWarnings: string[] | null
   /** Cache of AI analysis results keyed by messageId. Cleared for messages no longer in list after fetch. */
   analysisCache: Record<string, NormalInboxAiResult>
   /** FIX-H6: Message ID whose draft is currently being edited. Only one at a time. */
@@ -164,6 +166,8 @@ interface EmailInboxState {
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
+  /** Pull for each account (sequential IPC); one UI refresh at the end. */
+  syncAllAccounts: (accountIds: string[]) => Promise<void>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<void>
   /** Load autoSyncEnabled from backend for the given account. Call when Inbox view mounts. */
   loadSyncState: (accountId: string) => Promise<void>
@@ -182,6 +186,18 @@ interface EmailInboxState {
 
 function getBridge() {
   return typeof window !== 'undefined' ? window.emailInbox : undefined
+}
+
+/** All connected row ids to include on Pull (active first; excludes disabled/error when possible). */
+export function activeEmailAccountIdsForSync(
+  accounts: Array<{ id: string; status?: string }>,
+): string[] {
+  if (!accounts.length) return []
+  const active = accounts.filter((a) => a.status === 'active')
+  if (active.length) return [...new Set(active.map((a) => a.id))]
+  const rest = accounts.filter((a) => a.status !== 'error' && a.status !== 'disabled')
+  if (rest.length) return [...new Set(rest.map((a) => a.id))]
+  return [...new Set(accounts.map((a) => a.id))]
 }
 
 /**
@@ -287,6 +303,106 @@ export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFi
   return out
 }
 
+/** Bulk inbox: union of all tab scopes (paginated drain per tab). No React state updates. */
+async function loadBulkInboxSnapshot(get: () => EmailInboxState): Promise<{
+  allMessages: InboxMessage[]
+  tabCounts: Record<string, number>
+  messages: InboxMessage[]
+  total: number
+  bulkAiOutputs: AiOutputs
+  analysisCache: Record<string, NormalInboxAiResult>
+} | null> {
+  const bridge = getBridge()
+  if (!bridge?.listMessages) return null
+  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = [
+    'all',
+    'pending_delete',
+    'pending_review',
+    'archived',
+  ]
+  try {
+    const snapshot = get().filter
+    const byId = new Map<string, InboxMessage>()
+    for (const f of filters) {
+      const listOpts = listBridgeOptionsFromFilter({ ...snapshot, filter: f })
+      let offset = 0
+      for (;;) {
+        const res = await bridge.listMessages({
+          ...listOpts,
+          limit: INBOX_LIST_PAGE_SIZE,
+          offset,
+        })
+        if (!res?.ok || !res?.data) break
+        const list = (res.data.messages ?? []) as InboxMessage[]
+        for (const m of list) byId.set(m.id, m)
+        if (list.length < INBOX_LIST_PAGE_SIZE) break
+        offset += INBOX_LIST_PAGE_SIZE
+      }
+    }
+    const allMessages = Array.from(byId.values())
+    const { filter, bulkPage, bulkBatchSize } = get()
+    const { messages, total } = deriveDisplayFromAll(allMessages, filter, bulkPage, bulkBatchSize)
+    const currentIds = new Set(allMessages.map((m) => m.id))
+    const state = get()
+    const nextBulk: AiOutputs = {}
+    for (const [id, entry] of Object.entries(state.bulkAiOutputs)) {
+      if (currentIds.has(id)) nextBulk[id] = entry
+    }
+    const analysisCache = Object.fromEntries(
+      Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id)),
+    )
+    return {
+      allMessages,
+      tabCounts: deriveTabCounts(allMessages, filter),
+      messages,
+      total,
+      bulkAiOutputs: nextBulk,
+      analysisCache,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Standard / bulk paged list: single listMessages call. No React state updates. */
+async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
+  messages: InboxMessage[]
+  total: number
+  analysisCache: Record<string, NormalInboxAiResult>
+} | null> {
+  const bridge = getBridge()
+  if (!bridge?.listMessages) return null
+  try {
+    const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
+    if (bulkMode && bulkBatchSize === 'all') return null
+    const options: Parameters<typeof bridge.listMessages>[0] = {
+      ...listBridgeOptionsFromFilter(filter),
+    }
+    if (bulkMode) {
+      options.limit = bulkBatchSize as number
+      options.offset = bulkPage * (bulkBatchSize as number)
+    } else {
+      options.limit = 50
+      options.offset = 0
+    }
+    const res = await bridge.listMessages(options)
+    if (!res.ok || !res.data) return null
+    const newMessages = (res.data.messages ?? []) as InboxMessage[]
+    const currentIds = new Set(newMessages.map((m) => m.id))
+    const state = get()
+    const analysisCache = Object.fromEntries(
+      Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id)),
+    )
+    return {
+      messages: newMessages,
+      total: res.data.total ?? 0,
+      analysisCache,
+    }
+  } catch {
+    return null
+  }
+}
+
 // =============================================================================
 // Store Implementation
 // =============================================================================
@@ -327,6 +443,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   autoSyncEnabled: false,
   syncing: false,
   lastSyncAt: null,
+  lastSyncWarnings: null,
   analysisCache: {},
   editingDraftForMessageId: null,
   subFocus: { kind: 'none' },
@@ -392,38 +509,24 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
     set({ loading: true, error: null })
     try {
-      const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
+      const { bulkMode, bulkBatchSize } = get()
       if (bulkMode && bulkBatchSize === 'all') {
         await get().fetchAllMessages({ soft: true })
         return
       }
-      const options: Parameters<typeof bridge.listMessages>[0] = {
-        ...listBridgeOptionsFromFilter(filter),
-      }
-      if (bulkMode) {
-        options.limit = bulkBatchSize as number
-        options.offset = bulkPage * (bulkBatchSize as number)
-      } else {
-        options.limit = 50
-        options.offset = 0
-      }
-      const res = await bridge.listMessages(options)
-      if (res.ok && res.data) {
-        const newMessages = (res.data.messages ?? []) as InboxMessage[]
-        const currentIds = new Set(newMessages.map((m) => m.id))
-        set((state) => ({
-          messages: newMessages,
-          total: res.data.total ?? 0,
+      const snapshot = await loadPagedListSnapshot(get)
+      if (snapshot) {
+        set({
+          messages: snapshot.messages,
+          total: snapshot.total,
           loading: false,
           error: null,
-          analysisCache: Object.fromEntries(
-            Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
-          ),
-        }))
+          analysisCache: snapshot.analysisCache,
+        })
       } else {
         set({
           loading: false,
-          error: res.error ?? 'Failed to fetch messages',
+          error: 'Failed to fetch messages',
         })
       }
     } catch (err: unknown) {
@@ -446,49 +549,22 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     } else {
       set({ loading: true, error: null })
     }
-    const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
     try {
-      const snapshot = get().filter
-      const byId = new Map<string, InboxMessage>()
-      for (const f of filters) {
-        const listOpts = listBridgeOptionsFromFilter({ ...snapshot, filter: f })
-        let offset = 0
-        for (;;) {
-          const res = await bridge.listMessages({
-            ...listOpts,
-            limit: INBOX_LIST_PAGE_SIZE,
-            offset,
-          })
-          if (!res?.ok || !res?.data) break
-          const list = (res.data.messages ?? []) as InboxMessage[]
-          for (const m of list) byId.set(m.id, m)
-          if (list.length < INBOX_LIST_PAGE_SIZE) break
-          offset += INBOX_LIST_PAGE_SIZE
-        }
-      }
-      const allMessages = Array.from(byId.values())
-      const { filter, bulkPage, bulkBatchSize } = get()
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter, bulkPage, bulkBatchSize)
-      const currentIds = new Set(allMessages.map((m) => m.id))
-      set((state) => {
-        const nextBulk: typeof state.bulkAiOutputs = {}
-        for (const [id, entry] of Object.entries(state.bulkAiOutputs)) {
-          if (currentIds.has(id)) nextBulk[id] = entry
-        }
-        return {
-          allMessages,
-          tabCounts: deriveTabCounts(allMessages, filter),
-          messages,
-          total,
+      const snapshot = await loadBulkInboxSnapshot(get)
+      if (snapshot) {
+        set({
+          ...snapshot,
           loading: false,
           bulkBackgroundRefresh: false,
           error: null,
-          bulkAiOutputs: nextBulk,
-          analysisCache: Object.fromEntries(
-            Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
-          ),
-        }
-      })
+        })
+      } else {
+        set({
+          loading: false,
+          bulkBackgroundRefresh: false,
+          error: 'Failed to fetch messages',
+        })
+      }
     } catch (err: unknown) {
       set({
         loading: false,
@@ -531,8 +607,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   refreshMessages: async () => {
-    const { bulkMode, messages } = get()
-    console.log('[SORT] refreshMessages called. Current message count:', messages.length)
+    const { bulkMode } = get()
     if (bulkMode) await get().fetchAllMessages({ soft: true })
     else await get().fetchMessages()
   },
@@ -950,21 +1025,181 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   syncAccount: async (accountId) => {
     const bridge = getBridge()
     if (!bridge?.syncAccount) return
-    set({ syncing: true })
+    if (get().syncing) {
+      set({ lastSyncWarnings: ['Sync already in progress'] })
+      return
+    }
+    const lastSyncAt = new Date().toISOString()
+    set({ syncing: true, error: null, lastSyncWarnings: null })
     try {
       const res = await bridge.syncAccount(accountId)
-      if (res.ok) {
-        set({ lastSyncAt: new Date().toISOString(), syncing: false })
-        if (get().isSortingActive) {
-          console.log('[SYNC] Skipped — sort in progress')
-          return
-        }
-        get().refreshMessages()
-      } else {
-        set({ syncing: false })
+      const syncWarnings = res.syncWarnings
+      const warnList = syncWarnings?.length ? syncWarnings : null
+
+      if (!res.ok) {
+        set({
+          syncing: false,
+          bulkBackgroundRefresh: false,
+          loading: false,
+          error: res.error ?? 'Sync failed',
+          lastSyncWarnings: null,
+        })
+        return
       }
-    } catch {
-      set({ syncing: false })
+
+      const bulkMode = get().bulkMode
+      if (bulkMode) {
+        const snapshot = await loadBulkInboxSnapshot(get)
+        if (snapshot) {
+          set({
+            ...snapshot,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after sync',
+            lastSyncWarnings: warnList,
+          })
+        }
+      } else {
+        const snapshot = await loadPagedListSnapshot(get)
+        if (snapshot) {
+          set({
+            messages: snapshot.messages,
+            total: snapshot.total,
+            analysisCache: snapshot.analysisCache,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after sync',
+            lastSyncWarnings: warnList,
+          })
+        }
+      }
+    } catch (err: unknown) {
+      set({
+        syncing: false,
+        bulkBackgroundRefresh: false,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Sync failed',
+        lastSyncWarnings: null,
+      })
+    }
+  },
+
+  syncAllAccounts: async (accountIds) => {
+    const bridge = getBridge()
+    if (!bridge?.syncAccount || accountIds.length === 0) return
+    if (get().syncing) {
+      set({ lastSyncWarnings: ['Sync already in progress'] })
+      return
+    }
+    const lastSyncAt = new Date().toISOString()
+    set({ syncing: true, error: null, lastSyncWarnings: null })
+    const warnings: string[] = []
+    let okCount = 0
+    try {
+      for (const accountId of accountIds) {
+        const res = await bridge.syncAccount(accountId)
+        if (res.ok) okCount++
+        if (res.syncWarnings?.length) {
+          warnings.push(...res.syncWarnings.map((w) => `[${accountId}] ${w}`))
+        }
+        if (!res.ok) {
+          warnings.push(`[${accountId}] ${res.error ?? 'Sync failed'}`)
+        }
+      }
+
+      const errorOut =
+        okCount === 0 ? (warnings.join(' · ') || 'All accounts failed to sync') : null
+      const warnList = okCount > 0 && warnings.length > 0 ? warnings : null
+
+      const bulkMode = get().bulkMode
+      if (errorOut) {
+        set({
+          syncing: false,
+          bulkBackgroundRefresh: false,
+          loading: false,
+          error: errorOut,
+          lastSyncWarnings: null,
+        })
+        return
+      }
+
+      if (bulkMode) {
+        const snapshot = await loadBulkInboxSnapshot(get)
+        if (snapshot) {
+          set({
+            ...snapshot,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after sync',
+            lastSyncWarnings: warnList,
+          })
+        }
+      } else {
+        const snapshot = await loadPagedListSnapshot(get)
+        if (snapshot) {
+          set({
+            messages: snapshot.messages,
+            total: snapshot.total,
+            analysisCache: snapshot.analysisCache,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after sync',
+            lastSyncWarnings: warnList,
+          })
+        }
+      }
+    } catch (err: unknown) {
+      set({
+        syncing: false,
+        bulkBackgroundRefresh: false,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Sync failed',
+        lastSyncWarnings: null,
+      })
     }
   },
 
