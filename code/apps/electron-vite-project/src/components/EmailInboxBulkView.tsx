@@ -26,8 +26,10 @@ import type {
   BulkAiResult,
   BulkAiResultEntry,
   BulkRecommendedAction,
+  NormalInboxAiResult,
   SortCategory,
 } from '../types/inboxAi'
+import { tryParseAnalysis, tryParsePartialAnalysis } from '../utils/parseInboxAiJson'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
@@ -107,6 +109,34 @@ function hasFullBulkAnalysis(output: BulkAiResultEntry | undefined): boolean {
 function shouldShowBulkAnalyzeButton(output: BulkAiResultEntry | undefined): boolean {
   if (output?.autosortFailure) return false
   return !hasFullBulkAnalysis(output)
+}
+
+/** Merge streaming Normal Inbox analysis fields into bulk card state (same JSON shape as aiAnalyzeMessageStream). */
+function mergeNormalPartialIntoBulk(
+  partial: NormalInboxAiResult,
+  prev: BulkAiResultEntry | undefined
+): BulkAiResultEntry {
+  const adv =
+    partial.archiveReason?.trim() || partial.archiveRecommendation
+      ? `${partial.archiveRecommendation === 'archive' ? 'Archive' : 'Keep'}${partial.archiveReason?.trim() ? ` — ${partial.archiveReason.trim()}` : ''}`
+      : undefined
+  const next: BulkAiResultEntry = {
+    ...prev,
+    bulkAnalysisStreaming: true,
+    summary: partial.summary?.trim() ? partial.summary : prev?.summary,
+    urgencyScore: partial.urgencyScore,
+    urgencyReason: partial.urgencyReason || prev?.urgencyReason,
+    needsReply: partial.needsReply,
+    needsReplyReason: partial.needsReplyReason || prev?.needsReplyReason,
+    actionItems: partial.actionItems?.length ? partial.actionItems : prev?.actionItems,
+    draftReply:
+      typeof partial.draftReply === 'string' && partial.draftReply.trim()
+        ? partial.draftReply
+        : prev?.draftReply,
+    reason: (partial.urgencyReason || partial.summary || prev?.reason || '').toString().slice(0, 300),
+    actionExplanation: adv || prev?.actionExplanation,
+  }
+  return next
 }
 
 /** Aggregated result of one or more `runAiCategorizeForIds` passes (toolbar Auto-Sort). */
@@ -591,7 +621,11 @@ function BulkActionCardStructured({
   }, [isDraftSubFocused, draftRefineConnected, draftRefineMessageId, msg.id, draftRefineDisconnect])
 
   const hasFullStructured = hasFullBulkAnalysis(output)
-  const rec = (output.recommendedAction ?? 'draft_reply_ready') as BulkRecommendedAction
+  /** While streaming or waiting for classify, avoid defaulting to draft_reply_ready (misleading actions). */
+  const streamClassifying = !!(output.bulkAnalysisStreaming && !hasFullStructured)
+  const rec = (streamClassifying
+    ? 'keep_for_manual_action'
+    : (output.recommendedAction ?? 'draft_reply_ready')) as BulkRecommendedAction
   /** Draft-only or user hit “Draft” after Auto-Sort — full-height composer, no analysis header/recommended row. */
   const hideAnalysisChrome = draftExpanded && ((!hasFullStructured) || manualDraftCompose)
   /** FIX-H4: Undo visibility based SOLELY on current filter. No other conditions. */
@@ -607,7 +641,10 @@ function BulkActionCardStructured({
 
   const summaryTextTrimmed = (output.summary ?? '').trim()
   const showMainSummaryRegion =
-    output.loading === 'summary' || output.summaryError === true || summaryTextTrimmed.length > 0
+    output.loading === 'summary' ||
+    output.summaryError === true ||
+    summaryTextTrimmed.length > 0 ||
+    output.bulkAnalysisStreaming === true
 
   return (
     <div
@@ -697,41 +734,57 @@ function BulkActionCardStructured({
                 <div className="bulk-action-card-row bulk-action-card-row--recommended">
                   <span className="bulk-action-card-row-label">Recommended Action</span>
                   <div className="bulk-action-card-row-value">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
-                      onClick={() => {
-                        setIsAnalysisOpen(false)
-                        if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                        else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
-                        else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                        else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
+                    {streamClassifying ? (
+                      <div
+                        className={`bulk-action-card-panel bulk-action-card-panel--recommended ${panelMod}`}
+                        style={{ cursor: 'default', opacity: 0.9 }}
+                        aria-busy="true"
+                      >
+                        <span className="bulk-action-card-panel-action">Finalizing triage…</span>
+                      </div>
+                    ) : (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+                        onClick={() => {
                           setIsAnalysisOpen(false)
                           if (rec === 'pending_delete') handlePendingDeleteOne(msg)
                           else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
                           else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                           else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                        }
-                      }}
-                      title="Click or press Enter to apply"
-                    >
-                      <span className="bulk-action-card-panel-action">
-                        {rec === 'pending_delete' && '🗑 Pending Delete'}
-                        {rec === 'pending_review' && '⏳ Pending Review'}
-                        {rec === 'archive' && '📦 Archive'}
-                        {rec === 'keep_for_manual_action' && '✋ Review manually'}
-                        {rec === 'draft_reply_ready' && '✉ Send draft reply'}
-                      </span>
-                    </div>
-                    <BulkRecommendedActionMetaFlags msg={msg} output={output} />
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setIsAnalysisOpen(false)
+                            if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                            else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                            else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                            else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                          }
+                        }}
+                        title="Click or press Enter to apply"
+                      >
+                        <span className="bulk-action-card-panel-action">
+                          {rec === 'pending_delete' && '🗑 Pending Delete'}
+                          {rec === 'pending_review' && '⏳ Pending Review'}
+                          {rec === 'archive' && '📦 Archive'}
+                          {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                          {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+                        </span>
+                      </div>
+                    )}
+                    {streamClassifying ? null : <BulkRecommendedActionMetaFlags msg={msg} output={output} />}
                     <div className="bulk-action-card-reasoning-box">
                       <span className="bulk-action-card-reasoning-label">Why:</span>
-                      <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+                      <span className="bulk-action-card-reasoning">
+                        {streamClassifying ? (
+                          <span className="bulk-action-card-muted">Applying bulk classification to this row…</span>
+                        ) : (
+                          output.actionExplanation || '—'
+                        )}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -763,6 +816,11 @@ function BulkActionCardStructured({
                   Retry
                 </button>
               </div>
+            ) : output.bulkAnalysisStreaming && !summaryTextTrimmed ? (
+              <div className="bulk-action-card-main-summary-body" aria-live="polite" aria-busy="true">
+                <span className="bulk-action-card-main-summary-spinner" aria-hidden style={{ verticalAlign: 'middle', marginRight: 8 }} />
+                <span className="bulk-action-card-muted">Receiving analysis…</span>
+              </div>
             ) : (
               <div className="bulk-action-card-main-summary-body">{output.summary}</div>
             )}
@@ -779,39 +837,55 @@ function BulkActionCardStructured({
         <div className="bulk-action-card-row bulk-action-card-row--recommended">
           <span className="bulk-action-card-row-label">Recommended Action</span>
           <div className="bulk-action-card-row-value">
-            <div
-              role="button"
-              tabIndex={0}
-              className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
-              onClick={() => {
-                if (rec === 'pending_delete') handlePendingDeleteOne(msg)
-                else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
-                else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
-                else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
+            {streamClassifying ? (
+              <div
+                className={`bulk-action-card-panel bulk-action-card-panel--recommended ${panelMod}`}
+                style={{ cursor: 'default', opacity: 0.9 }}
+                aria-busy="true"
+              >
+                <span className="bulk-action-card-panel-action">Finalizing triage…</span>
+              </div>
+            ) : (
+              <div
+                role="button"
+                tabIndex={0}
+                className={`bulk-action-card-panel bulk-action-card-panel--recommended bulk-action-card-panel--actionable ${panelMod}`}
+                onClick={() => {
                   if (rec === 'pending_delete') handlePendingDeleteOne(msg)
                   else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
                   else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
                   else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
-                }
-              }}
-              title="Click or press Enter to apply"
-            >
-              <span className="bulk-action-card-panel-action">
-                {rec === 'pending_delete' && '🗑 Pending Delete'}
-                {rec === 'pending_review' && '⏳ Pending Review'}
-                {rec === 'archive' && '📦 Archive'}
-                {rec === 'keep_for_manual_action' && '✋ Review manually'}
-                {rec === 'draft_reply_ready' && '✉ Send draft reply'}
-              </span>
-            </div>
-            <BulkRecommendedActionMetaFlags msg={msg} output={output} />
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    if (rec === 'pending_delete') handlePendingDeleteOne(msg)
+                    else if (rec === 'pending_review') handleMoveToPendingReviewOne(msg)
+                    else if (rec === 'archive' || rec === 'keep_for_manual_action') handleArchiveOne(msg)
+                    else if (rec === 'draft_reply_ready' && output.draftReply) handleSendDraft(msg, output.draftReply)
+                  }
+                }}
+                title="Click or press Enter to apply"
+              >
+                <span className="bulk-action-card-panel-action">
+                  {rec === 'pending_delete' && '🗑 Pending Delete'}
+                  {rec === 'pending_review' && '⏳ Pending Review'}
+                  {rec === 'archive' && '📦 Archive'}
+                  {rec === 'keep_for_manual_action' && '✋ Review manually'}
+                  {rec === 'draft_reply_ready' && '✉ Send draft reply'}
+                </span>
+              </div>
+            )}
+            {streamClassifying ? null : <BulkRecommendedActionMetaFlags msg={msg} output={output} />}
             <div className="bulk-action-card-reasoning-box">
               <span className="bulk-action-card-reasoning-label">Why:</span>
-              <span className="bulk-action-card-reasoning">{output.actionExplanation || '—'}</span>
+              <span className="bulk-action-card-reasoning">
+                {streamClassifying ? (
+                  <span className="bulk-action-card-muted">Applying bulk classification to this row…</span>
+                ) : (
+                  output.actionExplanation || '—'
+                )}
+              </span>
             </div>
           </div>
         </div>
@@ -1087,12 +1161,12 @@ function BulkActionCardStructured({
                 >
                   {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
                 </button>
-                {rec === 'draft_reply_ready' && output.draftReply ? (
+                {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
                     Archive
                   </button>
                 ) : null}
-                {(rec === 'archive' || rec === 'keep_for_manual_action') ? (
+                {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') ? (
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
                     📦 Archive
                   </button>
@@ -1108,7 +1182,7 @@ function BulkActionCardStructured({
                     disabled={analyzeRunning || !!output?.loading}
                     title="Run full AI triage (classify) for this message"
                   >
-                    {analyzeRunning ? 'Analyzing…' : 'Analyze'}
+                    Analyze
                   </button>
                 ) : null}
                 <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
@@ -1142,7 +1216,7 @@ function BulkActionCardStructured({
             Undo
           </button>
         )}
-        {rec === 'draft_reply_ready' && output.draftReply && (
+        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
           <button
             type="button"
             className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
@@ -1151,12 +1225,12 @@ function BulkActionCardStructured({
             ✉ Send via Email
           </button>
         )}
-        {(rec === 'archive' || rec === 'keep_for_manual_action') && (
+        {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
             📦 Archive
           </button>
         )}
-        {rec === 'draft_reply_ready' && output.draftReply && (
+        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
             Archive
           </button>
@@ -1170,7 +1244,7 @@ function BulkActionCardStructured({
               disabled={analyzeRunning || !!output?.loading}
               title="Run full AI triage (classify) for this message"
             >
-              {analyzeRunning ? 'Analyzing…' : 'Analyze'}
+              Analyze
             </button>
           ) : null}
           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
@@ -1412,8 +1486,23 @@ export default function EmailInboxBulkView({
   const isSortingRef = useRef(false)
   /** Per-message guard for explicit “Analyze” so double-clicks don’t start concurrent classify runs. */
   const bulkAnalyzeInFlightRef = useRef<Set<string>>(new Set())
+  /** Unsubscribes `onAiAnalyzeChunk` / `onAiAnalyzeError` for per-row streaming. */
+  const bulkAnalyzeStreamCleanupRef = useRef<Map<string, () => void>>(new Map())
   /** Bumps when Analyze starts/ends so action rows re-read in-flight state from the ref. */
   const [bulkAnalyzeUiEpoch, setBulkAnalyzeUiEpoch] = useState(0)
+
+  useEffect(() => {
+    return () => {
+      for (const cleanup of bulkAnalyzeStreamCleanupRef.current.values()) {
+        try {
+          cleanup()
+        } catch {
+          /* noop */
+        }
+      }
+      bulkAnalyzeStreamCleanupRef.current.clear()
+    }
+  }, [])
 
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
@@ -1603,9 +1692,11 @@ export default function EmailInboxBulkView({
       ids: string[],
       clearSelection: boolean,
       isRetry = false,
-      opts?: { manageConcurrencyLock?: boolean }
+      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean }
     ): Promise<BulkSortRunAggregate> => {
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
+      const suppressGlobalSortingUi = opts?.suppressGlobalSortingUi === true
+      const skipEndRefresh = opts?.skipEndRefresh === true
       if (manageConcurrencyLock) {
         isSortingRef.current = true
       }
@@ -1623,8 +1714,10 @@ export default function EmailInboxBulkView({
           retainedCounts: emptyRetainedCounts(),
         }
       }
-      useEmailInboxStore.getState().setSortingActive(true)
-      setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+      if (!suppressGlobalSortingUi) {
+        useEmailInboxStore.getState().setSortingActive(true)
+        setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+      }
       const CONCURRENCY = 3
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
@@ -1849,7 +1942,11 @@ export default function EmailInboxBulkView({
           console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
         } else if (!isRetry) {
           if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
-          const retryResult = await runAiCategorizeForIds(toRetry, false, true, { manageConcurrencyLock: false })
+          const retryResult = await runAiCategorizeForIds(toRetry, false, true, {
+            manageConcurrencyLock: false,
+            suppressGlobalSortingUi,
+            skipEndRefresh,
+          })
           allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
@@ -1894,7 +1991,9 @@ export default function EmailInboxBulkView({
           failedIds: allFailedIds,
         })
         if (clearSelection) clearMultiSelect()
-        await refreshMessages()
+        if (!skipEndRefresh) {
+          await refreshMessages()
+        }
         return {
           processedIds: allProcessedIds,
           failedIds: allFailedIds,
@@ -1934,19 +2033,110 @@ export default function EmailInboxBulkView({
     [clearMultiSelect, refreshMessages]
   )
 
-  /** Per-row Analyze: same classify path as Auto-Sort / Retry (aiClassifySingle → bulk outputs + moves). */
+  /**
+   * Per-row Analyze: stream advisory JSON into this card (same IPC as Normal Inbox), then authoritative classify
+   * without global “sorting” chrome or list refresh (avoids grid analyzing state + row reorder jump).
+   */
   const handleBulkAnalyzeOne = useCallback(
     async (messageId: string) => {
-      if (!window.emailInbox?.aiClassifySingle) {
+      const bridge = window.emailInbox
+      if (!bridge?.aiClassifySingle) {
         console.warn('[BULK-ANALYZE] aiClassifySingle not available')
         return
       }
       if (bulkAnalyzeInFlightRef.current.has(messageId)) return
       bulkAnalyzeInFlightRef.current.add(messageId)
-      setBulkAnalyzeUiEpoch((e) => e + 1)
+
+      bulkAnalyzeStreamCleanupRef.current.get(messageId)?.()
+      bulkAnalyzeStreamCleanupRef.current.delete(messageId)
+
+      const hasStream =
+        typeof bridge.aiAnalyzeMessageStream === 'function' &&
+        typeof bridge.onAiAnalyzeChunk === 'function'
+
+      if (hasStream) {
+        setBulkAiOutputs((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            bulkAnalysisStreaming: true,
+            autosortFailure: undefined,
+            failureReason: undefined,
+            summaryError: undefined,
+            summaryErrorMessage: undefined,
+          },
+        }))
+        setBulkAnalyzeUiEpoch((e) => e + 1)
+      }
+
+      let accumulatedText = ''
+      let streamFailed = false
+      const unsubscribeFns: Array<() => void> = []
+
+      const cleanupListeners = () => {
+        for (const u of unsubscribeFns) {
+          try {
+            u()
+          } catch {
+            /* noop */
+          }
+        }
+        unsubscribeFns.length = 0
+        bulkAnalyzeStreamCleanupRef.current.delete(messageId)
+      }
+
+      if (hasStream) {
+        unsubscribeFns.push(
+          bridge.onAiAnalyzeChunk!(({ messageId: mid, chunk }) => {
+            if (mid !== messageId) return
+            accumulatedText += chunk
+            const parsed = tryParsePartialAnalysis(accumulatedText)
+            if (parsed) {
+              setBulkAiOutputs((prev) => ({
+                ...prev,
+                [messageId]: mergeNormalPartialIntoBulk(parsed.partial, prev[messageId]),
+              }))
+            }
+          })
+        )
+        if (typeof bridge.onAiAnalyzeError === 'function') {
+          unsubscribeFns.push(
+            bridge.onAiAnalyzeError!(({ messageId: mid }) => {
+              if (mid !== messageId) return
+              streamFailed = true
+            })
+          )
+        }
+        bulkAnalyzeStreamCleanupRef.current.set(messageId, cleanupListeners)
+      }
+
       try {
-        await runAiCategorizeForIds([messageId], false)
+        if (hasStream) {
+          await bridge.aiAnalyzeMessageStream!(messageId)
+          if (!streamFailed) {
+            const final = tryParseAnalysis(accumulatedText)
+            if (final) {
+              useEmailInboxStore.getState().setAnalysisCache(messageId, final)
+              setBulkAiOutputs((prev) => ({
+                ...prev,
+                [messageId]: mergeNormalPartialIntoBulk(final, prev[messageId]),
+              }))
+            }
+          }
+        }
+        await runAiCategorizeForIds([messageId], false, false, {
+          manageConcurrencyLock: false,
+          suppressGlobalSortingUi: true,
+          skipEndRefresh: true,
+        })
       } finally {
+        cleanupListeners()
+        setBulkAiOutputs((prev) => {
+          const cur = prev[messageId]
+          if (!cur?.bulkAnalysisStreaming) return prev
+          const { bulkAnalysisStreaming: _b, ...rest } = cur
+          return { ...prev, [messageId]: rest }
+        })
         bulkAnalyzeInFlightRef.current.delete(messageId)
         setBulkAnalyzeUiEpoch((e) => e + 1)
       }
@@ -2566,7 +2756,7 @@ export default function EmailInboxBulkView({
         )
       }
 
-      if (output && (hasFullStructured || hasDraftReady)) {
+      if (output && (hasFullStructured || hasDraftReady || output.bulkAnalysisStreaming)) {
         const analyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
         const showAnalyzeBtn = shouldShowBulkAnalyzeButton(output)
         return (
@@ -2658,7 +2848,7 @@ export default function EmailInboxBulkView({
                   disabled={fbAnalyzeRunning || !!output?.loading}
                   title="Run full AI triage (classify) for this message"
                 >
-                  {fbAnalyzeRunning ? 'Analyzing…' : 'Analyze'}
+                  Analyze
                 </button>
               ) : null}
               <button
@@ -2722,7 +2912,7 @@ export default function EmailInboxBulkView({
               disabled={guidanceAnalyzeRunning}
               title="Run full AI triage (classify) for this message"
             >
-              {guidanceAnalyzeRunning ? 'Analyzing…' : 'Analyze'}
+              Analyze
             </button>
             <button
               type="button"
@@ -3238,7 +3428,8 @@ export default function EmailInboxBulkView({
                */
               const hasLiveBulkClassification =
                 !!output &&
-                (Boolean(output.category && String(output.category).trim()) ||
+                (output.bulkAnalysisStreaming === true ||
+                  Boolean(output.category && String(output.category).trim()) ||
                   output.autosortFailure === true ||
                   output.autosortOutcome != null ||
                   output.autosortRetainKind != null)

@@ -149,6 +149,11 @@ export type BulkAiResultEntry = Partial<BulkAiResult> & {
   autosortRetainKind?: AutosortRetainKind
   /** Short user-visible line: why we did not auto-move. */
   autosortRetainExplanation?: string
+  /**
+   * True while per-row “Analyze” is streaming advisory analysis into this card.
+   * Kept separate from `loading` so we do not swap the card for the global “Analyzing…” placeholder.
+   */
+  bulkAnalysisStreaming?: boolean
 }
 
 /** aiOutputs state: Record<messageId, BulkAiResultEntry> */
