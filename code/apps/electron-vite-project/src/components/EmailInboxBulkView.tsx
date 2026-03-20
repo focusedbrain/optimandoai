@@ -2,6 +2,8 @@
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
  * Toolbar: Select all, bulk actions, pagination. Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
+ *
+ * AI Auto-Sort: runs only on explicit toolbar / per-row actions (never from effects). Classify → immediate moves; no preview countdown.
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
@@ -51,6 +53,42 @@ function withAutosortRetained(
     autosortRetainKind: kind,
     autosortRetainExplanation: explanation,
   }
+}
+
+function emptyRetainedCounts(): Record<AutosortRetainKind, number> {
+  return {
+    urgent_threshold: 0,
+    keep_for_manual_action: 0,
+    draft_reply_ready: 0,
+    classified_no_auto_move: 0,
+  }
+}
+
+function mergeRetainedCounts(
+  a: Record<AutosortRetainKind, number>,
+  b: Record<AutosortRetainKind, number>
+): Record<AutosortRetainKind, number> {
+  return {
+    urgent_threshold: a.urgent_threshold + b.urgent_threshold,
+    keep_for_manual_action: a.keep_for_manual_action + b.keep_for_manual_action,
+    draft_reply_ready: a.draft_reply_ready + b.draft_reply_ready,
+    classified_no_auto_move: a.classified_no_auto_move + b.classified_no_auto_move,
+  }
+}
+
+function shortIdForSummary(id: string): string {
+  if (id.length <= 14) return id
+  return `${id.slice(0, 8)}…`
+}
+
+/** Aggregated result of one or more `runAiCategorizeForIds` passes (toolbar Auto-Sort). */
+export type BulkSortRunAggregate = {
+  processedIds: string[]
+  failedIds: string[]
+  movedIds: string[]
+  /** Ids that never reached a terminal outcome before retry fix (should be empty after marking incomplete). */
+  missedIds: string[]
+  retainedCounts: Record<AutosortRetainKind, number>
 }
 
 function formatDate(isoString: string | null): string {
@@ -533,6 +571,10 @@ function BulkActionCardStructured({
   const effectiveBorderColor = borderColor
   const isConnected = draftRefineConnected && draftRefineMessageId === msg.id
 
+  const summaryTextTrimmed = (output.summary ?? '').trim()
+  const showMainSummaryRegion =
+    output.loading === 'summary' || output.summaryError === true || summaryTextTrimmed.length > 0
+
   return (
     <div
       className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
@@ -666,12 +708,32 @@ function BulkActionCardStructured({
       </div>
       ) : null}
       <div className={`bulk-action-card-sections${draftExpanded ? ' bulk-action-card-sections--has-draft' : ''}`}>
-        {output.summaryError && (
-          <div className="bulk-action-card-error-banner">
-            <span>Summarize failed.</span>
-            <button type="button" onClick={() => handleSummarize(msg.id)}>Retry</button>
+        {showMainSummaryRegion ? (
+          <div className="bulk-action-card-main-summary" role="region" aria-label="AI email summary">
+            <div className="bulk-action-card-main-summary-head">
+              <span className="bulk-action-card-main-summary-title">Summary</span>
+            </div>
+            {output.loading === 'summary' ? (
+              <div className="bulk-action-card-main-summary-loading" aria-live="polite" aria-busy="true">
+                <span className="bulk-action-card-main-summary-spinner" aria-hidden />
+                Summarizing…
+              </div>
+            ) : output.summaryError ? (
+              <div className="bulk-action-card-main-summary-error" role="alert">
+                <span>{output.summaryErrorMessage ?? 'Couldn’t generate a summary.'}</span>
+                <button
+                  type="button"
+                  className="bulk-action-card-main-summary-retry"
+                  onClick={() => handleSummarize(msg.id)}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <div className="bulk-action-card-main-summary-body">{output.summary}</div>
+            )}
           </div>
-        )}
+        ) : null}
         {output.draftError && (
           <div className="bulk-action-card-error-banner">
             <span>Draft generation failed.</span>
@@ -1001,11 +1063,6 @@ function BulkActionCardStructured({
                     📦 Archive
                   </button>
                 ) : null}
-                {rec === 'pending_delete' ? (
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis" onClick={() => handlePendingDeleteOne(msg)}>
-                    🗑 Pending Delete
-                  </button>
-                ) : null}
                 <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
                   ✨ Summarize
                 </button>
@@ -1049,11 +1106,6 @@ function BulkActionCardStructured({
         {(rec === 'archive' || rec === 'keep_for_manual_action') && (
           <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
             📦 Archive
-          </button>
-        )}
-        {rec === 'pending_delete' && (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger bulk-action-card-btn--primary-emphasis" onClick={() => handlePendingDeleteOne(msg)}>
-            🗑 Pending Delete
           </button>
         )}
         {rec === 'draft_reply_ready' && output.draftReply && (
@@ -1142,6 +1194,7 @@ export default function EmailInboxBulkView({
     messages,
     total,
     loading,
+    bulkBackgroundRefresh,
     error,
     bulkPage,
     bulkBatchSize,
@@ -1163,10 +1216,7 @@ export default function EmailInboxBulkView({
     syncBulkBatchSizeFromSettings,
     setBulkAiOutputs,
     clearBulkAiOutputsForIds,
-    bulkSessionArchived,
-      bulkSessionPendingDelete,
-      decrementBulkSessionPendingDelete,
-      clearPendingDeleteStateForIds,
+    clearPendingDeleteStateForIds,
     setFilter,
     selectMessage,
     selectAttachment,
@@ -1193,6 +1243,7 @@ export default function EmailInboxBulkView({
       messages: s.messages,
       total: s.total,
       loading: s.loading,
+      bulkBackgroundRefresh: s.bulkBackgroundRefresh,
       error: s.error,
       bulkPage: s.bulkPage,
       bulkBatchSize: s.bulkBatchSize,
@@ -1214,9 +1265,6 @@ export default function EmailInboxBulkView({
       syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
       setBulkAiOutputs: s.setBulkAiOutputs,
       clearBulkAiOutputsForIds: s.clearBulkAiOutputsForIds,
-      bulkSessionArchived: s.bulkSessionArchived,
-      bulkSessionPendingDelete: s.bulkSessionPendingDelete,
-      decrementBulkSessionPendingDelete: s.decrementBulkSessionPendingDelete,
       clearPendingDeleteStateForIds: s.clearPendingDeleteStateForIds,
       setFilter: s.setFilter,
       selectMessage: s.selectMessage,
@@ -1245,7 +1293,7 @@ export default function EmailInboxBulkView({
   const primaryAccountId = accounts[0]?.id
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
-  const tabCounts = useMemo(() => deriveTabCounts(allMessages), [allMessages])
+  const tabCounts = useMemo(() => deriveTabCounts(allMessages, filter), [allMessages, filter])
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
@@ -1276,7 +1324,6 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
-  const [aiSortPhase, setAiSortPhase] = useState<'idle' | 'analyzing'>('idle')
   /** One-line summary after a bulk Auto-Sort run (moved / kept / failed counts). */
   const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
   /** Shown when user triggers Auto-Sort while a run is already active. */
@@ -1304,7 +1351,6 @@ export default function EmailInboxBulkView({
   const prevFilterRef = useRef<string>(filter.filter)
   /** True while a bulk sort is in flight — synchronous guard before any await (store isSortingActive lags one frame). */
   const isSortingRef = useRef(false)
-  const autoSortedIdsRef = useRef<Set<string>>(new Set())
 
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
@@ -1345,9 +1391,15 @@ export default function EmailInboxBulkView({
   /** Toolbar bulk actions operate on messages only. Count excludes drafts (no draft checkbox). */
   const selectedCount = multiSelectIds.size
   const batchMessages = sortedMessages
+  /** “All” batch: header checkbox reflects full tab (total / selectedCount), not only rendered rows. */
   const allInBatchSelected =
-    batchMessages.length > 0 && batchMessages.every((m) => multiSelectIds.has(m.id))
-  const someInBatchSelected = batchMessages.some((m) => multiSelectIds.has(m.id))
+    bulkBatchSize === 'all'
+      ? total > 0 && selectedCount === total
+      : batchMessages.length > 0 && batchMessages.every((m) => multiSelectIds.has(m.id))
+  const someInBatchSelected =
+    bulkBatchSize === 'all'
+      ? selectedCount > 0 && selectedCount < total
+      : batchMessages.some((m) => multiSelectIds.has(m.id))
 
   const handleBatchCheckboxToggle = useCallback(() => {
     void (async () => {
@@ -1482,19 +1534,14 @@ export default function EmailInboxBulkView({
     }
   }, [multiSelectIds, setCategory, clearMultiSelect])
 
-  /**
-   * Run AI categorize for given ids. Per-message calls with progressive UI updates.
-   * POLICY (FIX-C4): AI Auto-Sort must ONLY run on explicit user click.
-   * - NEVER call from useEffect, onNewMessages, syncAccount, fetchMessages, or store subscribers.
-   * - Valid callers: handleAiAutoSort (toolbar button), Retry Auto-Sort (per-message button).
-   */
+  /** Per-message classify + immediate moves. Callers: toolbar Auto-Sort, per-row Retry only. */
   const runAiCategorizeForIds = useCallback(
     async (
       ids: string[],
       clearSelection: boolean,
       isRetry = false,
       opts?: { manageConcurrencyLock?: boolean }
-    ): Promise<{ processedIds: string[]; failedIds: string[]; movedIds: string[]; missedIds: string[] }> => {
+    ): Promise<BulkSortRunAggregate> => {
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
       if (manageConcurrencyLock) {
         isSortingRef.current = true
@@ -1505,17 +1552,23 @@ export default function EmailInboxBulkView({
           useEmailInboxStore.getState().setSortingActive(false)
           setAiSortProgress(null)
         }
-        return { processedIds: [], failedIds: [], movedIds: [], missedIds: [] }
+        return {
+          processedIds: [],
+          failedIds: [],
+          movedIds: [],
+          missedIds: [],
+          retainedCounts: emptyRetainedCounts(),
+        }
       }
       useEmailInboxStore.getState().setSortingActive(true)
       setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
-      setAiSortPhase('analyzing')
       const CONCURRENCY = 3
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
       const failedIds: string[] = []
       const movedIds: string[] = []
+      const retainedCounts = emptyRetainedCounts()
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
           const batch = ids.slice(i, i + CONCURRENCY)
@@ -1575,6 +1628,7 @@ export default function EmailInboxBulkView({
 
               if (isUrgent) {
                 processedIds.push(messageId)
+                retainedCounts.urgent_threshold += 1
                 setBulkAiOutputs((prev) => ({
                   ...prev,
                   [messageId]: withAutosortRetained(
@@ -1600,7 +1654,7 @@ export default function EmailInboxBulkView({
                   ...prev,
                   [messageId]: {
                     ...entry,
-                    summary: 'Could not move to Pending Delete (server error). Retry or use the button below.',
+                    summary: 'Could not move to Pending Delete (server error). Retry Auto-Sort or use Recommended Action (Pending Delete).',
                     autosortFailure: true,
                     failureReason: 'move_failed',
                     autosortOutcome: 'failed',
@@ -1657,12 +1711,14 @@ export default function EmailInboxBulkView({
               processedIds.push(messageId)
               let retained: BulkAiResultEntry
               if (recommendedAction === 'keep_for_manual_action') {
+                retainedCounts.keep_for_manual_action += 1
                 retained = withAutosortRetained(
                   entry,
                   'keep_for_manual_action',
                   'AI recommends manual handling — not auto-archived, deleted, or moved.'
                 )
               } else if (recommendedAction === 'draft_reply_ready') {
+                retainedCounts.draft_reply_ready += 1
                 retained = withAutosortRetained(
                   entry,
                   'draft_reply_ready',
@@ -1671,18 +1727,21 @@ export default function EmailInboxBulkView({
                     : 'Classified as reply-ready — no draft text returned; not auto-moved.'
                 )
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
+                retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
-                  'Model suggested Pending Delete but the soft-delete flag was off — left in inbox. Use Pending Delete if you agree.'
+                  'Model suggested Pending Delete but the soft-delete flag was off — left in inbox. Use Recommended Action if you agree.'
                 )
               } else if (recommendedAction === 'pending_review' && !result.pending_review) {
+                retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
                   'Model suggested Pending Review but the flag was off — left in inbox. Use Pending Review if you agree.'
                 )
               } else {
+                retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
@@ -1694,48 +1753,84 @@ export default function EmailInboxBulkView({
             })
           )
         }
-        const missedIds = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
+        const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = ids.filter((id) => !processedIds.includes(id))
-        console.log('[SORT] First pass. Processed:', processedIds.length, 'Failed:', failedIds.length, 'Missed:', missedIds.length, 'To retry:', toRetry.length)
+        console.log('[SORT] First pass.', {
+          targeted: ids.length,
+          processed: processedIds.length,
+          failed: failedIds.length,
+          moved: movedIds.length,
+          missed: missedIdsPass1.length,
+          toRetry: toRetry.length,
+          retainedBreakdown: { ...retainedCounts },
+        })
         let allProcessedIds = [...processedIds]
         let allFailedIds = [...failedIds]
         let allMovedIds = [...movedIds]
+        let finalRetainedCounts = { ...retainedCounts }
         if (toRetry.length === 0) {
-          console.log('[SORT] All messages sorted successfully')
+          console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
         } else if (!isRetry) {
-          if (missedIds.length > 0) console.warn('[SORT] Missed IDs:', missedIds)
+          if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
           const retryResult = await runAiCategorizeForIds(toRetry, false, true, { manageConcurrencyLock: false })
           allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
-          console.log('[SORT] Retry. Processed:', retryResult.processedIds.length, 'Failed:', retryResult.failedIds.length)
+          finalRetainedCounts = mergeRetainedCounts(retainedCounts, retryResult.retainedCounts)
+          console.log('[SORT] Retry pass.', {
+            retryTargeted: toRetry.length,
+            processed: retryResult.processedIds.length,
+            failed: retryResult.failedIds.length,
+            moved: retryResult.movedIds.length,
+            retainedBreakdown: retryResult.retainedCounts,
+          })
         }
-        const finalMissed = ids.filter((id) => !allProcessedIds.includes(id) && !allFailedIds.includes(id))
-        console.log('[SORT] Final.', {
+        let finalMissed = ids.filter((id) => !allProcessedIds.includes(id) && !allFailedIds.includes(id))
+        if (finalMissed.length > 0) {
+          console.error('[SORT] Completeness gap after retry — marking processing_incomplete', {
+            count: finalMissed.length,
+            ids: finalMissed,
+          })
+          const incompleteOutputs: AiOutputs = {}
+          for (const id of finalMissed) {
+            incompleteOutputs[id] = {
+              summary:
+                'Auto-Sort did not complete this message. Use Retry Auto-Sort on this row or run Auto-Sort again.',
+              autosortFailure: true,
+              failureReason: 'processing_incomplete',
+              autosortOutcome: 'failed',
+              status: 'classified',
+            }
+          }
+          setBulkAiOutputs((prev) => ({ ...prev, ...incompleteOutputs }))
+          allFailedIds = [...new Set([...allFailedIds, ...finalMissed])]
+          finalMissed = []
+        }
+        const retainedInInbox = allProcessedIds.filter((id) => !allMovedIds.includes(id)).length
+        console.log('[SORT] Run complete.', {
           targeted: ids.length,
           moved: allMovedIds.length,
-          retained: allProcessedIds.filter((id) => !allMovedIds.includes(id)).length,
+          retainedInInbox,
           failed: allFailedIds.length,
-          missedAfterRetry: finalMissed.length,
+          retainedByKind: finalRetainedCounts,
           movedIds: allMovedIds,
           failedIds: allFailedIds,
-          missedIds: finalMissed,
         })
         if (clearSelection) clearMultiSelect()
         await refreshMessages()
-        setAiSortPhase('idle')
         return {
           processedIds: allProcessedIds,
           failedIds: allFailedIds,
           movedIds: allMovedIds,
           missedIds: finalMissed,
+          retainedCounts: finalRetainedCounts,
         }
       } catch (e) {
-        console.error('[SORT] Bulk classify batch error', e)
+        console.error('[SORT] Bulk classify batch error (all targeted ids marked failed)', e)
         const failOutputs: AiOutputs = {}
         for (const id of ids) {
           failOutputs[id] = {
-            summary: 'Analysis failed.',
+            summary: 'Bulk Auto-Sort batch error — this message was not classified. Retry Auto-Sort.',
             autosortFailure: true,
             failureReason: 'llm_error',
             autosortOutcome: 'failed',
@@ -1743,10 +1838,14 @@ export default function EmailInboxBulkView({
           }
         }
         setBulkAiOutputs((prev) => ({ ...prev, ...failOutputs }))
-        setAiSortPhase('idle')
-        return { processedIds: [], failedIds: ids, movedIds: [], missedIds: ids }
+        return {
+          processedIds: [],
+          failedIds: ids,
+          movedIds: [],
+          missedIds: [],
+          retainedCounts: emptyRetainedCounts(),
+        }
       } finally {
-        ids.forEach((id) => autoSortedIdsRef.current.add(id))
         useEmailInboxStore.getState().triggerAnalysisRestart()
         if (!isRetry && manageConcurrencyLock) {
           isSortingRef.current = false
@@ -1758,13 +1857,17 @@ export default function EmailInboxBulkView({
     [clearMultiSelect, refreshMessages]
   )
 
-  /** AI Auto-Sort: ONLY runs on explicit user click.
-   * Batch size “All”: target set = every ID matching the current tab (fresh drain), not multiSelectIds.
-   * Page-limited batch sizes: target set = checkbox selection for the current page/slice only. */
+  /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
     if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) {
-      setConcurrentSortNotice('Auto-Sort is already running. Wait for it to finish, then try again.')
-      window.setTimeout(() => setConcurrentSortNotice(null), 6000)
+      console.warn('[SORT] Auto-Sort click ignored: a run is already in progress', {
+        isSortingRef: isSortingRef.current,
+        storeIsSortingActive: useEmailInboxStore.getState().isSortingActive,
+      })
+      setConcurrentSortNotice(
+        'Auto-Sort is already running — this extra click was ignored. Wait for the run to finish, then try again.'
+      )
+      window.setTimeout(() => setConcurrentSortNotice(null), 12_000)
       return
     }
     isSortingRef.current = true
@@ -1775,36 +1878,64 @@ export default function EmailInboxBulkView({
     try {
       let targetIds: string[]
       if (bulkBatchSize === 'all') {
-        targetIds = await useEmailInboxStore.getState().fetchMatchingIdsForCurrentFilter()
+        await useEmailInboxStore.getState().fetchAllMessages({ soft: true })
+        targetIds = [...new Set(await useEmailInboxStore.getState().fetchMatchingIdsForCurrentFilter())]
       } else {
         targetIds = Array.from(new Set(multiSelectIds)).filter((id): id is string => !!id && typeof id === 'string')
       }
       if (!targetIds.length) {
+        console.info('[SORT] Auto-Sort: no messages in target set (nothing to do)')
         setAiSortProgress(null)
         return
       }
       setAiSortProgress(`Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`)
       console.log('[SORT] Start. Batch:', bulkBatchSize, 'Target:', targetIds.length)
-      autoSortedIdsRef.current.clear()
-      const { processedIds, failedIds, movedIds, missedIds } = await runAiCategorizeForIds(targetIds, true, false, {
-        manageConcurrencyLock: false,
-      })
-      const retained = processedIds.filter((id) => !movedIds.includes(id)).length
-      const parts: string[] = [
-        `${movedIds.length} moved`,
-        `${retained} kept in inbox (see row banners)`,
-        `${failedIds.length} failed (see error cards)`,
-      ]
-      if (missedIds.length > 0) {
-        parts.push(`${missedIds.length} incomplete — run Auto-Sort again if needed`)
+      const { processedIds, failedIds, movedIds, missedIds, retainedCounts } = await runAiCategorizeForIds(
+        targetIds,
+        true,
+        false,
+        {
+          manageConcurrencyLock: false,
+        }
+      )
+      const retainedN = processedIds.filter((id) => !movedIds.includes(id)).length
+      const rc = retainedCounts
+      const retainParts: string[] = []
+      if (rc.urgent_threshold) retainParts.push(`${rc.urgent_threshold} high-urgency (not auto-moved)`)
+      if (rc.keep_for_manual_action) retainParts.push(`${rc.keep_for_manual_action} manual review`)
+      if (rc.draft_reply_ready) retainParts.push(`${rc.draft_reply_ready} reply-ready`)
+      if (rc.classified_no_auto_move) retainParts.push(`${rc.classified_no_auto_move} other no auto-move`)
+
+      const lines: string[] = [`Auto-Sort: ${movedIds.length} moved`]
+      if (retainedN > 0) {
+        lines.push(
+          retainParts.length > 0
+            ? `${retainedN} kept on purpose (${retainParts.join(', ')} — see “Kept in inbox” banners)`
+            : `${retainedN} kept on purpose (see “Kept in inbox” / Recommended Action on rows)`
+        )
       }
-      setAiSortOutcomeSummary(`Auto-Sort: ${parts.join(' · ')}`)
-      window.setTimeout(() => setAiSortOutcomeSummary(null), 12000)
+      lines.push(`${failedIds.length} failed (red error cards + Retry)`)
+      if (missedIds.length > 0) {
+        lines.push(`${missedIds.length} still incomplete — run Auto-Sort again`)
+      }
+      if (failedIds.length > 0) {
+        const sample = failedIds.slice(0, 5).map(shortIdForSummary).join(', ')
+        lines.push(`Failed sample: ${sample}${failedIds.length > 5 ? ` (+${failedIds.length - 5} more)` : ''}`)
+      }
+      console.log('[SORT] Toolbar run summary', {
+        targeted: targetIds.length,
+        moved: movedIds.length,
+        retained: retainedN,
+        failed: failedIds.length,
+        missed: missedIds.length,
+        retainedCounts: rc,
+      })
+      setAiSortOutcomeSummary(lines.join(' · '))
+      window.setTimeout(() => setAiSortOutcomeSummary(null), 16_000)
     } finally {
       isSortingRef.current = false
       useEmailInboxStore.getState().setSortingActive(false)
       setAiSortProgress(null)
-      setAiSortPhase('idle')
     }
   }, [bulkBatchSize, multiSelectIds, runAiCategorizeForIds])
 
@@ -1814,11 +1945,10 @@ export default function EmailInboxBulkView({
       for (const id of ids) {
         await window.emailInbox.cancelPendingDelete(id)
       }
-      decrementBulkSessionPendingDelete(ids.length)
       clearPendingDeleteStateForIds(ids)
       await refreshMessages()
     },
-    [refreshMessages, decrementBulkSessionPendingDelete, clearPendingDeleteStateForIds]
+    [refreshMessages, clearPendingDeleteStateForIds]
   )
 
   const handleUndoPendingReview = useCallback(
@@ -1901,12 +2031,47 @@ export default function EmailInboxBulkView({
 
   const handleSummarize = useCallback(
     async (messageId: string) => {
-      if (!window.emailInbox?.aiSummarize) return
-      setBulkAiOutputs((prev) => ({ ...prev, [messageId]: { ...prev[messageId], loading: 'summary', summaryError: undefined } }))
+      if (!window.emailInbox?.aiSummarize) {
+        console.warn(`[AI-SUMMARIZE][bulk] missing bridge messageId=${messageId}`)
+        setBulkAiOutputs((prev) => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            summary: '',
+            summaryError: true,
+            summaryErrorMessage:
+              'Summarize unavailable: email AI API is not connected (reload the app or check the preload bridge).',
+            loading: undefined,
+          },
+        }))
+        return
+      }
+      console.log(`[AI-SUMMARIZE][bulk] start messageId=${messageId}`)
+      setBulkAiOutputs((prev) => ({
+        ...prev,
+        [messageId]: {
+          ...prev[messageId],
+          loading: 'summary',
+          summaryError: undefined,
+          summaryErrorMessage: undefined,
+        },
+      }))
       try {
         const res = await window.emailInbox.aiSummarize(messageId)
         const data = res.data as { summary?: string; error?: boolean } | undefined
         const isError = !res.ok || !data?.summary || !!data.error
+        const failReason = !res.ok
+          ? 'http_not_ok'
+          : !data?.summary
+            ? 'empty_summary'
+            : data.error
+              ? 'api_error_flag'
+              : 'ok'
+        if (isError) {
+          console.warn(`[AI-SUMMARIZE][bulk] fail messageId=${messageId} reason=${failReason}`)
+        } else {
+          console.log(`[AI-SUMMARIZE][bulk] ok messageId=${messageId}`)
+        }
         setBulkAiOutputs((prev) => {
           const existing = prev[messageId] ?? {}
           return {
@@ -1915,18 +2080,23 @@ export default function EmailInboxBulkView({
               ...existing,
               summary: data?.summary ?? (isError ? 'Summarize failed.' : ''),
               summaryError: isError,
+              summaryErrorMessage: isError
+                ? 'Couldn’t generate a summary. Check that Ollama is running, then Retry.'
+                : undefined,
               status: existing.status ?? 'classified',
               loading: undefined,
             },
           }
         })
-      } catch {
+      } catch (err) {
+        console.warn(`[AI-SUMMARIZE][bulk] fail messageId=${messageId} reason=exception`, err)
         setBulkAiOutputs((prev) => ({
           ...prev,
           [messageId]: {
             ...prev[messageId],
             summary: 'Summarize failed.',
             summaryError: true,
+            summaryErrorMessage: 'Summarize failed (unexpected error). Check the console and Retry.',
             loading: undefined,
           },
         }))
@@ -2222,13 +2392,16 @@ export default function EmailInboxBulkView({
         const isTimeout = fr === 'timeout'
         const isMoveFailed = fr === 'move_failed'
         const isParseFailed = fr === 'parse_failed'
+        const isIncomplete = fr === 'processing_incomplete'
         const failTitle = isTimeout
           ? 'Timed out'
           : isMoveFailed
             ? 'Could not move'
             : isParseFailed
               ? 'Could not parse AI result'
-              : 'Analysis failed'
+              : isIncomplete
+                ? 'Sort incomplete'
+                : 'Analysis failed'
         const failDetail =
           output.summary ||
           (isTimeout
@@ -2237,7 +2410,9 @@ export default function EmailInboxBulkView({
               ? 'The server could not apply the move. Retry or use the action buttons.'
               : isParseFailed
                 ? 'The classifier returned an unreadable response.'
-                : 'No usable result from AI for this message.')
+                : isIncomplete
+                  ? 'This message was targeted but did not finish in the last bulk run.'
+                  : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
             <div className="bulk-action-card-state-content bulk-action-card-failure-content">
@@ -2333,7 +2508,10 @@ export default function EmailInboxBulkView({
               {(output.summaryError || output.draftError) && (
                 <div className="bulk-action-card-error-banner">
                   {output.summaryError && (
-                    <span>Summarize failed. <button type="button" className="bulk-action-card-inline-retry" onClick={() => handleSummarize(msg.id)}>Retry</button></span>
+                    <span>
+                      {output.summaryErrorMessage ?? 'Summarize failed.'}{' '}
+                      <button type="button" className="bulk-action-card-inline-retry" onClick={() => handleSummarize(msg.id)}>Retry</button>
+                    </span>
                   )}
                   {output.draftError && (
                     <span>Draft failed. <button type="button" className="bulk-action-card-inline-retry" onClick={() => handleDraftReply(msg.id)}>Retry</button></span>
@@ -2602,6 +2780,12 @@ export default function EmailInboxBulkView({
     handlePendingDeleteOne,
   ])
 
+  const showBulkStatusDock =
+    Boolean(aiSortProgress) ||
+    Boolean(sendEmailToast) ||
+    Boolean(concurrentSortNotice) ||
+    Boolean(aiSortOutcomeSummary)
+
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
       {/* Toolbar — three groups: left (selection+sort), center (filter tabs), right (sync+tools) */}
@@ -2777,124 +2961,130 @@ export default function EmailInboxBulkView({
       {/* Content */}
       <div className="bulk-view-content">
         {error ? (
-          <div className="bulk-view-empty-state" style={{ color: '#ef4444' }}>
+          <div className="bulk-view-content-message bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}
           </div>
-        ) : loading && displayMessages.length === 0 ? (
-          <div className="bulk-view-empty-state">Loading…</div>
-        ) : !loading && messages.length === 0 ? (
-          <div className="bulk-view-empty-state">No messages in this batch.</div>
+        ) : loading && displayMessages.length === 0 && !bulkBackgroundRefresh ? (
+          <div className="bulk-view-content-message bulk-view-empty-state">Loading…</div>
+        ) : !loading && !bulkBackgroundRefresh && messages.length === 0 ? (
+          <div className="bulk-view-content-message bulk-view-empty-state">No messages in this batch.</div>
         ) : (
-          <>
-            {loading && displayMessages.length > 0 ? (
-              <div
-                className="bulk-view-refresh-strip"
-                role="progressbar"
-                aria-label="Refreshing inbox"
-                aria-busy="true"
-              />
-            ) : null}
-            {totalPages > 1 && (
-              <div className="bulk-view-pagination-bar">
-                <span style={{ fontSize: 11, color: MUTED }}>
-                  {total} message{total !== 1 ? 's' : ''}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
-                    disabled={!canPrev}
-                    title="Previous page"
-                    style={{
-                      padding: '4px 8px',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      background: '#f1f5f9',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 6,
-                      color: canPrev ? '#334155' : MUTED,
-                      cursor: canPrev ? 'pointer' : 'not-allowed',
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
+          <div className="bulk-view-content-body">
+            <div className="bulk-view-content-chrome">
+              {(bulkBackgroundRefresh || (loading && displayMessages.length > 0)) ? (
+                <div
+                  className="bulk-view-refresh-strip"
+                  role="progressbar"
+                  aria-label="Refreshing inbox"
+                  aria-busy="true"
+                />
+              ) : null}
+              {totalPages > 1 && (
+                <div className="bulk-view-pagination-bar">
                   <span style={{ fontSize: 11, color: MUTED }}>
-                    Page {bulkPage + 1} of {totalPages}
+                    {total} message{total !== 1 ? 's' : ''}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
-                    disabled={!canNext}
-                    title="Next page"
-                    style={{
-                      padding: '4px 8px',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      background: '#f1f5f9',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 6,
-                      color: canNext ? '#334155' : MUTED,
-                      cursor: canNext ? 'pointer' : 'not-allowed',
-                    }}
-                  >
-                    Next ›
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
+                      disabled={!canPrev}
+                      title="Previous page"
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: '#f1f5f9',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 6,
+                        color: canPrev ? '#334155' : MUTED,
+                        cursor: canPrev ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      ‹ Prev
+                    </button>
+                    <span style={{ fontSize: 11, color: MUTED }}>
+                      Page {bulkPage + 1} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
+                      disabled={!canNext}
+                      title="Next page"
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: '#f1f5f9',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 6,
+                        color: canNext ? '#334155' : MUTED,
+                        cursor: canNext ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      Next ›
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-            {aiSortProgress && (
-              <div style={{ padding: 8, textAlign: 'center', fontSize: 12, color: MUTED }}>
-                {aiSortProgress}
-              </div>
-            )}
-            {bulkCompactMode && (bulkBatchSize === 'all' || bulkBatchSize >= 24) && messages.length > 0 && (
-              <div className="bulk-view-compact-hint" role="status" title="Keyboard: j/k nav, a archive, d delete, g keep, Enter expand, Space primary">
-                Compact mode · {messages.length} messages · j/k nav, a archive, d delete
-              </div>
-            )}
-            {sendEmailToast && (
-              <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
-                <div
-                  className={sendEmailToast.type === 'success' ? 'bulk-view-toast-primary' : 'bulk-view-toast-primary'}
-                  style={{
-                    background: sendEmailToast.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-                    borderColor: sendEmailToast.type === 'success' ? '#22c55e' : '#ef4444',
-                  }}
-                >
-                  <span>{sendEmailToast.message}</span>
-                  <button type="button" onClick={() => setSendEmailToast(null)}>Dismiss</button>
+              )}
+              {showBulkStatusDock ? (
+                <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
+                  {aiSortProgress ? (
+                    <div className="bulk-view-sort-progress" role="status">
+                      <span className="bulk-view-sort-progress-text">{aiSortProgress}</span>
+                    </div>
+                  ) : null}
+                  {sendEmailToast ? (
+                    <div
+                      className="bulk-view-toast-primary"
+                      style={{
+                        background: sendEmailToast.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                        borderColor: sendEmailToast.type === 'success' ? '#22c55e' : '#ef4444',
+                      }}
+                      role="status"
+                    >
+                      <span>{sendEmailToast.message}</span>
+                      <button type="button" onClick={() => setSendEmailToast(null)}>Dismiss</button>
+                    </div>
+                  ) : null}
+                  {concurrentSortNotice ? (
+                    <div
+                      className="bulk-view-toast-primary"
+                      style={{ background: 'rgba(234,179,8,0.18)', borderColor: '#ca8a04' }}
+                      role="status"
+                    >
+                      <span>{concurrentSortNotice}</span>
+                      <button type="button" onClick={() => setConcurrentSortNotice(null)}>Dismiss</button>
+                    </div>
+                  ) : null}
+                  {aiSortOutcomeSummary ? (
+                    <div
+                      className="bulk-view-toast-primary"
+                      style={{
+                        background: 'rgba(124,58,237,0.12)',
+                        borderColor: 'rgba(124,58,237,0.45)',
+                      }}
+                      role="status"
+                    >
+                      <span>{aiSortOutcomeSummary}</span>
+                      <button type="button" onClick={() => setAiSortOutcomeSummary(null)}>Dismiss</button>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            )}
-            {concurrentSortNotice && (
-              <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
+              ) : null}
+              {bulkCompactMode && (bulkBatchSize === 'all' || bulkBatchSize >= 24) && messages.length > 0 ? (
                 <div
-                  className="bulk-view-toast-primary"
-                  style={{ background: 'rgba(234,179,8,0.18)', borderColor: '#ca8a04' }}
+                  className="bulk-view-compact-hint"
                   role="status"
+                  title="Keyboard: j/k nav, a archive, d delete, g keep, Enter expand, Space primary"
                 >
-                  <span>{concurrentSortNotice}</span>
-                  <button type="button" onClick={() => setConcurrentSortNotice(null)}>Dismiss</button>
+                  Compact mode · {messages.length} messages · j/k nav, a archive, d delete
                 </div>
-              </div>
-            )}
-            {aiSortOutcomeSummary && (
-              <div className="bulk-view-recent-actions" style={{ margin: '0 12px 12px' }}>
-                <div
-                  className="bulk-view-toast-primary"
-                  style={{
-                    background: 'rgba(124,58,237,0.12)',
-                    borderColor: 'rgba(124,58,237,0.45)',
-                  }}
-                  role="status"
-                >
-                  <span>{aiSortOutcomeSummary}</span>
-                  <button type="button" onClick={() => setAiSortOutcomeSummary(null)}>Dismiss</button>
-                </div>
-              </div>
-            )}
+              ) : null}
+            </div>
+            <div className="bulk-view-grid-scroll">
           <div
-            className={`bulk-view-grid ${aiSortPhase === 'analyzing' ? 'bulk-view-grid--analyzing' : ''}`}
+            className={`bulk-view-grid ${isSortingActive ? 'bulk-view-grid--analyzing' : ''}`}
             title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, Space primary action"
           >
             {displayMessages.map((msg) => {
@@ -3150,7 +3340,8 @@ export default function EmailInboxBulkView({
               )
             })}
           </div>
-          </>
+            </div>
+          </div>
         )}
       </div>
 

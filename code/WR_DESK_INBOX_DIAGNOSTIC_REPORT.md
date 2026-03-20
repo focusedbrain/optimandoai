@@ -342,9 +342,9 @@ All handlers are exposed: `aiSummarize`, `aiDraftReply`, `aiAnalyzeMessage`, `ai
 
 ### Section 2 — Bulk Auto-Sort
 
-- **Working:** `runAiCategorizeForIds` → `aiCategorize` → DB write → `setBulkAiOutputs` → 5s preview → `markPendingDelete` → 7-day → remote delete.
+- **Working:** `runAiCategorizeForIds` → `aiClassifySingle` (per message) → DB classify write → immediate `markPendingDeleteImmediate` / `moveToPendingReviewImmediate` / `archiveMessages` when eligible → `refreshMessages`. No 5s preview step. DB 7-day pending-delete / remote deletion unchanged in main process.
 - **Broken/Missing:** No timeout on `callInboxOllamaChat`; Ollama failures produce empty/invalid classifications.
-- **Files:** `EmailInboxBulkView.tsx`, `ipc.ts`, `useEmailInboxStore.ts`, `pendingDeletePreviewScheduler.ts`.
+- **Files:** `EmailInboxBulkView.tsx`, `ipc.ts` (`classifySingleMessage`), `useEmailInboxStore.ts`. (Legacy `pendingDeletePreviewScheduler.ts` — not present; bulk preview scheduler removed.)
 
 ### Section 3 — Badge Placement
 

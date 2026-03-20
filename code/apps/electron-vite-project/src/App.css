@@ -1663,7 +1663,7 @@ body {
 }
 
 .bulk-view--compact .bulk-view-row--removing {
-  animation: bulk-view-row-exit-compact 0.2s ease-in forwards;
+  animation: bulk-view-row-exit-compact 0.12s ease-out forwards;
 }
 
 .bulk-view--compact .bulk-view-row--expanded.bulk-view-row--removing {
@@ -1678,10 +1678,10 @@ body {
   }
   to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     max-height: 0;
-    margin-top: -8px;
-    margin-bottom: -8px;
+    margin-top: -4px;
+    margin-bottom: -4px;
     padding: 0;
     border-width: 0;
   }
@@ -1695,10 +1695,10 @@ body {
   }
   to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     max-height: 0;
-    margin-top: -8px;
-    margin-bottom: -8px;
+    margin-top: -4px;
+    margin-bottom: -4px;
     padding: 0;
     border-width: 0;
   }
@@ -1777,6 +1777,25 @@ body {
   line-height: 1.3;
 }
 
+.bulk-view--compact .bulk-action-card-main-summary {
+  padding: 6px 8px;
+  gap: 4px;
+}
+
+.bulk-view--compact .bulk-action-card-main-summary-title {
+  font-size: 8px;
+}
+
+.bulk-view--compact .bulk-action-card-main-summary-body {
+  font-size: 10px;
+  max-height: min(20vh, 140px);
+}
+
+.bulk-view--compact .bulk-action-card-main-summary-loading,
+.bulk-view--compact .bulk-action-card-main-summary-error {
+  font-size: 10px;
+}
+
 .bulk-view--compact .bulk-action-card-badge {
   font-size: 8px;
   padding: 1px 4px;
@@ -1787,8 +1806,7 @@ body {
   font-size: 8px;
 }
 
-.bulk-view--compact .bulk-action-card-btn--primary,
-.bulk-view--compact .bulk-action-card-btn--danger {
+.bulk-view--compact .bulk-action-card-btn--primary {
   padding: 3px 8px;
   font-size: 9px;
 }
@@ -1864,6 +1882,26 @@ body {
   gap: 4px;
 }
 
+/* Compact + expanded row: same min-height/padding for every variant in the action strip */
+.bulk-view--compact .bulk-view-row--expanded .bulk-action-card-buttons .bulk-action-card-btn,
+.bulk-view--compact .bulk-view-row--expanded .bulk-draft-actions-toolbar .bulk-action-card-btn,
+.bulk-view--compact .bulk-view-row--expanded .bulk-action-card-actions-row .bulk-action-card-btn {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  line-height: 1.2;
+}
+
+.bulk-view--compact .bulk-view-row--expanded .bulk-action-card-buttons .bulk-action-card-btn--primary,
+.bulk-view--compact .bulk-view-row--expanded .bulk-draft-actions-toolbar .bulk-action-card-btn--primary,
+.bulk-view--compact .bulk-view-row--expanded .bulk-action-card-actions-row .bulk-action-card-btn--primary {
+  padding: 0 10px;
+}
+
 .bulk-view--compact .bulk-action-card-btn--compact {
   padding: 3px 8px;
   font-size: 9px;
@@ -1894,12 +1932,10 @@ body {
   pointer-events: none;
 }
 
-/* Recent undoable actions — compact stack for power-user recovery */
-.bulk-view-recent-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
+/* Inside status dock: toasts stack without extra outer margin */
+.bulk-view-status-dock .bulk-view-toast-primary {
+  width: 100%;
+  box-sizing: border-box;
 }
 .bulk-view-toast-primary {
   padding: 10px 14px;
@@ -1914,10 +1950,6 @@ body {
   font-weight: 600;
   color: #1e293b;
 }
-/* FIX-ISSUE-1: Status-only toast (no Undo button) */
-.bulk-view-toast-status-only {
-  justify-content: flex-start;
-}
 .bulk-view-toast-primary button {
   padding: 6px 14px;
   font-size: 12px;
@@ -1929,37 +1961,6 @@ body {
   cursor: pointer;
 }
 .bulk-view-toast-primary button:hover {
-  background: #15803d;
-  border-color: #15803d;
-}
-.bulk-view-recent-stack {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.bulk-view-recent-item {
-  padding: 6px 10px;
-  background: #fef2f2;
-  border: 2px solid #fecaca;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #1e293b;
-}
-.bulk-view-recent-item button {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  background: #16a34a;
-  border: 2px solid #16a34a;
-  border-radius: 4px;
-  color: #fff;
-  cursor: pointer;
-}
-.bulk-view-recent-item button:hover {
   background: #15803d;
   border-color: #15803d;
 }
@@ -2129,37 +2130,6 @@ body {
   outline: 2px solid rgba(147, 51, 234, 0.5);
 }
 
-/* Session cleanup progress — compact, professional */
-.bulk-view-session-progress {
-  display: flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.bulk-view-session-count {
-  white-space: nowrap;
-}
-
-.bulk-view-session-archived {
-  color: #2563eb;
-}
-
-.bulk-view-session-pending {
-  color: #dc2626;
-}
-
-.bulk-view-session-remaining {
-  color: #64748b;
-  font-weight: 500;
-}
-
-.bulk-view-session-sep {
-  color: #94a3b8;
-  margin: 0 4px;
-}
-
 /* Collapsible provider section — minimal when collapsed */
 .bulk-view-provider-section {
   flex-shrink: 0;
@@ -2194,8 +2164,75 @@ body {
 
 .bulk-view-content {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 24px 28px;
+}
+
+/* Single-pane states (error / loading / empty) — scroll inside message area */
+.bulk-view-content-message {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Message list: chrome (pagination + sort status) stays above; grid scrolls independently */
+.bulk-view-content-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 0;
+}
+
+.bulk-view-content-chrome {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Transient Auto-Sort / send / notices — solid surface so rows never show through */
+.bulk-view-status-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.bulk-view-sort-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: 6px;
+}
+
+.bulk-view-sort-progress-text {
+  text-align: center;
+  line-height: 1.35;
+}
+
+.bulk-view-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  padding-top: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Background refresh (e.g. after AI Auto-Sort): thin strip, fixed height — does not collapse the grid */
@@ -2240,7 +2277,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   padding-bottom: 8px;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -2250,10 +2287,10 @@ body {
   flex-direction: column;
   gap: 24px;
   min-height: 0;
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.15s ease;
 }
 
-/* AI Auto-Sort: analyzing state — subtle border, no decorative loop */
+/* AI Auto-Sort: analyzing state — subtle outline only (no row stagger / reorder-enter in this build) */
 .bulk-view-grid--analyzing {
   position: relative;
   box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.2);
@@ -2261,7 +2298,7 @@ body {
 
 /* Exit: archive / pending delete — subtle fade, slide, collapse */
 .bulk-view-row--removing {
-  animation: bulk-view-row-exit 0.2s ease-in forwards;
+  animation: bulk-view-row-exit 0.12s ease-out forwards;
   overflow: hidden;
   pointer-events: none;
 }
@@ -2274,10 +2311,30 @@ body {
   }
   to {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-3px);
     max-height: 0;
-    margin-top: -24px;
-    margin-bottom: -24px;
+    margin-top: -10px;
+    margin-bottom: -10px;
+    padding: 0;
+    border-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulk-view-row--removing {
+    animation: bulk-view-row-exit-reduced 0.1s ease-out forwards;
+  }
+}
+
+@keyframes bulk-view-row-exit-reduced {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
     padding: 0;
     border-width: 0;
   }
@@ -2324,7 +2381,7 @@ body {
 
 /* Expanded rows: use larger from-height for smoother exit collapse */
 .bulk-view-row--expanded.bulk-view-row--removing {
-  animation: bulk-view-row-exit-expanded 0.2s ease-in forwards;
+  animation: bulk-view-row-exit-expanded 0.12s ease-out forwards;
 }
 
 @keyframes bulk-view-row-exit-expanded {
@@ -2335,10 +2392,10 @@ body {
   }
   to {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-3px);
     max-height: 0;
-    margin-top: -24px;
-    margin-bottom: -24px;
+    margin-top: -10px;
+    margin-bottom: -10px;
     padding: 0;
     border-width: 0;
   }
@@ -3200,6 +3257,93 @@ body {
   background: #fee2e2;
 }
 
+/* Main structured card: visible summary (not only in Analysis popover) */
+.bulk-action-card-main-summary {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.bulk-action-card-main-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bulk-action-card-main-summary-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.bulk-action-card-main-summary-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: min(28vh, 220px);
+  overflow-y: auto;
+}
+
+.bulk-action-card-main-summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.bulk-action-card-main-summary-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e9d5ff;
+  border-top-color: #7c3aed;
+  border-radius: 50%;
+  animation: bulk-main-summary-spin 0.7s linear infinite;
+}
+
+@keyframes bulk-main-summary-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bulk-action-card-main-summary-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.bulk-action-card-main-summary-retry {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fff;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.bulk-action-card-main-summary-retry:hover {
+  background: #fef2f2;
+}
+
 .bulk-action-card--failure {
   border-left: 3px solid #b91c1c;
   background: #fef2f2;
@@ -3657,6 +3801,25 @@ body {
   flex-shrink: 0;
 }
 
+/* Expanded bulk row: shared button height + alignment (failure / fallback / structured — all under .bulk-view-row--expanded) */
+.bulk-view-row--expanded .bulk-action-card-buttons,
+.bulk-view-row--expanded .bulk-draft-actions-toolbar,
+.bulk-view-row--expanded .bulk-action-card-actions-row,
+.bulk-view-row--expanded .bulk-action-card-actions-row--secondary {
+  align-items: center;
+}
+
+.bulk-view-row--expanded .bulk-action-card-buttons .bulk-action-card-btn,
+.bulk-view-row--expanded .bulk-draft-actions-toolbar .bulk-action-card-btn,
+.bulk-view-row--expanded .bulk-action-card-actions-row .bulk-action-card-btn {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  line-height: 1.2;
+}
+
 .bulk-action-card-btn {
   padding: 5px 12px;
   font-size: 11px;
@@ -3690,23 +3853,9 @@ body {
   color: #1e293b;
 }
 
-.bulk-action-card-btn--danger {
-  background: #dc2626;
-  color: #fff;
-  border-color: #dc2626;
-}
-
-.bulk-action-card-btn--danger:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
-}
-
 .bulk-action-card-btn--primary-emphasis {
   padding: 5px 12px;
   font-size: 11px;
-}
-.bulk-action-card-btn--danger.bulk-action-card-btn--primary-emphasis {
-  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2);
 }
 .bulk-action-card-btn--primary.bulk-action-card-btn--primary-emphasis {
   box-shadow: 0 1px 2px rgba(124, 58, 237, 0.25);

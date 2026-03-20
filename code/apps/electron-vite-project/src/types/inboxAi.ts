@@ -122,7 +122,13 @@ export type AutosortRetainKind =
   | 'classified_no_auto_move'
 
 /** When autosortFailure — includes move/parse paths, not only LLM. */
-export type AutosortFailureReason = 'timeout' | 'llm_error' | 'move_failed' | 'parse_failed'
+export type AutosortFailureReason =
+  | 'timeout'
+  | 'llm_error'
+  | 'move_failed'
+  | 'parse_failed'
+  /** Targeted in a run but never reached a terminal outcome (e.g. dropped between passes). */
+  | 'processing_incomplete'
 
 /** Per-message entry: full or partial result + optional loading state. */
 export type BulkAiResultEntry = Partial<BulkAiResult> & {
@@ -130,6 +136,8 @@ export type BulkAiResultEntry = Partial<BulkAiResult> & {
   loading?: string
   /** True when summarize API failed — show error + Retry */
   summaryError?: boolean
+  /** Optional user-visible line (e.g. missing bridge vs model error); default copy used when absent */
+  summaryErrorMessage?: string
   /** True when draft API failed — show error + Retry */
   draftError?: boolean
   /** True when Bulk AI Auto-Sort failed for this message — explicit failure, not empty */

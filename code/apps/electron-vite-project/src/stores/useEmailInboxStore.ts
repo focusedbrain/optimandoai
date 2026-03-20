@@ -95,6 +95,8 @@ interface EmailInboxState {
   messages: InboxMessage[]
   total: number
   loading: boolean
+  /** Bulk-only: true during fetchAllMessages({ soft }) — keep grid mounted, show thin refresh strip. */
+  bulkBackgroundRefresh: boolean
   error: string | null
   selectedMessageId: string | null
   selectedMessage: InboxMessage | null
@@ -106,9 +108,6 @@ interface EmailInboxState {
   bulkBatchSize: number | 'all'
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
-  /** Session counters: reset when bulk mode exits. */
-  bulkSessionArchived: number
-  bulkSessionPendingDelete: number
   autoSyncEnabled: boolean
   syncing: boolean
   lastSyncAt: string | null
@@ -133,7 +132,7 @@ interface EmailInboxState {
 
   fetchMessages: () => Promise<void>
   /** Load inbox rows for all WR Desk bulk tabs (all / pending_delete / pending_review / archived) with paginated drain — no row cap. */
-  fetchAllMessages: () => Promise<void>
+  fetchAllMessages: (options?: { soft?: boolean }) => Promise<void>
   /** All IDs matching the active filter (paginated drain). Same semantics as inbox tabs; ignores batch/page UI. */
   fetchMatchingIdsForCurrentFilter: () => Promise<string[]>
   /** Set multiSelectIds to every ID matching the current filter (for toolbar “select all” in batch mode “All”). */
@@ -152,8 +151,6 @@ interface EmailInboxState {
   syncBulkBatchSizeFromSettings: () => Promise<void>
   setBulkAiOutputs: (updater: (prev: AiOutputs) => AiOutputs) => void
   clearBulkAiOutputsForIds: (ids: string[]) => void
-  /** Decrement session pending-delete count when Undo restores messages. */
-  decrementBulkSessionPendingDelete: (count: number) => void
   /** Fully reset pending-delete state for ids after Undo. Clears AI output flags and local row state. */
   clearPendingDeleteStateForIds: (ids: string[]) => void
   markRead: (ids: string[], read: boolean) => Promise<void>
@@ -187,7 +184,10 @@ function getBridge() {
   return typeof window !== 'undefined' ? window.emailInbox : undefined
 }
 
-/** Page size for draining inbox list APIs (no hard cap on total rows). */
+/**
+ * Chunk size for paginated inbox list / listMessageIds drains.
+ * Loops until a short page is returned — total row count is not capped at this value.
+ */
 const INBOX_LIST_PAGE_SIZE = 500
 
 function listBridgeOptionsFromFilter(filter: InboxFilter): {
@@ -211,20 +211,48 @@ const DEFAULT_FILTER: InboxFilter = {
   sourceType: 'all',
 }
 
-/** Filter messages by inbox filter. Used for single-source-of-truth display. */
-function filterByInboxFilter(
-  messages: InboxMessage[],
-  filterKey: InboxFilter['filter']
-): InboxMessage[] {
+/**
+ * Client-side filter — must stay aligned with `buildInboxMessagesWhereClause` in electron `ipc.ts`
+ * (same tab + sourceType / handshakeId / category / search semantics).
+ */
+function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter): InboxMessage[] {
+  const fk = inboxFilter.filter
+  const q = inboxFilter.search?.trim()
+  const qLower = q ? q.toLowerCase() : null
+
   return messages.filter((m) => {
-    if (m.deleted === 1) return false
-    if (filterKey === 'archived') return m.archived === 1
-    if (filterKey === 'pending_delete') return m.pending_delete === 1
-    if (filterKey === 'pending_review') return m.sort_category === 'pending_review'
-    /* all: main inbox — exclude archived, pending_delete, pending_review */
-    if (m.archived === 1) return false
-    if (m.pending_delete === 1) return false
-    if (m.sort_category === 'pending_review') return false
+    if (inboxFilter.sourceType !== 'all' && m.source_type !== inboxFilter.sourceType) return false
+    if (inboxFilter.handshakeId && m.handshake_id !== inboxFilter.handshakeId) return false
+    if (inboxFilter.category && m.sort_category !== inboxFilter.category) return false
+
+    if (fk === 'deleted') {
+      if (m.deleted !== 1) return false
+    } else if (fk === 'pending_delete') {
+      if (m.deleted === 1 || m.pending_delete !== 1) return false
+    } else if (fk === 'pending_review') {
+      if (m.deleted === 1 || m.archived === 1 || m.sort_category !== 'pending_review') return false
+    } else if (fk === 'unread') {
+      if (m.deleted === 1 || m.archived === 1 || m.read_status !== 0) return false
+      if (m.pending_delete === 1) return false
+      if (m.sort_category === 'pending_review') return false
+    } else if (fk === 'starred') {
+      if (m.deleted === 1 || m.archived === 1 || m.starred !== 1) return false
+      if (m.pending_delete === 1) return false
+      if (m.sort_category === 'pending_review') return false
+    } else if (fk === 'archived') {
+      if (m.archived !== 1 || m.deleted === 1) return false
+    } else {
+      /* all — main inbox */
+      if (m.deleted === 1) return false
+      if (m.archived === 1) return false
+      if (m.pending_delete === 1) return false
+      if (m.sort_category === 'pending_review') return false
+    }
+
+    if (qLower) {
+      const hay = `${m.subject ?? ''}\n${m.body_text ?? ''}\n${m.from_address ?? ''}\n${m.from_name ?? ''}`.toLowerCase()
+      if (!hay.includes(qLower)) return false
+    }
     return true
   })
 }
@@ -232,11 +260,11 @@ function filterByInboxFilter(
 /** Derive messages and total from allMessages + filter + pagination. */
 function deriveDisplayFromAll(
   allMessages: InboxMessage[],
-  filterKey: InboxFilter['filter'],
+  inboxFilter: InboxFilter,
   bulkPage: number,
   bulkBatchSize: number | 'all'
 ): { messages: InboxMessage[]; total: number } {
-  const filtered = filterByInboxFilter(allMessages, filterKey)
+  const filtered = filterByInboxFilter(allMessages, inboxFilter)
   const total = filtered.length
   const limit = bulkBatchSize === 'all' ? filtered.length : bulkBatchSize
   const offset = bulkBatchSize === 'all' ? 0 : bulkPage * limit
@@ -244,12 +272,17 @@ function deriveDisplayFromAll(
   return { messages, total }
 }
 
-/** Derive tab counts from allMessages for filter tab labels. */
-export function deriveTabCounts(allMessages: InboxMessage[]): Record<string, number> {
-  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
+/** Derive tab counts for bulk toolbar labels (same list scope as `inboxFilter`). */
+export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFilter): Record<string, number> {
+  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = [
+    'all',
+    'pending_delete',
+    'pending_review',
+    'archived',
+  ]
   const out: Record<string, number> = {}
   for (const f of filters) {
-    out[f] = filterByInboxFilter(allMessages, f).length
+    out[f] = filterByInboxFilter(allMessages, { ...baseFilter, filter: f }).length
   }
   return out
 }
@@ -264,6 +297,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   messages: [],
   total: 0,
   loading: false,
+  bulkBackgroundRefresh: false,
   error: null,
   selectedMessageId: null,
   selectedMessage: null,
@@ -273,8 +307,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   bulkMode: false,
   bulkPage: 0,
   bulkAiOutputs: {},
-  bulkSessionArchived: 0,
-  bulkSessionPendingDelete: 0,
   bulkCompactMode: (() => {
     try {
       return localStorage?.getItem('wrdesk_bulkCompactMode') === '1'
@@ -362,7 +394,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     try {
       const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
       if (bulkMode && bulkBatchSize === 'all') {
-        await get().fetchAllMessages()
+        await get().fetchAllMessages({ soft: true })
         return
       }
       const options: Parameters<typeof bridge.listMessages>[0] = {
@@ -402,21 +434,28 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
-  fetchAllMessages: async () => {
+  fetchAllMessages: async (options?: { soft?: boolean }) => {
+    const soft = options?.soft === true
     const bridge = getBridge()
     if (!bridge?.listMessages) {
       set({ error: 'Email inbox bridge not available' })
       return
     }
-    set({ loading: true, error: null })
+    if (soft) {
+      set({ bulkBackgroundRefresh: true, error: null })
+    } else {
+      set({ loading: true, error: null })
+    }
     const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = ['all', 'pending_delete', 'pending_review', 'archived']
     try {
+      const snapshot = get().filter
       const byId = new Map<string, InboxMessage>()
       for (const f of filters) {
+        const listOpts = listBridgeOptionsFromFilter({ ...snapshot, filter: f })
         let offset = 0
         for (;;) {
           const res = await bridge.listMessages({
-            filter: f,
+            ...listOpts,
             limit: INBOX_LIST_PAGE_SIZE,
             offset,
           })
@@ -429,14 +468,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       }
       const allMessages = Array.from(byId.values())
       const { filter, bulkPage, bulkBatchSize } = get()
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, bulkPage, bulkBatchSize)
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter, bulkPage, bulkBatchSize)
       const currentIds = new Set(allMessages.map((m) => m.id))
       set((state) => ({
         allMessages,
-        tabCounts: deriveTabCounts(allMessages),
+        tabCounts: deriveTabCounts(allMessages, filter),
         messages,
         total,
         loading: false,
+        bulkBackgroundRefresh: false,
         error: null,
         analysisCache: Object.fromEntries(
           Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
@@ -445,6 +485,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     } catch (err: unknown) {
       set({
         loading: false,
+        bulkBackgroundRefresh: false,
         error: err instanceof Error ? err.message : 'Failed to fetch messages',
       })
     }
@@ -473,14 +514,19 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   selectAllMatchingCurrentFilter: async () => {
+    const { bulkMode, bulkBatchSize } = get()
+    /** “All” batch: refresh union cache first so tab totals / selection match a full paginated drain. */
+    if (bulkMode && bulkBatchSize === 'all') {
+      await get().fetchAllMessages({ soft: true })
+    }
     const ids = await get().fetchMatchingIdsForCurrentFilter()
-    set({ multiSelectIds: new Set(ids) })
+    set({ multiSelectIds: new Set([...new Set(ids)]) })
   },
 
   refreshMessages: async () => {
     const { bulkMode, messages } = get()
     console.log('[SORT] refreshMessages called. Current message count:', messages.length)
-    if (bulkMode) await get().fetchAllMessages()
+    if (bulkMode) await get().fetchAllMessages({ soft: true })
     else await get().fetchMessages()
   },
 
@@ -507,8 +553,13 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             const nextAll = state.allMessages.map((m) =>
               m.id === id ? { ...m, read_status: 1 } : m
             )
-            const { messages, total } = deriveDisplayFromAll(nextAll, state.filter.filter, state.bulkPage, state.bulkBatchSize)
-            return { allMessages: nextAll, tabCounts: state.tabCounts, messages, total }
+            const { messages, total } = deriveDisplayFromAll(nextAll, state.filter, state.bulkPage, state.bulkBatchSize)
+            return {
+              allMessages: nextAll,
+              tabCounts: deriveTabCounts(nextAll, state.filter),
+              messages,
+              total,
+            }
           }
           const next = [...state.messages]
           next[idx] = { ...next[idx], read_status: 1 }
@@ -544,22 +595,39 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setFilter: (partial) => {
+    const prev = get().filter
+    const newFilter = { ...prev, ...partial }
+    const listScopeChanged =
+      (partial.search !== undefined && partial.search !== prev.search) ||
+      (partial.sourceType !== undefined && partial.sourceType !== prev.sourceType) ||
+      (partial.handshakeId !== undefined && partial.handshakeId !== prev.handshakeId) ||
+      (partial.category !== undefined && partial.category !== prev.category)
+
     set((state) => {
-      const newFilter = { ...state.filter, ...partial }
-      if (state.bulkMode && state.allMessages.length > 0) {
+      if (state.bulkMode && state.allMessages.length > 0 && !listScopeChanged) {
         const { messages, total } = deriveDisplayFromAll(
           state.allMessages,
-          newFilter.filter,
+          newFilter,
           state.bulkPage,
           state.bulkBatchSize
         )
-        return { filter: newFilter, messages, total }
+        return {
+          filter: newFilter,
+          messages,
+          total,
+          tabCounts: deriveTabCounts(state.allMessages, newFilter),
+        }
       }
       return { filter: newFilter }
     })
-    const { bulkMode, allMessages, filter } = get()
-    if (!bulkMode || allMessages.length === 0) {
+
+    const s = get()
+    if (!s.bulkMode) {
       get().fetchMessages()
+      return
+    }
+    if (s.allMessages.length === 0 || listScopeChanged) {
+      void get().fetchAllMessages({ soft: true })
     }
   },
 
@@ -567,7 +635,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     set({
       bulkMode: enabled,
       bulkPage: 0,
-      ...(enabled ? {} : { bulkSessionArchived: 0, bulkSessionPendingDelete: 0 }),
     })
     if (!enabled) get().fetchMessages()
   },
@@ -575,7 +642,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   setBulkPage: (page) => {
     const { bulkMode, allMessages, filter, bulkBatchSize } = get()
     if (bulkMode && allMessages.length > 0) {
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, page, bulkBatchSize)
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter, page, bulkBatchSize)
       set({ bulkPage: page, messages, total })
     } else {
       set({ bulkPage: page })
@@ -602,7 +669,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       return
     }
     if (bulkMode && allMessages.length > 0) {
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter.filter, 0, size)
+      const { messages, total } = deriveDisplayFromAll(allMessages, filter, 0, size)
       set({ bulkBatchSize: size, bulkPage: 0, messages, total })
     } else {
       set({ bulkBatchSize: size, bulkPage: 0 })
@@ -637,10 +704,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     })
   },
 
-  decrementBulkSessionPendingDelete: (count) => {
-    set((s) => ({ bulkSessionPendingDelete: Math.max(0, s.bulkSessionPendingDelete - count) }))
-  },
-
   clearPendingDeleteStateForIds: (ids) => {
     if (ids.length === 0) return
     const idSet = new Set(ids)
@@ -656,7 +719,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           : m
       const nextAll = state.allMessages.map(resetMsg)
       const { messages, total } = state.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, state.filter.filter, state.bulkPage, state.bulkBatchSize)
+        ? deriveDisplayFromAll(nextAll, state.filter, state.bulkPage, state.bulkBatchSize)
         : { messages: state.messages.map(resetMsg), total: state.total }
       const nextSelected =
         state.selectedMessage && idSet.has(state.selectedMessage.id)
@@ -664,7 +727,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           : state.selectedMessage
       return {
         allMessages: nextAll,
-        tabCounts: state.bulkMode ? deriveTabCounts(nextAll) : state.tabCounts,
+        tabCounts: state.bulkMode ? deriveTabCounts(nextAll, state.filter) : state.tabCounts,
         bulkAiOutputs: nextOutputs,
         messages,
         total,
@@ -743,17 +806,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         idSet.has(m.id) ? { ...m, archived: 1 } : m
       )
       const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
         : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
       return {
         allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
         messages,
         total,
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
         selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        bulkSessionArchived: s.bulkSessionArchived + ids.length,
       }
     })
     return true
@@ -772,12 +834,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           idSet.has(m.id) ? { ...m, deleted: 1, deleted_at: now, purge_after: null } : m
         const nextAll = s.allMessages.map(updatedMsg)
         const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+          ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
           : { messages: s.messages.map(updatedMsg), total: s.total }
         const selectedWasDeleted = s.selectedMessage && ids.includes(s.selectedMessage.id)
         return {
           allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+          tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
           messages,
           total,
           multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
@@ -801,17 +863,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
       )
       const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
         : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
       return {
         allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
         messages,
         total,
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
         selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        bulkSessionPendingDelete: s.bulkSessionPendingDelete + ids.length,
       }
     })
     return true
@@ -829,11 +890,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m
       )
       const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter.filter, s.bulkPage, s.bulkBatchSize)
+        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
         : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
       return {
         allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll) : s.tabCounts,
+        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
         messages,
         total,
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),

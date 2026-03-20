@@ -55,6 +55,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [analysis, setAnalysis] = useState<NormalInboxAiResult | null>(null)
   const [receivedFields, setReceivedFields] = useState<Set<NormalInboxAiResultKey>>(new Set())
   const [analysisLoading, setAnalysisLoading] = useState(false)
+  /** Manual Summarize (IPC) — separate from auto-analysis stream so the button stays usable while streaming. */
+  const [summarizeLoading, setSummarizeLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
   const [draftLoading, setDraftLoading] = useState(false)
@@ -67,6 +69,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
   const streamCleanupRef = useRef<(() => void) | null>(null)
+  /**
+   * When the user runs manual Summarize while the analysis stream is still running (or before it finishes),
+   * stream chunks / completion must not overwrite that summary. Cleared on message change and when a fresh stream starts (e.g. Retry).
+   */
+  const manualSummaryOverrideRef = useRef<{ messageId: string; summary: string } | null>(null)
 
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
@@ -108,6 +115,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       return
     }
     streamCleanupRef.current?.()
+    manualSummaryOverrideRef.current = null
     setAnalysisLoading(true)
     setAnalysis(null)
     setAnalysisError(null)
@@ -136,7 +144,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       accumulatedText += chunk
       const parsed = tryParsePartialAnalysis(accumulatedText)
       if (parsed) {
-        setAnalysis((prev) => ({ ...DEFAULTS, ...(prev ?? {}), ...parsed.partial } as NormalInboxAiResult))
+        setAnalysis((prev) => {
+          const merged = { ...DEFAULTS, ...(prev ?? {}), ...parsed.partial } as NormalInboxAiResult
+          const ov = manualSummaryOverrideRef.current
+          if (ov && ov.messageId === messageId && ov.summary.trim()) {
+            merged.summary = ov.summary
+          }
+          return merged
+        })
         setReceivedFields((prev) => new Set([...prev, ...parsed.receivedKeys]))
         if (parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
           setDraft(parsed.partial.draftReply)
@@ -159,11 +174,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           },
           { subject: message?.subject, body: message?.body_text }
         )
-        const adjusted = {
+        let adjusted = {
           ...final,
           urgencyScore: tri.urgencyScore,
           needsReply: tri.needsReply,
           draftReply: tri.needsReply ? final.draftReply : null,
+        }
+        const ov = manualSummaryOverrideRef.current
+        if (ov && ov.messageId === messageId && ov.summary.trim()) {
+          adjusted = { ...adjusted, summary: ov.summary }
         }
         setAnalysis(adjusted)
         setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
@@ -203,8 +222,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   useEffect(() => {
     if (!messageId) return
+    manualSummaryOverrideRef.current = null
     setAnalysis(null)
     setReceivedFields(new Set())
+    setSummarizeLoading(false)
     setDraft(null)
     setEditedDraft('')
     setActionChecked({})
@@ -264,33 +285,61 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [draftRefineConnected, draftRefineMessageId, messageId, editedDraft, draft])
 
   const handleSummarize = useCallback(async () => {
-    if (!window.emailInbox?.aiSummarize) return
-    setAnalysisLoading(true)
+    if (!window.emailInbox?.aiSummarize) {
+      console.warn(`[AI-SUMMARIZE][detail] missing bridge messageId=${messageId}`)
+      setAnalysisError(
+        'Summarize unavailable: email AI API is not connected (reload the app or check the preload bridge).'
+      )
+      return
+    }
+    console.log(`[AI-SUMMARIZE][detail] start messageId=${messageId}`)
+    setSummarizeLoading(true)
     setAnalysisError(null)
     try {
       const res = await window.emailInbox.aiSummarize(messageId)
       const data = res.data as { summary?: string; error?: boolean } | undefined
       const isError = !res.ok || !data?.summary || !!data.error
+      const failReason = !res.ok
+        ? 'http_not_ok'
+        : !data?.summary
+          ? 'empty_summary'
+          : data.error
+            ? 'api_error_flag'
+            : 'ok'
       if (isError) {
-        setAnalysisError('Summarize failed. Check that Ollama is running.')
-      } else {
-        setAnalysis((prev) =>
-          prev ? { ...prev, summary: data!.summary! } : {
-            needsReply: false,
-            needsReplyReason: '',
-            summary: data!.summary!,
-            urgencyScore: 5,
-            urgencyReason: '',
-            actionItems: [],
-            archiveRecommendation: 'keep',
-            archiveReason: '',
-          }
+        console.warn(`[AI-SUMMARIZE][detail] fail messageId=${messageId} reason=${failReason}`)
+        setAnalysisError(
+          'Couldn’t generate a summary. Check that Ollama is running, then try Summarize again.'
         )
+      } else {
+        console.log(`[AI-SUMMARIZE][detail] ok messageId=${messageId}`)
+        const summaryText = data!.summary!
+        manualSummaryOverrideRef.current = { messageId, summary: summaryText }
+        setAnalysis((prev) => {
+          const next = prev
+            ? { ...prev, summary: summaryText }
+            : {
+                needsReply: false,
+                needsReplyReason: '',
+                summary: summaryText,
+                urgencyScore: 5,
+                urgencyReason: '',
+                actionItems: [],
+                archiveRecommendation: 'keep',
+                archiveReason: '',
+              }
+          useEmailInboxStore.getState().setAnalysisCache(messageId, next)
+          return next
+        })
+        setReceivedFields((prev) => new Set([...prev, 'summary' as NormalInboxAiResultKey]))
       }
-    } catch {
-      setAnalysisError('Summarize failed. Check that Ollama is running.')
+    } catch (err) {
+      console.warn(`[AI-SUMMARIZE][detail] fail messageId=${messageId} reason=exception`, err)
+      setAnalysisError(
+        'Summarize failed (unexpected error). Check the developer console and try again.'
+      )
     } finally {
-      setAnalysisLoading(false)
+      setSummarizeLoading(false)
     }
     summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messageId])
@@ -387,8 +436,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         AI suggestions — you decide what to do
       </div>
       <div className="inbox-detail-ai-actions">
-        <button type="button" onClick={handleSummarize} disabled={analysisLoading || draftLoading}>
-          {analysisLoading && !analysis ? 'Analyzing…' : 'Summarize'}
+        <button type="button" onClick={handleSummarize} disabled={summarizeLoading || draftLoading}>
+          {summarizeLoading ? 'Summarizing…' : 'Summarize'}
         </button>
         <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
           {draftLoading ? 'Generating…' : draft ? 'Regenerate' : 'Draft Reply'}
@@ -442,7 +491,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             <div className="inbox-detail-ai-row" ref={summaryRef}>
               <span className="inbox-detail-ai-row-label">Summary</span>
               <div className="inbox-detail-ai-row-value">
-                {analysisLoading && !receivedFields.has('summary') ? (
+                {summarizeLoading ? (
+                  <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} aria-busy="true" />
+                ) : analysisLoading && !receivedFields.has('summary') ? (
                   <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
                 ) : analysis?.summary ? (
                   <span className="inbox-detail-ai-text">{analysis.summary}</span>
