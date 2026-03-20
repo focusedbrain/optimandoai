@@ -288,6 +288,12 @@ async function syncAccountEmailsImpl(
         if (routeResult.type === 'beap') beapCount++
         else plainCount++
 
+        if (newCount > 0 && newCount % 50 === 0) {
+          console.log(
+            `[SyncOrchestrator] Progress: ${newCount} ingested, ${skippedDuplicate} dupes, ${result.errors.length} errors, ${messages.length} listed`,
+          )
+        }
+
         if ((msg as any).uid) lastUidSeen = String((msg as any).uid)
       } catch (err: any) {
         result.errors.push(`${msg.id}: ${err?.message ?? 'Unknown error'}`)

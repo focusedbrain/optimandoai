@@ -8,6 +8,7 @@
  */
 
 import { app, shell } from 'electron'
+import type { IncomingHttpHeaders } from 'http'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -295,9 +296,20 @@ export class OutlookProvider extends BaseEmailProvider {
       if (!page.length && !nextLink) break
     }
 
-    const CONCURRENCY = 10
+    const nextAfterList = response['@odata.nextLink']
+    if (!nextAfterList && page.length === LIST_TOP && ids.length < maxIds) {
+      console.warn(
+        `[Outlook] List ended on a full ${LIST_TOP}-id page with no @odata.nextLink (${ids.length} id(s)). ` +
+          `If the folder has more mail, this may be Graph throttling or a query edge case — check logs for 429/401.`,
+      )
+    }
+
+    /** Lower concurrency + small gaps reduce delegated-token throttling (was yielding ~100 successes then nulls). */
+    const CONCURRENCY = 4
+    const INTER_BATCH_MS = 200
     const out: RawEmailMessage[] = []
     for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      if (i > 0) await new Promise((r) => setTimeout(r, INTER_BATCH_MS))
       const chunk = ids.slice(i, i + CONCURRENCY)
       const settled = await Promise.allSettled(chunk.map((id) => this.fetchMessage(id, folderId)))
       for (let j = 0; j < settled.length; j++) {
@@ -308,8 +320,18 @@ export class OutlookProvider extends BaseEmailProvider {
           console.warn('[Outlook] fetchMessage failed in batch:', chunk[j], (r as PromiseRejectedResult).reason)
         }
       }
+      if ((i + CONCURRENCY) % 100 === 0 || i + CONCURRENCY >= ids.length) {
+        console.log(
+          `[Outlook] detail-fetch progress: ${Math.min(i + CONCURRENCY, ids.length)}/${ids.length} attempted, ${out.length} retrieved`,
+        )
+      }
     }
 
+    if (out.length < ids.length) {
+      console.warn(
+        `[Outlook] two-phase sync: ${ids.length} id(s) listed but only ${out.length} full message(s) retrieved (failures/throttling/null returns)`,
+      )
+    }
     console.log(`[Outlook] two-phase sync: ${ids.length} id(s) listed, ${out.length} full message(s) retrieved`)
     return out
   }
@@ -847,11 +869,126 @@ export class OutlookProvider extends BaseEmailProvider {
     })
   }
   
+  /**
+   * Single HTTPS request to Graph — returns status, headers, parsed JSON (best-effort).
+   * Does not retry; use {@link graphApiRequest} / {@link graphApiRequestAbsolute} for 429/401 handling.
+   */
+  private graphSingleRequest(opts: {
+    hostname: string
+    path: string
+    method: string
+    body?: any
+  }): Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any; rawBody: string }> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: opts.hostname,
+          path: opts.path,
+          method: opts.method,
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (chunk) => {
+            data += chunk
+          })
+          res.on('end', () => {
+            let json: any = {}
+            try {
+              json = data ? JSON.parse(data) : {}
+            } catch {
+              json = { _parseError: true, _raw: data?.slice?.(0, 500) }
+            }
+            resolve({
+              statusCode: res.statusCode ?? 0,
+              headers: res.headers,
+              json,
+              rawBody: data,
+            })
+          })
+        },
+      )
+      req.on('error', reject)
+      if (opts.body) req.write(JSON.stringify(opts.body))
+      req.end()
+    })
+  }
+
+  private getRetryAfterSeconds(headers: IncomingHttpHeaders): number {
+    const h = headers['retry-after']
+    const v = Array.isArray(h) ? h[0] : h
+    const n = parseInt(String(v ?? '5'), 10)
+    return Number.isFinite(n) && n > 0 ? Math.min(120, n) : 5
+  }
+
+  /**
+   * Graph HTTP with 429 (Retry-After), 401 (refresh token), and 5xx backoff.
+   * Fixes "exactly 100 messages" when throttling or token skew caused silent failures mid-pull.
+   */
+  private async graphRequestWithRetries(
+    execOnce: () => Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any }>,
+    context: string,
+  ): Promise<any> {
+    const maxAttempts = 6
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (this.isTokenExpired() && this.refreshToken) {
+        try {
+          await this.refreshAccessToken()
+        } catch (e: any) {
+          console.warn('[Outlook] Pre-request token refresh failed:', e?.message)
+        }
+      }
+
+      const { statusCode, headers, json } = await execOnce()
+
+      if (statusCode === 429) {
+        const waitSec = this.getRetryAfterSeconds(headers)
+        console.warn(
+          `[Outlook] Graph 429 (${context}), retry in ${waitSec}s (attempt ${attempt + 1}/${maxAttempts})`,
+        )
+        await new Promise((r) => setTimeout(r, waitSec * 1000))
+        continue
+      }
+
+      if (statusCode === 401 && this.refreshToken) {
+        console.warn(`[Outlook] Graph 401 (${context}), refreshing access token`)
+        try {
+          await this.refreshAccessToken()
+        } catch (e: any) {
+          throw new Error(e?.message || 'Token refresh failed after 401')
+        }
+        continue
+      }
+
+      if (statusCode >= 500 && statusCode < 600 && attempt < maxAttempts - 1) {
+        const backoff = Math.min(30_000, 1000 * Math.pow(2, attempt))
+        console.warn(
+          `[Outlook] Graph ${statusCode} (${context}), backoff ${backoff}ms (attempt ${attempt + 1})`,
+        )
+        await new Promise((r) => setTimeout(r, backoff))
+        continue
+      }
+
+      if (json?.error) {
+        throw new Error(json.error.message || json.error.code || 'API error')
+      }
+
+      if (statusCode >= 400) {
+        throw new Error(
+          `Graph HTTP ${statusCode} (${context}): ${typeof json === 'object' ? JSON.stringify(json).slice(0, 500) : String(json)}`,
+        )
+      }
+
+      return json
+    }
+    throw new Error(`[Outlook] Graph max retries exceeded (${context})`)
+  }
+
   /** Follow `@odata.nextLink` from list responses (full URL from Graph). */
   private async graphApiRequestAbsolute(method: string, absoluteUrl: string, body?: any): Promise<any> {
-    if (this.isTokenExpired() && this.refreshToken) {
-      await this.refreshAccessToken()
-    }
     let hostname = 'graph.microsoft.com'
     let path = ''
     try {
@@ -862,87 +999,30 @@ export class OutlookProvider extends BaseEmailProvider {
       throw new Error('Invalid Graph nextLink URL')
     }
 
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname,
-        path,
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
-        },
-      }
-
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', (chunk) => {
-          data += chunk
-        })
-        res.on('end', () => {
-          try {
-            const json = data ? JSON.parse(data) : {}
-            if (json.error) {
-              reject(new Error(json.error.message || 'API error'))
-            } else {
-              resolve(json)
-            }
-          } catch (err) {
-            reject(err)
-          }
-        })
-      })
-
-      req.on('error', reject)
-
-      if (body) {
-        req.write(JSON.stringify(body))
-      }
-
-      req.end()
-    })
+    return this.graphRequestWithRetries(
+      () =>
+        this.graphSingleRequest({
+          hostname,
+          path,
+          method,
+          body,
+        }),
+      `absolute ${method} ${path.slice(0, 80)}`,
+    )
   }
 
   private async graphApiRequest(method: string, endpoint: string, body?: any): Promise<any> {
-    if (this.isTokenExpired() && this.refreshToken) {
-      await this.refreshAccessToken()
-    }
-    
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'graph.microsoft.com',
-        path: `/v1.0${endpoint}`,
-        method,
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          ...(body ? { 'Content-Type': 'application/json' } : {})
-        }
-      }
-      
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => { data += chunk })
-        res.on('end', () => {
-          try {
-            const json = data ? JSON.parse(data) : {}
-            if (json.error) {
-              reject(new Error(json.error.message || 'API error'))
-            } else {
-              resolve(json)
-            }
-          } catch (err) {
-            reject(err)
-          }
-        })
-      })
-      
-      req.on('error', reject)
-      
-      if (body) {
-        req.write(JSON.stringify(body))
-      }
-      
-      req.end()
-    })
+    const path = `/v1.0${endpoint}`
+    return this.graphRequestWithRetries(
+      () =>
+        this.graphSingleRequest({
+          hostname: 'graph.microsoft.com',
+          path,
+          method,
+          body,
+        }),
+      `${method} ${endpoint.slice(0, 80)}`,
+    )
   }
   
   private parseOutlookMessage(raw: any, folder: string): RawEmailMessage {
