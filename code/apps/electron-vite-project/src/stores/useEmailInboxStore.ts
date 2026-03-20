@@ -470,18 +470,25 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       const { filter, bulkPage, bulkBatchSize } = get()
       const { messages, total } = deriveDisplayFromAll(allMessages, filter, bulkPage, bulkBatchSize)
       const currentIds = new Set(allMessages.map((m) => m.id))
-      set((state) => ({
-        allMessages,
-        tabCounts: deriveTabCounts(allMessages, filter),
-        messages,
-        total,
-        loading: false,
-        bulkBackgroundRefresh: false,
-        error: null,
-        analysisCache: Object.fromEntries(
-          Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
-        ),
-      }))
+      set((state) => {
+        const nextBulk: typeof state.bulkAiOutputs = {}
+        for (const [id, entry] of Object.entries(state.bulkAiOutputs)) {
+          if (currentIds.has(id)) nextBulk[id] = entry
+        }
+        return {
+          allMessages,
+          tabCounts: deriveTabCounts(allMessages, filter),
+          messages,
+          total,
+          loading: false,
+          bulkBackgroundRefresh: false,
+          error: null,
+          bulkAiOutputs: nextBulk,
+          analysisCache: Object.fromEntries(
+            Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id))
+          ),
+        }
+      })
     } catch (err: unknown) {
       set({
         loading: false,
@@ -799,7 +806,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.archiveMessages || ids.length === 0) return false
     const res = await bridge.archiveMessages(ids)
     if (!res.ok) return false
-    get().clearBulkAiOutputsForIds(ids)
+    /** Keep bulkAiOutputs through this tick so Auto-Sort can show classification before row leaves; refresh reconciles. */
     const idSet = new Set(ids)
     set((s) => {
       const nextAll = s.allMessages.map((m) =>
@@ -855,7 +862,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.markPendingDelete || ids.length === 0) return false
     const res = await bridge.markPendingDelete(ids)
     if (!res.ok) return false
-    get().clearBulkAiOutputsForIds(ids)
+    /** Do not clear bulk AI here — Bulk Auto-Sort paints classification first; fetch will align persisted rows. */
     const now = new Date().toISOString()
     const idSet = new Set(ids)
     set((s) => {
@@ -883,7 +890,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (!bridge?.moveToPendingReview || ids.length === 0) return false
     const res = await bridge.moveToPendingReview(ids)
     if (!res.ok) return false
-    get().clearBulkAiOutputsForIds(ids)
+    /** Keep per-row bulk output for live Auto-Sort feedback until refresh. */
     const idSet = new Set(ids)
     set((s) => {
       const nextAll = s.allMessages.map((m) =>

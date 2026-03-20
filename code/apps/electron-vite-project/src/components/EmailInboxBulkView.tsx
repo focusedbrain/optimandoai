@@ -41,6 +41,23 @@ const MUTED = '#64748b'
  */
 const BULK_AUTO_SORT_URGENCY_THRESHOLD = 7
 
+/** Brief pause after painting classification so auto-moved rows read as “sorted” before they leave (not a 5s preview). */
+const SORT_LIVE_FEEDBACK_DWELL_MS = 72
+
+function sortFeedbackPaintDwell(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve()
+      return
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(resolve, SORT_LIVE_FEEDBACK_DWELL_MS)
+      })
+    })
+  })
+}
+
 /** Mark a classified row as intentionally left in the inbox after Auto-Sort (not a failure). */
 function withAutosortRetained(
   entry: BulkAiResult,
@@ -1626,6 +1643,20 @@ export default function EmailInboxBulkView({
               const isUrgent = entry.urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD
               const inboxStore = useEmailInboxStore.getState()
 
+              const willAutoMoveFromInbox =
+                !isUrgent &&
+                ((result.pending_delete && recommendedAction === 'pending_delete') ||
+                  (result.pending_review && recommendedAction === 'pending_review') ||
+                  recommendedAction === 'archive')
+
+              if (willAutoMoveFromInbox) {
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: { ...entry },
+                }))
+                await sortFeedbackPaintDwell()
+              }
+
               if (isUrgent) {
                 processedIds.push(messageId)
                 retainedCounts.urgent_threshold += 1
@@ -3105,8 +3136,21 @@ export default function EmailInboxBulkView({
                 ? urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD && baseCategory === 'urgent'
                 : urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD || msg.sort_category === 'urgent'
               const category = (isUrgent ? 'urgent' : baseCategory) as keyof typeof CATEGORY_BORDER
-              /* FIX-H3: When message is unsorted (no sort state), show no color — reset after undo */
-              const isUnsorted = !msg.sort_category && msg.pending_delete !== 1 && msg.archived !== 1
+              /**
+               * Tint from DB sort state, or immediately from live bulk AI output (Auto-Sort mid-flight before move/refresh).
+               * Undo/clear still removes both so rows return to neutral.
+               */
+              const hasLiveBulkClassification =
+                !!output &&
+                (Boolean(output.category && String(output.category).trim()) ||
+                  output.autosortFailure === true ||
+                  output.autosortOutcome != null ||
+                  output.autosortRetainKind != null)
+              const isUnsorted =
+                !msg.sort_category &&
+                msg.pending_delete !== 1 &&
+                msg.archived !== 1 &&
+                !hasLiveBulkClassification
               const borderColor = isUnsorted ? undefined : (CATEGORY_BORDER[category] ?? 'transparent')
               const bgTint = isUnsorted ? undefined : (CATEGORY_BG[category] ?? 'transparent')
               /** Prefer reconciled AI output over DB when present (promotional cap clears needs_reply). */
