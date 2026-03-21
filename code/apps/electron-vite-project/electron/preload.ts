@@ -659,6 +659,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:fullRemoteSyncForMessages', messageIds),
   /** Enqueue full lifecycle reconcile for every connected account + background drain (debug / force sync). */
   fullRemoteSyncAllAccounts: () => ipcRenderer.invoke('inbox:fullRemoteSyncAllAccounts'),
+  /** Dev: enqueue + synchronously drain batches for one message (in-app remote pipeline test). */
+  debugTestMoveOne: (messageId: string) => ipcRenderer.invoke('inbox:debugTestMoveOne', messageId),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),

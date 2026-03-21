@@ -733,6 +733,8 @@ export function enqueueFullRemoteSyncForAccountsTouchingMessages(
 
 export interface DrainOrchestratorRemoteBoundedResult {
   processedTotal: number
+  /** Rows that ended in failed state this drain (incremented per batch `failed`). */
+  failedTotal: number
   pendingRemaining: number
   timedOut: boolean
 }
@@ -749,6 +751,7 @@ export async function drainOrchestratorRemoteQueueBounded(
   const maxBatches = options?.maxBatches ?? 150
   const start = Date.now()
   let processedTotal = 0
+  let failedTotal = 0
   let batches = 0
   let timedOut = false
 
@@ -770,6 +773,7 @@ export async function drainOrchestratorRemoteQueueBounded(
     const before = pending
     const r = await processOrchestratorRemoteQueueBatch(db, BATCH)
     processedTotal += r.processed
+    failedTotal += r.failed
     batches++
 
     if (r.processed === 0 && r.pendingRemaining >= before && (r.deferredDueToPull ?? 0) === 0) {
@@ -790,7 +794,7 @@ export async function drainOrchestratorRemoteQueueBounded(
     )
   }
 
-  return { processedTotal, pendingRemaining, timedOut }
+  return { processedTotal, failedTotal, pendingRemaining, timedOut }
 }
 
 let drainChainScheduled = false

@@ -39,6 +39,66 @@ import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
 
+/** Remote orchestrator queue row indicator (latest row per message from list query). */
+function RemoteSyncStatusDot({ msg }: { msg: InboxMessage }) {
+  const st = msg.remote_queue_status
+  if (st == null || st === '') return null
+  let color = '#eab308'
+  if (st === 'completed') color = '#22c55e'
+  if (st === 'failed') color = '#ef4444'
+  const title =
+    st === 'failed' && msg.remote_queue_last_error
+      ? msg.remote_queue_last_error
+      : `${msg.remote_queue_operation ?? '?'} · ${st}`
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: color,
+        display: 'inline-block',
+        flexShrink: 0,
+      }}
+    />
+  )
+}
+
+type QueueStatusRow = { operation?: string; status?: string; c?: number }
+type QueueMsgRow = {
+  operation?: string
+  last_error?: string | null
+  attempts?: number
+  email_message_id?: string
+  status?: string
+  created_at?: string
+  updated_at?: string
+}
+
+function aggregateLifecycleOpCounts(byOp: QueueStatusRow[]): Record<
+  string,
+  { pending: number; failed: number }
+> {
+  const base = ['archive', 'pending_delete', 'pending_review']
+  const out: Record<string, { pending: number; failed: number }> = {}
+  for (const o of base) out[o] = { pending: 0, failed: 0 }
+  for (const row of byOp ?? []) {
+    const op = String(row.operation ?? '')
+    if (!out[op]) out[op] = { pending: 0, failed: 0 }
+    const c = Number(row.c) || 0
+    if (row.status === 'pending') out[op].pending += c
+    if (row.status === 'failed') out[op].failed += c
+  }
+  return out
+}
+
+function countStatus(byStatus: QueueStatusRow[], s: string): number {
+  const row = (byStatus ?? []).find((x) => x.status === s)
+  return Number(row?.c) || 0
+}
+
 /**
  * Urgency cutoff (1–10): at or above this score, bulk Auto-Sort does not auto-move mail.
  * Kept in sync with “Time-sensitive” in getUrgencyBadgeText.
@@ -1470,6 +1530,9 @@ export default function EmailInboxBulkView({
     subFocus,
     setSubFocus,
     isSortingActive,
+    remoteSyncLog,
+    addRemoteSyncLog,
+    clearRemoteSyncLog,
   } = useEmailInboxStore(
     useShallow((s) => ({
       messages: s.messages,
@@ -1520,6 +1583,9 @@ export default function EmailInboxBulkView({
       subFocus: s.subFocus,
       setSubFocus: s.setSubFocus,
       isSortingActive: s.isSortingActive,
+      remoteSyncLog: s.remoteSyncLog,
+      addRemoteSyncLog: s.addRemoteSyncLog,
+      clearRemoteSyncLog: s.clearRemoteSyncLog,
     }))
   )
 
@@ -1548,7 +1614,12 @@ export default function EmailInboxBulkView({
   }, [accounts, primaryAccountId, syncAllAccounts])
 
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
-  /** Force full remote lifecycle reconcile for all accounts (background drain; does not block pull). */
+  const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
+  const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
+  const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
+  const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{ enqueue: string; move: string } | null>(null)
+
+  /** Force full remote lifecycle reconcile for all accounts + bounded inline drain (IPC returns drain stats). */
   const handleRemoteSyncAll = useCallback(() => {
     console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
@@ -1564,13 +1635,24 @@ export default function EmailInboxBulkView({
             '[Inbox] Sync Remote enqueued:',
             `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
           )
+          addRemoteSyncLog(
+            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped, ${r.drainProcessed ?? 0} moved OK, ${r.drainFailed ?? 0} failed` +
+              (typeof r.pendingAfterDrain === 'number' && r.pendingAfterDrain > 0
+                ? `, ${r.pendingAfterDrain} still pending`
+                : '') +
+              (r.drainTimedOut ? ' (drain timeout)' : ''),
+          )
         } else {
           console.warn('[Inbox] Sync Remote:', r?.error)
+          addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
         }
       })
-      .catch((e) => console.warn('[Inbox] Sync Remote failed:', e))
+      .catch((e) => {
+        console.warn('[Inbox] Sync Remote failed:', e)
+        addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
+      })
       .finally(() => setRemoteSyncBusy(false))
-  }, [])
+  }, [addRemoteSyncLog])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
@@ -1652,6 +1734,68 @@ export default function EmailInboxBulkView({
     }
     return base
   }, [sortedMessages, removingItems])
+
+  const refreshRemoteDebugQueue = useCallback(async () => {
+    setRemoteDebugLoading(true)
+    try {
+      const q = await window.emailInbox?.debugQueueStatus?.()
+      setRemoteDebugQueue(q && typeof q === 'object' ? (q as Record<string, unknown>) : null)
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [])
+
+  const openRemoteDebugPanel = useCallback(() => {
+    setRemoteDebugOpen(true)
+    void refreshRemoteDebugQueue()
+  }, [refreshRemoteDebugQueue])
+
+  const handleTestMoveOne = useCallback(async () => {
+    const id = displayMessages[0]?.id
+    if (!id) {
+      setRemoteDebugTestMove({ enqueue: 'No message in current view', move: '—' })
+      setRemoteDebugOpen(true)
+      return
+    }
+    const fn = window.emailInbox?.debugTestMoveOne
+    if (!fn) {
+      setRemoteDebugTestMove({ enqueue: 'debugTestMoveOne not in bridge', move: '—' })
+      setRemoteDebugOpen(true)
+      return
+    }
+    setRemoteDebugOpen(true)
+    setRemoteDebugLoading(true)
+    try {
+      const r = (await fn(id)) as {
+        ok?: boolean
+        error?: string
+        enqueue?: { enqueued: number; skipped: number }
+        drainProcessed?: number
+        drainFailed?: number
+        lastRow?: { status?: string; last_error?: string | null } | null
+      }
+      if (!r?.ok) {
+        const enc = `Enqueue: error ${r?.error ?? 'unknown'}`
+        setRemoteDebugTestMove({ enqueue: enc, move: '—' })
+        addRemoteSyncLog(enc)
+      } else {
+        const enq = r.enqueue
+        const encLine = `Enqueue result: ${enq?.enqueued ?? 0} enqueued, ${enq?.skipped ?? 0} skipped`
+        const row = r.lastRow
+        let moveLine: string
+        if (!row) moveLine = 'Move result: no queue row (nothing to mirror or skipped)'
+        else if (row.status === 'completed') moveLine = 'Move result: OK'
+        else if (row.status === 'failed') moveLine = `Move result: FAIL: ${row.last_error ?? 'unknown'}`
+        else
+          moveLine = `Move result: ${row.status} (batch processed=${r.drainProcessed ?? 0}, failed=${r.drainFailed ?? 0})`
+        setRemoteDebugTestMove({ enqueue: encLine, move: moveLine })
+        addRemoteSyncLog(`${encLine} · ${moveLine}`)
+      }
+      await refreshRemoteDebugQueue()
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [displayMessages, addRemoteSyncLog, refreshRemoteDebugQueue])
 
   /** Detect removals and add to removingItems for exit animation. Skip when filter changed (view switch). */
   useEffect(() => {
@@ -1902,6 +2046,12 @@ export default function EmailInboxBulkView({
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
                 ? result.recommended_action
                 : 'keep_for_manual_action') as BulkRecommendedAction
+              const remoteEnq = (result as { remoteEnqueue?: { enqueued: number; skipped: number } }).remoteEnqueue
+              if (remoteEnq) {
+                useEmailInboxStore.getState().addRemoteSyncLog(
+                  `Classified: ${category}, remote enqueue: ${remoteEnq.enqueued} enqueued / ${remoteEnq.skipped} skipped`,
+                )
+              }
               const summary = (result.summary ?? '').slice(0, 500)
               const reason = (result.reason ?? '').slice(0, 300)
               const entry: BulkAiResult = {
@@ -3471,6 +3621,25 @@ export default function EmailInboxBulkView({
           </button>
           <button
             type="button"
+            className="bulk-view-sync-remote-btn"
+            onClick={openRemoteDebugPanel}
+            title="Remote queue diagnostics (temporary debug UI)"
+            style={{ opacity: 0.85 }}
+          >
+            Debug
+          </button>
+          <button
+            type="button"
+            className="bulk-view-sync-remote-btn"
+            onClick={() => void handleTestMoveOne()}
+            disabled={displayMessages.length === 0 || remoteDebugLoading}
+            title="Enqueue + drain first visible message only"
+            style={{ opacity: 0.85 }}
+          >
+            Test Move 1
+          </button>
+          <button
+            type="button"
             className="bulk-view-wr-expert-btn"
             onClick={() => setShowWrExpertModal(true)}
             title="Edit AI inbox rules (WRExpert.md)"
@@ -3479,6 +3648,131 @@ export default function EmailInboxBulkView({
           </button>
         </div>
       </div>
+
+      {remoteDebugOpen ? (
+        <div
+          role="dialog"
+          aria-label="Remote sync debug"
+          style={{
+            position: 'fixed',
+            top: 100,
+            right: 16,
+            width: 440,
+            maxHeight: '72vh',
+            zIndex: 12000,
+            background: '#fff',
+            color: '#111',
+            border: '1px solid #ccc',
+            borderRadius: 8,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            fontSize: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #ddd' }}>
+            <strong>Remote queue debug</strong>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
+                Refresh
+              </button>
+              <button type="button" onClick={() => setRemoteDebugOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div style={{ overflow: 'auto', padding: 12, flex: 1 }}>
+            {remoteDebugLoading ? <div>Loading…</div> : null}
+            {(() => {
+              const err = remoteDebugQueue?.error
+              if (typeof err === 'string') {
+                return <div style={{ color: '#b91c1c' }}>Error: {err}</div>
+              }
+              const total = remoteDebugQueue?.total as { c?: number } | undefined
+              const byStatus = (remoteDebugQueue?.byStatus as QueueStatusRow[]) ?? []
+              const byOp = (remoteDebugQueue?.byOp as QueueStatusRow[]) ?? []
+              const failed = (remoteDebugQueue?.failed as QueueMsgRow[]) ?? []
+              const recent = (remoteDebugQueue?.sample as QueueMsgRow[]) ?? []
+              const opAgg = aggregateLifecycleOpCounts(byOp)
+              const totalC = Number(total?.c) || 0
+              return (
+                <>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue overview</div>
+                    <div>Total queue rows: {totalC}</div>
+                    <div>
+                      Pending: {countStatus(byStatus, 'pending')} | Processing: {countStatus(byStatus, 'processing')} |
+                      Completed: {countStatus(byStatus, 'completed')} | Failed: {countStatus(byStatus, 'failed')}
+                    </div>
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>By operation</div>
+                    {(['archive', 'pending_delete', 'pending_review'] as const).map((op) => (
+                      <div key={op}>
+                        {op}: {opAgg[op]?.pending ?? 0} pending, {opAgg[op]?.failed ?? 0} failed
+                      </div>
+                    ))}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Failed rows (sample up to 10)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {failed.map((row, i) => (
+                        <li key={i} style={{ marginBottom: 6 }}>
+                          <code>{row.operation}</code> — {String(row.last_error ?? '').slice(0, 200)} (attempts {row.attempts ?? 0}, email_id{' '}
+                          {row.email_message_id ?? '—'})
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Recent rows (last 5)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {recent.map((row, i) => (
+                        <li key={i} style={{ marginBottom: 4 }}>
+                          <code>{row.operation}</code> · {row.status} · {row.created_at ?? ''} → {row.updated_at ?? ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                  {remoteDebugTestMove ? (
+                    <section style={{ marginBottom: 12, padding: 8, background: '#f8fafc', borderRadius: 4 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Test Move 1</div>
+                      <div>{remoteDebugTestMove.enqueue}</div>
+                      <div>{remoteDebugTestMove.move}</div>
+                    </section>
+                  ) : null}
+                  <section>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600 }}>Activity log</span>
+                      <button type="button" onClick={() => clearRemoteSyncLog()}>
+                        Clear log
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        maxHeight: 140,
+                        overflow: 'auto',
+                        background: '#f1f5f9',
+                        padding: 8,
+                        borderRadius: 4,
+                        fontFamily: 'ui-monospace, monospace',
+                        fontSize: 11,
+                      }}
+                    >
+                      {remoteSyncLog.length === 0 ? <span style={{ color: MUTED }}>No entries yet.</span> : null}
+                      {remoteSyncLog.map((line, i) => (
+                        <div key={i} style={{ marginBottom: 4 }}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      ) : null}
 
       {lastSyncWarnings && lastSyncWarnings.length > 0 && (
         <div
@@ -3751,6 +4045,7 @@ export default function EmailInboxBulkView({
                       )}
                       <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
+                          <RemoteSyncStatusDot msg={msg} />
                           <span
                             style={{
                               fontSize: 14,

@@ -109,10 +109,13 @@ declare global {
 export interface EmailInboxBridge {
   /** DevTools diagnostic: remote orchestrator queue snapshot (main process logs + return value). */
   debugQueueStatus?: () => Promise<Record<string, unknown>>
+  debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
   syncAccount: (accountId: string) => Promise<{
     ok: boolean
     data?: unknown
     error?: string
+    /** Pull diagnostics for in-app log */
+    pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
     /** Present when some messages failed to ingest but sync continued */
     warningCount?: number
     syncWarnings?: string[]
@@ -157,7 +160,16 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
-  aiClassifySingle?: (messageId: string) => Promise<unknown>
+  aiClassifySingle?: (messageId: string) => Promise<{
+    messageId?: string
+    category?: string
+    error?: string
+    recommended_action?: string
+    pending_delete?: boolean
+    pending_review?: boolean
+    remoteEnqueue?: { enqueued: number; skipped: number }
+    [key: string]: unknown
+  }>
   /**
    * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.
    * Use after bulk Auto-Sort (parallel classify) so Microsoft 365 / IMAP mirrors reliably.
@@ -197,6 +209,10 @@ export interface EmailInboxBridge {
     skipped?: number
     inboxRestoreNeeded?: number
     accountCount?: number
+    drainProcessed?: number
+    drainFailed?: number
+    pendingAfterDrain?: number
+    drainTimedOut?: boolean
     error?: string
   }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */

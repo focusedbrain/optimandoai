@@ -67,6 +67,10 @@ export interface InboxMessage {
   /** Persisted AI analysis JSON from Auto-Sort — survives clearBulkAiOutputsForIds. */
   ai_analysis_json?: string | null
   attachments?: InboxAttachment[]
+  /** Latest remote orchestrator queue row for this message (from listMessages subquery). */
+  remote_queue_status?: string | null
+  remote_queue_last_error?: string | null
+  remote_queue_operation?: string | null
 }
 
 export interface InboxFilter {
@@ -123,6 +127,10 @@ interface EmailInboxState {
   isSortingActive: boolean
   /** Incremented when sort completes — kicks preload queue to re-fire. */
   analysisRestartCounter: number
+  /** In-app remote sync / queue diagnostics (newest first, max 50). */
+  remoteSyncLog: string[]
+  addRemoteSyncLog: (entry: string) => void
+  clearRemoteSyncLog: () => void
   /**
    * Bulk rows where the user manually regenerated draft — hide analysis/recommended chrome
    * so the draft editor uses the full pane until “Show analysis” or a new Auto-Sort.
@@ -178,6 +186,13 @@ interface EmailInboxState {
   setSubFocus: (focus: SubFocus) => void
   setSortingActive: (active: boolean) => void
   triggerAnalysisRestart: () => void
+}
+
+function pullStatsLine(
+  ps: { listed: number; new: number; skippedDupes: number; errors: number },
+  suffix?: string,
+): string {
+  return `Pull: ${ps.listed} fetched, ${ps.new} new, ${ps.skippedDupes} skipped, ${ps.errors} errors${suffix ?? ''}`
 }
 
 // =============================================================================
@@ -450,7 +465,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   subFocus: { kind: 'none' },
   isSortingActive: false,
   analysisRestartCounter: 0,
+  remoteSyncLog: [],
   bulkDraftManualComposeIds: new Set<string>(),
+
+  addRemoteSyncLog: (entry) => {
+    const ts = new Date().toLocaleTimeString()
+    set((s) => ({
+      remoteSyncLog: [`[${ts}] ${entry}`, ...s.remoteSyncLog].slice(0, 50),
+    }))
+  },
+  clearRemoteSyncLog: () => set({ remoteSyncLog: [] }),
 
   addBulkDraftManualCompose: (messageId) =>
     set((s) => {
@@ -1041,6 +1065,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       const res = await bridge.syncAccount(accountId)
       const syncWarnings = res.syncWarnings
       const warnList = syncWarnings?.length ? syncWarnings : null
+      const pull = res as {
+        pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+        ok: boolean
+        error?: string
+      }
+      if (pull.pullStats) {
+        get().addRemoteSyncLog(
+          pullStatsLine(pull.pullStats, pull.ok ? '' : ` — ${pull.error ?? 'failed'}`),
+        )
+      }
 
       if (!res.ok) {
         set({
@@ -1143,6 +1177,13 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             ok: boolean
             error?: string
             syncWarnings?: string[]
+            pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+          }
+          if (res.pullStats) {
+            const label = accountId.length > 10 ? `${accountId.slice(0, 8)}…` : accountId
+            get().addRemoteSyncLog(
+              `[${label}] ${pullStatsLine(res.pullStats, res.ok ? '' : ` — ${res.error ?? 'fail'}`)}`,
+            )
           }
           if (res.ok) okCount++
           if (res.syncWarnings?.length) {

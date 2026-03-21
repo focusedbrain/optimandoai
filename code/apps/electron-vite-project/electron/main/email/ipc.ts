@@ -153,6 +153,8 @@ import {
   enqueueRemoteOpsForLocalLifecycleState,
   enqueueFullRemoteSync,
   enqueueFullRemoteSyncForAccountsTouchingMessages,
+  drainOrchestratorRemoteQueueBounded,
+  processOrchestratorRemoteQueueBatch,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
@@ -870,6 +872,7 @@ export function registerInboxHandlers(
     'inbox:fullRemoteSync',
     'inbox:fullRemoteSyncForMessages',
     'inbox:fullRemoteSyncAllAccounts',
+    'inbox:debugTestMoveOne',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -1077,12 +1080,19 @@ export function registerInboxHandlers(
 
       const errors = result.errors ?? []
       const warnCount = errors.length
+      const pullStats = {
+        listed: result.listedFromProvider ?? 0,
+        new: result.newMessages,
+        skippedDupes: result.skippedDuplicate ?? 0,
+        errors: errors.length,
+      }
 
       if (!result.ok) {
         return {
           ok: false,
           error: errors[0] ?? 'Sync failed',
           data: result,
+          pullStats,
           warningCount: warnCount,
           syncWarnings: errors,
         }
@@ -1093,6 +1103,7 @@ export function registerInboxHandlers(
           ok: false,
           error: 'All messages failed to sync',
           data: result,
+          pullStats,
           warningCount: warnCount,
           syncWarnings: errors,
         }
@@ -1110,12 +1121,13 @@ export function registerInboxHandlers(
         return {
           ok: true,
           data: result,
+          pullStats,
           warningCount: warnCount,
           syncWarnings: errors,
         }
       }
 
-      return { ok: true, data: result }
+      return { ok: true, data: result, pullStats }
     } catch (err: any) {
       console.error('[Inbox] inbox:syncAccount unhandled error:', err)
       return { ok: false, error: err?.message ?? 'Sync failed (unhandled)' }
@@ -1194,7 +1206,11 @@ export function registerInboxHandlers(
 
       const qParams = [...params, limit, offset]
       const rows = db.prepare(
-        `SELECT * FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
+        `SELECT inbox_messages.*,
+          (SELECT q.status FROM remote_orchestrator_mutation_queue q WHERE q.message_id = inbox_messages.id ORDER BY q.updated_at DESC LIMIT 1) AS remote_queue_status,
+          (SELECT q.last_error FROM remote_orchestrator_mutation_queue q WHERE q.message_id = inbox_messages.id ORDER BY q.updated_at DESC LIMIT 1) AS remote_queue_last_error,
+          (SELECT q.operation FROM remote_orchestrator_mutation_queue q WHERE q.message_id = inbox_messages.id ORDER BY q.updated_at DESC LIMIT 1) AS remote_queue_operation
+         FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
       ).all(...qParams) as any[]
 
       for (const m of rows) {
@@ -1744,6 +1760,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     pending_delete?: boolean
     pending_review?: boolean
     error?: string
+    /** Present when classify succeeded and remote lifecycle enqueue ran (non-urgent). */
+    remoteEnqueue?: { enqueued: number; skipped: number }
   }> {
     const db = await resolveDb()
     if (!db) return { messageId, error: 'Database unavailable' }
@@ -1885,9 +1903,10 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
 
       /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. */
+      let remoteEnqueue: { enqueued: number; skipped: number } | undefined
       if (!isUrgent) {
         try {
-          enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
+          remoteEnqueue = enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
         } catch (e: any) {
           console.warn('[Inbox] enqueueRemoteOpsForLocalLifecycleState after classify:', e?.message)
         }
@@ -1904,6 +1923,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         recommended_action: effectiveRecommendedAction,
         pending_delete: pendingDelete,
         pending_review: pendingReview,
+        remoteEnqueue,
       }
     } catch (err: any) {
       return {
@@ -2030,6 +2050,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
               action_items: [],
               ...(r.draftReply ? { draft_reply: r.draftReply } : {}),
               pending_delete: r.pending_delete ?? false,
+              remote_enqueue: r.remoteEnqueue,
             })
           }
         }
@@ -2216,13 +2237,93 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         inboxRestoreNeeded += r.inboxRestoreNeeded
         accountCount += 1
       }
+      const drain = await drainOrchestratorRemoteQueueBounded(db, { maxMs: 28_000, maxBatches: 150 })
       scheduleOrchestratorRemoteDrain(getDb)
       console.log(
-        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded}`,
+        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} drainProcessed=${drain.processedTotal} drainFailed=${drain.failedTotal} pendingRemaining=${drain.pendingRemaining}`,
       )
-      return { ok: true, enqueued, skipped, inboxRestoreNeeded, accountCount }
+      return {
+        ok: true,
+        enqueued,
+        skipped,
+        inboxRestoreNeeded,
+        accountCount,
+        drainProcessed: drain.processedTotal,
+        drainFailed: drain.failedTotal,
+        pendingAfterDrain: drain.pendingRemaining,
+        drainTimedOut: drain.timedOut,
+      }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'fullRemoteSyncAllAccounts failed' }
+    }
+  })
+
+  /**
+   * Dev-only: enqueue lifecycle mirror for one message, then synchronously drain batches until
+   * its pending rows clear or timeout (for in-app diagnostics without terminal).
+   */
+  ipcMain.handle('inbox:debugTestMoveOne', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const mid = typeof messageId === 'string' ? messageId.trim() : ''
+      if (!mid) return { ok: false, error: 'messageId required' }
+
+      const enqueue = enqueueRemoteOpsForLocalLifecycleState(db, [mid])
+      let drainProcessed = 0
+      let drainFailed = 0
+      const start = Date.now()
+      const maxMs = 45_000
+      let batches = 0
+      const maxBatches = 80
+
+      while (Date.now() - start < maxMs && batches < maxBatches) {
+        const pendingForMsg = db
+          .prepare(
+            `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE message_id = ? AND status = 'pending'`,
+          )
+          .get(mid) as { c: number }
+        if ((pendingForMsg?.c ?? 0) === 0) break
+
+        const b = await processOrchestratorRemoteQueueBatch(db, 20)
+        drainProcessed += b.processed
+        drainFailed += b.failed
+        batches += 1
+        if (b.processed === 0 && b.failed === 0 && (b.deferredDueToPull ?? 0) === 0) break
+        if ((b.deferredDueToPull ?? 0) > 0 && b.processed === 0 && b.failed === 0) {
+          await new Promise((r) => setTimeout(r, 400))
+        }
+      }
+
+      const lastRow = db
+        .prepare(
+          `SELECT operation, status, last_error, attempts, email_message_id FROM remote_orchestrator_mutation_queue WHERE message_id = ? ORDER BY updated_at DESC LIMIT 1`,
+        )
+        .get(mid) as
+        | {
+            operation: string
+            status: string
+            last_error: string | null
+            attempts: number
+            email_message_id: string
+          }
+        | undefined
+
+      try {
+        scheduleOrchestratorRemoteDrain(getDb)
+      } catch {
+        /* ignore */
+      }
+
+      return {
+        ok: true,
+        enqueue,
+        drainProcessed,
+        drainFailed,
+        lastRow: lastRow ?? null,
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'debugTestMoveOne failed' }
     }
   })
 

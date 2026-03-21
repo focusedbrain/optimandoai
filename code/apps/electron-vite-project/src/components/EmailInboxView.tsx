@@ -1031,11 +1031,22 @@ export default function EmailInboxView({
             '[Inbox] Sync Remote enqueued:',
             `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
           )
+          useEmailInboxStore.getState().addRemoteSyncLog(
+            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped, ${r.drainProcessed ?? 0} moved OK, ${r.drainFailed ?? 0} failed` +
+              (typeof r.pendingAfterDrain === 'number' && r.pendingAfterDrain > 0
+                ? `, ${r.pendingAfterDrain} still pending`
+                : '') +
+              (r.drainTimedOut ? ' (drain timeout)' : ''),
+          )
         } else {
           console.warn('[Inbox] Sync Remote:', r?.error)
+          useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
         }
       })
-      .catch((e) => console.warn('[Inbox] Sync Remote failed:', e))
+      .catch((e) => {
+        console.warn('[Inbox] Sync Remote failed:', e)
+        useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
+      })
       .finally(() => setRemoteLifecycleSyncing(false))
   }, [])
 

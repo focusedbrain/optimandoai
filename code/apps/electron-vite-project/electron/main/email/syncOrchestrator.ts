@@ -54,6 +54,10 @@ export interface SyncResult {
   errors: string[]
   /** `inbox_messages.id` for rows ingested in this run (for remote lifecycle mirror). */
   newInboxMessageIds: string[]
+  /** Messages returned from provider list API in this run (before dedupe / per-message fetch). */
+  listedFromProvider?: number
+  /** Skipped during ingest — `email_message_id` already in `inbox_messages` for this account. */
+  skippedDuplicate?: number
 }
 
 export interface EmailSyncStateUpdates {
@@ -391,6 +395,8 @@ async function syncAccountEmailsImpl(
     result.newMessages = newCount
     result.beapMessages = beapCount
     result.plainMessages = plainCount
+    result.listedFromProvider = messages.length
+    result.skippedDuplicate = skippedDuplicate
 
     console.log(
       `[SyncOrchestrator] Ingested ${newCount} new message(s), skipped ${skippedDuplicate} duplicate id(s) already in inbox`,
