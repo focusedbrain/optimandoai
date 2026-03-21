@@ -3544,3 +3544,49 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
   })
 }
 
+// ═══════════════════════════════════════════════════════════
+// DRAIN WATCHDOG — module-level DB resolver (inbox handlers set inboxDbGetterForEmailIpc)
+// ═══════════════════════════════════════════════════════════
+async function resolveDb(): Promise<any> {
+  if (!inboxDbGetterForEmailIpc) return null
+  return typeof inboxDbGetterForEmailIpc === 'function'
+    ? await inboxDbGetterForEmailIpc()
+    : inboxDbGetterForEmailIpc
+}
+
+// ═══════════════════════════════════════════════════════════
+// DRAIN WATCHDOG — ensures remote sync never stops permanently
+// Runs every 15 seconds. Cannot be stopped. Restarts drain if stuck.
+// ═══════════════════════════════════════════════════════════
+;(async () => {
+  // Wait 10 seconds after app start before first check
+  await new Promise((r) => setTimeout(r, 10_000))
+
+  setInterval(async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return
+
+      const now = new Date().toISOString()
+
+      // 1. Reset stuck "processing" rows (older than 2 minutes)
+      const twoMinAgo = new Date(Date.now() - 120_000).toISOString()
+      db.prepare(
+        `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', updated_at = ? WHERE status = 'processing' AND updated_at < ?`,
+      ).run(now, twoMinAgo)
+
+      // 2. Count pending rows
+      const { c } = db
+        .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+        .get() as { c: number }
+
+      if (c === 0) return // Nothing to do
+
+      // 3. Pending rows exist — make sure drain is running
+      console.log(`[Watchdog] ${c} pending rows — restarting drain`)
+      scheduleOrchestratorRemoteDrain(resolveDb)
+    } catch (e) {
+      // Watchdog must NEVER crash — swallow everything
+    }
+  }, 15_000)
+})()
