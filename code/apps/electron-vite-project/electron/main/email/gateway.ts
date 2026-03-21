@@ -774,7 +774,7 @@ class EmailGateway implements IEmailGateway {
         password: config.smtpPassword ?? config.password
       } : undefined,
       folders: {
-        monitored: ['INBOX'],
+        monitored: ['INBOX', 'Spam'],
         inbox: 'INBOX',
         sent: 'Sent'
       },
@@ -845,7 +845,7 @@ class EmailGateway implements IEmailGateway {
         password: smtpPass
       },
       folders: {
-        monitored: ['INBOX'],
+        monitored: ['INBOX', 'Spam'],
         inbox: 'INBOX',
         sent: 'Sent'
       },

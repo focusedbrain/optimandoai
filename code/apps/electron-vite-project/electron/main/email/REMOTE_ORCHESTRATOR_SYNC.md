@@ -24,6 +24,13 @@ Local IPC handlers **always** commit local state first, then enqueue remote work
 
 **Sort category → bucket (local):** `newsletter` / `normal` / unknown non-empty `sort_category` → expect **archive**; `important` → **pending_review**; `urgent` → **urgent**; empty / null `sort_category` → **inbox** (no remote move until classified). AI + lifecycle enqueue uses **`enqueueRemoteOpsForLocalLifecycleState`** so all classified rows can drain to the four folders.
 
+### IMAP (web.de / GMX / namespaced servers)
+
+- **MOVE verification:** After a successful IMAP `MOVE` (or COPY+DELETE fallback), the provider **re-opens the destination** and checks that the message is present (by UID and/or RFC `Message-ID`). If verification fails, the queue row is **failed** — not marked completed — so “ghost” successes are avoided.
+- **Locate source (canonical only):** `imapLocateMessageForMove` searches **INBOX + configured lifecycle folders only** (resolved paths: Archive, Pending Delete, Pending Review, Urgent, Trash). It **ignores** `imap_remote_mailbox` when it points at legacy folders (`WRDesk-*`, `Archieve`, etc.) so we do not “find” a copy under an old tree while the real message remains in Posteingang.
+- **Pull folders:** `domain/imapPullFolders.ts` → **`resolveImapPullFolders`**. Default pull set is **`INBOX` + `Spam`** (legacy accounts that only stored `monitored: ['INBOX']` are treated the same). Custom **`folders.monitored`** overrides; names that match resolved orchestrator lifecycle mailboxes are stripped so sorted mail is not re-listed. Per-folder list errors (e.g. missing `Spam` on some hosts) are logged and skipped without failing the whole Pull.
+- **One-time consolidation:** On IMAP sync, **`consolidateLifecycleFolders`** may still run once to move mail from old WRDesk / typo folders into canonical names (see `ImapProvider.consolidateLifecycleFolders`).
+
 ## Post-pull / auto-sync mirror
 
 After **`inbox:syncAccount`** (Pull):
@@ -70,6 +77,8 @@ IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** 
 - **Debug:** `debug:queueStatus` returns **`byAccountStatus`** (`GROUP BY account_id, status`) and **`queueByAccountSummary`** (human labels: `email (provider)` + pending/processing/completed/failed counts) for isolating one bad account (e.g. web.de) vs Outlook. **`inbox:debugMainInboxRows`** (optional `accountId`) lists WR Desk main-inbox rows (same filter as UI “all” tab) with **`why`** / **`whyDetail`** explaining why they may still sit in server Inbox (not analyzed, urgent, non-lifecycle sort, queue state).
 - **Visibility:** `inbox_messages.remote_orchestrator_last_error` holds the latest error / retry hint; `inbox:listRemoteOrchestratorQueue` exposes queue rows.
 - **Retry failed:** `inbox:retryFailedRemoteOps` (optional **`accountId`** argument) — bulk debug **Retry failed** resets **all** failed rows; **Per account → Retry failed (this account)** resets only **`status = 'failed'`** rows for that **`account_id`**. Both set **`status = 'pending'`, `attempts = 0`, `last_error = NULL`**, **`updated_at`**, then **`scheduleOrchestratorRemoteDrain`**. The debug panel auto-refreshes queue stats every **5s** while open and shows drain progress + ETA from the **completed** count trend over the last **30s**.
+- **Clear failed:** `inbox:clearFailedRemoteOps` (**`accountId` required**) — **DELETE** from **`remote_orchestrator_mutation_queue`** where **`status = 'failed'`** and **`account_id = ?`**. Use when rows can never succeed (e.g. **Account not found** after the mailbox was disconnected). Does **not** schedule drain. Debug: **Clear failed (this account)** next to per-account retry.
+- **Reconnect (same email, new `account_id`):** After a successful **Gmail / Outlook / IMAP / custom mailbox** connect, the main process runs **`cleanupStaleFailedRemoteQueueOnReconnect`**: deletes **failed** rows whose **`account_id` is not** in the current gateway account list (orphan old id), and **failed** rows for **other** connected accounts with the **same normalized email** as the newly connected account (stale duplicate id). Then **Pull → re-sort → ☁ Sync Remote** to enqueue work for the new id. Empty legacy folders on the server (e.g. old WRDesk / typo folders) can be removed manually after migration.
 
 ## Manual QA (Auto-Sort ↔ remote)
 

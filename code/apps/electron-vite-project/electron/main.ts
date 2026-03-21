@@ -3873,8 +3873,8 @@ app.whenReady().then(async () => {
     // Register Email Gateway handlers
     try {
       const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
-      registerEmailHandlers()
       const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+      registerEmailHandlers(getInboxDb)
       const getAnthropicApiKey = async () => {
         try {
           const { vaultService } = await import('./main/vault/rpc')

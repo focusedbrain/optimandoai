@@ -955,6 +955,7 @@ export class ImapProvider extends BaseEmailProvider {
       names.imap.archiveMailbox,
       names.imap.pendingDeleteMailbox,
       names.imap.pendingReviewMailbox,
+      names.imap.urgentMailbox,
     ]
 
     for (const logical of logicals) {
@@ -1338,13 +1339,23 @@ export class ImapProvider extends BaseEmailProvider {
         return {
           ok: false,
           error:
-            'IMAP: message not found in monitored mailboxes (INBOX + lifecycle folders). Cannot MOVE.',
+            'IMAP: message not found in canonical mailboxes (INBOX + configured Archive / Pending / Urgent / Trash). Reconnect or run Sync Remote — legacy WRDesk-* paths are ignored for locate.',
         }
       }
 
       await this.imapMoveBetweenMailboxes(loc.mailbox, loc.uid, destResolved)
 
-      const newUid = (await this.imapVerifyMessageInMailbox(destResolved, loc.uid, rfc)) || loc.uid
+      /** UID may change after MOVE; RFC Message-ID is authoritative for verification. */
+      let newUid =
+        (await this.imapVerifyMessageInMailbox(destResolved, loc.uid, rfc)) ||
+        (rfc ? await this.imapFindUidByHeaderMessageId(destResolved, rfc) : null)
+      if (!newUid) {
+        return {
+          ok: false,
+          error:
+            'IMAP: MOVE reported success but message not found in destination (verification failed). Check folder path / namespace (e.g. web.de “.” delimiter) or server MOVE support.',
+        }
+      }
       return { ok: true, imapUidAfterMove: newUid, imapMailboxAfterMove: destResolved }
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
@@ -1442,6 +1453,36 @@ export class ImapProvider extends BaseEmailProvider {
     return n != null
   }
 
+  /**
+   * Paths that match configured inbox + lifecycle mailboxes (resolved), for MOVE source search.
+   * Legacy folders (WRDesk-*, "Archieve", etc.) must NOT be searched — they caused false “already moved”
+   * when the message was still in Posteingang.
+   */
+  private async imapPathMatchesCanonicalLifecycle(
+    rawPath: string,
+    names: ReturnType<typeof resolveOrchestratorRemoteNames>,
+    inboxLogical: string,
+  ): Promise<boolean> {
+    const trimmed = rawPath.trim()
+    if (!trimmed) return false
+    const candidates = new Set<string>()
+    const addLogical = async (logical: string) => {
+      const t = logical.trim()
+      if (!t) return
+      for (const p of await this.imapExpandMailboxTryPaths(t)) {
+        candidates.add(p.trim().toLowerCase())
+      }
+    }
+    await addLogical(inboxLogical)
+    await addLogical(names.imap.archiveMailbox)
+    await addLogical(names.imap.pendingDeleteMailbox)
+    await addLogical(names.imap.pendingReviewMailbox)
+    await addLogical(names.imap.urgentMailbox)
+    await addLogical(names.imap.trashMailbox)
+    const expandedRaw = await this.imapExpandMailboxTryPaths(trimmed)
+    return expandedRaw.some((p) => candidates.has(p.trim().toLowerCase()))
+  }
+
   private async imapOrderedSearchMailboxes(
     lastMail: string | null | undefined,
     names: ReturnType<typeof resolveOrchestratorRemoteNames>,
@@ -1456,11 +1497,25 @@ export class ImapProvider extends BaseEmailProvider {
       if (!t || t.toLowerCase() === destL) return
       if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t)
     }
-    if (lastMail?.trim()) {
-      const expanded = await this.imapExpandMailboxTryPaths(lastMail.trim())
-      for (const p of expanded) pushUnique(p)
+    /** Prefer INBOX paths first (most moves originate there). */
+    for (const p of await this.imapExpandMailboxTryPaths(inbox)) {
+      pushUnique(p)
     }
-    for (const p of pool) pushUnique(p)
+    for (const p of pool) {
+      pushUnique(p)
+    }
+    if (lastMail?.trim()) {
+      const lm = lastMail.trim()
+      const canonical = await this.imapPathMatchesCanonicalLifecycle(lm, names, inbox)
+      if (canonical) {
+        const expanded = await this.imapExpandMailboxTryPaths(lm)
+        for (const p of expanded) pushUnique(p)
+      } else {
+        console.log(
+          `[IMAP] locate MOVE source: ignoring non-canonical imap_remote_mailbox (legacy or typo folder): ${JSON.stringify(lm)}`,
+        )
+      }
+    }
     return out
   }
 

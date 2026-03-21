@@ -23,7 +23,8 @@ import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { markPullActive, markPullInactive } from './syncPullLock'
 import { ImapProvider } from './providers/imap'
-import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
+import { resolveImapPullFolders } from './domain/imapPullFolders'
+import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'
 
 function isLikelyEmailAuthError(message: string): boolean {
   const m = (message || '').toLowerCase()
@@ -325,12 +326,39 @@ async function syncAccountEmailsImpl(
 
     markPullActive(accountId)
     try {
-      messages = await emailGateway.listMessages(accountId, listOptions)
+      const accountCfg = emailGateway.getAccountConfig(accountId)
+      const pullFolders = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
+      if (accountCfg?.provider === 'imap' && pullFolders.length > 1) {
+        const merged: SanitizedMessage[] = []
+        const seen = new Set<string>()
+        for (const folder of pullFolders) {
+          try {
+            const part = await emailGateway.listMessages(accountId, { ...listOptions, folder })
+            for (const m of part) {
+              const k = `${m.folder || folder}|${m.id}`
+              if (seen.has(k)) continue
+              seen.add(k)
+              merged.push(m)
+            }
+            console.log(
+              `[SyncOrchestrator] IMAP list folder=${JSON.stringify(folder)} → ${part.length} message(s) (merged ${merged.length} unique)`,
+            )
+          } catch (folderErr: any) {
+            const msg = folderErr?.message ?? String(folderErr)
+            result.errors.push(`listMessages ${folder}: ${msg}`)
+            console.warn('[SyncOrchestrator] IMAP folder list failed:', folder, msg)
+          }
+        }
+        messages = merged
+      } else {
+        const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
+        messages = await emailGateway.listMessages(accountId, { ...listOptions, folder })
+      }
       const existingIds = getExistingEmailMessageIds(db, accountId)
       skippedDuplicate = 0
 
       console.log(
-        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'})`,
+        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'}, pullFolders=${pullFolders.join(',')})`,
       )
 
       for (const msg of messages) {

@@ -711,7 +711,7 @@ function BulkActionCardStructured({
   msg: InboxMessage
   output: BulkAiResultEntry
   isExpanded: boolean
-  currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review'
+  currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   updateDraftReply: (messageId: string, draftReply: string) => void
   handleSendDraft: (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => void
   handleArchiveOne: (msg: InboxMessage) => void
@@ -1666,6 +1666,8 @@ export default function EmailInboxBulkView({
     messageRowAfterDrain?: Record<string, unknown> | null
     queueRows?: Array<Record<string, unknown>>
   } | null>(null)
+  /** Collapsible row: Debug / Test Move 1 (dev build only). */
+  const [bulkDevToolsOpen, setBulkDevToolsOpen] = useState(false)
 
   /** Force full remote lifecycle reconcile for all accounts + bounded inline drain (IPC returns drain stats). */
   const handleRemoteSyncAll = useCallback(() => {
@@ -1853,6 +1855,31 @@ export default function EmailInboxBulkView({
           )
         } else {
           addRemoteSyncLog(`Retry failed queue: ${r?.error ?? 'failed'}`)
+        }
+        await refreshRemoteDebugQueue()
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshRemoteDebugQueue],
+  )
+
+  const handleClearFailedRemoteQueue = useCallback(
+    async (accountId: string) => {
+      const fn = window.emailInbox?.clearFailedRemoteOps
+      if (!fn) {
+        addRemoteSyncLog('clearFailedRemoteOps not in bridge (update app)')
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = await fn(accountId)
+        if (r?.ok) {
+          addRemoteSyncLog(
+            `Clear failed (${accountId.slice(0, 8)}…): ${r.deletedCount ?? 0} row(s) removed (orphan / dead session)`,
+          )
+        } else {
+          addRemoteSyncLog(`Clear failed: ${r?.error ?? 'failed'}`)
         }
         await refreshRemoteDebugQueue()
       } finally {
@@ -3607,171 +3634,198 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar — three groups: left (selection+sort), center (filter tabs), right (sync+tools) */}
-      <div className="bulk-view-toolbar">
-        <div className="bulk-view-toolbar-left">
-          {/* GROUP 1: Selection + Sort */}
-          <input
-            type="checkbox"
-            checked={allInBatchSelected}
-            ref={batchCheckboxRef}
-            onChange={handleBatchCheckboxToggle}
-            title={
-              bulkBatchSize === 'all'
-                ? allInBatchSelected || someInBatchSelected
-                  ? 'Deselect all in this tab'
-                  : 'Select all messages in this tab (full list)'
-                : allInBatchSelected || someInBatchSelected
-                  ? 'Deselect all on this page'
-                  : 'Select all on this page'
-            }
-          />
-          <select
-            value={bulkBatchSize}
-            onChange={(e) => {
-              const val = e.target.value
-              if (val === 'all') {
-                setBulkBatchSize('all')
-                setShouldSelectAllWhenReady(true)
-              } else {
-                setBulkBatchSize(Number(val))
-              }
-            }}
-            className="bulk-view-selection-group-select"
-          >
-            <option value="all">All</option>
-            {[10, 12, 24, 48].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="bulk-view-ai-sort-btn ai-auto-sort-btn"
-            onClick={() => void handleAiAutoSort()}
-            disabled={
-              isSortingActive || (bulkBatchSize === 'all' ? total === 0 : selectedCount === 0)
-            }
-            title={
-              isSortingActive
-                ? 'Auto-Sort is running…'
-                : bulkBatchSize === 'all'
-                  ? total === 0
-                    ? 'No messages in this tab'
-                    : `AI Auto-Sort all ${total} message(s) in this tab`
-                  : selectedCount === 0
-                    ? 'Select messages on this page, then run AI Auto-Sort'
-                    : 'AI Auto-Sort selected messages'
-            }
-          >
-            ⚡ AI Auto-Sort
-          </button>
-          <span className="bulk-view-selection-group-count selected-count">
-            {bulkBatchSize === 'all' ? `${total} in tab · ${selectedCount} selected` : `${selectedCount} selected`}
-          </span>
+      {/* Toolbar — row 1: filter tabs; row 2: selection + AI sort (left) / sync + WR Expert (right); row 3: dev-only tools */}
+      <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
+          <div className="bulk-view-toolbar-tabs">
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'all' })}
+              className="bulk-view-toolbar-filter-btn"
+              data-active={filter.filter === 'all'}
+            >
+              All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'urgent' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--urgent"
+              data-active={filter.filter === 'urgent'}
+            >
+              Urgent ({filter.filter === 'urgent' ? total : (tabCounts.urgent ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_delete' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
+              data-active={filter.filter === 'pending_delete'}
+            >
+              Pending Delete ({filter.filter === 'pending_delete' ? total : (tabCounts.pending_delete ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_review' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--review"
+              data-active={filter.filter === 'pending_review'}
+            >
+              Pending Review ({filter.filter === 'pending_review' ? total : (tabCounts.pending_review ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'archived' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
+              data-active={filter.filter === 'archived'}
+            >
+              Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
+            </button>
+          </div>
         </div>
 
-        <div className="bulk-view-toolbar-center">
-          {/* GROUP 2: Filter tabs */}
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'all' })}
-            className="bulk-view-toolbar-filter-btn"
-            data-active={filter.filter === 'all'}
-          >
-            All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'pending_delete' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
-            data-active={filter.filter === 'pending_delete'}
-          >
-            Pending Delete ({filter.filter === 'pending_delete' ? total : (tabCounts.pending_delete ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'pending_review' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--review"
-            data-active={filter.filter === 'pending_review'}
-          >
-            Pending Review ({filter.filter === 'pending_review' ? total : (tabCounts.pending_review ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'archived' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
-            data-active={filter.filter === 'archived'}
-          >
-            Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
-          </button>
-        </div>
-
-        <div className="bulk-view-toolbar-right">
-          {/* GROUP 3: Sync & Tools */}
-          <label className="bulk-view-sync-label">
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--main">
+          <div className="bulk-view-toolbar-left">
             <input
               type="checkbox"
-              checked={autoSyncEnabled}
-              onChange={() => {
-                console.log(
-                  '[AUTO_SYNC] Checkbox toggled account=',
-                  primaryAccountId,
-                  'enabled=',
-                  !autoSyncEnabled,
-                )
-                primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
-              }}
+              checked={allInBatchSelected}
+              ref={batchCheckboxRef}
+              onChange={handleBatchCheckboxToggle}
+              title={
+                bulkBatchSize === 'all'
+                  ? allInBatchSelected || someInBatchSelected
+                    ? 'Deselect all in this tab'
+                    : 'Select all messages in this tab (full list)'
+                  : allInBatchSelected || someInBatchSelected
+                    ? 'Deselect all on this page'
+                    : 'Select all on this page'
+              }
             />
-            Auto-sync
-          </label>
-          <button
-            type="button"
-            className="bulk-view-pull-btn"
-            onClick={handleSync}
-            disabled={syncing || !primaryAccountId}
-            title="Pull messages"
-          >
-            {syncing ? '↻ Syncing…' : '↻ Pull'}
-          </button>
-          <button
-            type="button"
-            className="bulk-view-sync-remote-btn"
-            onClick={handleRemoteSyncAll}
-            disabled={remoteSyncBusy || accounts.length === 0}
-            title="Enqueue full remote folder reconcile for all accounts (background; use after Auto-Sort or to fix drift)"
-          >
-            {remoteSyncBusy ? '☁ …' : '☁ Sync Remote'}
-          </button>
-          <button
-            type="button"
-            className="bulk-view-sync-remote-btn"
-            onClick={openRemoteDebugPanel}
-            title="Remote queue diagnostics (temporary debug UI)"
-            style={{ opacity: 0.85 }}
-          >
-            Debug
-          </button>
-          <button
-            type="button"
-            className="bulk-view-sync-remote-btn"
-            onClick={() => void handleTestMoveOne()}
-            disabled={displayMessages.length === 0 || remoteDebugLoading}
-            title="Enqueue + drain first visible message only"
-            style={{ opacity: 0.85 }}
-          >
-            Test Move 1
-          </button>
-          <button
-            type="button"
-            className="bulk-view-wr-expert-btn"
-            onClick={() => setShowWrExpertModal(true)}
-            title="Edit AI inbox rules (WRExpert.md)"
-          >
-            WR Expert
-          </button>
+            <select
+              value={bulkBatchSize}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === 'all') {
+                  setBulkBatchSize('all')
+                  setShouldSelectAllWhenReady(true)
+                } else {
+                  setBulkBatchSize(Number(val))
+                }
+              }}
+              className="bulk-view-selection-group-select"
+            >
+              <option value="all">All</option>
+              {[10, 12, 24, 48].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="bulk-view-ai-sort-btn ai-auto-sort-btn"
+              onClick={() => void handleAiAutoSort()}
+              disabled={
+                isSortingActive || (bulkBatchSize === 'all' ? total === 0 : selectedCount === 0)
+              }
+              title={
+                isSortingActive
+                  ? 'Auto-Sort is running…'
+                  : bulkBatchSize === 'all'
+                    ? total === 0
+                      ? 'No messages in this tab'
+                      : `AI Auto-Sort all ${total} message(s) in this tab`
+                    : selectedCount === 0
+                      ? 'Select messages on this page, then run AI Auto-Sort'
+                      : 'AI Auto-Sort selected messages'
+              }
+            >
+              ⚡ AI Auto-Sort
+            </button>
+            <span className="bulk-view-selection-group-count selected-count">
+              {bulkBatchSize === 'all' ? `${total} in tab · ${selectedCount} selected` : `${selectedCount} selected`}
+            </span>
+          </div>
+
+          <div className="bulk-view-toolbar-right">
+            <label className="bulk-view-sync-label">
+              <input
+                type="checkbox"
+                checked={autoSyncEnabled}
+                onChange={() => {
+                  console.log(
+                    '[AUTO_SYNC] Checkbox toggled account=',
+                    primaryAccountId,
+                    'enabled=',
+                    !autoSyncEnabled,
+                  )
+                  primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
+                }}
+              />
+              Auto-sync
+            </label>
+            <button
+              type="button"
+              className="bulk-view-pull-btn"
+              onClick={handleSync}
+              disabled={syncing || !primaryAccountId}
+              title="Pull messages"
+            >
+              {syncing ? '↻ Syncing…' : '↻ Pull'}
+            </button>
+            <button
+              type="button"
+              className="bulk-view-sync-remote-btn"
+              onClick={handleRemoteSyncAll}
+              disabled={remoteSyncBusy || accounts.length === 0}
+              title="Enqueue full remote folder reconcile for all accounts (background; use after Auto-Sort or to fix drift)"
+            >
+              {remoteSyncBusy ? '☁ …' : '☁ Sync Remote'}
+            </button>
+            <button
+              type="button"
+              className="bulk-view-wr-expert-btn"
+              onClick={() => setShowWrExpertModal(true)}
+              title="Edit AI inbox rules (WRExpert.md)"
+            >
+              WR Expert
+            </button>
+          </div>
         </div>
+
+        {import.meta.env.DEV ? (
+          <div className="bulk-view-toolbar-row bulk-view-toolbar-row--dev">
+            <button
+              type="button"
+              className="bulk-view-devtools-toggle"
+              onClick={() => setBulkDevToolsOpen((o) => !o)}
+              aria-expanded={bulkDevToolsOpen}
+              title="Show or hide temporary debug controls"
+            >
+              Developer tools {bulkDevToolsOpen ? '▼' : '▶'}
+            </button>
+            {bulkDevToolsOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="bulk-view-sync-remote-btn"
+                  onClick={openRemoteDebugPanel}
+                  title="Remote queue diagnostics (temporary debug UI)"
+                  style={{ opacity: 0.85 }}
+                >
+                  Debug
+                </button>
+                <button
+                  type="button"
+                  className="bulk-view-sync-remote-btn"
+                  onClick={() => void handleTestMoveOne()}
+                  disabled={displayMessages.length === 0 || remoteDebugLoading}
+                  title="Enqueue + drain first visible message only"
+                  style={{ opacity: 0.85 }}
+                >
+                  Test Move 1
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {remoteDebugOpen ? (
@@ -3905,15 +3959,26 @@ export default function EmailInboxBulkView({
                               {acc.failed} · total {acc.total}
                             </div>
                             {acc.failed > 0 && acc.accountId !== '(no account_id)' ? (
-                              <button
-                                type="button"
-                                disabled={remoteDebugLoading}
-                                style={{ marginTop: 6, fontSize: 11, padding: '4px 8px' }}
-                                title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
-                                onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
-                              >
-                                Retry failed (this account)
-                              </button>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                                <button
+                                  type="button"
+                                  disabled={remoteDebugLoading}
+                                  style={{ fontSize: 11, padding: '4px 8px' }}
+                                  title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
+                                  onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
+                                >
+                                  Retry failed (this account)
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={remoteDebugLoading}
+                                  style={{ fontSize: 11, padding: '4px 8px' }}
+                                  title="Delete failed queue rows for this account (e.g. Account not found after disconnect — use Sync Remote after reconnect)"
+                                  onClick={() => void handleClearFailedRemoteQueue(acc.accountId)}
+                                >
+                                  Clear failed (this account)
+                                </button>
+                              </div>
                             ) : null}
                           </li>
                         ))}

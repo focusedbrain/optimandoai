@@ -151,6 +151,8 @@ import {
   scheduleOrchestratorRemoteDrain,
   listRemoteOrchestratorQueueRows,
   resetFailedOrchestratorRemoteQueueRows,
+  clearFailedOrchestratorRemoteQueueForAccount,
+  cleanupStaleFailedRemoteQueueOnReconnect,
   enqueueRemoteOpsForLocalLifecycleState,
   enqueueFullRemoteSync,
   enqueueFullRemoteSyncForAccountsTouchingMessages,
@@ -293,11 +295,38 @@ function parseAiJson(raw: string): Record<string, unknown> {
 }
 const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 
+/** Set from `main.ts` with the same getter as inbox — used for post-connect remote queue cleanup. */
+let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
+
+async function runPostEmailConnectFailedQueueCleanup(account: { id: string; email: string }): Promise<void> {
+  if (!inboxDbGetterForEmailIpc) return
+  try {
+    const db =
+      typeof inboxDbGetterForEmailIpc === 'function' ? await inboxDbGetterForEmailIpc() : inboxDbGetterForEmailIpc
+    if (!db) return
+    const accounts = await emailGateway.listAccounts()
+    const { deletedCount } = cleanupStaleFailedRemoteQueueOnReconnect(
+      db,
+      accounts.map((a) => ({ id: a.id, email: a.email })),
+      { id: account.id, email: account.email },
+    )
+    if (deletedCount > 0) {
+      console.log(
+        `[Email IPC] Post-connect: removed ${deletedCount} stale failed remote queue row(s) (orphan / same-email old id)`,
+      )
+    }
+  } catch (e: any) {
+    console.warn('[Email IPC] Post-connect failed-queue cleanup skipped:', e?.message)
+  }
+}
+
 /**
  * Register all email-related IPC handlers.
  * Uses removeHandler before each handle to allow re-registration (idempotent).
+ * @param getInboxDb — optional; when set, stale failed remote queue rows are cleaned after a successful account connect.
  */
-export function registerEmailHandlers(): void {
+export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): void {
+  inboxDbGetterForEmailIpc = getInboxDb ?? null
   console.log('[Email IPC] Registering handlers...')
   
   const channels = [
@@ -445,6 +474,7 @@ export function registerEmailHandlers(): void {
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email })
       })
+      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
@@ -527,6 +557,7 @@ export function registerEmailHandlers(): void {
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
       })
+      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectImap error:', error)
@@ -543,6 +574,7 @@ export function registerEmailHandlers(): void {
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
       })
+      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectCustomMailbox error:', error)
@@ -814,18 +846,43 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
       'sort_category = ?',
     )
     params.push('pending_review')
+  } else if (filter === 'urgent') {
+    conditions.push(
+      'deleted = 0',
+      'archived = 0',
+      '(pending_delete = 0 OR pending_delete IS NULL)',
+      'sort_category = ?',
+    )
+    params.push('urgent')
   } else if (filter === 'unread') {
-    conditions.push('deleted = 0', 'archived = 0', 'read_status = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-    params.push('pending_review')
+    conditions.push(
+      'deleted = 0',
+      'archived = 0',
+      'read_status = 0',
+      '(pending_delete = 0 OR pending_delete IS NULL)',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+    )
+    params.push('pending_review', 'urgent')
   } else if (filter === 'starred') {
-    conditions.push('deleted = 0', 'archived = 0', 'starred = 1', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-    params.push('pending_review')
+    conditions.push(
+      'deleted = 0',
+      'archived = 0',
+      'starred = 1',
+      '(pending_delete = 0 OR pending_delete IS NULL)',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+    )
+    params.push('pending_review', 'urgent')
   } else if (filter === 'archived') {
     conditions.push('archived = 1', 'deleted = 0')
   } else {
-    /* all: main inbox — exclude archived, deleted, pending_delete, pending_review */
-    conditions.push('deleted = 0', 'archived = 0', '(pending_delete = 0 OR pending_delete IS NULL)', '(sort_category IS NULL OR sort_category != ?)')
-    params.push('pending_review')
+    /* all: main inbox — exclude archived, deleted, pending_delete, pending_review, urgent */
+    conditions.push(
+      'deleted = 0',
+      'archived = 0',
+      '(pending_delete = 0 OR pending_delete IS NULL)',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+    )
+    params.push('pending_review', 'urgent')
   }
   if (sourceType) {
     conditions.push('source_type = ?')
@@ -2577,6 +2634,28 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       return { ok: true, resetCount }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'retryFailedRemoteOps failed' }
+    }
+  })
+
+  /**
+   * Permanently remove **failed** remote queue rows for one account (orphan “Account not found”, etc.).
+   * Requires a concrete `accountId` (use debug panel per-account button).
+   */
+  ipcMain.handle('inbox:clearFailedRemoteOps', async (_e, accountId?: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const aid =
+        typeof accountId === 'string' && accountId.trim() && accountId.trim() !== '(no account_id)'
+          ? accountId.trim()
+          : undefined
+      if (!aid) {
+        return { ok: false, error: 'accountId is required' }
+      }
+      const { deletedCount } = clearFailedOrchestratorRemoteQueueForAccount(db, aid)
+      return { ok: true, deletedCount }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'clearFailedRemoteOps failed' }
     }
   })
 

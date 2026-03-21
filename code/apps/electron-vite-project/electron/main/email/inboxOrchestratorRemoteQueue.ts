@@ -1092,6 +1092,94 @@ export function resetFailedOrchestratorRemoteQueueRows(db: any, accountId?: stri
   return { resetCount }
 }
 
+/** Normalize address for reconnect / duplicate-account cleanup (trim + lowercase). */
+function normalizeAccountEmailForQueueCleanup(email: string | null | undefined): string {
+  return String(email ?? '')
+    .trim()
+    .toLowerCase()
+}
+
+/**
+ * Remove **failed** queue rows for one account (e.g. orphan “Account not found” after disconnect).
+ * Does not touch pending/processing/completed.
+ */
+export function clearFailedOrchestratorRemoteQueueForAccount(db: any, accountId: string): { deletedCount: number } {
+  if (!db) return { deletedCount: 0 }
+  const id = typeof accountId === 'string' ? accountId.trim() : ''
+  if (!id || id === '(no account_id)') return { deletedCount: 0 }
+  const info = db
+    .prepare(
+      `DELETE FROM remote_orchestrator_mutation_queue
+       WHERE status = 'failed' AND account_id = ?`,
+    )
+    .run(id) as { changes?: number }
+  const deletedCount = typeof info?.changes === 'number' ? info.changes : 0
+  console.log('[OrchestratorRemote] clearFailedOrchestratorRemoteQueueForAccount:', deletedCount, 'row(s)', `(account_id=${id})`)
+  return { deletedCount }
+}
+
+/**
+ * After a successful email connect (same mailbox, new `account_id`), drop stale **failed** rows that can never succeed:
+ * - `account_id` not present in the current gateway account list (disconnected / replaced).
+ * - Other connected accounts with the **same normalized email** but a different id (leftover duplicate row).
+ */
+export function cleanupStaleFailedRemoteQueueOnReconnect(
+  db: any,
+  knownAccounts: Array<{ id: string; email: string }>,
+  newlyConnected: { id: string; email: string },
+): { deletedCount: number } {
+  if (!db) return { deletedCount: 0 }
+  const knownIds = new Set(
+    knownAccounts.map((a) => String(a.id ?? '').trim()).filter((x) => x.length > 0),
+  )
+  const newId = String(newlyConnected.id ?? '').trim()
+  const newEmail = normalizeAccountEmailForQueueCleanup(newlyConnected.email)
+  let deletedCount = 0
+
+  // Orphan failed rows: gateway no longer has that account_id (e.g. web.de reconnect → new id).
+  if (knownIds.size > 0) {
+    const ids = [...knownIds]
+    const ph = ids.map(() => '?').join(',')
+    const r1 = db
+      .prepare(
+        `DELETE FROM remote_orchestrator_mutation_queue
+         WHERE status = 'failed' AND account_id NOT IN (${ph})`,
+      )
+      .run(...ids) as { changes?: number }
+    deletedCount += typeof r1?.changes === 'number' ? r1.changes : 0
+  }
+
+  // Same mailbox still listed under an older id: clear failed for those ids only (not the newly connected one).
+  if (newEmail && newId) {
+    const otherIds = knownAccounts
+      .filter(
+        (a) =>
+          normalizeAccountEmailForQueueCleanup(a.email) === newEmail &&
+          String(a.id ?? '').trim() !== '' &&
+          String(a.id).trim() !== newId,
+      )
+      .map((a) => String(a.id).trim())
+    for (const oid of otherIds) {
+      const r2 = db
+        .prepare(
+          `DELETE FROM remote_orchestrator_mutation_queue
+           WHERE status = 'failed' AND account_id = ?`,
+        )
+        .run(oid) as { changes?: number }
+      deletedCount += typeof r2?.changes === 'number' ? r2.changes : 0
+    }
+  }
+
+  if (deletedCount > 0) {
+    console.log(
+      '[OrchestratorRemote] cleanupStaleFailedRemoteQueueOnReconnect:',
+      deletedCount,
+      'stale failed row(s) removed (post-connect)',
+    )
+  }
+  return { deletedCount }
+}
+
 /**
  * Diagnostics for settings / support UI (optional).
  */

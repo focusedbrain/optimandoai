@@ -114,6 +114,8 @@ export interface EmailInboxBridge {
   debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
   /** Set all failed remote orchestrator queue rows back to pending + schedule drain. */
   retryFailedRemoteOps?: (accountId?: string) => Promise<{ ok: boolean; resetCount?: number; error?: string }>
+  /** Permanently delete failed queue rows for one account (requires accountId). */
+  clearFailedRemoteOps?: (accountId: string) => Promise<{ ok: boolean; deletedCount?: number; error?: string }>
   syncAccount: (accountId: string) => Promise<{
     ok: boolean
     data?: unknown

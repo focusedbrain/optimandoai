@@ -74,7 +74,7 @@ export interface InboxMessage {
 }
 
 export interface InboxFilter {
-  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review'
+  filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   sourceType: InboxSourceType | 'all'
   handshakeId?: string
   category?: string
@@ -141,7 +141,7 @@ interface EmailInboxState {
   clearBulkDraftManualComposeForIds: (ids: string[]) => void
 
   fetchMessages: () => Promise<void>
-  /** Load inbox rows for all WR Desk bulk tabs (all / pending_delete / pending_review / archived) with paginated drain — no row cap. */
+  /** Load inbox rows for all WR Desk bulk tabs (all / urgent / pending_delete / pending_review / archived) with paginated drain — no row cap. */
   fetchAllMessages: (options?: { soft?: boolean }) => Promise<void>
   /** All IDs matching the active filter (paginated drain). Same semantics as inbox tabs; ignores batch/page UI. */
   fetchMatchingIdsForCurrentFilter: () => Promise<string[]>
@@ -263,14 +263,16 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
       if (m.deleted === 1 || m.pending_delete !== 1) return false
     } else if (fk === 'pending_review') {
       if (m.deleted === 1 || m.archived === 1 || m.sort_category !== 'pending_review') return false
+    } else if (fk === 'urgent') {
+      if (m.deleted === 1 || m.archived === 1 || m.pending_delete === 1 || m.sort_category !== 'urgent') return false
     } else if (fk === 'unread') {
       if (m.deleted === 1 || m.archived === 1 || m.read_status !== 0) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review') return false
+      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     } else if (fk === 'starred') {
       if (m.deleted === 1 || m.archived === 1 || m.starred !== 1) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review') return false
+      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     } else if (fk === 'archived') {
       if (m.archived !== 1 || m.deleted === 1) return false
     } else {
@@ -278,7 +280,7 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
       if (m.deleted === 1) return false
       if (m.archived === 1) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review') return false
+      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     }
 
     if (qLower) {
@@ -306,8 +308,9 @@ function deriveDisplayFromAll(
 
 /** Derive tab counts for bulk toolbar labels (same list scope as `inboxFilter`). */
 export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFilter): Record<string, number> {
-  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = [
+  const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
     'all',
+    'urgent',
     'pending_delete',
     'pending_review',
     'archived',
@@ -330,8 +333,9 @@ async function loadBulkInboxSnapshot(get: () => EmailInboxState): Promise<{
 } | null> {
   const bridge = getBridge()
   if (!bridge?.listMessages) return null
-  const filters: Array<'all' | 'pending_delete' | 'pending_review' | 'archived'> = [
+  const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
     'all',
+    'urgent',
     'pending_delete',
     'pending_review',
     'archived',

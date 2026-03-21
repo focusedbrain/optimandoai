@@ -666,6 +666,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   debugTestMoveOne: (messageId: string) => ipcRenderer.invoke('inbox:debugTestMoveOne', messageId),
   /** Reset every `failed` row in `remote_orchestrator_mutation_queue` to `pending` and schedule drain. */
   retryFailedRemoteOps: (accountId?: string) => ipcRenderer.invoke('inbox:retryFailedRemoteOps', accountId),
+  /** Delete `failed` rows for one `account_id` (orphan queue after disconnect / reconnect). */
+  clearFailedRemoteOps: (accountId: string) => ipcRenderer.invoke('inbox:clearFailedRemoteOps', accountId),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
