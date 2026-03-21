@@ -20,7 +20,7 @@ function mapThemeToCss(theme: ExtensionTheme): string {
 function WRCodeLogo({ size = 220 }: { size?: number }) {
   return (
     <img 
-      src="./wrdesk-logo.png" 
+      src="/wrdesk-logo.svg"
       alt="WR Desk Logo"
       style={{
         width: size,

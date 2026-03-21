@@ -3527,7 +3527,7 @@ function SidepanelOrchestrator() {
         {/* WRDesk Logo */}
         <div style={{ textAlign: 'center' }}>
           <img 
-            src={chrome.runtime.getURL('wrdesk-logo.png')}
+            src={chrome.runtime.getURL('wrdesk-logo.svg')}
             alt="WR Desk"
             style={{
               width: '180px',

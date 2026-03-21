@@ -700,7 +700,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
                 marginBottom: '12px'
               }}>
                 <img 
-                  src={chrome.runtime.getURL('wrdesk-logo.png')}
+                  src={chrome.runtime.getURL('wrdesk-logo.svg')}
                   alt="WR Desk Logo"
                   style={{
                     width: '256px',
