@@ -650,6 +650,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
   enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
+  /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */
+  enqueueRemoteSync: (messageIds: string[]) => ipcRenderer.invoke('inbox:enqueueRemoteSync', messageIds),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),

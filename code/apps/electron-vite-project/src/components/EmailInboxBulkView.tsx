@@ -2126,17 +2126,24 @@ export default function EmailInboxBulkView({
           movedIds: allMovedIds,
           failedIds: allFailedIds,
         })
-        /** Ensure M365/IMAP mirror: parallel classify races `scheduleOrchestratorRemoteDrain`; re-upsert from DB + drain. */
-        try {
-          const mirror = window.emailInbox?.enqueueRemoteLifecycleMirror
-          if (mirror && ids.length) {
-            void mirror(ids).then((res) => {
-              if (!res?.ok) console.warn('[SORT] Remote lifecycle mirror enqueue:', res?.error)
-              else if (res.data?.enqueued) console.log('[SORT] Remote mirror re-enqueued:', res.data)
-            })
+        /** Ensure M365/IMAP mirror for every successfully classified id (not raw batch targets). Re-upserts from DB + chained drain. */
+        const classifiedIdsForRemote = [...new Set(allProcessedIds)]
+        if (classifiedIdsForRemote.length > 0) {
+          const syncFn = window.emailInbox?.enqueueRemoteSync ?? window.emailInbox?.enqueueRemoteLifecycleMirror
+          if (syncFn) {
+            try {
+              const res = await syncFn(classifiedIdsForRemote)
+              if (!res?.ok) {
+                console.warn('[AutoSort] Remote enqueue failed:', res && 'error' in res ? res.error : res)
+              } else if ('enqueued' in res && (res.enqueued ?? 0) > 0) {
+                console.log('[AutoSort] Remote enqueue:', { enqueued: res.enqueued, skipped: res.skipped })
+              } else if ('data' in res && res.data?.enqueued) {
+                console.log('[AutoSort] Remote enqueue:', res.data)
+              }
+            } catch (e) {
+              console.warn('[AutoSort] Remote enqueue failed:', e)
+            }
           }
-        } catch (e) {
-          console.warn('[SORT] Remote lifecycle mirror failed:', e)
         }
         if (clearSelection) clearMultiSelect()
         if (!skipEndRefresh) {

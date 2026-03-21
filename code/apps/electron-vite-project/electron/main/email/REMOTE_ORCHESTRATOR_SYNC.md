@@ -34,7 +34,17 @@ After **`inbox:syncAccount`** (Pull):
 
 After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** still runs inline (capped ~28s / 150 batches) before the next tick is scheduled, plus **`scheduleOrchestratorRemoteDrain`** for overflow.
 
+### Pull vs background remote drain
+
+- **`syncPullLock`** (`markPullActive` / `markPullInactive`) wraps **provider list + per-message fetch** in `syncAccountEmails` for that `accountId`.
+- **`scheduleOrchestratorRemoteDrain`** can still run during Pull (e.g. `fireRemoteOrchestratorSync` from another IPC handler). **`processOrchestratorRemoteQueueBatch`** skips rows whose `account_id` is pull-active (rows stay `pending`; **`deferredDueToPull`**). Other accounts’ queue rows still process.
+- **`inbox:syncAccount`** already schedules drain **after** `syncAccountEmails` returns; the lock covers concurrent drains, not the manual Pull ordering alone.
+
 **`inbox:aiClassifySingle`** / **`inbox:aiCategorize`** schedule background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
+
+**`scheduleOrchestratorRemoteDrain`** runs one batch per tick, then **reschedules** while `pendingRemaining > 0`, after work was processed, or when a parallel enqueue set `drainRescheduleRequested` — so the queue is drained to completion in the background (not a single batch only).
+
+Bulk **Auto-Sort** (`runAiCategorizeForIds`) ends with **`inbox:enqueueRemoteSync`** (alias of lifecycle mirror) for **all successfully classified** message IDs (`allProcessedIds`), so coalesced per-message drains do not drop mirror work.
 
 IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** before `MOVE`. Gmail uses **`ensureWrDeskUserLabel`** to create missing user labels.
 
@@ -44,6 +54,15 @@ IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** 
 - **Providers:** Gmail/Outlook may return `skipped: true` for ambiguous “already there” API errors. **IMAP** only returns `skipped: true` after verifying the message is already in the destination mailbox (HEADER Message-ID or UID in that folder).
 - **Processor:** Up to **8** attempts per row; transient failures return row to `pending` with incrementing `attempts`. Stale `processing` (>20 min) reset to `pending`.
 - **Visibility:** `inbox_messages.remote_orchestrator_last_error` holds the latest error / retry hint; `inbox:listRemoteOrchestratorQueue` exposes queue rows.
+
+## Manual QA (Auto-Sort ↔ remote)
+
+- [ ] Auto-Sort 10 messages → `remote_orchestrator_mutation_queue` shows expected pending rows (via `inbox:listRemoteOrchestratorQueue` / DB).
+- [ ] Wait for background drain → rows move to `completed` (or failed with visible error).
+- [ ] web.de: messages appear in correct lifecycle folders.
+- [ ] Outlook: messages appear in correct lifecycle folders.
+- [ ] Reclassify 1 message → prior queue row superseded / new op enqueued per supersede rules.
+- [ ] Pull again → no spurious “Could not fetch message” for moved mail (INBOX + lifecycle fetch path).
 
 ## Follow-ups
 

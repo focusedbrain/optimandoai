@@ -3,13 +3,20 @@
  *
  * - Enqueue after successful local transitions (IPC handlers).
  * - Drain asynchronously in small batches; failures stay visible with retry backoff.
- * - Idempotency: UNIQUE(message_id, operation) collapses duplicate pending work;
- *   providers implement additional server-side idempotency where APIs allow.
+ * - Idempotency: UNIQUE(message_id, operation) collapses duplicate pending work for the **same** op;
+ *   enqueueing a **new** op for a message first marks other pending/processing rows for that message
+ *   as completed with `Superseded by newer classification` so reclassification does not double-move.
+ * - Batch drain prefers **newest** queue rows first (`ORDER BY created_at DESC`) as a second line of defense.
+ * - While a **Pull** is listing/fetching for an account (`syncPullLock`), rows for that `account_id` are left
+ *   pending so the remote mirror cannot move messages out of INBOX between list and fetch.
+ * - ON CONFLICT(message_id, operation): refreshes payload, resets to pending (unless row is mid-flight
+ *   `processing`), clears attempts/last_error — compatible with supersede (other ops are already closed).
  */
 
 import { randomUUID } from 'crypto'
 import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
 import { emailGateway } from './gateway'
+import { isPullActive } from './syncPullLock'
 
 const MAX_ATTEMPTS = 8
 const BATCH = 20
@@ -36,6 +43,14 @@ export function enqueueOrchestratorRemoteMutations(
   const select = db.prepare(
     `SELECT id, account_id, email_message_id, source_type FROM inbox_messages WHERE id = ?`,
   ) as { get: (id: string) => any }
+
+  const supersedeOtherPendingOps = db.prepare(`
+    UPDATE remote_orchestrator_mutation_queue
+    SET status = 'completed',
+        last_error = 'Superseded by newer classification',
+        updated_at = ?
+    WHERE message_id = ? AND operation != ? AND status IN ('pending', 'processing')
+  `)
 
   const upsert = db.prepare(`
     INSERT INTO remote_orchestrator_mutation_queue (
@@ -86,6 +101,7 @@ export function enqueueOrchestratorRemoteMutations(
     }
 
     try {
+      supersedeOtherPendingOps.run(now, mid, operation)
       upsert.run(
         randomUUID(),
         mid,
@@ -110,6 +126,8 @@ export interface ProcessOrchestratorRemoteBatchResult {
   processed: number
   failed: number
   pendingRemaining: number
+  /** Rows not touched because a Pull was active for that account (remain `pending` for a later batch). */
+  deferredDueToPull?: number
 }
 
 /**
@@ -123,6 +141,7 @@ export async function processOrchestratorRemoteQueueBatch(
     processed: 0,
     failed: 0,
     pendingRemaining: 0,
+    deferredDueToPull: 0,
   }
   if (!db) return result
 
@@ -147,7 +166,7 @@ export async function processOrchestratorRemoteQueueBatch(
     FROM remote_orchestrator_mutation_queue q
     LEFT JOIN inbox_messages m ON m.id = q.message_id
     WHERE q.status = 'pending' AND q.attempts < ?
-    ORDER BY q.updated_at ASC
+    ORDER BY q.created_at DESC
     LIMIT ?
   `)
 
@@ -179,6 +198,10 @@ export async function processOrchestratorRemoteQueueBatch(
 
   for (let idx = 0; idx < rows.length; idx++) {
     const r = rows[idx]
+    if (isPullActive(r.account_id)) {
+      result.deferredDueToPull += 1
+      continue
+    }
     markProcessing.run(now(), r.id)
     try {
       const apply = await emailGateway.applyOrchestratorRemoteOperation(
@@ -342,9 +365,14 @@ export async function drainOrchestratorRemoteQueueBounded(
     processedTotal += r.processed
     batches++
 
-    if (r.processed === 0 && r.pendingRemaining >= before) {
+    if (r.processed === 0 && r.pendingRemaining >= before && (r.deferredDueToPull ?? 0) === 0) {
       /* Nothing dequeued (e.g. all stuck) — avoid spinning */
       break
+    }
+
+    /* Pull lock: batch had no remote work but rows remain — avoid tight loop while sync holds the lock */
+    if ((r.deferredDueToPull ?? 0) > 0 && r.processed === 0 && r.failed === 0) {
+      await new Promise((res) => setTimeout(res, 250))
     }
   }
 
@@ -390,7 +418,16 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
       const continueChain = batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
       if (continueChain) {
         drainRescheduleRequested = false
-        scheduleOrchestratorRemoteDrain(getDb)
+        const deferOnly =
+          batch.processed === 0 &&
+          batch.failed === 0 &&
+          (batch.deferredDueToPull ?? 0) > 0 &&
+          batch.pendingRemaining > 0
+        if (deferOnly) {
+          setTimeout(() => scheduleOrchestratorRemoteDrain(getDb), 250)
+        } else {
+          scheduleOrchestratorRemoteDrain(getDb)
+        }
       }
     } catch (e) {
       console.error('[OrchestratorRemote] drain error:', e)

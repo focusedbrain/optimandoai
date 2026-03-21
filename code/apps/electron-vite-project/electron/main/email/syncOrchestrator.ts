@@ -7,6 +7,7 @@
  * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
  * - **Auto-sync tick**: incremental from `last_sync_at`, same full pagination for new mail (no message-count cap).
  * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
+ * - **`syncPullLock`** during list+fetch prevents remote-queue moves for the same account (see `REMOTE_ORCHESTRATOR_SYNC.md`).
  *
  * @version 1.0.0
  */
@@ -20,6 +21,8 @@ import {
 } from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
+import { markPullActive, markPullInactive } from './syncPullLock'
+import { ImapProvider } from './providers/imap'
 import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
 
 function isLikelyEmailAuthError(message: string): boolean {
@@ -127,6 +130,53 @@ function getExistingEmailMessageIds(db: any, accountId: string): Set<string> {
   }
 }
 
+/**
+ * One-time per account: move messages out of legacy WRDesk-* / typo lifecycle folders into canonical names.
+ * Sets `email_sync_state.imap_folders_consolidated` after a successful run (connect + consolidate).
+ */
+async function maybeRunImapLegacyFolderConsolidation(db: any, accountId: string): Promise<void> {
+  if (!db) return
+  try {
+    const row = db
+      .prepare('SELECT imap_folders_consolidated FROM email_sync_state WHERE account_id = ?')
+      .get(accountId) as { imap_folders_consolidated?: number } | undefined
+    if (row?.imap_folders_consolidated === 1) return
+  } catch {
+    return
+  }
+
+  const cfg = emailGateway.getAccountConfig(accountId)
+  if (!cfg || cfg.provider !== 'imap') return
+
+  const p = new ImapProvider()
+  try {
+    console.log('[SyncOrchestrator] IMAP legacy folder consolidation (one-time) starting for account', accountId)
+    await p.connect(cfg)
+    await p.consolidateLifecycleFolders()
+    try {
+      db.prepare(
+        `INSERT INTO email_sync_state (account_id, imap_folders_consolidated)
+         VALUES (?, 1)
+         ON CONFLICT(account_id) DO UPDATE SET imap_folders_consolidated = 1`,
+      ).run(accountId)
+    } catch (e: any) {
+      console.warn('[SyncOrchestrator] Could not persist imap_folders_consolidated:', e?.message)
+    }
+    console.log('[SyncOrchestrator] IMAP legacy folder consolidation done for account', accountId)
+  } catch (e: any) {
+    console.warn(
+      '[SyncOrchestrator] IMAP legacy folder consolidation failed (will retry on next sync):',
+      e?.message || e,
+    )
+  } finally {
+    try {
+      await p.disconnect()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function mapToRawEmailMessage(
   detail: SanitizedMessageDetail,
   attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }>,
@@ -188,6 +238,9 @@ async function syncAccountEmailsImpl(
 
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
+    if (accountInfo?.provider === 'imap') {
+      await maybeRunImapLegacyFolderConsolidation(db, accountId)
+    }
     /** Default 0 = no lower date bound unless account sets sync.maxAgeDays (incremental / auto-sync window). */
     const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 0
 
@@ -231,74 +284,82 @@ async function syncAccountEmailsImpl(
       ...(effectiveFrom ? { fromDate: effectiveFrom } : {}),
     }
 
-    const messages = await emailGateway.listMessages(accountId, listOptions)
-    const existingIds = getExistingEmailMessageIds(db, accountId)
+    /** Hold during list + per-message fetch so remote mirror cannot move mail out of INBOX mid-pull. */
+    let messages: Awaited<ReturnType<typeof emailGateway.listMessages>> = []
     let skippedDuplicate = 0
-
-    console.log(
-      `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'})`,
-    )
-
     let newCount = 0
     let beapCount = 0
     let plainCount = 0
     let lastUidSeen = lastUid
     let cursorSeen = syncCursor
 
-    for (const msg of messages) {
-      if (existingIds.has(msg.id)) {
-        skippedDuplicate++
-        continue
-      }
+    markPullActive(accountId)
+    try {
+      messages = await emailGateway.listMessages(accountId, listOptions)
+      const existingIds = getExistingEmailMessageIds(db, accountId)
+      skippedDuplicate = 0
 
-      try {
-        const detail = await emailGateway.getMessage(accountId, msg.id)
-        if (!detail) {
-          result.errors.push(`Could not fetch message ${msg.id}`)
+      console.log(
+        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'})`,
+      )
+
+      for (const msg of messages) {
+        if (existingIds.has(msg.id)) {
+          skippedDuplicate++
           continue
         }
 
-        const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
-        if (detail.hasAttachments && detail.attachmentCount) {
-          const attList = await emailGateway.listAttachments(accountId, msg.id)
-          for (const att of attList) {
-            let content: Buffer | undefined
-            try {
-              const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
-              if (buf) content = buf
-            } catch {
-              // Non-fatal: attachment without content still gets registered
-            }
-            attachments.push({
-              id: att.id,
-              filename: att.filename,
-              mimeType: att.mimeType,
-              size: att.size,
-              contentId: att.contentId,
-              content,
-            })
+        try {
+          const detail = await emailGateway.getMessage(accountId, msg.id)
+          if (!detail) {
+            result.errors.push(`Could not fetch message ${msg.id}`)
+            continue
           }
+
+          const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
+          if (detail.hasAttachments && detail.attachmentCount) {
+            const attList = await emailGateway.listAttachments(accountId, msg.id)
+            for (const att of attList) {
+              let content: Buffer | undefined
+              try {
+                const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
+                if (buf) content = buf
+              } catch {
+                // Non-fatal: attachment without content still gets registered
+              }
+              attachments.push({
+                id: att.id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                size: att.size,
+                contentId: att.contentId,
+                content,
+              })
+            }
+          }
+
+          const rawMsg = mapToRawEmailMessage(detail, attachments)
+          const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
+
+          newCount++
+          result.newInboxMessageIds.push(routeResult.inboxMessageId)
+          if (routeResult.type === 'beap') beapCount++
+          else plainCount++
+
+          if (newCount > 0 && newCount % 50 === 0) {
+            console.log(
+              `[SyncOrchestrator] Progress: ${newCount} ingested, ${skippedDuplicate} dupes, ${result.errors.length} errors, ${messages.length} listed`,
+            )
+          }
+
+          if ((msg as any).uid) lastUidSeen = String((msg as any).uid)
+        } catch (err: any) {
+          result.errors.push(`${msg.id}: ${err?.message ?? 'Unknown error'}`)
+          console.error('[SyncOrchestrator] Message processing error:', msg.id, err)
         }
-
-        const rawMsg = mapToRawEmailMessage(detail, attachments)
-        const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
-
-        newCount++
-        result.newInboxMessageIds.push(routeResult.inboxMessageId)
-        if (routeResult.type === 'beap') beapCount++
-        else plainCount++
-
-        if (newCount > 0 && newCount % 50 === 0) {
-          console.log(
-            `[SyncOrchestrator] Progress: ${newCount} ingested, ${skippedDuplicate} dupes, ${result.errors.length} errors, ${messages.length} listed`,
-          )
-        }
-
-        if ((msg as any).uid) lastUidSeen = String((msg as any).uid)
-      } catch (err: any) {
-        result.errors.push(`${msg.id}: ${err?.message ?? 'Unknown error'}`)
-        console.error('[SyncOrchestrator] Message processing error:', msg.id, err)
       }
+    } finally {
+      markPullInactive(accountId)
     }
 
     result.newMessages = newCount

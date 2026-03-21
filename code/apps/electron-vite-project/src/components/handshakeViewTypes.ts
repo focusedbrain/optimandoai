@@ -165,6 +165,13 @@ export interface EmailInboxBridge {
     data?: { enqueued: number; skipped: number }
     error?: string
   }>
+  /** Same lifecycle re-enqueue + drain as `enqueueRemoteLifecycleMirror` (flat result). */
+  enqueueRemoteSync?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    error?: string
+  }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */
   persistManualBulkAnalysis?: (messageId: string, analysisJson: string) => Promise<{ ok: boolean; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>

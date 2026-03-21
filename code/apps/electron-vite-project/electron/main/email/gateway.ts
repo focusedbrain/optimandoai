@@ -234,6 +234,11 @@ class EmailGateway implements IEmailGateway {
     return account ? this.toAccountInfo(account) : null
   }
 
+  /** Full persisted config for connect (IMAP consolidation, diagnostics). */
+  getAccountConfig(id: string): EmailAccountConfig | undefined {
+    return this.accounts.find((a) => a.id === id)
+  }
+
   /**
    * Synchronous provider lookup for use in DB paths (enqueue, deletion queue).
    * Throws if the account no longer exists — callers must catch and skip / abort;

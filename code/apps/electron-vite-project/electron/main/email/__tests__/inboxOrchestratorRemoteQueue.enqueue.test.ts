@@ -19,13 +19,22 @@ describe('enqueueOrchestratorRemoteMutations', () => {
 
   function makeDb(row: Record<string, unknown> | undefined) {
     const upsertRuns: unknown[][] = []
+    const supersedeRuns: unknown[][] = []
     return {
       upsertRuns,
+      supersedeRuns,
       db: {
         prepare: vi.fn((sql: string) => {
           if (sql.includes('SELECT id, account_id')) {
             return {
               get: (_id: string) => row,
+            }
+          }
+          if (sql.includes('Superseded by newer classification')) {
+            return {
+              run: (...args: unknown[]) => {
+                supersedeRuns.push(args)
+              },
             }
           }
           if (sql.includes('INSERT INTO remote_orchestrator_mutation_queue')) {
@@ -62,7 +71,7 @@ describe('enqueueOrchestratorRemoteMutations', () => {
   })
 
   it('enqueues for email_plain row with provider from gateway', () => {
-    const { db, upsertRuns } = makeDb({
+    const { db, upsertRuns, supersedeRuns } = makeDb({
       id: 'm1',
       account_id: 'a1',
       email_message_id: 'em1',
@@ -70,6 +79,9 @@ describe('enqueueOrchestratorRemoteMutations', () => {
     })
     const r = enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_review')
     expect(r).toEqual({ enqueued: 1, skipped: 0 })
+    expect(supersedeRuns).toHaveLength(1)
+    expect(supersedeRuns[0]).toContain('m1')
+    expect(supersedeRuns[0]).toContain('pending_review')
     expect(upsertRuns).toHaveLength(1)
     expect(upsertRuns[0]).toContain('imap')
     expect(upsertRuns[0]).toContain('pending_review')

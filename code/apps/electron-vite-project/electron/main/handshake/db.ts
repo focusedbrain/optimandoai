@@ -795,6 +795,12 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'Schema v40: Auto-sync off by default — one-time reset of all email_sync_state rows (user opts in per account)',
     sql: [`UPDATE email_sync_state SET auto_sync_enabled = 0`],
   },
+  {
+    version: 41,
+    description:
+      'Schema v41: IMAP one-time legacy lifecycle folder consolidation flag (email_sync_state.imap_folders_consolidated)',
+    sql: [`ALTER TABLE email_sync_state ADD COLUMN imap_folders_consolidated INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 /**
@@ -880,6 +886,7 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'email_sync_state', column: 'total_synced', ddl: 'INTEGER DEFAULT 0' },
   { table: 'email_sync_state', column: 'last_error', ddl: 'TEXT' },
   { table: 'email_sync_state', column: 'last_error_at', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'imap_folders_consolidated', ddl: 'INTEGER NOT NULL DEFAULT 0' },
   // ── deletion_queue (remoteDeletion) ──
   { table: 'deletion_queue', column: 'message_id', ddl: 'TEXT' },
   { table: 'deletion_queue', column: 'account_id', ddl: 'TEXT' },

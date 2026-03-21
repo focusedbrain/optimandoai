@@ -860,7 +860,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
@@ -927,6 +927,27 @@ export function registerInboxHandlers(
       scheduleOrchestratorRemoteDrain(getDb)
     } catch (e) {
       console.warn('[Inbox] Remote orchestrator enqueue failed:', e)
+    }
+  }
+
+  /**
+   * Re-read local lifecycle columns for these inbox row IDs and upsert `remote_orchestrator_mutation_queue`,
+   * then schedule chained background drain until the queue is empty (see `scheduleOrchestratorRemoteDrain`).
+   */
+  async function runEnqueueRemoteLifecycleMirrorFromIds(messageIds: unknown): Promise<
+    { ok: true; enqueued: number; skipped: number } | { ok: false; error: string }
+  > {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = Array.isArray(messageIds)
+        ? messageIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+        : []
+      const r = ids.length ? enqueueRemoteOpsForLocalLifecycleState(db, ids) : { enqueued: 0, skipped: 0 }
+      scheduleOrchestratorRemoteDrain(getDb)
+      return { ok: true, enqueued: r.enqueued, skipped: r.skipped }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'enqueue failed' }
     }
   }
 
@@ -2038,17 +2059,19 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
    * many `scheduleOrchestratorRemoteDrain` calls coalesce while the queue was still empty.
    */
   ipcMain.handle('inbox:enqueueRemoteLifecycleMirror', async (_e, messageIds: string[]) => {
-    try {
-      const db = await resolveDb()
-      if (!db) return { ok: false, error: 'Database unavailable' }
-      const ids = Array.isArray(messageIds) ? messageIds.filter((x) => typeof x === 'string' && x.trim()) : []
-      const r = ids.length ? enqueueRemoteOpsForLocalLifecycleState(db, ids) : { enqueued: 0, skipped: 0 }
-      scheduleOrchestratorRemoteDrain(getDb)
-      return { ok: true, data: r }
-    } catch (e: any) {
-      console.warn('[Inbox] enqueueRemoteLifecycleMirror:', e?.message)
-      return { ok: false, error: e?.message ?? 'enqueue failed' }
+    const out = await runEnqueueRemoteLifecycleMirrorFromIds(messageIds)
+    if (!out.ok) {
+      console.warn('[Inbox] enqueueRemoteLifecycleMirror:', out.error)
+      return { ok: false, error: out.error }
     }
+    return { ok: true, data: { enqueued: out.enqueued, skipped: out.skipped } }
+  })
+
+  /** Same as `inbox:enqueueRemoteLifecycleMirror` but flat `{ enqueued, skipped }` — used after Auto-Sort batch. */
+  ipcMain.handle('inbox:enqueueRemoteSync', async (_e, messageIds: string[]) => {
+    const out = await runEnqueueRemoteLifecycleMirrorFromIds(messageIds)
+    if (!out.ok) return { ok: false, error: out.error }
+    return { ok: true, enqueued: out.enqueued, skipped: out.skipped }
   })
 
   /** Diagnostics: recent remote orchestrator mutation queue rows (pending / failed / completed). */

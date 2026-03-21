@@ -49,6 +49,33 @@ function imapFolderListHasMailbox(folders: FolderInfo[], want: string): boolean 
   })
 }
 
+type ImapNamespaceInfo = { prefix: string; delimiter: string }
+
+function normalizeImapPrefix(raw: unknown): string {
+  if (raw == null || raw === 'NIL') return ''
+  const s = String(raw).trim()
+  return s
+}
+
+/**
+ * From flattened LIST (getBoxes), find delimiter for the configured inbox and infer whether child
+ * folders live under `inbox+delimiter` (e.g. INBOX. on Dovecot) vs top-level (web.de).
+ */
+function inferNamespaceFromList(folders: FolderInfo[], inboxLogical: string): ImapNamespaceInfo {
+  const ib = inboxLogical.trim() || 'INBOX'
+  const ibLower = ib.toLowerCase()
+  const inboxRow =
+    folders.find((f) => f.path.toLowerCase() === ibLower) ||
+    folders.find((f) => f.name.toLowerCase() === ibLower)
+  const delimiter = inboxRow?.delimiter || '.'
+  const hasChildUnderInbox = folders.some((f) => {
+    const pl = f.path.toLowerCase()
+    return pl.startsWith(ibLower + delimiter.toLowerCase())
+  })
+  const prefix = hasChildUnderInbox ? ib + delimiter : ''
+  return { prefix, delimiter }
+}
+
 /** Nodemailer transport options aligned with SecurityMode (SSL/465 vs STARTTLS/587). */
 export function createSmtpTransport(smtp: NonNullable<EmailAccountConfig['smtp']>) {
   return nodemailer.createTransport({
@@ -67,12 +94,24 @@ export function createSmtpTransport(smtp: NonNullable<EmailAccountConfig['smtp']
 /**
  * IMAP Provider class
  */
+type ImapClientWithNamespaces = ImapConnection & {
+  namespaces?: {
+    personal?: Array<{ prefix?: string; delimiter?: string }>
+    other?: unknown
+    shared?: unknown
+  }
+}
+
 export class ImapProvider extends BaseEmailProvider {
   readonly providerType = 'imap' as const
   
   private client: ImapConnection | null = null
   private transporter: nodemailer.Transporter | null = null
   private messageCache: Map<string, RawEmailMessage> = new Map()
+  /** Cached per connection — from NAMESPACE or LIST fallback (see getNamespaceInfo). */
+  private namespaceInfoCache: ImapNamespaceInfo | null = null
+  /** Snapshot of IMAP CAPABILITY (uppercase); refreshed on `ready` and after mailbox open. `serverSupports()` is authoritative at move time. */
+  private serverCapabilities: string[] = []
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.imap) {
@@ -101,6 +140,8 @@ export class ImapProvider extends BaseEmailProvider {
         authTimeout: 10000
       })
       this.client = client
+      this.namespaceInfoCache = null
+      this.serverCapabilities = []
 
       /**
        * During connect, first `error` rejects the promise. After `ready`, Node's `imap` may emit
@@ -123,6 +164,7 @@ export class ImapProvider extends BaseEmailProvider {
           this.connected = false
         })
         console.log('[IMAP] Connected to:', config.imap!.host)
+        this.refreshImapCapabilitiesSnapshot()
         this.connected = true
         resolve()
       })
@@ -148,6 +190,18 @@ export class ImapProvider extends BaseEmailProvider {
     this.connected = false
     this.config = null
     this.messageCache.clear()
+    this.namespaceInfoCache = null
+    this.serverCapabilities = []
+  }
+
+  /** Copy `node-imap` internal `_caps` for debugging (CAPABILITY is also run at login). */
+  private refreshImapCapabilitiesSnapshot(): void {
+    if (!this.client) {
+      this.serverCapabilities = []
+      return
+    }
+    const caps = (this.client as ImapConnection & { _caps?: string[] })._caps
+    this.serverCapabilities = Array.isArray(caps) ? [...caps] : []
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -218,6 +272,101 @@ export class ImapProvider extends BaseEmailProvider {
         resolve(folders)
       })
     })
+  }
+
+  /**
+   * Personal namespace prefix + hierarchy delimiter (RFC 2342 NAMESPACE when available; else inferred from LIST).
+   * Cached for the lifetime of the connection. Used to build full mailbox paths for CREATE/MOVE.
+   */
+  async getNamespaceInfo(): Promise<ImapNamespaceInfo> {
+    if (this.namespaceInfoCache) {
+      return this.namespaceInfoCache
+    }
+    if (!this.client) {
+      throw new Error('Not connected')
+    }
+
+    const c = this.client as ImapClientWithNamespaces
+    const personal = c.namespaces?.personal
+    if (personal && personal.length > 0) {
+      const p = personal[0]
+      const prefix = normalizeImapPrefix(p.prefix)
+      const delimiter = p.delimiter != null && p.delimiter !== '' ? String(p.delimiter) : '.'
+      this.namespaceInfoCache = { prefix, delimiter }
+      return this.namespaceInfoCache
+    }
+
+    const inboxLogical = (this.config?.folders?.inbox || 'INBOX').trim()
+    const folders = await this.listFolders()
+    this.namespaceInfoCache = inferNamespaceFromList(folders, inboxLogical)
+    return this.namespaceInfoCache
+  }
+
+  /**
+   * Map a configured lifecycle folder label (e.g. "Pending Delete") to the full IMAP mailbox path
+   * for this server (e.g. "INBOX.Pending Delete" when the personal namespace uses an INBOX. prefix).
+   * The configured inbox name itself is never prefixed.
+   */
+  private async imapResolveMailboxPath(logicalName: string): Promise<string> {
+    const trimmed = logicalName.trim()
+    if (!trimmed) {
+      return trimmed
+    }
+    const inbox = (this.config?.folders?.inbox || 'INBOX').trim()
+    if (trimmed.toLowerCase() === inbox.toLowerCase()) {
+      return trimmed
+    }
+
+    const ns = await this.getNamespaceInfo()
+    if (!ns.prefix) {
+      return trimmed
+    }
+    if (trimmed.toLowerCase().startsWith(ns.prefix.toLowerCase())) {
+      return trimmed
+    }
+    return `${ns.prefix}${trimmed}`
+  }
+
+  /**
+   * Prefer resolved path; also try the bare label for rows created before namespace-aware sync.
+   */
+  private async imapExpandMailboxTryPaths(mailboxLabel: string): Promise<string[]> {
+    const trimmed = mailboxLabel.trim()
+    if (!trimmed) return []
+    const resolved = await this.imapResolveMailboxPath(trimmed)
+    const out: string[] = []
+    if (resolved) out.push(resolved)
+    if (resolved.toLowerCase() !== trimmed.toLowerCase()) {
+      out.push(trimmed)
+    }
+    return out
+  }
+
+  private async imapLifecycleMailboxCandidatesResolved(
+    names: ReturnType<typeof resolveOrchestratorRemoteNames>,
+    inbox: string,
+    excludeLower?: string,
+  ): Promise<string[]> {
+    const im = names.imap
+    const raw = [
+      inbox,
+      im.pendingReviewMailbox,
+      im.pendingDeleteMailbox,
+      im.archiveMailbox,
+      im.trashMailbox,
+    ].filter((x) => typeof x === 'string' && x.trim().length > 0)
+
+    const out: string[] = []
+    const inboxLower = inbox.trim().toLowerCase()
+    for (const m of raw) {
+      const t = m.trim()
+      const tryPaths = t.toLowerCase() === inboxLower ? [t] : await this.imapExpandMailboxTryPaths(t)
+      for (const path of tryPaths) {
+        if (excludeLower && path.toLowerCase() === excludeLower) continue
+        if (!out.some((o) => o.toLowerCase() === path.toLowerCase())) out.push(path)
+      }
+    }
+    return out
   }
   
   /**
@@ -535,33 +684,40 @@ export class ImapProvider extends BaseEmailProvider {
     })
   }
   
-  async fetchMessage(messageId: string): Promise<RawEmailMessage | null> {
-    if (!this.client) {
-      throw new Error('Not connected')
-    }
-    
-    // Check cache first
-    const cached = this.messageCache.get(messageId)
-    if (cached) {
-      return cached
-    }
-    
-    const folder = this.config?.folders.inbox || 'INBOX'
-    
+  /**
+   * Fetch full message body by UID in a specific mailbox.
+   * @param softOpen — if true, missing/invalid mailbox or fetch errors yield `null` instead of throwing.
+   */
+  private fetchMessageFromFolder(
+    messageId: string,
+    folder: string,
+    options: { softOpen: boolean },
+  ): Promise<RawEmailMessage | null> {
+    const { softOpen } = options
     return new Promise((resolve, reject) => {
-      this.client!.openBox(folder, true, (err) => {
+      if (!this.client) {
+        if (softOpen) resolve(null)
+        else reject(new Error('Not connected'))
+        return
+      }
+
+      this.client.openBox(folder, true, (err) => {
         if (err) {
+          if (softOpen) {
+            resolve(null)
+            return
+          }
           reject(err)
           return
         }
-        
+
         const fetch = this.client!.fetch(messageId, {
           bodies: '',
-          struct: true
+          struct: true,
         })
-        
+
         let message: RawEmailMessage | null = null
-        
+
         fetch.on('message', (msg) => {
           msg.on('body', (stream) => {
             const chunks: Buffer[] = []
@@ -570,18 +726,17 @@ export class ImapProvider extends BaseEmailProvider {
               const buffer = Buffer.concat(chunks)
               simpleParser(buffer)
                 .then((parsed: ParsedMail) => {
-                  // Helper to extract addresses from AddressObject or AddressObject[]
                   const getAddresses = (addr: any): Array<{ email: string; name?: string }> => {
                     if (!addr) return []
                     const values = Array.isArray(addr) ? addr.flatMap((a: any) => a.value || []) : (addr.value || [])
                     return values.map((a: any) => ({ email: a.address || '', name: a.name }))
                   }
-                  
+
                   const toAddresses = getAddresses(parsed.to)
                   const ccAddresses = getAddresses(parsed.cc)
                   const fromAddresses = getAddresses(parsed.from)
                   const replyToAddresses = getAddresses(parsed.replyTo)
-                  
+
                   message = {
                     id: messageId,
                     threadId: parsed.messageId,
@@ -598,27 +753,32 @@ export class ImapProvider extends BaseEmailProvider {
                       flagged: false,
                       answered: false,
                       draft: false,
-                      deleted: false
+                      deleted: false,
                     },
                     labels: [],
                     folder,
                     headers: {
                       messageId: parsed.messageId,
                       inReplyTo: parsed.inReplyTo,
-                      references: Array.isArray(parsed.references) ? parsed.references : 
-                        (typeof parsed.references === 'string' ? [parsed.references] : undefined)
-                    }
+                      references: Array.isArray(parsed.references)
+                        ? parsed.references
+                        : typeof parsed.references === 'string'
+                          ? [parsed.references]
+                          : undefined,
+                    },
                   }
-                  
-                  // Cache the message
+
                   if (message) {
                     this.messageCache.set(messageId, message)
                   }
                 })
-                .catch(reject)
+                .catch((e) => {
+                  if (softOpen) resolve(null)
+                  else reject(e)
+                })
             })
           })
-          
+
           msg.once('attributes', (attrs) => {
             if (message && attrs.flags) {
               message.flags = {
@@ -626,19 +786,76 @@ export class ImapProvider extends BaseEmailProvider {
                 flagged: attrs.flags.includes('\\Flagged'),
                 answered: attrs.flags.includes('\\Answered'),
                 draft: attrs.flags.includes('\\Draft'),
-                deleted: attrs.flags.includes('\\Deleted')
+                deleted: attrs.flags.includes('\\Deleted'),
               }
             }
           })
         })
-        
-        fetch.once('error', reject)
+
+        fetch.once('error', (e) => {
+          if (softOpen) resolve(null)
+          else reject(e)
+        })
         fetch.once('end', () => {
-          // Give simpleParser time to finish
           setTimeout(() => resolve(message), 100)
         })
       })
     })
+  }
+
+  async fetchMessage(messageId: string): Promise<RawEmailMessage | null> {
+    if (!this.client) {
+      throw new Error('Not connected')
+    }
+
+    const cached = this.messageCache.get(messageId)
+    if (cached) {
+      return cached
+    }
+
+    const inbox = this.config?.folders.inbox || 'INBOX'
+    let result = await this.fetchMessageFromFolder(messageId, inbox, { softOpen: false })
+    if (result) {
+      console.log(`[IMAP] fetchMessage: UID ${messageId} found in ${inbox}`)
+      return result
+    }
+
+    if (!this.config) {
+      return null
+    }
+
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const logicals = [
+      names.imap.archiveMailbox,
+      names.imap.pendingDeleteMailbox,
+      names.imap.pendingReviewMailbox,
+    ]
+
+    for (const logical of logicals) {
+      const trimmed = (logical || '').trim()
+      if (!trimmed) continue
+      const tryPaths = await this.imapExpandMailboxTryPaths(trimmed)
+      const seen = new Set<string>()
+      for (const folderPath of tryPaths) {
+        const key = folderPath.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        if (folderPath.toLowerCase() === inbox.toLowerCase()) continue
+
+        try {
+          result = await this.fetchMessageFromFolder(messageId, folderPath, { softOpen: true })
+          if (result) {
+            result.folder = folderPath
+            console.log(`[IMAP] fetchMessage: UID ${messageId} found in lifecycle folder ${folderPath}`)
+            return result
+          }
+        } catch (e: any) {
+          console.log(`[IMAP] fetchMessage: skip folder "${folderPath}":`, e?.message || e)
+        }
+      }
+    }
+
+    return null
   }
   
   async listAttachments(_messageId: string): Promise<RawAttachment[]> {
@@ -712,15 +929,197 @@ export class ImapProvider extends BaseEmailProvider {
   async deleteMessage(messageId: string, context?: OrchestratorRemoteApplyContext): Promise<void> {
     if (!this.client || !this.config) throw new Error('Not connected')
     const names = resolveOrchestratorRemoteNames(this.config)
-    const trash = names.imap.trashMailbox
-    await this.imapEnsureMailbox(trash)
+    const trashLogical = names.imap.trashMailbox
+    await this.imapEnsureMailbox(trashLogical)
+    const trashResolved = await this.imapResolveMailboxPath(trashLogical.trim())
     const rfc = context?.imapRfcMessageId
     const lastMb = context?.imapRemoteMailbox
-    const loc = await this.imapLocateMessageForMove(trash, messageId, rfc ?? null, lastMb ?? null)
+    const loc = await this.imapLocateMessageForMove(trashResolved, messageId, rfc ?? null, lastMb ?? null)
     if (!loc) {
       throw new Error('IMAP: cannot locate message for delete/trash (not in monitored mailboxes).')
     }
-    await this.imapMoveBetweenMailboxes(loc.mailbox, loc.uid, trash)
+    await this.imapMoveBetweenMailboxes(loc.mailbox, loc.uid, trashResolved)
+  }
+
+  /**
+   * One-time migration helper: move messages from legacy / duplicate lifecycle folder names into the
+   * canonical mailboxes from `resolveOrchestratorRemoteNames`. Does **not** DELETE legacy folders — only
+   * empties them when moves succeed. Safe to call multiple times (idempotent for empty legacies).
+   */
+  async consolidateLifecycleFolders(): Promise<void> {
+    if (!this.client || !this.config) {
+      throw new Error('Not connected')
+    }
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const folders = await this.listFolders()
+
+    const legacyByCanonical: Record<string, string[]> = {
+      [names.imap.archiveMailbox]: ['Archieve', 'WRDesk-Archive', 'WRDesk-Archieve'],
+      [names.imap.pendingDeleteMailbox]: ['WRDesk-PendingDelete', 'WRDesk-Pending Delete'],
+      [names.imap.pendingReviewMailbox]: ['WRDesk-PendingReview', 'WRDesk-Pending Review'],
+    }
+
+    const processedSourcePaths = new Set<string>()
+
+    for (const [canonicalLogical, legacies] of Object.entries(legacyByCanonical)) {
+      const canonicalResolved = await this.imapResolveMailboxPath(canonicalLogical.trim())
+      try {
+        await this.imapEnsureMailbox(canonicalLogical.trim())
+      } catch (e: any) {
+        console.warn(
+          `[IMAP] Consolidation: could not ensure canonical folder "${canonicalLogical}" (${canonicalResolved}):`,
+          e?.message || e,
+        )
+        continue
+      }
+
+      for (const legacyLabel of legacies) {
+        const matches = await this.imapFindFoldersMatchingLegacyLabel(folders, legacyLabel)
+        for (const folder of matches) {
+          const sourcePath = folder.path
+          if (processedSourcePaths.has(sourcePath)) continue
+          if (sourcePath.toLowerCase() === canonicalResolved.toLowerCase()) continue
+
+          processedSourcePaths.add(sourcePath)
+          console.log(
+            `[IMAP] Consolidation: migrating messages from legacy folder "${sourcePath}" → canonical "${canonicalResolved}" (role: ${canonicalLogical})`,
+          )
+          try {
+            await this.imapMoveAllMessagesFromLegacyToCanonical(sourcePath, canonicalResolved)
+          } catch (e: any) {
+            console.warn(
+              `[IMAP] Consolidation: batch migrate failed for "${sourcePath}" → "${canonicalResolved}":`,
+              e?.message || e,
+            )
+          }
+        }
+      }
+    }
+
+    console.log('[IMAP] Consolidation: finished legacy folder pass (legacy mailboxes left in place for manual removal if empty).')
+  }
+
+  private async imapFindFoldersMatchingLegacyLabel(
+    folders: FolderInfo[],
+    legacyLabel: string,
+  ): Promise<FolderInfo[]> {
+    const trimmed = legacyLabel.trim()
+    if (!trimmed) return []
+    const pathCandidates = await this.imapExpandMailboxTryPaths(trimmed)
+    const want = new Set<string>()
+    want.add(trimmed.toLowerCase())
+    for (const p of pathCandidates) want.add(p.toLowerCase())
+
+    const out: FolderInfo[] = []
+    const seen = new Set<string>()
+    for (const f of folders) {
+      const pl = f.path.toLowerCase()
+      const nl = f.name.toLowerCase()
+      for (const c of want) {
+        if (!c) continue
+        if (pl === c || nl === c) {
+          if (!seen.has(f.path)) {
+            seen.add(f.path)
+            out.push(f)
+          }
+          break
+        }
+      }
+    }
+    return out
+  }
+
+  private imapSearchAllUidsInCurrentMailbox(): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.client) {
+        reject(new Error('Not connected'))
+        return
+      }
+      this.client.search(['ALL'], (err, uids: number[]) => {
+        if (err) reject(err)
+        else resolve(Array.isArray(uids) && uids.length ? uids : [])
+      })
+    })
+  }
+
+  private imapTryMoveUidWithFallback(sourcePath: string, uid: string, destResolved: string): Promise<void> {
+    const client = this.client!
+    return new Promise((resolve, reject) => {
+      client.openBox(sourcePath, false, (openErr) => {
+        if (openErr) {
+          reject(openErr)
+          return
+        }
+        client.move(uid, destResolved, (moveErr) => {
+          if (!moveErr) {
+            resolve()
+            return
+          }
+          console.warn(
+            `[IMAP] Consolidation: MOVE failed for UID ${uid} in "${sourcePath}" — trying COPY + \\Deleted + EXPUNGE:`,
+            moveErr?.message || moveErr,
+          )
+          client.copy(uid, destResolved, (copyErr) => {
+            if (copyErr) {
+              reject(copyErr)
+              return
+            }
+            client.openBox(sourcePath, false, (reopenErr) => {
+              if (reopenErr) {
+                reject(reopenErr)
+                return
+              }
+              client.addFlags(uid, ['\\Deleted'], (flagErr) => {
+                if (flagErr) {
+                  reject(flagErr)
+                  return
+                }
+                const conn = client as ImapConnection & { serverSupports?: (cap: string) => boolean }
+                if (typeof conn.serverSupports === 'function' && conn.serverSupports('UIDPLUS')) {
+                  client.expunge([uid], (expErr) => {
+                    if (expErr) reject(expErr)
+                    else resolve()
+                  })
+                } else {
+                  client.expunge((expErr) => {
+                    if (expErr) reject(expErr)
+                    else resolve()
+                  })
+                }
+              })
+            })
+          })
+        })
+      })
+    })
+  }
+
+  private async imapMoveAllMessagesFromLegacyToCanonical(
+    sourcePath: string,
+    destResolved: string,
+  ): Promise<void> {
+    await this.imapOpenBox(sourcePath, false)
+    const uids = await this.imapSearchAllUidsInCurrentMailbox()
+    if (uids.length === 0) {
+      console.log(`[IMAP] Consolidation: legacy folder "${sourcePath}" is empty — nothing to move.`)
+      return
+    }
+    let moved = 0
+    for (const uidNum of uids) {
+      const uid = String(uidNum)
+      try {
+        await this.imapTryMoveUidWithFallback(sourcePath, uid, destResolved)
+        moved++
+      } catch (e: any) {
+        console.warn(
+          `[IMAP] Consolidation: skip UID ${uid} in "${sourcePath}" (could not move to "${destResolved}"):`,
+          e?.message || e,
+        )
+      }
+    }
+    console.log(
+      `[IMAP] Consolidation: moved ${moved}/${uids.length} message(s) from "${sourcePath}" → "${destResolved}"`,
+    )
   }
 
   /**
@@ -746,7 +1145,10 @@ export class ImapProvider extends BaseEmailProvider {
         entries.push({ role, mailbox, exists: false, error: 'Mailbox name is empty' })
         continue
       }
-      if (imapFolderListHasMailbox(folders, m)) {
+      const resolved = await this.imapResolveMailboxPath(m)
+      const exists =
+        imapFolderListHasMailbox(folders, m) || imapFolderListHasMailbox(folders, resolved)
+      if (exists) {
         entries.push({ role, mailbox: m, exists: true })
         continue
       }
@@ -788,20 +1190,21 @@ export class ImapProvider extends BaseEmailProvider {
     try {
       const rfc = context?.imapRfcMessageId ?? null
       const lastMb = context?.imapRemoteMailbox ?? null
+      const destResolved = await this.imapResolveMailboxPath(dest.trim())
 
       await this.imapEnsureMailbox(dest)
 
-      const already = await this.imapVerifyMessageInMailbox(dest, messageId, rfc)
+      const already = await this.imapVerifyMessageInMailbox(destResolved, messageId, rfc)
       if (already) {
         return {
           ok: true,
           skipped: true,
           imapUidAfterMove: already,
-          imapMailboxAfterMove: dest,
+          imapMailboxAfterMove: destResolved,
         }
       }
 
-      const loc = await this.imapLocateMessageForMove(dest, messageId, rfc, lastMb)
+      const loc = await this.imapLocateMessageForMove(destResolved, messageId, rfc, lastMb)
       if (!loc) {
         return {
           ok: false,
@@ -810,10 +1213,10 @@ export class ImapProvider extends BaseEmailProvider {
         }
       }
 
-      await this.imapMoveBetweenMailboxes(loc.mailbox, loc.uid, dest)
+      await this.imapMoveBetweenMailboxes(loc.mailbox, loc.uid, destResolved)
 
-      const newUid = (await this.imapVerifyMessageInMailbox(dest, loc.uid, rfc)) || loc.uid
-      return { ok: true, imapUidAfterMove: newUid, imapMailboxAfterMove: dest }
+      const newUid = (await this.imapVerifyMessageInMailbox(destResolved, loc.uid, rfc)) || loc.uid
+      return { ok: true, imapUidAfterMove: newUid, imapMailboxAfterMove: destResolved }
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -883,49 +1286,30 @@ export class ImapProvider extends BaseEmailProvider {
     return n != null
   }
 
-  private imapLifecycleMailboxCandidates(
-    names: ReturnType<typeof resolveOrchestratorRemoteNames>,
-    inbox: string,
-    excludeLower?: string,
-  ): string[] {
-    const im = names.imap
-    const raw = [
-      inbox,
-      im.pendingReviewMailbox,
-      im.pendingDeleteMailbox,
-      im.archiveMailbox,
-      im.trashMailbox,
-    ].filter((x) => typeof x === 'string' && x.trim().length > 0)
-    const out: string[] = []
-    for (const m of raw) {
-      const t = m.trim()
-      if (excludeLower && t.toLowerCase() === excludeLower) continue
-      if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t)
-    }
-    return out
-  }
-
-  private imapOrderedSearchMailboxes(
+  private async imapOrderedSearchMailboxes(
     lastMail: string | null | undefined,
     names: ReturnType<typeof resolveOrchestratorRemoteNames>,
     inbox: string,
-    dest: string,
-  ): string[] {
-    const destL = dest.trim().toLowerCase()
-    const pool = this.imapLifecycleMailboxCandidates(names, inbox, destL)
+    destResolved: string,
+  ): Promise<string[]> {
+    const destL = destResolved.trim().toLowerCase()
+    const pool = await this.imapLifecycleMailboxCandidatesResolved(names, inbox, destL)
     const out: string[] = []
-    const add = (m?: string | null) => {
-      const t = (m || '').trim()
+    const pushUnique = (p: string) => {
+      const t = p.trim()
       if (!t || t.toLowerCase() === destL) return
       if (!out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t)
     }
-    add(lastMail)
-    for (const p of pool) add(p)
+    if (lastMail?.trim()) {
+      const expanded = await this.imapExpandMailboxTryPaths(lastMail.trim())
+      for (const p of expanded) pushUnique(p)
+    }
+    for (const p of pool) pushUnique(p)
     return out
   }
 
   private async imapLocateMessageForMove(
-    destMailbox: string,
+    destMailboxResolved: string,
     uidHint: string,
     rfcMessageId: string | null | undefined,
     lastMailbox: string | null | undefined,
@@ -933,7 +1317,7 @@ export class ImapProvider extends BaseEmailProvider {
     if (!this.config || !this.client) return null
     const names = resolveOrchestratorRemoteNames(this.config)
     const inbox = this.config.folders?.inbox || 'INBOX'
-    const order = this.imapOrderedSearchMailboxes(lastMailbox, names, inbox, destMailbox)
+    const order = await this.imapOrderedSearchMailboxes(lastMailbox, names, inbox, destMailboxResolved)
 
     for (const mb of order) {
       if (rfcMessageId) {
@@ -961,32 +1345,73 @@ export class ImapProvider extends BaseEmailProvider {
     return null
   }
 
+  /**
+   * RFC 6851 MOVE when advertised; otherwise COPY + \\Deleted + EXPUNGE (UID EXPUNGE if UIDPLUS).
+   * `node-imap`’s `move()` already falls back internally; we branch explicitly for logging and a straightforward fallback path.
+   */
   private imapMoveBetweenMailboxes(sourceMailbox: string, uid: string, destMailbox: string): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.client) {
         reject(new Error('Not connected'))
         return
       }
-      this.client.openBox(sourceMailbox, false, (err) => {
+      const client = this.client
+      client.openBox(sourceMailbox, false, (err) => {
         if (err) {
           reject(err)
           return
         }
-        this.client!.move(uid, destMailbox, (moveErr) => {
-          if (moveErr) reject(moveErr)
-          else resolve()
+        this.refreshImapCapabilitiesSnapshot()
+        const hasMove = client.serverSupports('MOVE')
+        console.log(
+          `[IMAP] Moving UID ${uid} from "${sourceMailbox}" to "${destMailbox}" via ${hasMove ? 'MOVE' : 'COPY+DELETE'}`,
+        )
+
+        if (hasMove) {
+          client.move(uid, destMailbox, (moveErr) => {
+            if (moveErr) reject(moveErr)
+            else resolve()
+          })
+          return
+        }
+
+        client.copy(uid, destMailbox, (copyErr) => {
+          if (copyErr) {
+            reject(copyErr)
+            return
+          }
+          client.addFlags(uid, ['\\Deleted'], (flagErr) => {
+            if (flagErr) {
+              reject(flagErr)
+              return
+            }
+            if (client.serverSupports('UIDPLUS')) {
+              client.expunge([uid], (expErr) => {
+                if (expErr) reject(expErr)
+                else resolve()
+              })
+            } else {
+              client.expunge((expErr) => {
+                if (expErr) reject(expErr)
+                else resolve()
+              })
+            }
+          })
         })
       })
     })
   }
 
-  private imapEnsureMailbox(mailboxName: string): Promise<void> {
+  private async imapEnsureMailbox(mailboxLogicalOrPath: string): Promise<void> {
+    if (!this.client) {
+      throw new Error('Not connected')
+    }
+    const fullPath = await this.imapResolveMailboxPath(mailboxLogicalOrPath.trim())
+    if (!fullPath) {
+      throw new Error('IMAP: empty mailbox name')
+    }
     return new Promise((resolve, reject) => {
-      if (!this.client) {
-        reject(new Error('Not connected'))
-        return
-      }
-      this.client.addBox(mailboxName, (err) => {
+      this.client!.addBox(fullPath, (err) => {
         if (!err) {
           resolve()
           return
