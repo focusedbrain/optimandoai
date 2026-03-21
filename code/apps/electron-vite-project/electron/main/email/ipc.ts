@@ -156,7 +156,9 @@ import {
   enqueueRemoteOpsForLocalLifecycleState,
   enqueueFullRemoteSync,
   enqueueFullRemoteSyncForAccountsTouchingMessages,
-  drainOrchestratorRemoteQueueBounded,
+  enqueueUnmirroredClassifiedLifecycleMessages,
+  markOrphanPendingQueueRowsAsFailed,
+  ensureOrchestratorRemoteDrainWatchdog,
   processOrchestratorRemoteQueueBatch,
   BATCH as ORCHESTRATOR_REMOTE_QUEUE_BATCH,
 } from './inboxOrchestratorRemoteQueue'
@@ -979,6 +981,23 @@ export function registerInboxHandlers(
   }
 
   const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+
+  ensureOrchestratorRemoteDrainWatchdog(getDb)
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const db = await resolveDb()
+        if (!db) return
+        const um = enqueueUnmirroredClassifiedLifecycleMessages(db)
+        if (um.enqueued > 0) {
+          console.log('[Inbox] Startup: unmirrored classified lifecycle enqueue:', um)
+          scheduleOrchestratorRemoteDrain(getDb)
+        }
+      } catch (e: any) {
+        console.warn('[Inbox] Startup unmirrored enqueue:', e?.message)
+      }
+    })()
+  })
 
   ipcMain.removeHandler('debug:queueStatus')
   ipcMain.handle('debug:queueStatus', async () => {
@@ -2463,15 +2482,19 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
     }
   })
 
-  /** Full lifecycle reconcile for every connected email account (background drain). */
+  /** Full lifecycle reconcile for every connected email account — **no** inline bounded drain; background drain until empty. */
   ipcMain.handle('inbox:fullRemoteSyncAllAccounts', async () => {
     try {
       console.log('[SYNC_REMOTE] IPC inbox:fullRemoteSyncAllAccounts handler started')
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const accounts = await emailGateway.listAccounts()
-      let enqueued = 0
-      let skipped = 0
+      const knownIds = accounts.map((a) => a?.id).filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+      const orphanCleared = markOrphanPendingQueueRowsAsFailed(db, knownIds)
+      const unmirrored = enqueueUnmirroredClassifiedLifecycleMessages(db)
+
+      let enqueued = unmirrored.enqueued
+      let skipped = unmirrored.skipped
       let inboxRestoreNeeded = 0
       let accountCount = 0
       for (const a of accounts) {
@@ -2482,14 +2505,9 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         inboxRestoreNeeded += r.inboxRestoreNeeded
         accountCount += 1
       }
-      const drain = await drainOrchestratorRemoteQueueBounded(db, {
-        maxMs: 28_000,
-        maxBatches: 150,
-        getDbForDrainContinue: getDb,
-      })
       scheduleOrchestratorRemoteDrain(getDb)
       console.log(
-        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} drainProcessed=${drain.processedTotal} drainFailed=${drain.failedTotal} pendingRemaining=${drain.pendingRemaining}`,
+        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} unmirroredIds=${unmirrored.idsFound} orphanPendingCleared=${orphanCleared.cleared} (background drain scheduled, not awaited)`,
       )
       return {
         ok: true,
@@ -2497,10 +2515,11 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         skipped,
         inboxRestoreNeeded,
         accountCount,
-        drainProcessed: drain.processedTotal,
-        drainFailed: drain.failedTotal,
-        pendingAfterDrain: drain.pendingRemaining,
-        drainTimedOut: drain.timedOut,
+        unmirroredIds: unmirrored.idsFound,
+        unmirroredEnqueued: unmirrored.enqueued,
+        unmirroredSkipped: unmirrored.skipped,
+        orphanPendingCleared: orphanCleared.cleared,
+        backgroundDrain: true,
       }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'fullRemoteSyncAllAccounts failed' }

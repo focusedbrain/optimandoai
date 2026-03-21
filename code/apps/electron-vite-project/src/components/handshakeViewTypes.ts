@@ -218,10 +218,14 @@ export interface EmailInboxBridge {
     skipped?: number
     inboxRestoreNeeded?: number
     accountCount?: number
-    drainProcessed?: number
-    drainFailed?: number
-    pendingAfterDrain?: number
-    drainTimedOut?: boolean
+    /** Classified rows that had no active queue row before this run (backfill). */
+    unmirroredIds?: number
+    unmirroredEnqueued?: number
+    unmirroredSkipped?: number
+    /** pending/processing rows failed for disconnected account_id */
+    orphanPendingCleared?: number
+    /** Drain runs in background until queue empty (IPC does not await bounded drain). */
+    backgroundDrain?: boolean
     error?: string
   }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */

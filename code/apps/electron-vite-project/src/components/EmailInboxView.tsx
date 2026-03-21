@@ -1032,11 +1032,14 @@ export default function EmailInboxView({
             `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
           )
           useEmailInboxStore.getState().addRemoteSyncLog(
-            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped, ${r.drainProcessed ?? 0} moved OK, ${r.drainFailed ?? 0} failed` +
-              (typeof r.pendingAfterDrain === 'number' && r.pendingAfterDrain > 0
-                ? `, ${r.pendingAfterDrain} still pending`
+            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+              (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+                ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
                 : '') +
-              (r.drainTimedOut ? ' (drain timeout)' : ''),
+              (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+                ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+                : '') +
+              ' — background drain until empty (see 🔧 Debug for pending)',
           )
         } else {
           console.warn('[Inbox] Sync Remote:', r?.error)

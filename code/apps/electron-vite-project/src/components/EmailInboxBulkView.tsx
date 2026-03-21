@@ -1667,7 +1667,7 @@ export default function EmailInboxBulkView({
     queueRows?: Array<Record<string, unknown>>
   } | null>(null)
 
-  /** Force full remote lifecycle reconcile for all accounts + bounded inline drain (IPC returns drain stats). */
+  /** Force full remote lifecycle reconcile for all accounts; drain runs in background until queue empty. */
   const handleRemoteSyncAll = useCallback(() => {
     console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
@@ -1684,11 +1684,14 @@ export default function EmailInboxBulkView({
             `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
           )
           addRemoteSyncLog(
-            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped, ${r.drainProcessed ?? 0} moved OK, ${r.drainFailed ?? 0} failed` +
-              (typeof r.pendingAfterDrain === 'number' && r.pendingAfterDrain > 0
-                ? `, ${r.pendingAfterDrain} still pending`
+            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+              (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+                ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
                 : '') +
-              (r.drainTimedOut ? ' (drain timeout)' : ''),
+              (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+                ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+                : '') +
+              ' — background drain until empty (see 🔧 Debug for pending)',
           )
         } else {
           console.warn('[Inbox] Sync Remote:', r?.error)

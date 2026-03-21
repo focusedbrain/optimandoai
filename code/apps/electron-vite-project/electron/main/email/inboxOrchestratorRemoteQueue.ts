@@ -628,6 +628,127 @@ export async function processOrchestratorRemoteQueueBatch(
   return result
 }
 
+/** Chunk size for {@link enqueueUnmirroredClassifiedLifecycleMessages} (each chunk calls lifecycle enqueue). */
+const UNMIRRORED_CLASSIFIED_CHUNK = 400
+
+export interface EnqueueUnmirroredClassifiedResult {
+  idsFound: number
+  enqueued: number
+  skipped: number
+}
+
+/**
+ * Classified inbox rows with **no** active queue row (`pending` / `processing` / `completed`) — e.g. missed after
+ * reconnect or old classify skips. Idempotent: re-run is safe; lifecycle enqueue dedupes / supersedes.
+ */
+export function enqueueUnmirroredClassifiedLifecycleMessages(db: any): EnqueueUnmirroredClassifiedResult {
+  if (!db) return { idsFound: 0, enqueued: 0, skipped: 0 }
+  const rows = db
+    .prepare(
+      `SELECT m.id
+       FROM inbox_messages m
+       WHERE m.deleted = 0
+         AND (m.source_type = 'email_plain' OR m.source_type = 'email_beap')
+         AND m.sort_category IS NOT NULL AND TRIM(COALESCE(m.sort_category, '')) != ''
+         AND NOT EXISTS (
+           SELECT 1 FROM remote_orchestrator_mutation_queue q
+           WHERE q.message_id = m.id
+             AND q.status IN ('completed', 'pending', 'processing')
+         )`,
+    )
+    .all() as Array<{ id: string }>
+
+  const ids = rows.map((r) => r.id).filter((x) => typeof x === 'string' && x.trim() !== '')
+  if (ids.length === 0) return { idsFound: 0, enqueued: 0, skipped: 0 }
+
+  let enqueued = 0
+  let skipped = 0
+  for (let i = 0; i < ids.length; i += UNMIRRORED_CLASSIFIED_CHUNK) {
+    const chunk = ids.slice(i, i + UNMIRRORED_CLASSIFIED_CHUNK)
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, chunk)
+    enqueued += r.enqueued
+    skipped += r.skipped
+  }
+  if (enqueued > 0) {
+    console.log(
+      '[OrchestratorRemote] enqueueUnmirroredClassifiedLifecycleMessages:',
+      enqueued,
+      'enqueued,',
+      skipped,
+      'skipped,',
+      ids.length,
+      'ids',
+    )
+  }
+  return { idsFound: ids.length, enqueued, skipped }
+}
+
+/**
+ * Mark `pending` / `processing` queue rows for unknown or NULL `account_id` as **failed** so they do not block drain.
+ * When **no** accounts are connected, all such rows are failed.
+ */
+export function markOrphanPendingQueueRowsAsFailed(db: any, knownAccountIds: string[]): { cleared: number } {
+  if (!db) return { cleared: 0 }
+  const nowIso = new Date().toISOString()
+  const err = 'Account removed (auto-cleanup)'
+  const ids = [...new Set(knownAccountIds.map((x) => String(x ?? '').trim()).filter(Boolean))]
+
+  if (ids.length === 0) {
+    const info = db
+      .prepare(
+        `UPDATE remote_orchestrator_mutation_queue
+         SET status = 'failed', last_error = ?, updated_at = ?
+         WHERE status IN ('pending', 'processing')`,
+      )
+      .run(err, nowIso) as { changes?: number }
+    const cleared = typeof info?.changes === 'number' ? info.changes : 0
+    if (cleared > 0) {
+      console.warn('[OrchestratorRemote] markOrphanPendingQueueRowsAsFailed: no connected accounts — failed', cleared, 'row(s)')
+    }
+    return { cleared }
+  }
+
+  const ph = ids.map(() => '?').join(',')
+  const info = db
+    .prepare(
+      `UPDATE remote_orchestrator_mutation_queue
+       SET status = 'failed', last_error = ?, updated_at = ?
+       WHERE status IN ('pending', 'processing')
+         AND (account_id IS NULL OR TRIM(COALESCE(account_id, '')) = '' OR account_id NOT IN (${ph}))`,
+    )
+    .run(err, nowIso, ...ids) as { changes?: number }
+  const cleared = typeof info?.changes === 'number' ? info.changes : 0
+  if (cleared > 0) {
+    console.log('[OrchestratorRemote] markOrphanPendingQueueRowsAsFailed:', cleared, 'row(s) for disconnected/unknown account_id')
+  }
+  return { cleared }
+}
+
+let remoteDrainWatchdogStarted = false
+
+/**
+ * Every 30s, if any `pending` rows exist, nudge the background drain (covers stuck chains / races).
+ */
+export function ensureOrchestratorRemoteDrainWatchdog(getDb: () => Promise<any> | any): void {
+  if (remoteDrainWatchdogStarted) return
+  remoteDrainWatchdogStarted = true
+  setInterval(() => {
+    void (async () => {
+      try {
+        const db = typeof getDb === 'function' ? await getDb() : getDb
+        if (!db) return
+        const row = db
+          .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+          .get() as { c?: number } | undefined
+        const c = row?.c ?? 0
+        if (c > 0) scheduleOrchestratorRemoteDrain(getDb)
+      } catch {
+        /* ignore */
+      }
+    })()
+  }, 30_000)
+}
+
 /**
  * Enqueue remote mirror ops from current local lifecycle columns (authoritative orchestrator state).
  * Priority per row: archived → pending_delete → pending_review (sort_category / pending_review_at) → urgent → other classified → archive.
@@ -1010,6 +1131,7 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
         return
       }
       const batch = await processOrchestratorRemoteQueueBatch(db, BATCH)
+      /** Chain while batch reports pending work, this batch did something, or a parallel enqueue requested reschedule. */
       let continueChain =
         batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
       if (!continueChain) {
