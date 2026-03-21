@@ -22,6 +22,9 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { markPullActive, markPullInactive } from './syncPullLock'
+
+/** Re-export for callers that already import sync orchestrator (Sync Remote clears locks via ipc → syncPullLock). */
+export { clearAllPullActiveLocks } from './syncPullLock'
 import { ImapProvider } from './providers/imap'
 import { resolveImapPullFolders } from './domain/imapPullFolders'
 import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'

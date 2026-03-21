@@ -163,8 +163,10 @@ import {
   markOrphanPendingQueueRowsAsFailed,
   ensureOrchestratorRemoteDrainWatchdog,
   processOrchestratorRemoteQueueBatch,
+  setOrchestratorDrainProgressReporter,
   BATCH as ORCHESTRATOR_REMOTE_QUEUE_BATCH,
 } from './inboxOrchestratorRemoteQueue'
+import { clearAllPullActiveLocks } from './syncPullLock'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
 import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
@@ -999,8 +1001,18 @@ export function registerInboxHandlers(
     })
   }
 
+  /** Same DB accessor as all inbox handlers + drain; drives optional UI drain progress. */
   const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
 
+  setOrchestratorDrainProgressReporter((p) => {
+    try {
+      sendToRenderer('inbox:drainProgress', p)
+    } catch {
+      /* ignore */
+    }
+  })
+
+  /** Watchdog uses this same `getDb` as handlers (no module-level resolveDb mismatch). */
   ensureOrchestratorRemoteDrainWatchdog(getDb)
   setImmediate(() => {
     void (async () => {
@@ -2569,6 +2581,8 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
   /** Full lifecycle reconcile for every connected email account — **no** inline bounded drain; background drain until empty. */
   ipcMain.handle('inbox:fullRemoteSyncAllAccounts', async () => {
     try {
+      // Clear ALL pull locks — stale locks from crashed pulls block the drain (defer every row for that account).
+      clearAllPullActiveLocks()
       console.log('[SYNC_REMOTE] IPC inbox:fullRemoteSyncAllAccounts handler started')
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -3544,49 +3558,3 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
   })
 }
 
-// ═══════════════════════════════════════════════════════════
-// DRAIN WATCHDOG — module-level DB resolver (inbox handlers set inboxDbGetterForEmailIpc)
-// ═══════════════════════════════════════════════════════════
-async function resolveDb(): Promise<any> {
-  if (!inboxDbGetterForEmailIpc) return null
-  return typeof inboxDbGetterForEmailIpc === 'function'
-    ? await inboxDbGetterForEmailIpc()
-    : inboxDbGetterForEmailIpc
-}
-
-// ═══════════════════════════════════════════════════════════
-// DRAIN WATCHDOG — ensures remote sync never stops permanently
-// Runs every 15 seconds. Cannot be stopped. Restarts drain if stuck.
-// ═══════════════════════════════════════════════════════════
-;(async () => {
-  // Wait 10 seconds after app start before first check
-  await new Promise((r) => setTimeout(r, 10_000))
-
-  setInterval(async () => {
-    try {
-      const db = await resolveDb()
-      if (!db) return
-
-      const now = new Date().toISOString()
-
-      // 1. Reset stuck "processing" rows (older than 2 minutes)
-      const twoMinAgo = new Date(Date.now() - 120_000).toISOString()
-      db.prepare(
-        `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', updated_at = ? WHERE status = 'processing' AND updated_at < ?`,
-      ).run(now, twoMinAgo)
-
-      // 2. Count pending rows
-      const { c } = db
-        .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
-        .get() as { c: number }
-
-      if (c === 0) return // Nothing to do
-
-      // 3. Pending rows exist — make sure drain is running
-      console.log(`[Watchdog] ${c} pending rows — restarting drain`)
-      scheduleOrchestratorRemoteDrain(resolveDb)
-    } catch (e) {
-      // Watchdog must NEVER crash — swallow everything
-    }
-  }, 15_000)
-})()

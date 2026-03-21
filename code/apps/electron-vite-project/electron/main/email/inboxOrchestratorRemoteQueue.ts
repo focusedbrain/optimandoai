@@ -28,6 +28,22 @@ import { resolveOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping
 import { emailGateway } from './gateway'
 import { isPullActive } from './syncPullLock'
 
+/** Optional push to renderer debug log (set from `ipc.registerInboxHandlers`). */
+export type OrchestratorDrainProgressPayload = {
+  processed: number
+  pending: number
+  failed: number
+  deferred: number
+}
+
+let orchestratorDrainProgressReporter: ((p: OrchestratorDrainProgressPayload) => void) | null = null
+
+export function setOrchestratorDrainProgressReporter(
+  fn: ((p: OrchestratorDrainProgressPayload) => void) | null,
+): void {
+  orchestratorDrainProgressReporter = fn
+}
+
 const MAX_ATTEMPTS = 8
 /** Default rows per drain batch (see `processOrchestratorRemoteQueueBatch`). */
 export const BATCH = 50
@@ -374,6 +390,7 @@ export async function processOrchestratorRemoteQueueBatch(
     )
     .get() as { c: number }
   result.pendingRemaining = pendingCount?.c ?? 0
+  console.log(`[DRAIN_BATCH] START: pendingCount=${pendingCount?.c ?? 0}`)
 
   /* Unstick rows left in processing (e.g. crash mid-flight, hung IMAP). Compare ISO timestamps in JS for reliability. */
   const stuckCutoffIso = new Date(Date.now() - 5 * 60 * 1000).toISOString()
@@ -423,13 +440,7 @@ export async function processOrchestratorRemoteQueueBatch(
   }
 
   const rows = pick.all(MAX_ATTEMPTS, limit) as OrchestratorQueueBatchRow[]
-
-  console.log(
-    '[DRAIN_BATCH] Picked',
-    rows.length,
-    'rows from queue, pendingCount=',
-    pendingCount?.c ?? 0,
-  )
+  console.log(`[DRAIN_BATCH] Picked ${rows.length} rows (cap=${limit})`)
 
   const now = () => new Date().toISOString()
   /** Same-batch cache: fail remaining rows for an account without repeated connect attempts (permanent precheck only). */
@@ -467,18 +478,11 @@ export async function processOrchestratorRemoteQueueBatch(
   for (const r of rows) {
     const pullActive = isPullActive(r.account_id)
     console.log(
-      '[DRAIN_BATCH] Row:',
-      r.id,
-      'account=',
-      r.account_id,
-      'op=',
-      r.operation,
-      'pullActive=',
-      pullActive,
+      `[DRAIN_BATCH] Row ${r.id}: account=${r.account_id}, op=${r.operation}, pullActive=${pullActive}`,
     )
     if (pullActive) {
       result.deferredDueToPull = (result.deferredDueToPull ?? 0) + 1
-      console.log('[DRAIN_BATCH] DEFERRED (pull active):', r.id)
+      console.log(`[DRAIN_BATCH] DEFERRED: ${r.id} (pull active)`)
       continue
     }
     workRows.push(r)
@@ -724,6 +728,10 @@ export async function processOrchestratorRemoteQueueBatch(
     )
     .get() as { c: number }
   result.pendingRemaining = after?.c ?? 0
+
+  console.log(
+    `[DRAIN_BATCH] END: processed=${result.processed}, deferred=${result.deferredDueToPull ?? 0}, failed=${result.failed}, pendingRemaining=${result.pendingRemaining}`,
+  )
 
   return result
 }
@@ -1241,7 +1249,7 @@ export function forceDrainRestart(): void {
  * Schedule asynchronous drain (non-blocking). Safe to call after every local transition.
  */
 export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any): void {
-  console.log('[DRAIN] scheduleOrchestratorRemoteDrain called, chainScheduled=', drainChainScheduled)
+  console.log(`[DRAIN] schedule called, chainScheduled=${drainChainScheduled}`)
   if (drainChainScheduled) {
     console.log('[DRAIN] Already scheduled, setting reschedule flag')
     drainRescheduleRequested = true
@@ -1263,6 +1271,16 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
         return
       }
       const batch = await processOrchestratorRemoteQueueBatch(db, BATCH)
+      try {
+        orchestratorDrainProgressReporter?.({
+          processed: batch.processed,
+          pending: batch.pendingRemaining,
+          failed: batch.failed,
+          deferred: batch.deferredDueToPull ?? 0,
+        })
+      } catch {
+        /* ignore renderer push errors */
+      }
       /** Chain while batch reports pending work, this batch did something, or a parallel enqueue requested reschedule. */
       let continueChain =
         batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
@@ -1280,6 +1298,9 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
           continueChain = true
         }
       }
+      console.log(
+        `[DRAIN] batch done: processed=${batch.processed}, pending=${batch.pendingRemaining}, deferred=${batch.deferredDueToPull ?? 0}, failed=${batch.failed}, continueChain=${continueChain}`,
+      )
       if (continueChain) {
         drainRescheduleRequested = false
         const deferOnly =

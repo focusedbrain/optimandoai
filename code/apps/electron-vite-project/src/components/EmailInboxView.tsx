@@ -1087,6 +1087,16 @@ export default function EmailInboxView({
     return () => unsub?.()
   }, [fetchMessages])
 
+  useEffect(() => {
+    const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
+      const p = raw as { processed?: number; pending?: number; failed?: number; deferred?: number }
+      useEmailInboxStore.getState().addRemoteSyncLog(
+        `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
+      )
+    })
+    return () => unsub?.()
+  }, [])
+
   const handleComposeClick = useCallback((fn: () => void) => {
     const now = Date.now()
     if (now - composeClickRef.current < 600) return

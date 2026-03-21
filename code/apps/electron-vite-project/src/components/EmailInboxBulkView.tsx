@@ -1642,6 +1642,16 @@ export default function EmailInboxBulkView({
     return () => unsub?.()
   }, [refreshMessages])
 
+  useEffect(() => {
+    const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
+      const p = raw as { processed?: number; pending?: number; failed?: number; deferred?: number }
+      addRemoteSyncLog(
+        `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
+      )
+    })
+    return () => unsub?.()
+  }, [addRemoteSyncLog])
+
   const handleSync = useCallback(() => {
     const ids = activeEmailAccountIdsForSync(accounts)
     const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []

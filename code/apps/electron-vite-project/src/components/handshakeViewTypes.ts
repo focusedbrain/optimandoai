@@ -139,6 +139,8 @@ export interface EmailInboxBridge {
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
   getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   onNewMessages: (handler: (data: unknown) => void) => () => void
+  /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
+  onDrainProgress?: (handler: (data: unknown) => void) => () => void
   listMessages: (options?: {
     filter?: string
     sourceType?: string
