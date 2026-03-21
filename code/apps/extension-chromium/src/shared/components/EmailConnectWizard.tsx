@@ -761,7 +761,6 @@ export function EmailConnectWizard({
                 </div>
                 <span style={{ fontSize: '14px', color: mutedColor }}>→</span>
               </button>
-              <ImapConnectionNotice accountId="connect-wizard" variant="wizard-full" theme={isPro ? 'professional' : 'dark'} />
               <div style={{ marginTop: '16px', padding: '12px', background: isPro ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                   <span style={{ fontSize: '14px' }}>🔒</span>
@@ -802,7 +801,7 @@ export function EmailConnectWizard({
                   : `Set up ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth`}
               </div>
               {provider === 'custom' ? (
-                <ImapConnectionNotice accountId="wizard-imap-credentials" variant="wizard-compact" theme={isPro ? 'professional' : 'dark'} />
+                <ImapConnectionNotice accountId="wizard-imap-credentials" variant="wizard-full" theme={isPro ? 'professional' : 'dark'} />
               ) : null}
 
               {/* Vault status (for new saves) — only when no existing creds or source is none */}

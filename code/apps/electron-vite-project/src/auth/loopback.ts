@@ -140,9 +140,12 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
     .logo {
       margin-bottom: 32px;
     }
-    .logo img {
+    .logo img,
+    .logo svg {
       width: 120px;
       height: auto;
+      display: block;
+      margin: 0 auto;
     }
     .status {
       display: inline-flex;
@@ -242,8 +245,20 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 </head>
 <body>
   <div class="card">
-    <div class="logo">
-      <img src="https://wrdesk.com/wp-content/uploads/2024/10/wrdesk-logo-256.png" alt="WR Desk" onerror="this.style.display='none'"/>
+    <div class="logo" role="img" aria-label="WR Desk">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" style="background:transparent">
+        <path d="M60 8 L108 26 L108 82 Q108 120 60 142 Q12 120 12 82 L12 26 Z" fill="white" stroke="#1a1a1a" stroke-width="5"/>
+        <path d="M60 18 L98 33 L98 78 Q98 110 60 128 Q22 110 22 78 L22 33 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5"/>
+        <circle cx="60" cy="25" r="10" fill="#22c55e"/>
+        <path d="M54 25 L58 29 L67 20" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="60" y="70" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="34" font-weight="900" fill="#1a1a1a">WR</text>
+        <text x="60" y="98" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="24" font-weight="900" fill="#1a1a1a">DESK</text>
+        <circle cx="60" cy="122" r="16" fill="#1a1a1a"/>
+        <path d="M51 116 L51 110 Q51 101 60 101 Q69 101 69 110 L69 116" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <rect x="49" y="116" width="22" height="15" rx="2" fill="white"/>
+        <circle cx="60" cy="121" r="2.5" fill="#1a1a1a"/>
+        <rect x="58.5" y="121" width="3" height="6" fill="#1a1a1a"/>
+      </svg>
     </div>
     <div class="status">
       <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>

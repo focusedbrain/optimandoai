@@ -18,9 +18,11 @@ function mapThemeToCss(theme: ExtensionTheme): string {
 }
 
 function WRCodeLogo({ size = 220 }: { size?: number }) {
+  // Respect Vite base ('./') so packaged Electron (file://) resolves like dev server
+  const logoSrc = `${import.meta.env.BASE_URL}wrdesk-logo.svg`
   return (
     <img 
-      src="/wrdesk-logo.svg"
+      src={logoSrc}
       alt="WR Desk Logo"
       style={{
         width: size,

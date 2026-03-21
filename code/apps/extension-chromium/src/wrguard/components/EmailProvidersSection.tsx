@@ -10,8 +10,6 @@
 
 import React from 'react'
 import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
-import { ImapConnectionNotice } from '../../shared/email/ImapConnectionNotice'
-
 function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
   if (provider === 'microsoft365') {
     return (
@@ -164,9 +162,9 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
         /* Account List */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {emailAccounts.map((account) => (
-            <React.Fragment key={account.id}>
-              <div
-                style={{
+            <div
+              key={account.id}
+              style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
@@ -259,14 +257,6 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                   ✕
                 </button>
               </div>
-              {account.provider === 'imap' ? (
-                <ImapConnectionNotice
-                  accountId={account.id}
-                  variant="account-card"
-                  theme={isLightTheme ? 'professional' : 'dark'}
-                />
-              ) : null}
-            </React.Fragment>
           ))}
         </div>
       )}

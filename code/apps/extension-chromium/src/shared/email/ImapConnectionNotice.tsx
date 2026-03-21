@@ -1,5 +1,5 @@
 /**
- * Honest IMAP limitations copy — shown on account cards, debug panel, and IMAP connect flow.
+ * Honest IMAP limitations copy — Connect Email wizard (IMAP path), optional debug panel, etc.
  * Collapse/dismiss is remembered per account id in localStorage (Electron + extension).
  */
 

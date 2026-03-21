@@ -25,6 +25,9 @@ function clearBuildCaches() {
   const codeRoot = path.join(electronRoot, '..', '..')
   const extensionRoot = path.join(electronRoot, '..', 'extension-chromium')
 
+  /** Prior extension outDir(s) — remove stale unpacked builds when output dir changes */
+  rmDir(path.join(extensionRoot, 'build1'))
+
   /** Vite / Rollup transform caches */
   const dirs = [
     path.join(electronRoot, '.vite'),
