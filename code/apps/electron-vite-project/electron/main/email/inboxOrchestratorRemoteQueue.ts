@@ -2,7 +2,8 @@
  * Remote orchestrator mutation queue — separates **local** SQLite writes from **remote** execution.
  *
  * - Enqueue after successful local transitions (IPC handlers).
- * - Drain asynchronously in small batches; failures stay visible with retry backoff.
+ * - Drain asynchronously in batches (default **50** rows); **parallel per `account_id`** with per-provider
+ *   spacing (IMAP **50ms**, Gmail/Graph **200ms** between ops on the same account). Failures stay visible with retry backoff.
  * - Idempotency: UNIQUE(message_id, operation) collapses duplicate pending work for the **same** op;
  *   enqueueing a **new** op for a message first marks other pending/processing rows for that message
  *   as completed with `Superseded by newer classification` so reclassification does not double-move.
@@ -28,7 +29,8 @@ import { emailGateway } from './gateway'
 import { isPullActive } from './syncPullLock'
 
 const MAX_ATTEMPTS = 8
-const BATCH = 20
+/** Default rows per drain batch (see `processOrchestratorRemoteQueueBatch`). */
+export const BATCH = 50
 /** Prevent a hung IMAP/socket from leaving queue rows stuck in `processing` indefinitely. */
 const MOVE_TIMEOUT_MS = 30_000
 
@@ -51,8 +53,18 @@ function isNonRetryableOrchestratorAuthOrConnectionError(message: string): boole
     m.includes('disconnected or removed')
   )
 }
-/** Light throttle between remote moves (Graph mail ~4 rps for delegated tokens). */
-const INTER_REMOTE_OP_DELAY_MS = 220
+/** Throttle between remote moves on the **same** account (parallel across different accounts). */
+function interRemoteOpDelayMs(providerType: string | null | undefined): number {
+  const p = String(providerType ?? '').toLowerCase()
+  if (p === 'imap') return 50
+  if (p === 'microsoft365') return 200
+  if (p === 'gmail') return 200
+  return 100
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 /** Coarse bucket for comparing `imap_remote_mailbox` to local lifecycle columns. */
 type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review'
@@ -341,7 +353,7 @@ export async function processOrchestratorRemoteQueueBatch(
   ).run(resetStuckAt, stuckCutoffIso)
 
   const pick = db.prepare(`
-    SELECT q.id, q.message_id, q.account_id, q.email_message_id, q.operation, q.attempts,
+    SELECT q.id, q.message_id, q.account_id, q.email_message_id, q.operation, q.attempts, q.provider_type,
            m.imap_remote_mailbox, m.imap_rfc_message_id
     FROM remote_orchestrator_mutation_queue q
     LEFT JOIN inbox_messages m ON m.id = q.message_id
@@ -363,16 +375,19 @@ export async function processOrchestratorRemoteQueueBatch(
     `UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`,
   )
 
-  const rows = pick.all(MAX_ATTEMPTS, limit) as Array<{
+  type OrchestratorQueueBatchRow = {
     id: string
     message_id: string
     account_id: string
     email_message_id: string
     operation: OrchestratorRemoteOperation
     attempts: number
+    provider_type?: string | null
     imap_remote_mailbox?: string | null
     imap_rfc_message_id?: string | null
-  }>
+  }
+
+  const rows = pick.all(MAX_ATTEMPTS, limit) as OrchestratorQueueBatchRow[]
 
   console.log(
     '[DRAIN_BATCH] Picked',
@@ -385,8 +400,8 @@ export async function processOrchestratorRemoteQueueBatch(
   /** Same-batch cache: fail remaining rows for an account without repeated connect attempts. */
   const precheckFailedByAccount = new Map<string, string>()
 
-  for (let idx = 0; idx < rows.length; idx++) {
-    const r = rows[idx]
+  const workRows: OrchestratorQueueBatchRow[] = []
+  for (const r of rows) {
     const pullActive = isPullActive(r.account_id)
     console.log(
       '[DRAIN_BATCH] Row:',
@@ -403,14 +418,32 @@ export async function processOrchestratorRemoteQueueBatch(
       console.log('[DRAIN_BATCH] DEFERRED (pull active):', r.id)
       continue
     }
+    workRows.push(r)
+  }
 
+  const byAccount = new Map<string, OrchestratorQueueBatchRow[]>()
+  for (const r of workRows) {
+    const list = byAccount.get(r.account_id) ?? []
+    list.push(r)
+    byAccount.set(r.account_id, list)
+  }
+
+  console.log(
+    '[DRAIN_BATCH] Parallel drain:',
+    byAccount.size,
+    'account(s),',
+    workRows.length,
+    'row(s) after pull deferral',
+  )
+
+  const processOneRow = async (r: OrchestratorQueueBatchRow): Promise<void> => {
     const cachedPrecheckErr = precheckFailedByAccount.get(r.account_id)
     if (cachedPrecheckErr) {
       console.warn('[DRAIN_BATCH] Same-batch precheck failure — failing row', r.id, 'account=', r.account_id)
       markFailed.run(MAX_ATTEMPTS, cachedPrecheckErr, now(), r.id)
       touchMessageError.run(`[${r.operation}] ${cachedPrecheckErr}`, r.message_id)
       result.failed++
-      continue
+      return
     }
 
     const pre = await emailGateway.ensureConnectedForOrchestratorOperation(r.account_id)
@@ -432,7 +465,7 @@ export async function processOrchestratorRemoteQueueBatch(
         console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
       }
       result.failed++
-      continue
+      return
     }
 
     markProcessing.run(now(), r.id)
@@ -559,10 +592,19 @@ export async function processOrchestratorRemoteQueueBatch(
       }
       result.failed++
     }
-    if (idx < rows.length - 1 && INTER_REMOTE_OP_DELAY_MS > 0) {
-      await new Promise((res) => setTimeout(res, INTER_REMOTE_OP_DELAY_MS))
-    }
   }
+
+  await Promise.allSettled(
+    [...byAccount.entries()].map(async ([_accountId, accountRows]) => {
+      for (let i = 0; i < accountRows.length; i++) {
+        await processOneRow(accountRows[i])
+        if (i < accountRows.length - 1) {
+          const delayMs = interRemoteOpDelayMs(accountRows[i].provider_type)
+          if (delayMs > 0) await sleepMs(delayMs)
+        }
+      }
+    }),
+  )
 
   const after = db
     .prepare(
@@ -954,6 +996,25 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
       }, 15_000)
     }
   })
+}
+
+/**
+ * Reset every **failed** remote orchestrator row so the drain can retry (e.g. after fixing IMAP SEARCH bugs).
+ * Does not change `completed` or `pending` rows.
+ */
+export function resetFailedOrchestratorRemoteQueueRows(db: any): { resetCount: number } {
+  if (!db) return { resetCount: 0 }
+  const nowIso = new Date().toISOString()
+  const info = db
+    .prepare(
+      `UPDATE remote_orchestrator_mutation_queue
+       SET status = 'pending', attempts = 0, last_error = NULL, updated_at = ?
+       WHERE status = 'failed'`,
+    )
+    .run(nowIso) as { changes: number }
+  const resetCount = typeof info?.changes === 'number' ? info.changes : 0
+  console.log('[OrchestratorRemote] resetFailedOrchestratorRemoteQueueRows:', resetCount, 'row(s)')
+  return { resetCount }
 }
 
 /**

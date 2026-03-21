@@ -661,6 +661,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   fullRemoteSyncAllAccounts: () => ipcRenderer.invoke('inbox:fullRemoteSyncAllAccounts'),
   /** Dev: enqueue + synchronously drain batches for one message (in-app remote pipeline test). */
   debugTestMoveOne: (messageId: string) => ipcRenderer.invoke('inbox:debugTestMoveOne', messageId),
+  /** Reset every `failed` row in `remote_orchestrator_mutation_queue` to `pending` and schedule drain. */
+  retryFailedRemoteOps: () => ipcRenderer.invoke('inbox:retryFailedRemoteOps'),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),

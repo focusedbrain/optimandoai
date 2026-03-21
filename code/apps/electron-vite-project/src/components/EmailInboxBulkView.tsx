@@ -110,6 +110,31 @@ function countStatus(byStatus: QueueStatusRow[], s: string): number {
   return Number(row?.c) || 0
 }
 
+/** Samples for ETA: `completed` trend over ~30s while debug panel polls. */
+type RemoteDrainSample = { t: number; completed: number; pending: number; processing: number }
+
+function formatDrainEtaLine(history: RemoteDrainSample[], pending: number, processing: number): string | null {
+  const now = Date.now()
+  const windowMs = 30_000
+  const h = history.filter((x) => now - x.t <= windowMs)
+  if (h.length < 2) return null
+  const first = h[0]
+  const last = h[h.length - 1]
+  const dtSec = (last.t - first.t) / 1000
+  if (dtSec < 3) return null
+  const dComp = last.completed - first.completed
+  if (dComp <= 0) return null
+  const ratePerSec = dComp / dtSec
+  const backlog = pending + processing
+  if (backlog <= 0) return null
+  const etaSec = backlog / ratePerSec
+  if (!Number.isFinite(etaSec) || etaSec < 0) return null
+  if (etaSec > 72 * 3600) return null
+  const mins = Math.ceil(etaSec / 60)
+  if (mins <= 1) return '~1 minute remaining at current rate'
+  return `~${mins} minutes remaining at current rate`
+}
+
 /**
  * Urgency cutoff (1–10): at or above this score, bulk Auto-Sort does not auto-move mail.
  * Kept in sync with “Time-sensitive” in getUrgencyBadgeText.
@@ -1628,6 +1653,8 @@ export default function EmailInboxBulkView({
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
   const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
   const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
+  /** Last ~30s of queue snapshots (while debug panel open) for drain ETA. */
+  const [remoteDrainHistory, setRemoteDrainHistory] = useState<RemoteDrainSample[]>([])
   const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
     enqueue: string
     move: string
@@ -1753,13 +1780,24 @@ export default function EmailInboxBulkView({
     return base
   }, [sortedMessages, removingItems])
 
-  const refreshRemoteDebugQueue = useCallback(async () => {
-    setRemoteDebugLoading(true)
+  const refreshRemoteDebugQueue = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setRemoteDebugLoading(true)
     try {
       const q = await window.emailInbox?.debugQueueStatus?.()
       setRemoteDebugQueue(q && typeof q === 'object' ? (q as Record<string, unknown>) : null)
+      if (q && typeof q === 'object' && typeof (q as { error?: unknown }).error !== 'string') {
+        const byStatus = ((q as { byStatus?: QueueStatusRow[] }).byStatus ?? []) as QueueStatusRow[]
+        const completed = countStatus(byStatus, 'completed')
+        const pending = countStatus(byStatus, 'pending')
+        const processing = countStatus(byStatus, 'processing')
+        const now = Date.now()
+        setRemoteDrainHistory((prev) => {
+          const trimmed = prev.filter((x) => now - x.t <= 30_000)
+          return [...trimmed, { t: now, completed, pending, processing }]
+        })
+      }
     } finally {
-      setRemoteDebugLoading(false)
+      if (!opts?.silent) setRemoteDebugLoading(false)
     }
   }, [])
 
@@ -1767,6 +1805,37 @@ export default function EmailInboxBulkView({
     setRemoteDebugOpen(true)
     void refreshRemoteDebugQueue()
   }, [refreshRemoteDebugQueue])
+
+  useEffect(() => {
+    if (!remoteDebugOpen) {
+      setRemoteDrainHistory([])
+      return
+    }
+    const id = window.setInterval(() => {
+      void refreshRemoteDebugQueue({ silent: true })
+    }, 5_000)
+    return () => clearInterval(id)
+  }, [remoteDebugOpen, refreshRemoteDebugQueue])
+
+  const handleRetryFailedRemoteQueue = useCallback(async () => {
+    const fn = window.emailInbox?.retryFailedRemoteOps
+    if (!fn) {
+      addRemoteSyncLog('retryFailedRemoteOps not in bridge (update app)')
+      return
+    }
+    setRemoteDebugLoading(true)
+    try {
+      const r = await fn()
+      if (r?.ok) {
+        addRemoteSyncLog(`Retry failed queue: ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`)
+      } else {
+        addRemoteSyncLog(`Retry failed queue: ${r?.error ?? 'failed'}`)
+      }
+      await refreshRemoteDebugQueue()
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [addRemoteSyncLog, refreshRemoteDebugQueue])
 
   const handleTestMoveOne = useCallback(async () => {
     const id = displayMessages[0]?.id
@@ -3703,9 +3772,17 @@ export default function EmailInboxBulkView({
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #ddd' }}>
             <strong>Remote queue debug</strong>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
                 Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRetryFailedRemoteQueue()}
+                disabled={remoteDebugLoading}
+                title="Set all failed remote queue rows to pending (attempts=0) and schedule background drain"
+              >
+                Retry failed
               </button>
               <button type="button" onClick={() => setRemoteDebugOpen(false)}>
                 Close
@@ -3728,14 +3805,36 @@ export default function EmailInboxBulkView({
               const recent = (remoteDebugQueue?.sample as QueueMsgRow[]) ?? []
               const opAgg = aggregateLifecycleOpCounts(byOp)
               const totalC = Number(total?.c) || 0
+              const completedC = countStatus(byStatus, 'completed')
+              const pendingC = countStatus(byStatus, 'pending')
+              const processingC = countStatus(byStatus, 'processing')
+              const etaLine = formatDrainEtaLine(remoteDrainHistory, pendingC, processingC)
               return (
                 <>
+                  <section style={{ marginBottom: 12, padding: 10, background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Drain progress</div>
+                    <div style={{ lineHeight: 1.45 }}>
+                      Remote sync: {completedC}/{totalC} completed ({pendingC} pending, {processingC} processing)
+                    </div>
+                    {etaLine ? (
+                      <div style={{ marginTop: 6, color: '#0369a1', fontWeight: 500 }}>{etaLine}</div>
+                    ) : (
+                      <div style={{ marginTop: 6, fontSize: 11, color: MUTED }}>
+                        {pendingC + processingC > 0
+                          ? 'ETA appears after a few samples (completed count must rise over ~30s).'
+                          : 'No pending/processing rows — queue idle for remote moves.'}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, fontSize: 10, color: MUTED }}>
+                      Auto-refresh every 5s while this panel is open.
+                    </div>
+                  </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue overview</div>
                     <div>Total queue rows: {totalC}</div>
                     <div>
-                      Pending: {countStatus(byStatus, 'pending')} | Processing: {countStatus(byStatus, 'processing')} |
-                      Completed: {countStatus(byStatus, 'completed')} | Failed: {countStatus(byStatus, 'failed')}
+                      Pending: {pendingC} | Processing: {processingC} | Completed: {completedC} | Failed:{' '}
+                      {countStatus(byStatus, 'failed')}
                     </div>
                   </section>
                   <section style={{ marginBottom: 12 }}>

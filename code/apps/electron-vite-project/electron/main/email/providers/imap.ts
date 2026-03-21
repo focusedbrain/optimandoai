@@ -1377,14 +1377,40 @@ export class ImapProvider extends BaseEmailProvider {
     })
   }
 
+  /**
+   * node-imap `search()` criteria: each criterion is its own array entry.
+   * WRONG: `['UID', '90228']` (two top-level items → first parsed as bare `UID` with no args →
+   * "Incorrect number of arguments for search option: UID").
+   * RIGHT: `[['UID', '90228']]` or `[['UID', '90228:90228']]`, `[['HEADER','MESSAGE-ID', v]]`.
+   *
+   * All direct `.search(` call sites in this file:
+   * - Folder list sync (`listMessages` path): `[['SINCE', since]]` → seq numbers
+   * - `imapSearchAllUidsInCurrentMailbox`: `['ALL']`
+   * - `imapSearchFirstUid`: normalized criteria (UID / HEADER)
+   */
+  private normalizeSearchCriteriaForNodeImap(criteria: unknown[]): unknown[] {
+    if (!Array.isArray(criteria) || criteria.length === 0) return criteria
+    const a0 = criteria[0]
+    /* Flat top-level ['UID', id] → [['UID', id]] */
+    if (criteria.length === 2 && typeof a0 === 'string' && a0.toUpperCase() === 'UID') {
+      return [['UID', criteria[1]]]
+    }
+    /* Flat ['HEADER', field, value] → [['HEADER', field, value]] */
+    if (criteria.length === 3 && typeof a0 === 'string' && a0.toUpperCase() === 'HEADER') {
+      return [['HEADER', criteria[1], criteria[2]]]
+    }
+    return criteria
+  }
+
   /** UID SEARCH in the currently selected mailbox. */
   private imapSearchFirstUid(criteria: unknown[]): Promise<number | null> {
+    const normalized = this.normalizeSearchCriteriaForNodeImap(criteria) as any
     return new Promise((resolve) => {
       if (!this.client) {
         resolve(null)
         return
       }
-      this.client.search(criteria as any, (err, uids: number[]) => {
+      this.client.search(normalized, (err, uids: number[]) => {
         if (err || !uids?.length) resolve(null)
         else resolve(uids[0])
       })

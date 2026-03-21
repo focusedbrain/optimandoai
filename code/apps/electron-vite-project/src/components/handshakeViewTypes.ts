@@ -110,6 +110,8 @@ export interface EmailInboxBridge {
   /** DevTools diagnostic: remote orchestrator queue snapshot (main process logs + return value). */
   debugQueueStatus?: () => Promise<Record<string, unknown>>
   debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
+  /** Set all failed remote orchestrator queue rows back to pending + schedule drain. */
+  retryFailedRemoteOps?: () => Promise<{ ok: boolean; resetCount?: number; error?: string }>
   syncAccount: (accountId: string) => Promise<{
     ok: boolean
     data?: unknown

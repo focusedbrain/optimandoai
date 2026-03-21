@@ -150,11 +150,13 @@ import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
   listRemoteOrchestratorQueueRows,
+  resetFailedOrchestratorRemoteQueueRows,
   enqueueRemoteOpsForLocalLifecycleState,
   enqueueFullRemoteSync,
   enqueueFullRemoteSyncForAccountsTouchingMessages,
   drainOrchestratorRemoteQueueBounded,
   processOrchestratorRemoteQueueBatch,
+  BATCH as ORCHESTRATOR_REMOTE_QUEUE_BATCH,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
@@ -868,6 +870,7 @@ export function registerInboxHandlers(
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
+    'inbox:retryFailedRemoteOps',
     'inbox:reconcileImapRemoteLifecycle',
     'inbox:fullRemoteSync',
     'inbox:fullRemoteSyncForMessages',
@@ -2355,7 +2358,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
           .get(mid) as { c: number }
         if ((pendingForMsg?.c ?? 0) === 0) break
 
-        const b = await processOrchestratorRemoteQueueBatch(db, 20)
+        const b = await processOrchestratorRemoteQueueBatch(db, ORCHESTRATOR_REMOTE_QUEUE_BATCH)
         drainProcessed += b.processed
         drainFailed += b.failed
         batches += 1
@@ -2422,6 +2425,23 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       return { ok: true, data: rows }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'List failed' }
+    }
+  })
+
+  /** Reset all `failed` orchestrator queue rows to `pending` (attempts=0) and schedule drain — e.g. after IMAP SEARCH fix. */
+  ipcMain.handle('inbox:retryFailedRemoteOps', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const { resetCount } = resetFailedOrchestratorRemoteQueueRows(db)
+      try {
+        scheduleOrchestratorRemoteDrain(getDb)
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, resetCount }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'retryFailedRemoteOps failed' }
     }
   })
 
