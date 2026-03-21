@@ -1595,7 +1595,6 @@ export default function EmailInboxBulkView({
     toggleAutoSync,
     loadSyncState,
     accountSyncWindowDays,
-    pullMoreAccount,
     patchAccountSyncPreferences,
     editingDraftForMessageId,
     setEditingDraftForMessageId,
@@ -1651,7 +1650,6 @@ export default function EmailInboxBulkView({
       toggleAutoSync: s.toggleAutoSync,
       loadSyncState: s.loadSyncState,
       accountSyncWindowDays: s.accountSyncWindowDays,
-      pullMoreAccount: s.pullMoreAccount,
       patchAccountSyncPreferences: s.patchAccountSyncPreferences,
       editingDraftForMessageId: s.editingDraftForMessageId,
       setEditingDraftForMessageId: s.setEditingDraftForMessageId,
@@ -1740,17 +1738,6 @@ export default function EmailInboxBulkView({
     return () => unsub?.()
   }, [addRemoteSyncLog])
 
-  const handleSync = useCallback(() => {
-    const ids = activeEmailAccountIdsForSync(accounts)
-    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
-    if (toSync.length === 0) return
-    void syncAllAccounts(toSync)
-  }, [accounts, primaryAccountId, syncAllAccounts])
-
-  const handlePullMore = useCallback(() => {
-    if (primaryAccountId) void pullMoreAccount(primaryAccountId)
-  }, [primaryAccountId, pullMoreAccount])
-
   const handleSyncWindowChange = useCallback(
     async (days: number) => {
       if (!primaryAccountId) return
@@ -1764,6 +1751,54 @@ export default function EmailInboxBulkView({
   )
 
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
+
+  /** Enqueue full remote lifecycle reconcile (background drain). */
+  const enqueueFullRemoteSync = useCallback(async (): Promise<void> => {
+    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
+    if (!fn) {
+      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
+      return
+    }
+    setRemoteSyncBusy(true)
+    try {
+      const r = await fn()
+      if (r?.ok) {
+        console.log(
+          '[Inbox] Sync Remote enqueued:',
+          `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+        )
+        addRemoteSyncLog(
+          `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+            (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+              ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
+              : '') +
+            (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+              ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+              : '') +
+            ' — background drain until empty (see 🔧 for pending)',
+        )
+      } else {
+        console.warn('[Inbox] Sync Remote:', r?.error)
+        addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Sync Remote failed:', e)
+      addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRemoteSyncBusy(false)
+    }
+  }, [addRemoteSyncLog])
+
+  /** Pull from mailbox(es), then enqueue remote folder reconcile — one user-facing Sync action. */
+  const handleUnifiedSync = useCallback(async () => {
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    await syncAllAccounts(toSync)
+    await enqueueFullRemoteSync()
+  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
+
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
   const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
   const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
@@ -1796,44 +1831,6 @@ export default function EmailInboxBulkView({
     const queueByAccountSummary = (remoteDebugQueue.queueByAccountSummary as QueueByAccountSummaryRow[]) ?? []
     return buildRemoteSyncUserSummary(byStatus, queueByAccountSummary)
   }, [remoteDebugQueue])
-
-  /** Force full remote lifecycle reconcile for all accounts; drain runs in background until queue empty. */
-  const handleRemoteSyncAll = useCallback(() => {
-    console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
-    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
-    if (!fn) {
-      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
-      return
-    }
-    setRemoteSyncBusy(true)
-    void fn()
-      .then((r) => {
-        if (r?.ok) {
-          console.log(
-            '[Inbox] Sync Remote enqueued:',
-            `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
-          )
-          addRemoteSyncLog(
-            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
-              (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
-                ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
-                : '') +
-              (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
-                ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
-                : '') +
-              ' — background drain until empty (see 🔧 Debug for pending)',
-          )
-        } else {
-          console.warn('[Inbox] Sync Remote:', r?.error)
-          addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
-        }
-      })
-      .catch((e) => {
-        console.warn('[Inbox] Sync Remote failed:', e)
-        addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
-      })
-      .finally(() => setRemoteSyncBusy(false))
-  }, [addRemoteSyncLog])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
@@ -3845,7 +3842,7 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar — row 1: filter tabs; row 2: selection + AI sort (left) / sync + WR Expert (right); row 3: dev-only tools */}
+      {/* Toolbar — row 1: filter tabs; row 2: selection + AI (left) / sync prefs + Sync + debug (right) */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
           <div className="bulk-view-toolbar-tabs">
@@ -3948,118 +3945,56 @@ export default function EmailInboxBulkView({
                       : 'AI Auto-Sort selected messages'
               }
             >
-              ⚡ AI Auto-Sort
+              ⚡AI Auto-Sort
             </button>
-            <span className="bulk-view-selection-group-count selected-count">
-              {bulkBatchSize === 'all' ? `${total} in tab · ${selectedCount} selected` : `${selectedCount} selected`}
-            </span>
+            <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
-          <div className="bulk-view-toolbar-right">
-            <label className="bulk-view-sync-label">
-              <input
-                type="checkbox"
-                checked={autoSyncEnabled}
-                onChange={() => {
-                  console.log(
-                    '[AUTO_SYNC] Checkbox toggled account=',
-                    primaryAccountId,
-                    'enabled=',
-                    !autoSyncEnabled,
-                  )
-                  primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
-                }}
-              />
-              Auto-sync
-            </label>
-            <button
-              type="button"
-              className="bulk-view-pull-btn"
-              onClick={handleSync}
-              disabled={syncing || !primaryAccountId}
-              title="Pull messages"
-            >
-              {syncing ? '↻ Syncing…' : '↻ Pull'}
-            </button>
-            <button
-              type="button"
-              className="bulk-view-pull-btn"
-              onClick={handlePullMore}
-              disabled={syncing || !primaryAccountId || !window.emailInbox?.pullMoreAccount}
-              title={
-                !window.emailInbox?.pullMoreAccount
-                  ? 'Pull More requires an updated WR Desk build'
-                  : 'Fetch the next ~500 older messages than your oldest local message'
-              }
-            >
-              ↻ Pull More
-            </button>
-            <button
-              type="button"
-              className="bulk-view-sync-remote-btn"
-              onClick={handleRemoteSyncAll}
-              disabled={remoteSyncBusy || accounts.length === 0}
-              title="Enqueue full remote folder reconcile for all accounts (background; use after Auto-Sort or to fix drift)"
-            >
-              {remoteSyncBusy ? '☁ …' : '☁ Sync Remote'}
-            </button>
-            <button
-              type="button"
-              className="bulk-view-debug-btn"
-              onClick={openRemoteDebugPanel}
-              title="Remote queue diagnostics, drain progress, per-account queue"
-            >
-              🔧 Debug
-            </button>
-            <button
-              type="button"
-              className="bulk-view-wr-expert-btn"
-              onClick={() => setShowWrExpertModal(true)}
-              title="Edit AI inbox rules (WRExpert.md)"
-            >
-              WR Expert
-            </button>
-          </div>
-        </div>
-
-        <div
-          className="bulk-view-toolbar-row"
-          style={{
-            flexWrap: 'wrap',
-            gap: 10,
-            alignItems: 'center',
-            fontSize: 11,
-            paddingTop: 2,
-            borderTop: '1px solid var(--color-border, rgba(0,0,0,0.08))',
-            marginTop: 6,
-            paddingBottom: 4,
-          }}
-        >
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>Sync window</span>
+          <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
             <select
-              value={accountSyncWindowDays}
+              className="bulk-view-toolbar-sync-select"
+              aria-label="Initial sync window"
+              value={accountSyncWindowDays === 0 ? 365 : accountSyncWindowDays}
               onChange={(e) => {
                 const v = parseInt(e.target.value, 10)
                 if (!Number.isNaN(v)) void handleSyncWindowChange(v)
               }}
               disabled={!primaryAccountId || !window.emailInbox?.patchAccountSyncPreferences}
-              style={{ fontSize: 12, padding: '4px 8px' }}
+              title="How far back the first inbox pull reaches (expand and Sync for more history)"
             >
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={0}>All mail (warning)</option>
+              <option value={7}>7d</option>
+              <option value={30}>30d</option>
+              <option value={90}>90d</option>
+              <option value={365}>1y</option>
             </select>
-          </label>
-          <span style={{ opacity: 0.88, maxWidth: 560, lineHeight: 1.35 }}>
-            After the first sync, only new incoming messages sync automatically. Use Pull More for older mail.
-            {accountSyncWindowDays === 0 ? (
-              <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
-                Large mailboxes may take a long time when syncing all mail.
-              </span>
-            ) : null}
-          </span>
+            <label className="bulk-view-sync-label bulk-view-sync-label--compact" title="Auto-sync every few minutes">
+              <input
+                type="checkbox"
+                checked={autoSyncEnabled}
+                onChange={() => {
+                  primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
+                }}
+              />
+              Auto
+            </label>
+            <button
+              type="button"
+              className="bulk-view-pull-btn"
+              onClick={() => void handleUnifiedSync()}
+              disabled={syncing || remoteSyncBusy || !primaryAccountId}
+              title="Pull new mail and enqueue remote folder sync"
+            >
+              {syncing || remoteSyncBusy ? '↻ Syncing…' : '↻ Sync'}
+            </button>
+            <button
+              type="button"
+              className="bulk-view-debug-icon-btn"
+              onClick={openRemoteDebugPanel}
+              title="Developer tools — remote queue & diagnostics"
+            >
+              🔧
+            </button>
+          </div>
         </div>
       </div>
 
@@ -4090,6 +4025,14 @@ export default function EmailInboxBulkView({
               <div style={{ fontSize: 10, fontWeight: 400, color: MUTED, marginTop: 2 }}>Queue diagnostics &amp; IMAP folder checks</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setShowWrExpertModal(true)}
+                title="Edit AI inbox rules (WRExpert.md)"
+                style={{ fontSize: 11, fontWeight: 600 }}
+              >
+                WR Expert
+              </button>
               <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
                 Refresh
               </button>
