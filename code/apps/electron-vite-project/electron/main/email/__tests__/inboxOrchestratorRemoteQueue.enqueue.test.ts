@@ -165,7 +165,7 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
     }
   }
 
-  it('skips upsert when imap_remote_mailbox already matches archive bucket', () => {
+  it('skips upsert when imap_remote_mailbox exactly equals configured archive mailbox name', () => {
     const { db, upsertRuns, clearWithKeepRuns } = makeLifecycleDb({
       id: 'm1',
       account_id: 'a1',
@@ -174,7 +174,8 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
       pending_delete: 0,
       sort_category: null,
       pending_review_at: null,
-      imap_remote_mailbox: 'INBOX.Archive',
+      /** Default resolved name from mailboxLifecycleMapping is `Archive` — must match exactly (not INBOX.Archive substring). */
+      imap_remote_mailbox: 'Archive',
       source_type: 'email_plain',
     })
     const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])

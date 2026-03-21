@@ -801,6 +801,19 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'Schema v41: IMAP one-time legacy lifecycle folder consolidation flag (email_sync_state.imap_folders_consolidated)',
     sql: [`ALTER TABLE email_sync_state ADD COLUMN imap_folders_consolidated INTEGER NOT NULL DEFAULT 0`],
   },
+  {
+    version: 42,
+    description:
+      'Schema v42: Repair swapped IMAP identifiers — email_message_id held RFC Message-ID while imap_rfc_message_id held UID',
+    sql: [
+      `UPDATE inbox_messages
+       SET email_message_id = imap_rfc_message_id,
+           imap_rfc_message_id = email_message_id
+       WHERE email_message_id LIKE '<%'
+         AND imap_rfc_message_id IS NOT NULL
+         AND imap_rfc_message_id NOT LIKE '<%'`,
+    ],
+  },
 ]
 
 /**

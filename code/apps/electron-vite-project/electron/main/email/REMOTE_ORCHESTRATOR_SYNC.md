@@ -10,7 +10,7 @@
 | **`domain/remoteLifecycleAbstraction.ts`** | Shared lifecycle model: canonical bucket names, backend kind (`gmail_api_labels` / `microsoft_graph_mailfolder_move` / `imap_uid_move`), `resolveRemoteLifecycleSnapshot(account)`. |
 | **`emailGateway.applyOrchestratorRemoteOperation`** | Connects account + provider; no inbox UI logic. |
 
-Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` already matches) — and **`scheduleOrchestratorRemoteDrain`**. Remote failures **do not** roll back local state.
+Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` **exactly** matches the configured lifecycle mailbox/label name, case-insensitive — no substring match) — and **`scheduleOrchestratorRemoteDrain`**. Remote failures **do not** roll back local state.
 
 ## Lifecycle → remote mapping
 
@@ -46,11 +46,17 @@ After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 ar
 
 **`scheduleOrchestratorRemoteDrain`** runs one batch per tick, then **reschedules** while `pendingRemaining > 0`, after work was processed, or when a parallel enqueue set `drainRescheduleRequested` — so the queue is drained to completion in the background (not a single batch only).
 
+**Pull vs drain:** `inbox:syncAccount` calls **`scheduleOrchestratorRemoteDrain`** only after **`syncAccountEmails`** resolves; the pull lock is released in **`syncAccountEmailsImpl`**’s **`finally { markPullInactive }`**, so the lock is cleared before the IPC handler schedules drain.
+
+**IMAP:** On socket **`end`**, the provider sets **`connected = false`** and **`client = null`** so the next operation reconnects. **`applyOrchestratorRemoteOperation`** requires **`connected && client`**. Auth/session-style errors from apply are **not retried** up to 8 times; the queue row is marked **`failed`** and **IMAP** accounts get **`updateAccount({ status: 'error', lastError })`** so the UI can prompt reconnect (e.g. web.de).
+
 Bulk **Auto-Sort** (`runAiCategorizeForIds`) ends with **`inbox:enqueueRemoteSync`** (alias of lifecycle mirror) for **all successfully classified** message IDs (`allProcessedIds`), then **`inbox:fullRemoteSyncForMessages`** so every touched account gets a pass over **all** rows where local lifecycle ≠ `imap_remote_mailbox` (lifecycle moves only; **inbox restore** when remote is wrong but local is inbox is counted as `inboxRestoreNeeded` until a dedicated op exists).
 
 **`inbox:fullRemoteSyncAllAccounts`** (UI **☁ Sync Remote**): loops **`emailGateway.listAccounts()`**, runs **`enqueueFullRemoteSync`** per account, then **`scheduleOrchestratorRemoteDrain`** once — useful to force reconciliation without re-running Auto-Sort.
 
 After each successful remote **`apply`**, **`processOrchestratorRemoteQueueBatch`** updates **`inbox_messages.email_message_id`** and **`inbox_messages.imap_remote_mailbox`** when the provider returns `imapUidAfterMove` / `imapMailboxAfterMove`, so the column tracks the message’s actual remote folder.
+
+**IMAP `email_message_id`:** must be the numeric **UID** in the source mailbox (not the RFC `Message-ID` header). Ingest uses **`resolveStorageEmailMessageId`** (`messageRouter.ts`) and IMAP sync builds raw messages with **`uid` + `id`** only (`syncOrchestrator.mapToRawEmailMessage`). RFC header stays in **`imap_rfc_message_id`**. Schema **v42** one-time `UPDATE` swaps columns when legacy rows stored RFC in `email_message_id` and UID in `imap_rfc_message_id`.
 
 IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** before `MOVE`. Gmail uses **`ensureWrDeskUserLabel`** to create missing user labels.
 

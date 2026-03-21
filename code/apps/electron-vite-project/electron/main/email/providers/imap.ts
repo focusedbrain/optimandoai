@@ -267,6 +267,8 @@ export class ImapProvider extends BaseEmailProvider {
       client.once('end', () => {
         console.log('[IMAP] Connection ended')
         this.connected = false
+        /** Dead socket must not satisfy `applyOrchestratorRemoteOperation` — forces full reconnect via gateway. */
+        this.client = null
       })
 
       client.connect()
@@ -517,7 +519,10 @@ export class ImapProvider extends BaseEmailProvider {
         })
       })
       msg.once('attributes', (attrs) => {
-        msgData.id = String(attrs.uid)
+        const uidStr = String(attrs.uid)
+        /** Same as `id` — IMAP UID for list rows; RFC Message-ID lives only in `headers.messageId`. */
+        msgData.id = uidStr
+        msgData.uid = uidStr
         if (attrs.flags) {
           msgData.flags = {
             seen: attrs.flags.includes('\\Seen'),
@@ -685,7 +690,9 @@ export class ImapProvider extends BaseEmailProvider {
               })
             })
             msg.once('attributes', (attrs) => {
-              msgData.id = String(attrs.uid)
+              const uidStr = String(attrs.uid)
+              msgData.id = uidStr
+              msgData.uid = uidStr
               if (attrs.flags) {
                 msgData.flags = {
                   seen: attrs.flags.includes('\\Seen'),
@@ -766,7 +773,9 @@ export class ImapProvider extends BaseEmailProvider {
               })
             })
             msg.once('attributes', (attrs) => {
-              msgData.id = String(attrs.uid)
+              const uidStr = String(attrs.uid)
+              msgData.id = uidStr
+              msgData.uid = uidStr
               if (attrs.flags) {
                 msgData.flags = {
                   seen: attrs.flags.includes('\\Seen'),
@@ -851,6 +860,8 @@ export class ImapProvider extends BaseEmailProvider {
 
                   message = {
                     id: messageId,
+                    /** IMAP UID (same as `id`); RFC Message-ID is `threadId` / `headers.messageId` only. */
+                    uid: messageId,
                     threadId: parsed.messageId,
                     subject: parsed.subject || '(No Subject)',
                     from: fromAddresses[0] || { email: '' },
@@ -1286,7 +1297,7 @@ export class ImapProvider extends BaseEmailProvider {
     operation: OrchestratorRemoteOperation,
     context?: OrchestratorRemoteApplyContext,
   ): Promise<OrchestratorRemoteApplyResult> {
-    if (!this.config || !this.client) {
+    if (!this.config || !this.connected || !this.client) {
       return { ok: false, error: 'Not connected' }
     }
     const names = resolveOrchestratorRemoteNames(this.config)

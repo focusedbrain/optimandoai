@@ -180,10 +180,19 @@ async function maybeRunImapLegacyFolderConsolidation(db: any, accountId: string)
 function mapToRawEmailMessage(
   detail: SanitizedMessageDetail,
   attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }>,
+  opts?: { provider?: string },
 ): RawEmailMessage {
-  return {
-    messageId: detail.id,
-    id: detail.id,
+  const id = detail.id
+  const headerBlock =
+    detail.headers?.messageId || detail.headers?.inReplyTo || detail.headers?.references
+      ? {
+          ...(detail.headers.messageId ? { messageId: detail.headers.messageId } : {}),
+          ...(detail.headers.inReplyTo ? { inReplyTo: detail.headers.inReplyTo } : {}),
+          ...(detail.headers.references ? { references: detail.headers.references } : {}),
+        }
+      : undefined
+
+  const base = {
     from: { address: detail.from.email, name: detail.from.name },
     to: detail.to.map((r) => ({ address: r.email, name: r.name })),
     cc: detail.cc?.map((r) => ({ address: r.email, name: r.name })),
@@ -192,9 +201,7 @@ function mapToRawEmailMessage(
     html: detail.bodySafeHtml,
     date: detail.date ?? new Date(detail.timestamp).toISOString(),
     folder: detail.folder || 'INBOX',
-    headers: detail.headers?.messageId
-      ? { messageId: detail.headers.messageId }
-      : undefined,
+    headers: headerBlock,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,
@@ -203,6 +210,25 @@ function mapToRawEmailMessage(
       contentId: a.contentId,
       content: a.content,
     })),
+  }
+
+  /**
+   * IMAP: `SanitizedMessageDetail.id` is the UID from the provider. Do **not** set top-level
+   * `messageId` here — it collides with RFC Message-ID semantics in `messageRouter` and breaks MOVE.
+   * RFC header stays in `headers.messageId` → `imap_rfc_message_id`.
+   */
+  if (opts?.provider === 'imap') {
+    return {
+      ...base,
+      uid: id,
+      id,
+    }
+  }
+
+  return {
+    ...base,
+    messageId: id,
+    id,
   }
 }
 
@@ -338,7 +364,7 @@ async function syncAccountEmailsImpl(
             }
           }
 
-          const rawMsg = mapToRawEmailMessage(detail, attachments)
+          const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })
           const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
 
           newCount++

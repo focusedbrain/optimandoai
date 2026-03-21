@@ -26,11 +26,26 @@ import { isPullActive } from './syncPullLock'
 
 const MAX_ATTEMPTS = 8
 const BATCH = 20
+
+/** Immediate terminal failure — do not burn retries on dead sessions / bad credentials. */
+function isNonRetryableOrchestratorAuthOrConnectionError(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('not connected') ||
+    m.includes('not authenticated') ||
+    m.includes('authentication failed') ||
+    m.includes('auth failed') ||
+    m.includes('invalid credentials') ||
+    m.includes('login failed') ||
+    m.includes('bad credentials') ||
+    m.includes('unauthorized')
+  )
+}
 /** Light throttle between remote moves (Graph mail ~4 rps for delegated tokens). */
 const INTER_REMOTE_OP_DELAY_MS = 220
 
 /** Coarse bucket for comparing `imap_remote_mailbox` to local lifecycle columns. */
-type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review' | 'unknown'
+type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review'
 
 function localRowToExpectedBucket(row: {
   archived?: number | null
@@ -50,33 +65,37 @@ function localRowToExpectedBucket(row: {
 }
 
 /**
- * Map persisted `imap_remote_mailbox` (IMAP path or label-ish string) to a lifecycle bucket using
- * configured names — avoids enqueueing when remote already matches local.
+ * Map persisted `imap_remote_mailbox` (IMAP mailbox path or label/folder display string) to a lifecycle bucket.
+ * Uses **case-insensitive exact equality** only (no substring / includes) so values like `INBOX` never falsely
+ * match configured names such as `Archive`. Unrecognized paths → `inbox` (treat as not yet in a lifecycle folder).
  */
 function observedRemoteBucketFromImapColumn(
   path: string | null | undefined,
   names: ResolvedOrchestratorRemoteNames,
 ): RemoteLifecycleBucket {
-  const s = (path || '').trim().toLowerCase()
-  if (!s || s === 'inbox') return 'inbox'
+  const raw = (path ?? '').trim()
+  if (!raw) return 'inbox'
+  const s = raw.toLowerCase()
+  if (s === 'inbox') return 'inbox'
 
-  const a = names.imap.archiveMailbox.trim().toLowerCase()
-  const pd = names.imap.pendingDeleteMailbox.trim().toLowerCase()
-  const pr = names.imap.pendingReviewMailbox.trim().toLowerCase()
-  const gPd = names.gmail.pendingDeleteLabel.trim().toLowerCase()
-  const gPr = names.gmail.pendingReviewLabel.trim().toLowerCase()
-  const oPd = names.outlook.pendingDeleteFolder.trim().toLowerCase()
-  const oPr = names.outlook.pendingReviewFolder.trim().toLowerCase()
+  const norm = (x: string) => x.trim().toLowerCase()
+  const a = norm(names.imap.archiveMailbox)
+  const pd = norm(names.imap.pendingDeleteMailbox)
+  const pr = norm(names.imap.pendingReviewMailbox)
+  const gPd = norm(names.gmail.pendingDeleteLabel)
+  const gPr = norm(names.gmail.pendingReviewLabel)
+  const oPd = norm(names.outlook.pendingDeleteFolder)
+  const oPr = norm(names.outlook.pendingReviewFolder)
 
-  if (a && s.includes(a)) return 'archive'
-  if (pd && s.includes(pd)) return 'pending_delete'
-  if (pr && s.includes(pr)) return 'pending_review'
-  if (gPd && s.includes(gPd)) return 'pending_delete'
-  if (gPr && s.includes(gPr)) return 'pending_review'
-  if (oPd && s.includes(oPd)) return 'pending_delete'
-  if (oPr && s.includes(oPr)) return 'pending_review'
+  if (a && s === a) return 'archive'
+  if (pd && s === pd) return 'pending_delete'
+  if (pr && s === pr) return 'pending_review'
+  if (gPd && s === gPd) return 'pending_delete'
+  if (gPr && s === gPr) return 'pending_review'
+  if (oPd && s === oPd) return 'pending_delete'
+  if (oPr && s === oPr) return 'pending_review'
 
-  return 'unknown'
+  return 'inbox'
 }
 
 function bucketToTargetOp(b: RemoteLifecycleBucket): OrchestratorRemoteOperation | null {
@@ -303,6 +322,16 @@ export async function processOrchestratorRemoteQueueBatch(
     }
     markProcessing.run(now(), r.id)
     try {
+      console.log(
+        '[OrchestratorRemote] Execute:',
+        r.operation,
+        'msg=',
+        r.message_id,
+        'email_id=',
+        r.email_message_id,
+        'account=',
+        r.account_id,
+      )
       const apply = await emailGateway.applyOrchestratorRemoteOperation(
         r.account_id,
         r.email_message_id,
@@ -313,6 +342,7 @@ export async function processOrchestratorRemoteQueueBatch(
         },
       )
       if (apply.ok) {
+        console.log('[OrchestratorRemote] OK:', r.operation, r.message_id)
         markCompleted.run(now(), r.id)
         touchMessageError.run(null, r.message_id)
         if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
@@ -327,10 +357,57 @@ export async function processOrchestratorRemoteQueueBatch(
         result.processed++
       } else {
         const err = (apply.error || 'Remote mutation failed').slice(0, 2000)
-        /* Permanent local state: do not burn MAX_ATTEMPTS on removed accounts. */
-        const terminal =
-          /account not found/i.test(err) || /does not implement remote orchestrator/i.test(err)
-        const nextAttempts = terminal ? MAX_ATTEMPTS : (r.attempts ?? 0) + 1
+        console.log('[OrchestratorRemote] FAIL:', r.operation, r.message_id, apply.error)
+        const authOrConnFail = isNonRetryableOrchestratorAuthOrConnectionError(err)
+        if (authOrConnFail) {
+          markFailed.run(MAX_ATTEMPTS, err, now(), r.id)
+          touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
+          console.warn('[OrchestratorRemote] Auth/connection failure for account', r.account_id, '— not retrying')
+          try {
+            if (emailGateway.getProviderSync(r.account_id) === 'imap') {
+              await emailGateway.updateAccount(r.account_id, {
+                status: 'error',
+                lastError: err.slice(0, 500) || 'IMAP session failed. Reconnect in Email settings.',
+              })
+            }
+          } catch (persistErr: any) {
+            console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
+          }
+        } else {
+          const terminal =
+            /account not found/i.test(err) || /does not implement remote orchestrator/i.test(err)
+          const nextAttempts = terminal ? MAX_ATTEMPTS : (r.attempts ?? 0) + 1
+          if (nextAttempts >= MAX_ATTEMPTS) {
+            markFailed.run(nextAttempts, err, now(), r.id)
+            touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
+          } else {
+            db.prepare(
+              `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+            ).run(nextAttempts, err, now(), r.id)
+            touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
+          }
+        }
+        result.failed++
+      }
+    } catch (e: any) {
+      const err = (e?.message || String(e)).slice(0, 2000)
+      console.log('[OrchestratorRemote] FAIL:', r.operation, r.message_id, err)
+      if (isNonRetryableOrchestratorAuthOrConnectionError(err)) {
+        markFailed.run(MAX_ATTEMPTS, err, now(), r.id)
+        touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
+        console.warn('[OrchestratorRemote] Auth/connection failure for account', r.account_id, '— not retrying')
+        try {
+          if (emailGateway.getProviderSync(r.account_id) === 'imap') {
+            await emailGateway.updateAccount(r.account_id, {
+              status: 'error',
+              lastError: err.slice(0, 500) || 'IMAP session failed. Reconnect in Email settings.',
+            })
+          }
+        } catch (persistErr: any) {
+          console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
+        }
+      } else {
+        const nextAttempts = (r.attempts ?? 0) + 1
         if (nextAttempts >= MAX_ATTEMPTS) {
           markFailed.run(nextAttempts, err, now(), r.id)
           touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
@@ -340,19 +417,6 @@ export async function processOrchestratorRemoteQueueBatch(
           ).run(nextAttempts, err, now(), r.id)
           touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
         }
-        result.failed++
-      }
-    } catch (e: any) {
-      const nextAttempts = (r.attempts ?? 0) + 1
-      const err = (e?.message || String(e)).slice(0, 2000)
-      if (nextAttempts >= MAX_ATTEMPTS) {
-        markFailed.run(nextAttempts, err, now(), r.id)
-        touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
-      } else {
-        db.prepare(
-          `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
-        ).run(nextAttempts, err, now(), r.id)
-        touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
       }
       result.failed++
     }
@@ -398,14 +462,17 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   for (const mid of messageIds) {
     const row = select.get(mid)
     if (!row) {
+      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=no_row')
       skipped++
       continue
     }
     if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
+      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=wrong_source_type', 'source_type=', row.source_type)
       skipped++
       continue
     }
     if (!row.email_message_id || !row.account_id) {
+      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=missing_email_or_account')
       skipped++
       continue
     }
@@ -414,11 +481,13 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     try {
       const cfg = emailGateway.getAccountConfig(row.account_id)
       if (!cfg) {
+        console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=no_account_config')
         skipped++
         continue
       }
       names = resolveOrchestratorRemoteNames(cfg)
     } catch {
+      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=account_config_error')
       skipped++
       continue
     }
@@ -427,6 +496,17 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     const observed = observedRemoteBucketFromImapColumn(row.imap_remote_mailbox, names)
 
     if (expected === 'inbox') {
+      console.log(
+        '[OrchestratorRemote] Enqueue skip:',
+        mid,
+        'reason=inbox',
+        'expected=',
+        expected,
+        'observed=',
+        observed,
+        'imap_remote_mailbox=',
+        row.imap_remote_mailbox,
+      )
       clearStaleLifecycleQueueOpsExcept(
         clearStmts,
         mid,
@@ -440,11 +520,33 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
 
     const targetOp = bucketToTargetOp(expected)
     if (!targetOp) {
+      console.log(
+        '[OrchestratorRemote] Enqueue skip:',
+        mid,
+        'reason=no_target_op',
+        'expected=',
+        expected,
+        'observed=',
+        observed,
+        'imap_remote_mailbox=',
+        row.imap_remote_mailbox,
+      )
       skipped++
       continue
     }
 
     if (observed === expected) {
+      console.log(
+        '[OrchestratorRemote] Enqueue skip:',
+        mid,
+        'reason=already_matches',
+        'expected=',
+        expected,
+        'observed=',
+        observed,
+        'imap_remote_mailbox=',
+        row.imap_remote_mailbox,
+      )
       clearStaleLifecycleQueueOpsExcept(
         clearStmts,
         mid,
@@ -456,6 +558,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
       continue
     }
 
+    console.log('[OrchestratorRemote] Enqueue:', mid, 'op=', targetOp)
     if (expected === 'archive') archiveIds.push(mid)
     else if (expected === 'pending_delete') pendingDeleteIds.push(mid)
     else pendingReviewIds.push(mid)
@@ -519,9 +622,9 @@ export function enqueueFullRemoteSync(db: any, accountId: string): EnqueueFullRe
     const observed = observedRemoteBucketFromImapColumn((row.imap_remote_mailbox as string) ?? null, names)
 
     if (expected === observed) continue
-    if (expected === 'inbox' && (observed === 'inbox' || observed === 'unknown')) continue
 
-    if (expected === 'inbox' && observed !== 'inbox' && observed !== 'unknown') {
+    /** Local inbox but persisted mailbox column is a lifecycle folder (exact name match) — no restore op yet. */
+    if (expected === 'inbox' && observed !== 'inbox') {
       out.inboxRestoreNeeded += 1
       continue
     }

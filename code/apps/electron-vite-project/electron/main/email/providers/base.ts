@@ -24,6 +24,8 @@ import type {
  */
 export interface RawEmailMessage {
   id: string
+  /** IMAP: same as `id` when the provider uses numeric mailbox UIDs. */
+  uid?: string
   threadId?: string
   subject: string
   from: { email: string; name?: string }

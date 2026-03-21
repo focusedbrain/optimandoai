@@ -14,6 +14,7 @@ import { app } from 'electron'
 import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
 import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 import type { SanitizedMessageDetail } from './types'
+import { emailGateway } from './gateway'
 
 // ── Types ──
 
@@ -159,6 +160,32 @@ function storeAttachment(messageId: string, attId: string, filename: string, con
 // ── Main router ──
 
 /**
+ * Value stored in `inbox_messages.email_message_id` and passed to the remote orchestrator queue.
+ * - **IMAP:** must be the numeric mailbox UID (MOVE / fetch use UID). Prefer `uid`, then `id`; RFC
+ *   Message-ID must live only in `headers.messageId` → `imap_rfc_message_id`.
+ * - **Gmail / Microsoft:** keep provider message id (`messageId` / `id` as supplied by sync).
+ */
+function resolveStorageEmailMessageId(accountId: string, rawMsg: RawEmailMessage): string {
+  let provider: string | null = null
+  try {
+    provider = emailGateway.getProviderSync(accountId)
+  } catch {
+    provider = null
+  }
+
+  const pick = (s: string | undefined): string | undefined => {
+    const t = typeof s === 'string' ? s.trim() : ''
+    return t.length > 0 ? t : undefined
+  }
+
+  if (provider === 'imap') {
+    return pick(rawMsg.uid) ?? pick(rawMsg.id) ?? pick(rawMsg.messageId) ?? randomUUID()
+  }
+
+  return pick(rawMsg.messageId) ?? pick(rawMsg.id) ?? pick(rawMsg.uid) ?? randomUUID()
+}
+
+/**
  * Detect BEAP content and route to the correct ingestion path.
  * Inserts into inbox_messages and into p2p_pending_beap (BEAP) or plain_email_inbox (plain).
  */
@@ -167,7 +194,7 @@ export function detectAndRouteMessage(
   accountId: string,
   rawMsg: RawEmailMessage,
 ): DetectAndRouteResult {
-  const messageId = rawMsg.messageId ?? rawMsg.id ?? rawMsg.uid ?? randomUUID()
+  const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
   const receivedAt = rawMsg.date || now
@@ -272,7 +299,10 @@ export function detectAndRouteMessage(
 
   // Build inbox_messages row
   const hasAttachments = attachments.length > 0
-  const imapRemoteMailbox = (rawMsg.folder || 'INBOX').trim() || 'INBOX'
+  /** Fresh INBOX pulls must persist a non-empty mailbox — used by lifecycle observed-bucket (exact match vs configured folder names). */
+  const folderRaw =
+    rawMsg.folder != null && String(rawMsg.folder).trim() !== '' ? String(rawMsg.folder).trim() : 'INBOX'
+  const imapRemoteMailbox = folderRaw || 'INBOX'
   const imapRfcMessageId = rawMsg.headers?.messageId?.trim() || null
   const insertInbox = db.prepare(`
     INSERT INTO inbox_messages (

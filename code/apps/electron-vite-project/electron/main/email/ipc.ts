@@ -992,6 +992,11 @@ export function registerInboxHandlers(
         if (result.newInboxMessageIds?.length) {
           enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
         }
+        /**
+         * Pull lock (`markPullActive` / `markPullInactive` in `syncAccountEmailsImpl`) is cleared in
+         * `finally` before `syncAccountEmails` resolves — so this drain runs after the lock is released
+         * and deferred queue rows for this account can execute.
+         */
         scheduleOrchestratorRemoteDrain(resolveDb)
       } catch (e: any) {
         console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
