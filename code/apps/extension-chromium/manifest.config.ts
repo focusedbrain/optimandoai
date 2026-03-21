@@ -70,6 +70,7 @@ export default defineManifest({
     {
       resources: [
         'wrdesk-logo.png',
+        'wrdesk-logo.svg',
         'grid-display.html',
         'grid-display.js',
         'grid-script.js',
