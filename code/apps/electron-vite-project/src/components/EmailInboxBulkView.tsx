@@ -1550,6 +1550,7 @@ export default function EmailInboxBulkView({
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
   /** Force full remote lifecycle reconcile for all accounts (background drain; does not block pull). */
   const handleRemoteSyncAll = useCallback(() => {
+    console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
     if (!fn) {
       console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
@@ -3438,7 +3439,15 @@ export default function EmailInboxBulkView({
             <input
               type="checkbox"
               checked={autoSyncEnabled}
-              onChange={() => primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+              onChange={() => {
+                console.log(
+                  '[AUTO_SYNC] Checkbox toggled account=',
+                  primaryAccountId,
+                  'enabled=',
+                  !autoSyncEnabled,
+                )
+                primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
+              }}
             />
             Auto-sync
           </label>

@@ -1025,11 +1025,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   syncAccount: async (accountId) => {
     const bridge = getBridge()
-    if (!bridge?.syncAccount) return
+    if (!bridge?.syncAccount) {
+      console.log('[PULL] store.syncAccount skipped reason=no_bridge')
+      return
+    }
     if (get().syncing) {
+      console.log('[PULL] store.syncAccount skipped reason=already_syncing account=', accountId)
       set({ lastSyncWarnings: ['Sync already in progress'] })
       return
     }
+    console.log('[PULL] store.syncAccount invoking inbox:syncAccount for account=', accountId)
     const lastSyncAt = new Date().toISOString()
     set({ syncing: true, error: null, lastSyncWarnings: null })
     try {
@@ -1109,11 +1114,24 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
   syncAllAccounts: async (accountIds) => {
     const bridge = getBridge()
-    if (!bridge?.syncAccount || accountIds.length === 0) return
+    if (!bridge?.syncAccount || accountIds.length === 0) {
+      console.log(
+        '[PULL] store.syncAllAccounts skipped reason=',
+        !bridge?.syncAccount ? 'no_bridge' : 'empty_accounts',
+      )
+      return
+    }
     if (get().syncing) {
+      console.log('[PULL] store.syncAllAccounts skipped reason=already_syncing')
       set({ lastSyncWarnings: ['Sync already in progress'] })
       return
     }
+    console.log(
+      '[PULL] store.syncAllAccounts invoking inbox:syncAccount count=',
+      accountIds.length,
+      'ids=',
+      accountIds.join(','),
+    )
     const lastSyncAt = new Date().toISOString()
     set({ syncing: true, error: null, lastSyncWarnings: null })
     const warnings: string[] = []

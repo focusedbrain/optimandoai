@@ -107,6 +107,8 @@ declare global {
 
 /** Email Inbox IPC bridge interface */
 export interface EmailInboxBridge {
+  /** DevTools diagnostic: remote orchestrator queue snapshot (main process logs + return value). */
+  debugQueueStatus?: () => Promise<Record<string, unknown>>
   syncAccount: (accountId: string) => Promise<{
     ok: boolean
     data?: unknown

@@ -916,6 +916,73 @@ export function registerInboxHandlers(
 
   const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
 
+  ipcMain.removeHandler('debug:queueStatus')
+  ipcMain.handle('debug:queueStatus', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { error: 'no db' }
+
+      const total = db.prepare('SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue').get()
+      const byStatus = db
+        .prepare('SELECT status, COUNT(*) as c FROM remote_orchestrator_mutation_queue GROUP BY status')
+        .all()
+      const byOp = db
+        .prepare(
+          'SELECT operation, status, COUNT(*) as c FROM remote_orchestrator_mutation_queue GROUP BY operation, status',
+        )
+        .all()
+      const failed = db
+        .prepare(
+          'SELECT id, message_id, account_id, operation, status, attempts, last_error, email_message_id FROM remote_orchestrator_mutation_queue WHERE status = ? LIMIT 10',
+        )
+        .all('failed')
+      const pending = db
+        .prepare(
+          'SELECT id, message_id, account_id, operation, status, attempts, last_error, email_message_id FROM remote_orchestrator_mutation_queue WHERE status = ? LIMIT 10',
+        )
+        .all('pending')
+      const processing = db
+        .prepare(
+          'SELECT id, message_id, account_id, operation, status, attempts, updated_at FROM remote_orchestrator_mutation_queue WHERE status = ?',
+        )
+        .all('processing')
+      const sample = db
+        .prepare(
+          'SELECT id, message_id, account_id, email_message_id, operation, status, attempts, last_error, created_at, updated_at FROM remote_orchestrator_mutation_queue ORDER BY created_at DESC LIMIT 5',
+        )
+        .all()
+      const failedByLastError = db
+        .prepare(
+          'SELECT last_error, COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = ? GROUP BY last_error ORDER BY c DESC',
+        )
+        .all('failed')
+
+      console.log('[QUEUE_STATUS] === QUEUE STATUS ===')
+      console.log('[QUEUE_STATUS] Total rows:', total)
+      console.log('[QUEUE_STATUS] By status:', JSON.stringify(byStatus))
+      console.log('[QUEUE_STATUS] By op+status:', JSON.stringify(byOp))
+      console.log('[QUEUE_STATUS] Failed (sample):', JSON.stringify(failed, null, 2))
+      console.log('[QUEUE_STATUS] Pending (sample):', JSON.stringify(pending, null, 2))
+      console.log('[QUEUE_STATUS] Processing (stuck?):', JSON.stringify(processing, null, 2))
+      console.log('[QUEUE_STATUS] Recent (sample):', JSON.stringify(sample, null, 2))
+      console.log('[QUEUE_STATUS] Failed by last_error:', JSON.stringify(failedByLastError))
+
+      return {
+        total,
+        byStatus,
+        byOp,
+        failed,
+        pending,
+        processing,
+        sample,
+        failedByLastError,
+      }
+    } catch (e: any) {
+      console.error('[QUEUE_STATUS] debug:queueStatus error:', e)
+      return { error: e.message }
+    }
+  })
+
   /**
    * After a successful **local** orchestrator write, enqueue best-effort remote mailbox mutations.
    * Never throws — failures stay in the queue / `remote_orchestrator_last_error` on the message row.
@@ -959,6 +1026,7 @@ export function registerInboxHandlers(
   // ── Sync ──
   ipcMain.handle('inbox:syncAccount', async (_e, accountId: string) => {
     try {
+      console.log('[PULL] inbox:syncAccount called for account:', accountId)
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
 
@@ -2132,6 +2200,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
   /** Full lifecycle reconcile for every connected email account (background drain). */
   ipcMain.handle('inbox:fullRemoteSyncAllAccounts', async () => {
     try {
+      console.log('[SYNC_REMOTE] IPC inbox:fullRemoteSyncAllAccounts handler started')
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
       const accounts = await emailGateway.listAccounts()

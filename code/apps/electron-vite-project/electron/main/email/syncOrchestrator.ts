@@ -444,6 +444,7 @@ export function startAutoSync(
 
   const tick = async () => {
     try {
+      console.log('[AUTO_SYNC] Tick fired for account:', accountId)
       const row = db.prepare('SELECT auto_sync_enabled FROM email_sync_state WHERE account_id = ?').get(accountId) as { auto_sync_enabled?: number } | undefined
       if (row?.auto_sync_enabled !== 1) {
         scheduleNext()

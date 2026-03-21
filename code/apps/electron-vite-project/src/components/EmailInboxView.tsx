@@ -1017,6 +1017,7 @@ export default function EmailInboxView({
 
   const [remoteLifecycleSyncing, setRemoteLifecycleSyncing] = useState(false)
   const handleRemoteLifecycleSyncAll = useCallback(() => {
+    console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
     if (!fn) {
       console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')

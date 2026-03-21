@@ -158,6 +158,8 @@ export function enqueueOrchestratorRemoteMutations(
   let skipped = 0
   if (!db || !messageIds?.length) return { enqueued, skipped }
 
+  console.log('[ENQUEUE_MUT] Called:', messageIds.length, 'ids, op=', operation)
+
   const select = db.prepare(
     `SELECT id, account_id, email_message_id, source_type FROM inbox_messages WHERE id = ?`,
   ) as { get: (id: string) => any }
@@ -201,11 +203,23 @@ export function enqueueOrchestratorRemoteMutations(
 
   for (const mid of messageIds) {
     const row = select.get(mid)
-    if (!row?.account_id || !row?.email_message_id) {
+    if (!row) {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_row')
+      skipped++
+      continue
+    }
+    if (!row.account_id) {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_account_id')
+      skipped++
+      continue
+    }
+    if (!row.email_message_id) {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_email_message_id')
       skipped++
       continue
     }
     if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=wrong_source_type')
       skipped++
       continue
     }
@@ -214,6 +228,7 @@ export function enqueueOrchestratorRemoteMutations(
     try {
       providerType = emailGateway.getProviderSync(row.account_id)
     } catch {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_provider')
       skipped++
       continue
     }
@@ -230,9 +245,18 @@ export function enqueueOrchestratorRemoteMutations(
         now,
         now,
       )
+      console.log(
+        '[ENQUEUE_MUT] INSERTED:',
+        mid,
+        'provider=',
+        providerType,
+        'email_id=',
+        row.email_message_id,
+      )
       enqueued++
     } catch (e: any) {
       console.error('[OrchestratorRemote] enqueue upsert failed:', e?.message)
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=upsert_failed', 'err=', e?.message ?? e)
       skipped++
     }
   }
@@ -312,12 +336,31 @@ export async function processOrchestratorRemoteQueueBatch(
     imap_rfc_message_id?: string | null
   }>
 
+  console.log(
+    '[DRAIN_BATCH] Picked',
+    rows.length,
+    'rows from queue, pendingCount=',
+    pendingCount?.c ?? 0,
+  )
+
   const now = () => new Date().toISOString()
 
   for (let idx = 0; idx < rows.length; idx++) {
     const r = rows[idx]
-    if (isPullActive(r.account_id)) {
+    const pullActive = isPullActive(r.account_id)
+    console.log(
+      '[DRAIN_BATCH] Row:',
+      r.id,
+      'account=',
+      r.account_id,
+      'op=',
+      r.operation,
+      'pullActive=',
+      pullActive,
+    )
+    if (pullActive) {
       result.deferredDueToPull += 1
+      console.log('[DRAIN_BATCH] DEFERRED (pull active):', r.id)
       continue
     }
     markProcessing.run(now(), r.id)
@@ -332,6 +375,12 @@ export async function processOrchestratorRemoteQueueBatch(
         'account=',
         r.account_id,
       )
+      console.log(
+        '[DRAIN_BATCH] Calling gateway.applyOrchestratorRemoteOperation:',
+        r.account_id,
+        r.email_message_id,
+        r.operation,
+      )
       const apply = await emailGateway.applyOrchestratorRemoteOperation(
         r.account_id,
         r.email_message_id,
@@ -340,6 +389,14 @@ export async function processOrchestratorRemoteQueueBatch(
           imapRemoteMailbox: r.imap_remote_mailbox ?? null,
           imapRfcMessageId: r.imap_rfc_message_id ?? null,
         },
+      )
+      const skippedPart = (apply as { skipped?: boolean }).skipped ? '(already there)' : ''
+      console.log(
+        '[DRAIN_BATCH] Result:',
+        r.id,
+        apply.ok ? 'OK' : 'FAIL',
+        apply.error ?? '',
+        skippedPart,
       )
       if (apply.ok) {
         console.log('[OrchestratorRemote] OK:', r.operation, r.message_id)
@@ -391,6 +448,7 @@ export async function processOrchestratorRemoteQueueBatch(
       }
     } catch (e: any) {
       const err = (e?.message || String(e)).slice(0, 2000)
+      console.log('[DRAIN_BATCH] Result:', r.id, 'FAIL', err, '')
       console.log('[OrchestratorRemote] FAIL:', r.operation, r.message_id, err)
       if (isNonRetryableOrchestratorAuthOrConnectionError(err)) {
         markFailed.run(MAX_ATTEMPTS, err, now(), r.id)
@@ -447,6 +505,8 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   let skipped = 0
   if (!db || !messageIds?.length) return { enqueued, skipped }
 
+  console.log('[ENQUEUE] Called with', messageIds.length, 'message ids')
+
   const select = db.prepare(
     `SELECT id, account_id, email_message_id, archived, pending_delete, sort_category, pending_review_at,
             imap_remote_mailbox, source_type
@@ -462,17 +522,22 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   for (const mid of messageIds) {
     const row = select.get(mid)
     if (!row) {
-      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=no_row')
+      console.log('[ENQUEUE] SKIP:', mid, 'reason=no_row')
       skipped++
       continue
     }
     if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
-      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=wrong_source_type', 'source_type=', row.source_type)
+      console.log('[ENQUEUE] SKIP:', mid, 'reason=wrong_source_type')
       skipped++
       continue
     }
-    if (!row.email_message_id || !row.account_id) {
-      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=missing_email_or_account')
+    if (!row.account_id) {
+      console.log('[ENQUEUE] SKIP:', mid, 'reason=no_account_id')
+      skipped++
+      continue
+    }
+    if (!row.email_message_id) {
+      console.log('[ENQUEUE] SKIP:', mid, 'reason=no_email_message_id')
       skipped++
       continue
     }
@@ -481,13 +546,13 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     try {
       const cfg = emailGateway.getAccountConfig(row.account_id)
       if (!cfg) {
-        console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=no_account_config')
+        console.log('[ENQUEUE] SKIP:', mid, 'reason=no_account_config')
         skipped++
         continue
       }
       names = resolveOrchestratorRemoteNames(cfg)
     } catch {
-      console.log('[OrchestratorRemote] Enqueue skip:', mid, 'reason=account_config_error')
+      console.log('[ENQUEUE] SKIP:', mid, 'reason=account_config_error')
       skipped++
       continue
     }
@@ -497,9 +562,9 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
 
     if (expected === 'inbox') {
       console.log(
-        '[OrchestratorRemote] Enqueue skip:',
+        '[ENQUEUE] SKIP:',
         mid,
-        'reason=inbox',
+        'reason=inbox_state',
         'expected=',
         expected,
         'observed=',
@@ -521,7 +586,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     const targetOp = bucketToTargetOp(expected)
     if (!targetOp) {
       console.log(
-        '[OrchestratorRemote] Enqueue skip:',
+        '[ENQUEUE] SKIP:',
         mid,
         'reason=no_target_op',
         'expected=',
@@ -537,7 +602,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
 
     if (observed === expected) {
       console.log(
-        '[OrchestratorRemote] Enqueue skip:',
+        '[ENQUEUE] SKIP:',
         mid,
         'reason=already_matches',
         'expected=',
@@ -558,7 +623,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
       continue
     }
 
-    console.log('[OrchestratorRemote] Enqueue:', mid, 'op=', targetOp)
+    console.log('[ENQUEUE] QUEUE:', mid, 'op=', targetOp, 'email_message_id=', row.email_message_id)
     if (expected === 'archive') archiveIds.push(mid)
     else if (expected === 'pending_delete') pendingDeleteIds.push(mid)
     else pendingReviewIds.push(mid)
@@ -740,16 +805,21 @@ let drainRescheduleRequested = false
  * Schedule asynchronous drain (non-blocking). Safe to call after every local transition.
  */
 export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any): void {
+  console.log('[DRAIN] scheduleOrchestratorRemoteDrain called, chainScheduled=', drainChainScheduled)
   if (drainChainScheduled) {
+    console.log('[DRAIN] Already scheduled, setting reschedule flag')
     drainRescheduleRequested = true
     return
   }
   drainChainScheduled = true
+  console.log('[DRAIN] Scheduling via setImmediate')
   setImmediate(async () => {
+    console.log('[DRAIN] setImmediate fired, calling processOrchestratorRemoteQueueBatch')
     drainChainScheduled = false
     try {
       const db = await getDb()
       if (!db) {
+        console.log('[DRAIN] No db from getDb(), bail')
         if (drainRescheduleRequested) {
           drainRescheduleRequested = false
           scheduleOrchestratorRemoteDrain(getDb)
