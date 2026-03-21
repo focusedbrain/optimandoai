@@ -1697,7 +1697,7 @@ function PopupChatApp() {
         {/* WRDesk Logo */}
         <div style={{ textAlign: 'center' }}>
           <img 
-            src={chrome.runtime.getURL('wrdesk-logo.svg')}
+            src={chrome.runtime.getURL('wrdesk-logo.png')}
             alt="WR Desk"
             style={{
               width: '180px',

@@ -836,7 +836,7 @@ async function createWindow() {
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
     title: 'WR Desk™',
-    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -1629,7 +1629,7 @@ async function createWindow() {
 
 function createTray() {
   try {
-    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'))
+    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'))
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
 

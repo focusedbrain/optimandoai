@@ -4,15 +4,15 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { randomString } from './pkce';
 
-/** Same mark as renderer: `public/wrdesk-logo.svg` (dev) or `dist/wrdesk-logo.svg` (packaged). */
+/** Same mark as renderer: `public/wrdesk-logo.png` (dev) or `dist/wrdesk-logo.png` (packaged). */
 function wrDeskLogoHtml(): string {
   const pub = process.env.VITE_PUBLIC;
   if (!pub) {
     return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
   }
   try {
-    const svg = fs.readFileSync(path.join(pub, 'wrdesk-logo.svg'), 'utf8');
-    const uri = `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+    const png = fs.readFileSync(path.join(pub, 'wrdesk-logo.png'));
+    const uri = `data:image/png;base64,${png.toString('base64')}`;
     return `<div class="logo" role="img" aria-label="WR Desk"><img src="${uri}" alt="WR Desk" /></div>`;
   } catch {
     return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';

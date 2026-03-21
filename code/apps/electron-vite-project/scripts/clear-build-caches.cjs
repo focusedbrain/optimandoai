@@ -28,6 +28,7 @@ function clearBuildCaches() {
   /** Prior extension outDir(s) — remove stale unpacked builds when output dir changes */
   rmDir(path.join(extensionRoot, 'build1'))
   rmDir(path.join(extensionRoot, 'build1024'))
+  rmDir(path.join(extensionRoot, 'build24'))
 
   /** Vite / Rollup transform caches */
   const dirs = [
