@@ -164,12 +164,17 @@ import {
   ensureOrchestratorRemoteDrainWatchdog,
   processOrchestratorRemoteQueueBatch,
   setOrchestratorDrainProgressReporter,
+  setSimpleOrchestratorRemoteDrainPrimary,
   BATCH as ORCHESTRATOR_REMOTE_QUEUE_BATCH,
 } from './inboxOrchestratorRemoteQueue'
 import { clearAllPullActiveLocks } from './syncPullLock'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
-import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
+import type {
+  OrchestratorRemoteApplyContext,
+  OrchestratorRemoteApplyResult,
+  OrchestratorRemoteOperation,
+} from './domain/orchestratorRemoteTypes'
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
@@ -926,6 +931,52 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
   return { where, params }
 }
 
+const SIMPLE_DRAIN_INTERVAL_MS = 10_000
+const SIMPLE_DRAIN_BATCH = 20
+const SIMPLE_DRAIN_MAX_ATTEMPTS = 8
+const SIMPLE_DRAIN_INTER_ROW_MS = 200
+const SIMPLE_DRAIN_TRANSIENT_PAUSE_MS = 3000
+
+/** Single process-wide interval — started from {@link registerInboxHandlers}. */
+let simpleOrchestratorRemoteDrainInterval: ReturnType<typeof setInterval> | null = null
+
+type SimpleDrainQueueRow = {
+  id: string
+  message_id: string
+  account_id: string
+  email_message_id: string
+  operation: OrchestratorRemoteOperation
+  attempts: number | null
+  imap_remote_mailbox: string | null
+  imap_rfc_message_id: string | null
+}
+
+function simpleDrainIsPermanentOrchestratorError(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    (m.includes('account not found') && m.includes('disconnected or removed')) ||
+    m.includes('does not implement remote orchestrator') ||
+    m.includes('failed to decrypt stored') ||
+    m.includes('failed to decrypt imap') ||
+    m.includes('failed to decrypt smtp')
+  )
+}
+
+function simpleDrainIsTransientOrchestratorError(message: string): boolean {
+  if (!message || typeof message !== 'string') return false
+  if (simpleDrainIsPermanentOrchestratorError(message)) return false
+  const m = message.toLowerCase()
+  return (
+    /timeout|timed out|handshake/i.test(m) ||
+    /not connected|connection closed|connection lost|connection reset/i.test(m) ||
+    /econnreset|epipe|etimedout|enotconn|socket|network|broken pipe|write econnreset|read econnreset/i.test(m) ||
+    /not authenticated|session not connected/i.test(m) ||
+    /reconnect required/i.test(m) ||
+    /imap (client|connection)|no.*socket/i.test(m) ||
+    /account authentication failed — reconnect required/i.test(m)
+  )
+}
+
 /**
  * Register inbox IPC handlers.
  * Requires db (or getter) and optional mainWindow for sending events.
@@ -1011,6 +1062,201 @@ export function registerInboxHandlers(
       /* ignore */
     }
   })
+
+  // Legacy setImmediate chain + bounded post-sync batch drain disabled — simple timer processor owns the queue.
+  setSimpleOrchestratorRemoteDrainPrimary(true)
+
+  // ═══════════════════════════════════════════════════════════
+  // SIMPLE DRAIN PROCESSOR — timer-based (every 10s), up to 20 rows, no pull-lock / chain flags.
+  // Runs alongside legacy code paths; `scheduleOrchestratorRemoteDrain` is a no-op while primary.
+  // ═══════════════════════════════════════════════════════════
+  if (!simpleOrchestratorRemoteDrainInterval) {
+    let simpleDrainRunning = false
+    simpleOrchestratorRemoteDrainInterval = setInterval(() => {
+      void (async () => {
+        if (simpleDrainRunning) return
+        simpleDrainRunning = true
+        try {
+          const db = await resolveDb()
+          if (!db) return
+
+          const twoMinAgo = new Date(Date.now() - 120_000).toISOString()
+          const nowIso = new Date().toISOString()
+          db.prepare(
+            `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', updated_at = ? WHERE status = 'processing' AND updated_at < ?`,
+          ).run(nowIso, twoMinAgo)
+
+          const rows = db
+            .prepare(
+              `SELECT q.id, q.message_id, q.account_id, q.email_message_id,
+                      q.operation, q.attempts,
+                      m.imap_remote_mailbox, m.imap_rfc_message_id
+               FROM remote_orchestrator_mutation_queue q
+               LEFT JOIN inbox_messages m ON m.id = q.message_id
+               WHERE q.status = 'pending' AND q.attempts < ?
+               ORDER BY q.created_at ASC
+               LIMIT ?`,
+            )
+            .all(SIMPLE_DRAIN_MAX_ATTEMPTS, SIMPLE_DRAIN_BATCH) as SimpleDrainQueueRow[]
+
+          if (rows.length === 0) return
+
+          console.log(`[SimpleDrain] Processing ${rows.length} row(s)`)
+          try {
+            sendToRenderer('inbox:drainProgress', {
+              processed: 0,
+              pending: rows.length,
+              failed: 0,
+              deferred: 0,
+              phase: 'simple_processing',
+              batchSize: rows.length,
+            })
+          } catch {
+            /* ignore */
+          }
+
+          const markCompleted = db.prepare(
+            `UPDATE remote_orchestrator_mutation_queue SET status = 'completed', last_error = NULL, updated_at = ? WHERE id = ?`,
+          )
+          const markFailed = db.prepare(
+            `UPDATE remote_orchestrator_mutation_queue SET status = 'failed', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+          )
+          const resetPending = db.prepare(
+            `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+          )
+          const resetPendingTransient = db.prepare(
+            `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
+          )
+          const touchMsgErr = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
+          const touchMsgErrNull = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
+
+          for (const r of rows) {
+            try {
+              db.prepare(
+                `UPDATE remote_orchestrator_mutation_queue SET status = 'processing', updated_at = ? WHERE id = ?`,
+              ).run(new Date().toISOString(), r.id)
+
+              const context: OrchestratorRemoteApplyContext = {
+                imapRfcMessageId: r.imap_rfc_message_id ?? null,
+                imapRemoteMailbox: r.imap_remote_mailbox ?? null,
+              }
+
+              let apply: OrchestratorRemoteApplyResult
+              try {
+                apply = await emailGateway.applyOrchestratorRemoteOperation(
+                  r.account_id,
+                  r.email_message_id,
+                  r.operation,
+                  context,
+                )
+              } catch (callErr: any) {
+                const errMsg = (callErr?.message || String(callErr)).slice(0, 2000)
+                apply = { ok: false, error: errMsg }
+              }
+
+              const rowNow = new Date().toISOString()
+              const prevAttempts = r.attempts ?? 0
+
+              if (apply.ok) {
+                markCompleted.run(rowNow, r.id)
+                if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
+                  try {
+                    db.prepare(`UPDATE inbox_messages SET email_message_id = ?, imap_remote_mailbox = ? WHERE id = ?`).run(
+                      apply.imapUidAfterMove,
+                      apply.imapMailboxAfterMove,
+                      r.message_id,
+                    )
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                try {
+                  touchMsgErrNull.run(r.message_id)
+                } catch {
+                  /* ignore */
+                }
+                console.log(`[SimpleDrain] OK: ${r.operation} ${String(r.message_id).slice(0, 8)}`)
+              } else {
+                const errMsg = (apply.error || 'Unknown error').slice(0, 2000)
+
+                if (simpleDrainIsPermanentOrchestratorError(errMsg)) {
+                  markFailed.run(SIMPLE_DRAIN_MAX_ATTEMPTS, errMsg, rowNow, r.id)
+                  try {
+                    touchMsgErr.run(`[${r.operation}] ${errMsg}`, r.message_id)
+                  } catch {
+                    /* ignore */
+                  }
+                  console.log(`[SimpleDrain] FAILED (permanent): ${String(r.message_id).slice(0, 8)} — ${errMsg.slice(0, 60)}`)
+                } else if (simpleDrainIsTransientOrchestratorError(errMsg)) {
+                  resetPendingTransient.run(errMsg, rowNow, r.id)
+                  try {
+                    touchMsgErr.run(`[${r.operation}] ${errMsg} (transient — will retry)`, r.message_id)
+                  } catch {
+                    /* ignore */
+                  }
+                  console.log(
+                    `[SimpleDrain] RETRY (transient): ${String(r.message_id).slice(0, 8)} — ${errMsg.slice(0, 60)}`,
+                  )
+                  try {
+                    await emailGateway.forceReconnect(r.account_id)
+                  } catch {
+                    /* ignore */
+                  }
+                  await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_TRANSIENT_PAUSE_MS))
+                } else {
+                  const nextAttempts = prevAttempts + 1
+                  if (nextAttempts >= SIMPLE_DRAIN_MAX_ATTEMPTS) {
+                    markFailed.run(nextAttempts, errMsg, rowNow, r.id)
+                    console.log(`[SimpleDrain] FAILED: ${String(r.message_id).slice(0, 8)} — ${errMsg.slice(0, 60)}`)
+                  } else {
+                    resetPending.run(nextAttempts, errMsg, rowNow, r.id)
+                    console.log(
+                      `[SimpleDrain] RETRY (${nextAttempts}/${SIMPLE_DRAIN_MAX_ATTEMPTS}): ${String(r.message_id).slice(0, 8)} — ${errMsg.slice(0, 60)}`,
+                    )
+                  }
+                  try {
+                    touchMsgErr.run(`[${r.operation}] ${errMsg}`, r.message_id)
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              }
+
+              await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_INTER_ROW_MS))
+            } catch (rowErr: any) {
+              try {
+                db.prepare(
+                  `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
+                ).run(rowErr?.message || 'Unknown', new Date().toISOString(), r.id)
+              } catch {
+                /* ignore */
+              }
+              console.error(`[SimpleDrain] Row error: ${r.id}`, rowErr?.message)
+            }
+          }
+
+          try {
+            const remaining = db
+              .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+              .get() as { c: number }
+            sendToRenderer('inbox:drainProgress', {
+              processed: rows.length,
+              pending: remaining.c,
+              failed: 0,
+              deferred: 0,
+              phase: 'simple_idle',
+            })
+          } catch {
+            /* ignore */
+          }
+        } catch (err) {
+          console.error('[SimpleDrain] Error:', err)
+        } finally {
+          simpleDrainRunning = false
+        }
+      })()
+    }, SIMPLE_DRAIN_INTERVAL_MS)
+  }
 
   /** Watchdog uses this same `getDb` as handlers (no module-level resolveDb mismatch). */
   ensureOrchestratorRemoteDrainWatchdog(getDb)
@@ -2605,7 +2851,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       }
       scheduleOrchestratorRemoteDrain(getDb)
       console.log(
-        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} unmirroredIds=${unmirrored.idsFound} orphanPendingCleared=${orphanCleared.cleared} (background drain scheduled, not awaited)`,
+        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} unmirroredIds=${unmirrored.idsFound} orphanPendingCleared=${orphanCleared.cleared} (simple timer drain will process pending rows)`,
       )
       return {
         ok: true,

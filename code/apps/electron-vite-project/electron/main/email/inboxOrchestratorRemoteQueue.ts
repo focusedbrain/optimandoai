@@ -1182,6 +1182,10 @@ export async function drainOrchestratorRemoteQueueBounded(
     return row?.c ?? 0
   }
 
+  if (simpleOrchestratorRemoteDrainPrimary) {
+    return { processedTotal: 0, failedTotal: 0, pendingRemaining: countPending(), timedOut: false }
+  }
+
   while (batches < maxBatches) {
     if (Date.now() - start > maxMs) {
       timedOut = true
@@ -1228,6 +1232,16 @@ export async function drainOrchestratorRemoteQueueBounded(
   return { processedTotal, failedTotal, pendingRemaining, timedOut }
 }
 
+/**
+ * When **true**, {@link scheduleOrchestratorRemoteDrain} is a no-op and {@link drainOrchestratorRemoteQueueBounded}
+ * returns immediately — the timer-based simple processor in `ipc.registerInboxHandlers` owns the queue.
+ */
+let simpleOrchestratorRemoteDrainPrimary = false
+
+export function setSimpleOrchestratorRemoteDrainPrimary(primary: boolean): void {
+  simpleOrchestratorRemoteDrainPrimary = primary
+}
+
 let drainChainScheduled = false
 /**
  * When many parallel IPC handlers call `scheduleOrchestratorRemoteDrain` while a chain is already
@@ -1249,6 +1263,9 @@ export function forceDrainRestart(): void {
  * Schedule asynchronous drain (non-blocking). Safe to call after every local transition.
  */
 export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any): void {
+  if (simpleOrchestratorRemoteDrainPrimary) {
+    return
+  }
   console.log(`[DRAIN] schedule called, chainScheduled=${drainChainScheduled}`)
   if (drainChainScheduled) {
     console.log('[DRAIN] Already scheduled, setting reschedule flag')

@@ -10,7 +10,11 @@
 | **`domain/remoteLifecycleAbstraction.ts`** | Shared lifecycle model: canonical bucket names, backend kind (`gmail_api_labels` / `microsoft_graph_mailfolder_move` / `imap_uid_move`), `resolveRemoteLifecycleSnapshot(account)`. |
 | **`emailGateway.applyOrchestratorRemoteOperation`** | Connects account + provider; no inbox UI logic. |
 
-Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` **exactly** matches the configured lifecycle mailbox/label name, case-insensitive — no substring / `includes` matching) — and **`scheduleOrchestratorRemoteDrain`**. **`enqueueRemoteOpsForLocalLifecycleState`** returns **`skipReasons: string[]`** (one line per skipped id: reason + `expected` / `observed` buckets + raw `imap_remote_mailbox`) for UI / IPC diagnostics. Empty or unknown `imap_remote_mailbox` is mapped to observed bucket **`inbox`**. Remote failures **do not** roll back local state.
+### Simple timer drain (primary)
+
+On **`registerInboxHandlers`**, **`setSimpleOrchestratorRemoteDrainPrimary(true)`** is set. Then **`scheduleOrchestratorRemoteDrain`** is a **no-op** and **`drainOrchestratorRemoteQueueBounded`** returns immediately (no legacy `setImmediate` chain, no inline bounded batches). A **10s `setInterval`** in `ipc.ts` processes up to **20** oldest **`pending`** rows per tick: direct **`applyOrchestratorRemoteOperation`** (no **`syncPullLock`** skip), SQLite updates, **`inbox:drainProgress`** to the renderer. Transient errors → row back to **`pending`** without bumping **`attempts`**, **`forceReconnect`**, 3s pause; permanent / max-attempts → **`failed`**. **`inbox:debugTestMoveOne`** still uses **`processOrchestratorRemoteQueueBatch`**.
+
+Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` **exactly** matches the configured lifecycle mailbox/label name, case-insensitive — no substring / `includes` matching) — and **`scheduleOrchestratorRemoteDrain`** (harmless no-op while simple drain is primary). **`enqueueRemoteOpsForLocalLifecycleState`** returns **`skipReasons: string[]`** (one line per skipped id: reason + `expected` / `observed` buckets + raw `imap_remote_mailbox`) for UI / IPC diagnostics. Empty or unknown `imap_remote_mailbox` is mapped to observed bucket **`inbox`**. Remote failures **do not** roll back local state.
 
 ## Lifecycle → remote mapping
 
@@ -40,9 +44,9 @@ After **`inbox:syncAccount`** (Pull):
 1. `syncAccountEmails` collects `newInboxMessageIds` for rows ingested in that run.
 2. `processPendingPlainEmails` / `processPendingP2PBeapEmails` run (same as before).
 3. **`enqueueRemoteOpsForLocalLifecycleState`** enqueues remote ops from current local columns for those IDs (`localRowToExpectedBucket`: archived → `pending_delete` → `pending_review` / `pending_review_at` → `urgent` → other classified → archive).
-4. **`scheduleOrchestratorRemoteDrain`** only — IPC returns without waiting; remote mailbox mirror continues in the background.
+4. **`scheduleOrchestratorRemoteDrain`** (no-op when simple timer drain is primary) — IPC returns without waiting; the timer processor drains **`pending`** rows.
 
-After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** still runs inline (capped ~28s / 150 batches) before the next tick is scheduled. If rows remain **`pending`**, bounded drain also **`scheduleOrchestratorRemoteDrain`** after a short delay, and the main process still calls **`scheduleOrchestratorRemoteDrain`** once — so the queue never stalls after a timeout alone.
+After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** runs only when simple timer drain is **not** primary; otherwise the simple processor owns the queue between ticks.
 
 ### Pull vs background remote drain
 
