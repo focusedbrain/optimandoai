@@ -2428,12 +2428,19 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
     }
   })
 
-  /** Reset all `failed` orchestrator queue rows to `pending` (attempts=0) and schedule drain — e.g. after IMAP SEARCH fix. */
-  ipcMain.handle('inbox:retryFailedRemoteOps', async () => {
+  /**
+   * Reset `failed` orchestrator queue rows to `pending` (attempts=0) and schedule drain.
+   * Optional `accountId` limits the reset to one account (debug: “Retry failed” per Outlook / M365).
+   */
+  ipcMain.handle('inbox:retryFailedRemoteOps', async (_e, accountId?: string) => {
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const { resetCount } = resetFailedOrchestratorRemoteQueueRows(db)
+      const aid =
+        typeof accountId === 'string' && accountId.trim() && accountId.trim() !== '(no account_id)'
+          ? accountId.trim()
+          : undefined
+      const { resetCount } = resetFailedOrchestratorRemoteQueueRows(db, aid)
       try {
         scheduleOrchestratorRemoteDrain(getDb)
       } catch {

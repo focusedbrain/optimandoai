@@ -23,7 +23,7 @@ export const DEFAULT_ORCHESTRATOR_REMOTE_NAMES = {
     archiveRemoveLabelIds: ['INBOX'] as readonly string[],
   },
   outlook: {
-    /** Child folders under Inbox — same display names as IMAP lifecycle mailboxes. */
+    /** Root-level Graph mail folders — same display names as IMAP lifecycle mailboxes. */
     pendingReviewFolder: 'Pending Review',
     pendingDeleteFolder: 'Pending Delete',
   },

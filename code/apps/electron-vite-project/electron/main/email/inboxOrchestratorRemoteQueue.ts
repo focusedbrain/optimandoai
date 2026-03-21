@@ -999,21 +999,36 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
 }
 
 /**
- * Reset every **failed** remote orchestrator row so the drain can retry (e.g. after fixing IMAP SEARCH bugs).
+ * Reset **failed** remote orchestrator rows so the drain can retry (e.g. after fixing provider bugs).
  * Does not change `completed` or `pending` rows.
+ * @param accountId — when set, only rows for that account are reset (e.g. Outlook-only retry from debug UI).
  */
-export function resetFailedOrchestratorRemoteQueueRows(db: any): { resetCount: number } {
+export function resetFailedOrchestratorRemoteQueueRows(db: any, accountId?: string): { resetCount: number } {
   if (!db) return { resetCount: 0 }
   const nowIso = new Date().toISOString()
-  const info = db
-    .prepare(
-      `UPDATE remote_orchestrator_mutation_queue
-       SET status = 'pending', attempts = 0, last_error = NULL, updated_at = ?
-       WHERE status = 'failed'`,
-    )
-    .run(nowIso) as { changes: number }
+  const id = typeof accountId === 'string' ? accountId.trim() : ''
+  const info = id
+    ? (db
+        .prepare(
+          `UPDATE remote_orchestrator_mutation_queue
+           SET status = 'pending', attempts = 0, last_error = NULL, updated_at = ?
+           WHERE status = 'failed' AND account_id = ?`,
+        )
+        .run(nowIso, id) as { changes: number })
+    : (db
+        .prepare(
+          `UPDATE remote_orchestrator_mutation_queue
+           SET status = 'pending', attempts = 0, last_error = NULL, updated_at = ?
+           WHERE status = 'failed'`,
+        )
+        .run(nowIso) as { changes: number })
   const resetCount = typeof info?.changes === 'number' ? info.changes : 0
-  console.log('[OrchestratorRemote] resetFailedOrchestratorRemoteQueueRows:', resetCount, 'row(s)')
+  console.log(
+    '[OrchestratorRemote] resetFailedOrchestratorRemoteQueueRows:',
+    resetCount,
+    'row(s)',
+    id ? `(account_id=${id})` : '(all accounts)',
+  )
   return { resetCount }
 }
 

@@ -1817,25 +1817,32 @@ export default function EmailInboxBulkView({
     return () => clearInterval(id)
   }, [remoteDebugOpen, refreshRemoteDebugQueue])
 
-  const handleRetryFailedRemoteQueue = useCallback(async () => {
-    const fn = window.emailInbox?.retryFailedRemoteOps
-    if (!fn) {
-      addRemoteSyncLog('retryFailedRemoteOps not in bridge (update app)')
-      return
-    }
-    setRemoteDebugLoading(true)
-    try {
-      const r = await fn()
-      if (r?.ok) {
-        addRemoteSyncLog(`Retry failed queue: ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`)
-      } else {
-        addRemoteSyncLog(`Retry failed queue: ${r?.error ?? 'failed'}`)
+  const handleRetryFailedRemoteQueue = useCallback(
+    async (accountId?: string) => {
+      const fn = window.emailInbox?.retryFailedRemoteOps
+      if (!fn) {
+        addRemoteSyncLog('retryFailedRemoteOps not in bridge (update app)')
+        return
       }
-      await refreshRemoteDebugQueue()
-    } finally {
-      setRemoteDebugLoading(false)
-    }
-  }, [addRemoteSyncLog, refreshRemoteDebugQueue])
+      setRemoteDebugLoading(true)
+      try {
+        const r = await fn(accountId)
+        if (r?.ok) {
+          addRemoteSyncLog(
+            accountId
+              ? `Retry failed (${accountId.slice(0, 8)}…): ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`
+              : `Retry failed queue: ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`,
+          )
+        } else {
+          addRemoteSyncLog(`Retry failed queue: ${r?.error ?? 'failed'}`)
+        }
+        await refreshRemoteDebugQueue()
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshRemoteDebugQueue],
+  )
 
   const handleTestMoveOne = useCallback(async () => {
     const id = displayMessages[0]?.id
@@ -3879,6 +3886,17 @@ export default function EmailInboxBulkView({
                               pending {acc.pending} · processing {acc.processing} · completed {acc.completed} · failed{' '}
                               {acc.failed} · total {acc.total}
                             </div>
+                            {acc.failed > 0 && acc.accountId !== '(no account_id)' ? (
+                              <button
+                                type="button"
+                                disabled={remoteDebugLoading}
+                                style={{ marginTop: 6, fontSize: 11, padding: '4px 8px' }}
+                                title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
+                                onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
+                              >
+                                Retry failed (this account)
+                              </button>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
