@@ -33,24 +33,43 @@ const MAX_ATTEMPTS = 8
 export const BATCH = 50
 /** Prevent a hung IMAP/socket from leaving queue rows stuck in `processing` indefinitely. */
 const MOVE_TIMEOUT_MS = 30_000
+/** After N successful IMAP moves on one account, pause so providers (e.g. web.de) do not drop the session. */
+const IMAP_BREATHING_EVERY_N_OPS = 50
+const IMAP_BREATHING_PAUSE_MS = 3000
+/** After forcing reconnect, brief pause before the next command. */
+const RECONNECT_SETTLE_MS = 2000
 
-/** Immediate terminal failure — do not burn retries on dead sessions / bad credentials. */
-function isNonRetryableOrchestratorAuthOrConnectionError(message: string): boolean {
+/** Never succeeds with retries — wrong account id, missing provider adapter, broken vault. */
+function isPermanentOrchestratorTerminalError(message: string | undefined | null): boolean {
+  if (!message || typeof message !== 'string') return false
   const m = message.toLowerCase()
   return (
-    m.includes('not connected') ||
-    m.includes('not authenticated') ||
-    m.includes('authentication failed') ||
-    m.includes('auth failed') ||
-    m.includes('invalid credentials') ||
-    m.includes('login failed') ||
-    m.includes('bad credentials') ||
-    m.includes('unauthorized') ||
-    m.includes('reconnect required') ||
-    m.includes('session not connected') ||
-    m.includes('account not found') ||
-    m.includes('handshake timed out') ||
-    m.includes('disconnected or removed')
+    (m.includes('account not found') && m.includes('disconnected or removed')) ||
+    m.includes('does not implement remote orchestrator') ||
+    m.includes('failed to decrypt stored') ||
+    m.includes('failed to decrypt imap') ||
+    m.includes('failed to decrypt smtp')
+  )
+}
+
+/**
+ * Dropped IMAP socket, idle timeout, handshake timeout, etc.
+ * Reconnect and re-queue **without** incrementing `attempts` (distinct from operational failures).
+ */
+function isTransientOrchestratorRemoteConnectionError(message: string | undefined | null): boolean {
+  if (!message || typeof message !== 'string') return false
+  if (isPermanentOrchestratorTerminalError(message)) return false
+  const m = message.toLowerCase()
+  return (
+    /timeout|timed out|handshake timed out/i.test(m) ||
+    /not connected|connection closed|connection lost|connection reset/i.test(m) ||
+    /econnreset|epipe|etimedout|enotconn|socket|network|broken pipe|write econnreset|read econnreset/i.test(
+      m,
+    ) ||
+    /not authenticated|session not connected/i.test(m) ||
+    /reconnect required/i.test(m) ||
+    /imap (client|connection)|no.*socket/i.test(m) ||
+    /account authentication failed — reconnect required/i.test(m)
   )
 }
 /** Throttle between remote moves on the **same** account (parallel across different accounts). */
@@ -383,6 +402,10 @@ export async function processOrchestratorRemoteQueueBatch(
   const markFailed = db.prepare(`
     UPDATE remote_orchestrator_mutation_queue SET status = 'failed', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?
   `)
+  /** Transient socket/session loss — back to pending **without** incrementing `attempts`. */
+  const resetPendingTransient = db.prepare(
+    `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', last_error = ?, updated_at = ? WHERE id = ?`,
+  )
   const touchMessageError = db.prepare(
     `UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`,
   )
@@ -409,8 +432,34 @@ export async function processOrchestratorRemoteQueueBatch(
   )
 
   const now = () => new Date().toISOString()
-  /** Same-batch cache: fail remaining rows for an account without repeated connect attempts. */
+  /** Same-batch cache: fail remaining rows for an account without repeated connect attempts (permanent precheck only). */
   const precheckFailedByAccount = new Map<string, string>()
+  /** Per-account successful IMAP applies in this batch — breathing pause every N ops. */
+  const imapSuccessCountByAccount = new Map<string, number>()
+
+  async function ensureConnectedWithOptionalReconnect(
+    accountId: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    let pre = await emailGateway.ensureConnectedForOrchestratorOperation(accountId)
+    if (pre.ok) return pre
+    if (!isTransientOrchestratorRemoteConnectionError(pre.error)) return pre
+    console.warn('[OrchestratorRemote] Precheck transient, forceReconnect:', accountId, pre.error)
+    try {
+      await emailGateway.forceReconnect(accountId)
+    } catch (e: any) {
+      console.warn('[OrchestratorRemote] forceReconnect failed:', e?.message || e)
+    }
+    await sleepMs(RECONNECT_SETTLE_MS)
+    pre = await emailGateway.ensureConnectedForOrchestratorOperation(accountId)
+    if (pre.ok) {
+      try {
+        emailGateway.clearOrchestratorTransientAccountError(accountId)
+      } catch {
+        /* ignore */
+      }
+    }
+    return pre
+  }
 
   const workRows: OrchestratorQueueBatchRow[] = []
   for (const r of rows) {
@@ -458,11 +507,15 @@ export async function processOrchestratorRemoteQueueBatch(
       return
     }
 
-    const pre = await emailGateway.ensureConnectedForOrchestratorOperation(r.account_id)
+    const pre = await ensureConnectedWithOptionalReconnect(r.account_id)
     if (!pre.ok) {
       const errMsg = (pre.error || 'Account authentication failed — reconnect required.').slice(0, 2000)
+      if (isTransientOrchestratorRemoteConnectionError(errMsg)) {
+        console.warn('[DRAIN_BATCH] Precheck still transient after reconnect — leave row pending', r.id, errMsg)
+        return
+      }
       precheckFailedByAccount.set(r.account_id, errMsg)
-      console.warn('[DRAIN_BATCH] Precheck failed account=', r.account_id, errMsg)
+      console.warn('[DRAIN_BATCH] Precheck failed (permanent) account=', r.account_id, errMsg)
       markFailed.run(MAX_ATTEMPTS, errMsg, now(), r.id)
       touchMessageError.run(`[${r.operation}] ${errMsg}`, r.message_id)
       try {
@@ -538,24 +591,35 @@ export async function processOrchestratorRemoteQueueBatch(
           }
         }
         result.processed++
+        if (String(r.provider_type ?? '').toLowerCase() === 'imap') {
+          const n = (imapSuccessCountByAccount.get(r.account_id) ?? 0) + 1
+          imapSuccessCountByAccount.set(r.account_id, n)
+          if (n > 0 && n % IMAP_BREATHING_EVERY_N_OPS === 0) {
+            console.log(
+              `[OrchestratorRemote] IMAP breathing pause after ${n} successful op(s) on account`,
+              r.account_id,
+            )
+            await sleepMs(IMAP_BREATHING_PAUSE_MS)
+          }
+        }
       } else {
         const err = (apply.error || 'Remote mutation failed').slice(0, 2000)
         console.log('[OrchestratorRemote] FAIL:', r.operation, r.message_id, apply.error)
-        const authOrConnFail = isNonRetryableOrchestratorAuthOrConnectionError(err)
-        if (authOrConnFail) {
+        if (isPermanentOrchestratorTerminalError(err)) {
           markFailed.run(MAX_ATTEMPTS, err, now(), r.id)
           touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
-          console.warn('[OrchestratorRemote] Auth/connection failure for account', r.account_id, '— not retrying')
+          result.failed++
+        } else if (isTransientOrchestratorRemoteConnectionError(err)) {
+          console.warn('[OrchestratorRemote] Transient connection error — reconnect, re-queue without attempt bump:', err)
           try {
-            if (emailGateway.getProviderSync(r.account_id) === 'imap') {
-              await emailGateway.updateAccount(r.account_id, {
-                status: 'error',
-                lastError: err.slice(0, 500) || 'IMAP session failed. Reconnect in Email settings.',
-              })
-            }
-          } catch (persistErr: any) {
-            console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
+            await emailGateway.forceReconnect(r.account_id)
+            emailGateway.clearOrchestratorTransientAccountError(r.account_id)
+          } catch (reErr: any) {
+            console.warn('[OrchestratorRemote] forceReconnect after apply failure:', reErr?.message || reErr)
           }
+          resetPendingTransient.run(err, now(), r.id)
+          touchMessageError.run(`[${r.operation}] ${err} (transient — will retry)`, r.message_id)
+          await sleepMs(RECONNECT_SETTLE_MS)
         } else {
           const terminal =
             /account not found/i.test(err) || /does not implement remote orchestrator/i.test(err)
@@ -569,27 +633,28 @@ export async function processOrchestratorRemoteQueueBatch(
             ).run(nextAttempts, err, now(), r.id)
             touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
           }
+          result.failed++
         }
-        result.failed++
       }
     } catch (e: any) {
       const err = (e?.message || String(e)).slice(0, 2000)
       console.log('[DRAIN_BATCH] Result:', r.id, 'FAIL', err, '')
       console.log('[OrchestratorRemote] FAIL:', r.operation, r.message_id, err)
-      if (isNonRetryableOrchestratorAuthOrConnectionError(err)) {
+      if (isPermanentOrchestratorTerminalError(err)) {
         markFailed.run(MAX_ATTEMPTS, err, now(), r.id)
         touchMessageError.run(`[${r.operation}] ${err}`, r.message_id)
-        console.warn('[OrchestratorRemote] Auth/connection failure for account', r.account_id, '— not retrying')
+        result.failed++
+      } else if (isTransientOrchestratorRemoteConnectionError(err)) {
+        console.warn('[OrchestratorRemote] Transient exception — reconnect, re-queue without attempt bump:', err)
         try {
-          if (emailGateway.getProviderSync(r.account_id) === 'imap') {
-            await emailGateway.updateAccount(r.account_id, {
-              status: 'error',
-              lastError: err.slice(0, 500) || 'IMAP session failed. Reconnect in Email settings.',
-            })
-          }
-        } catch (persistErr: any) {
-          console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
+          await emailGateway.forceReconnect(r.account_id)
+          emailGateway.clearOrchestratorTransientAccountError(r.account_id)
+        } catch (reErr: any) {
+          console.warn('[OrchestratorRemote] forceReconnect after exception:', reErr?.message || reErr)
         }
+        resetPendingTransient.run(err, now(), r.id)
+        touchMessageError.run(`[${r.operation}] ${err} (transient — will retry)`, r.message_id)
+        await sleepMs(RECONNECT_SETTLE_MS)
       } else {
         const nextAttempts = (r.attempts ?? 0) + 1
         if (nextAttempts >= MAX_ATTEMPTS) {
@@ -601,8 +666,8 @@ export async function processOrchestratorRemoteQueueBatch(
           ).run(nextAttempts, err, now(), r.id)
           touchMessageError.run(`[${r.operation}] ${err} (retry ${nextAttempts}/${MAX_ATTEMPTS})`, r.message_id)
         }
+        result.failed++
       }
-      result.failed++
     }
   }
 

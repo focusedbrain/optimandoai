@@ -469,6 +469,48 @@ class EmailGateway implements IEmailGateway {
     }
   }
 
+  /**
+   * Drop the cached provider and open a new session (used when IMAP/webmail closes idle connections
+   * mid-drain). Does not change persisted account credentials.
+   */
+  async forceReconnect(accountId: string): Promise<void> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      console.warn('[EmailGateway] forceReconnect: account not found', accountId)
+      return
+    }
+    const existing = this.providers.get(accountId)
+    if (existing) {
+      try {
+        await existing.disconnect()
+      } catch (e: any) {
+        console.warn('[EmailGateway] forceReconnect: disconnect', e?.message || e)
+      }
+      this.providers.delete(accountId)
+    }
+    await this.getConnectedProvider(account)
+    console.log('[EmailGateway] forceReconnect: new session for', accountId)
+  }
+
+  /**
+   * After a successful reconnect during orchestrator drain, clear UI `error` state **without**
+   * disconnecting the live provider (unlike `updateAccount`, which always disconnects).
+   */
+  clearOrchestratorTransientAccountError(accountId: string): void {
+    const index = this.accounts.findIndex((a) => a.id === accountId)
+    if (index === -1) return
+    const acc = this.accounts[index]
+    if (acc.status !== 'error') return
+    this.accounts[index] = {
+      ...acc,
+      status: 'active',
+      lastError: undefined,
+      updatedAt: Date.now(),
+    }
+    saveAccounts(this.accounts)
+    console.log('[EmailGateway] Cleared transient account error flag (orchestrator drain):', accountId)
+  }
+
   // =================================================================
   // Attachment Operations
   // =================================================================
