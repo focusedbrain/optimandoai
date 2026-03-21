@@ -3828,6 +3828,24 @@ export default function EmailInboxBulkView({
                     <div style={{ marginTop: 8, fontSize: 10, color: MUTED }}>
                       Auto-refresh every 5s while this panel is open.
                     </div>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: 8,
+                        fontSize: 10,
+                        lineHeight: 1.45,
+                        color: '#92400e',
+                        background: '#fffbeb',
+                        borderRadius: 4,
+                        border: '1px solid #fcd34d',
+                      }}
+                    >
+                      <strong>Microsoft 365 / Outlook:</strong> If pending lifecycle mail seems missing after an
+                      older sync, check <strong>Deleted items</strong> (Gelöschte Elemente) and{' '}
+                      <strong>Recoverable items</strong> in Outlook on the web. Move back to Inbox if needed, then use
+                      ☁ Sync Remote or Retry failed. Current app moves to &quot;Pending Delete&quot; / &quot;Pending
+                      Review&quot; folders only — it does not hard-delete those messages from the queue op.
+                    </div>
                   </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue overview</div>

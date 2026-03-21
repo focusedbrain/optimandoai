@@ -480,7 +480,12 @@ export class OutlookProvider extends BaseEmailProvider {
   /**
    * Microsoft Graph mapping:
    * - **archive** — move to well-known `archive` folder.
-   * - **pending_review** / **pending_delete** — child folders under Inbox (created on demand).
+   * - **pending_review** / **pending_delete** — dedicated mail folders named in
+   *   `resolveOrchestratorRemoteNames` (default "Pending Review" / "Pending Delete"):
+   *   find existing (paginated **Inbox › child folders**, then **root** `$filter`),
+   *   else **POST /me/mailFolders** (top-level, visible next to Inbox in most clients),
+   *   else fall back to **POST …/inbox/childFolders** if the root create conflicts.
+   *   Never uses Graph **DELETE** for these ops — only **POST …/move**.
    */
   async applyOrchestratorRemoteOperation(
     messageId: string,
@@ -497,9 +502,9 @@ export class OutlookProvider extends BaseEmailProvider {
         const arch = await this.graphApiRequest('GET', '/me/mailFolders/archive?$select=id')
         destId = arch.id
       } else if (operation === 'pending_review') {
-        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingReviewFolder)
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingReviewFolder)
       } else if (operation === 'pending_delete') {
-        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingDeleteFolder)
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingDeleteFolder)
       } else {
         return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
       }
@@ -513,35 +518,107 @@ export class OutlookProvider extends BaseEmailProvider {
       return { ok: true }
     } catch (e: any) {
       const msg = e?.message || String(e)
-      if (/same folder|already been moved|item not found|not found/i.test(msg)) {
+      /** Only true idempotents — do NOT treat generic "not found" as success (stale IDs / real loss). */
+      if (
+        /same destination folder|same folder|cannot move.*same folder|already been moved|already in the destination|ErrorFolderSameAsDestination|is already in that folder/i.test(
+          msg,
+        )
+      ) {
         return { ok: true, skipped: true }
       }
       return { ok: false, error: msg }
     }
   }
 
-  private async ensureOutlookOrchestratorChildFolder(displayName: string): Promise<string> {
+  /** OData single-quoted literal: escape `'` as `''`. */
+  private odataEscapeLiteral(s: string): string {
+    return s.replace(/'/g, "''")
+  }
+
+  private outlookFolderNamesMatch(a: string, b: string): boolean {
+    const x = a.trim()
+    const y = b.trim()
+    return x === y || x.toLowerCase() === y.toLowerCase()
+  }
+
+  /** Follow `@odata.nextLink` until all pages are collected (relative first URL or absolute next links). */
+  private async graphCollectAllPages(firstEndpoint: string): Promise<any[]> {
+    const out: any[] = []
+    let next: string | undefined = firstEndpoint
+    while (next) {
+      const isAbsolute = /^https?:\/\//i.test(next)
+      const response = isAbsolute
+        ? await this.graphApiRequestAbsolute('GET', next)
+        : await this.graphApiRequest('GET', next)
+      const chunk = response.value || []
+      out.push(...chunk)
+      next = response['@odata.nextLink'] as string | undefined
+    }
+    return out
+  }
+
+  /**
+   * Resolve or create the lifecycle folder for Outlook / Microsoft 365.
+   * Caches folder id per display name for the connection lifetime.
+   */
+  private async ensureOutlookOrchestratorFolder(displayName: string): Promise<string> {
     const hit = this.orchestratorFolderCache.get(displayName)
     if (hit) return hit
 
+    const trimmed = displayName.trim()
+    if (!trimmed) throw new Error('Empty orchestrator folder display name')
+
     const inbox = await this.graphApiRequest('GET', '/me/mailFolders/inbox?$select=id')
     const inboxId = inbox.id as string
-    const kids = await this.graphApiRequest(
-      'GET',
-      `/me/mailFolders/${inboxId}/childFolders?$select=id,displayName&$top=200`,
+
+    // 1) Legacy layout: folder already exists under Inbox (paginate — do not stop at $top)
+    const childPages = await this.graphCollectAllPages(
+      `/me/mailFolders/${inboxId}/childFolders?$select=id,displayName&$top=50`,
     )
-    const found = (kids.value || []).find((f: any) => f.displayName === displayName)
-    if (found?.id) {
-      this.orchestratorFolderCache.set(displayName, found.id)
-      return found.id
+    const underInbox = childPages.find((f: any) =>
+      this.outlookFolderNamesMatch(String(f.displayName ?? ''), trimmed),
+    )
+    if (underInbox?.id) {
+      this.orchestratorFolderCache.set(displayName, underInbox.id)
+      return underInbox.id
     }
-    console.log('[Outlook] Creating mail folder under Inbox:', displayName)
-    const created = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
-      displayName,
-    })
-    if (!created?.id) throw new Error('Graph folder create returned no id')
-    this.orchestratorFolderCache.set(displayName, created.id)
-    return created.id
+
+    // 2) Top-level folder with same name (Graph $filter is root-level mail folders)
+    const esc = this.odataEscapeLiteral(trimmed)
+    const filterResp = await this.graphApiRequest(
+      'GET',
+      `/me/mailFolders?$select=id,displayName&$filter=displayName eq '${esc}'`,
+    )
+    const atRoot = (filterResp.value || []).find((f: any) =>
+      this.outlookFolderNamesMatch(String(f.displayName ?? ''), trimmed),
+    )
+    if (atRoot?.id) {
+      this.orchestratorFolderCache.set(displayName, atRoot.id)
+      return atRoot.id
+    }
+
+    // 3) Create at mailbox root (usually visible next to Inbox / Posteingang in OWA)
+    console.log('[Outlook] Creating top-level mail folder:', trimmed)
+    try {
+      const created = await this.graphApiRequest('POST', '/me/mailFolders', {
+        displayName: trimmed,
+      })
+      if (!created?.id) throw new Error('Graph folder create returned no id')
+      this.orchestratorFolderCache.set(displayName, created.id)
+      return created.id
+    } catch (e: any) {
+      const em = e?.message || String(e)
+      if (/exists|duplicate|conflict|same name|already exists|name already|folderExists/i.test(em)) {
+        console.warn('[Outlook] Top-level folder create failed; retry Inbox child:', em)
+        const createdChild = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
+          displayName: trimmed,
+        })
+        if (!createdChild?.id) throw e
+        this.orchestratorFolderCache.set(displayName, createdChild.id)
+        return createdChild.id
+      }
+      throw e
+    }
   }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
