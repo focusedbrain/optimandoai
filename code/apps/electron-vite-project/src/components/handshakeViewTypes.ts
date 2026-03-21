@@ -141,6 +141,8 @@ export interface EmailInboxBridge {
   onNewMessages: (handler: (data: unknown) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void
+  /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */
+  onSimpleDrainRow?: (handler: (data: unknown) => void) => () => void
   listMessages: (options?: {
     filter?: string
     sourceType?: string

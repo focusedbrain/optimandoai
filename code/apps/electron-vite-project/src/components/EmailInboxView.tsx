@@ -1089,8 +1089,28 @@ export default function EmailInboxView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
-      const p = raw as { processed?: number; pending?: number; failed?: number; deferred?: number }
-      useEmailInboxStore.getState().addRemoteSyncLog(
+      const p = raw as {
+        processed?: number
+        pending?: number
+        failed?: number
+        deferred?: number
+        phase?: string
+        batchSize?: number
+        batchMoved?: number
+        batchSkipped?: number
+      }
+      const add = useEmailInboxStore.getState().addRemoteSyncLog
+      if (p.phase === 'simple_processing') {
+        add(`Drain batch: starting up to ${p.batchSize ?? 0} row(s)…`)
+        return
+      }
+      if (p.phase === 'simple_idle' && p.batchSize != null) {
+        add(
+          `Drain batch: ${p.batchSize} row(s) — ${p.batchMoved ?? 0} moved, ${p.batchSkipped ?? 0} idempotent skip, pending=${p.pending ?? 0}`,
+        )
+        return
+      }
+      add(
         `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
       )
     })

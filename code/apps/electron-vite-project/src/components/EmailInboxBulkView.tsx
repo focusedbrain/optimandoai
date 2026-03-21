@@ -1644,7 +1644,26 @@ export default function EmailInboxBulkView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
-      const p = raw as { processed?: number; pending?: number; failed?: number; deferred?: number }
+      const p = raw as {
+        processed?: number
+        pending?: number
+        failed?: number
+        deferred?: number
+        phase?: string
+        batchSize?: number
+        batchMoved?: number
+        batchSkipped?: number
+      }
+      if (p.phase === 'simple_processing') {
+        addRemoteSyncLog(`Drain batch: starting up to ${p.batchSize ?? 0} row(s)…`)
+        return
+      }
+      if (p.phase === 'simple_idle' && p.batchSize != null) {
+        addRemoteSyncLog(
+          `Drain batch: ${p.batchSize} row(s) — ${p.batchMoved ?? 0} moved, ${p.batchSkipped ?? 0} idempotent skip, pending=${p.pending ?? 0}`,
+        )
+        return
+      }
       addRemoteSyncLog(
         `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
       )
@@ -1877,15 +1896,23 @@ export default function EmailInboxBulkView({
       setRemoteFolderVerifyLoading(true)
       try {
         const r = await fn(aid)
-        setRemoteFolderVerify(r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' })
+        const rec = r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' }
+        setRemoteFolderVerify(rec)
+        if (rec.ok === false) {
+          const err = typeof rec.error === 'string' ? rec.error : 'unknown'
+          addRemoteSyncLog(`Verify Remote: FAILED — ${err}`)
+        } else {
+          addRemoteSyncLog('Verify Remote: OK (folder list loaded)')
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
         setRemoteFolderVerify({ ok: false, error: msg })
+        addRemoteSyncLog(`Verify Remote: FAILED — ${msg}`)
       } finally {
         setRemoteFolderVerifyLoading(false)
       }
     },
-    [remoteMainInboxAccountId, primaryAccountId],
+    [remoteMainInboxAccountId, primaryAccountId, addRemoteSyncLog],
   )
 
   useEffect(() => {

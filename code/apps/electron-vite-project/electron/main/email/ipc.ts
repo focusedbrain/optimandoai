@@ -1130,8 +1130,25 @@ export function registerInboxHandlers(
           const touchMsgErr = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = ? WHERE id = ?`)
           const touchMsgErrNull = db.prepare(`UPDATE inbox_messages SET remote_orchestrator_last_error = NULL WHERE id = ?`)
 
+          let batchMoved = 0
+          let batchSkipped = 0
+          const imapBatchReconnectDone = new Set<string>()
+
           for (const r of rows) {
             try {
+              if (!imapBatchReconnectDone.has(r.account_id)) {
+                imapBatchReconnectDone.add(r.account_id)
+                try {
+                  const prov = emailGateway.getProviderSync(r.account_id)
+                  if (prov === 'imap') {
+                    console.log('[SimpleDrain] IMAP forceReconnect before batch rows for', r.account_id)
+                    await emailGateway.forceReconnect(r.account_id)
+                  }
+                } catch (reErr: any) {
+                  console.warn('[SimpleDrain] IMAP batch reconnect failed:', r.account_id, reErr?.message || reErr)
+                }
+              }
+
               db.prepare(
                 `UPDATE remote_orchestrator_mutation_queue SET status = 'processing', updated_at = ? WHERE id = ?`,
               ).run(new Date().toISOString(), r.id)
@@ -1158,6 +1175,33 @@ export function registerInboxHandlers(
               const prevAttempts = r.attempts ?? 0
 
               if (apply.ok) {
+                const shortId = String(r.message_id).slice(0, 8)
+                if (apply.skipped) {
+                  batchSkipped += 1
+                  console.log(`[SimpleDrain] SKIPPED (idempotent): ${r.operation} ${shortId}`)
+                  try {
+                    sendToRenderer('inbox:simpleDrainRow', {
+                      status: 'skipped',
+                      op: r.operation,
+                      msgId: r.message_id,
+                    })
+                  } catch {
+                    /* ignore */
+                  }
+                } else {
+                  batchMoved += 1
+                  console.log(`[SimpleDrain] MOVED: ${r.operation} ${shortId}`)
+                  try {
+                    sendToRenderer('inbox:simpleDrainRow', {
+                      status: 'moved',
+                      op: r.operation,
+                      msgId: r.message_id,
+                    })
+                  } catch {
+                    /* ignore */
+                  }
+                }
+
                 markCompleted.run(rowNow, r.id)
                 if (apply.imapUidAfterMove != null && apply.imapMailboxAfterMove != null) {
                   try {
@@ -1175,7 +1219,6 @@ export function registerInboxHandlers(
                 } catch {
                   /* ignore */
                 }
-                console.log(`[SimpleDrain] OK: ${r.operation} ${String(r.message_id).slice(0, 8)}`)
               } else {
                 const errMsg = (apply.error || 'Unknown error').slice(0, 2000)
 
@@ -1245,6 +1288,9 @@ export function registerInboxHandlers(
               failed: 0,
               deferred: 0,
               phase: 'simple_idle',
+              batchSize: rows.length,
+              batchMoved,
+              batchSkipped,
             })
           } catch {
             /* ignore */
@@ -1524,10 +1570,24 @@ export function registerInboxHandlers(
    * IMAP: LIST + STATUS (counts per folder) + canonical lifecycle exact-match snapshot (read-only; no CREATE).
    */
   ipcMain.handle('inbox:verifyImapRemoteFolders', async (_e, accountId: string) => {
+    const VERIFY_IMAP_REMOTE_MS = 15_000
     try {
       const id = typeof accountId === 'string' ? accountId.trim() : ''
       if (!id) return { ok: false, error: 'accountId required' }
-      return await emailGateway.verifyImapRemoteFolders(id)
+      const result = await Promise.race([
+        emailGateway.verifyImapRemoteFolders(id),
+        new Promise<{ ok: false; error: string }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: false,
+                error: 'IMAP connection timed out. The connection may be dead.',
+              }),
+            VERIFY_IMAP_REMOTE_MS,
+          ),
+        ),
+      ])
+      return result
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'verifyImapRemoteFolders failed' }
     }

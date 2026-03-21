@@ -1585,15 +1585,18 @@ export class ImapProvider extends BaseEmailProvider {
 
       await this.imapEnsureMailbox(dest)
 
-      const already = await this.imapVerifyMessageInMailbox(destResolved, messageId, rfc)
-      if (already) {
-        return {
-          ok: true,
-          skipped: true,
-          imapUidAfterMove: already,
-          imapMailboxAfterMove: destResolved,
-        }
-      }
+      /* TEMPORARY: disable pre-move idempotent verify — false positives (duplicate Message-ID / stale
+       * search) marked rows completed without moving mail on servers like web.de. Re-enable after
+       * locate+move path is confirmed reliable. Post-move verification below stays. */
+      // const already = await this.imapVerifyMessageInMailbox(destResolved, messageId, rfc)
+      // if (already) {
+      //   return {
+      //     ok: true,
+      //     skipped: true,
+      //     imapUidAfterMove: already,
+      //     imapMailboxAfterMove: destResolved,
+      //   }
+      // }
 
       const loc = await this.imapLocateMessageForMove(destResolved, messageId, rfc, lastMb)
       if (!loc) {

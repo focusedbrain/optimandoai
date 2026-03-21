@@ -619,6 +619,14 @@ contextBridge.exposeInMainWorld('emailInbox', {
       ipcRenderer.removeListener('inbox:drainProgress', fn)
     }
   },
+  /** Per-row simple drain outcome (moved vs idempotent skip) — optional UI diagnostics. */
+  onSimpleDrainRow: (handler: (data: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
+    ipcRenderer.on('inbox:simpleDrainRow', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:simpleDrainRow', fn)
+    }
+  },
   listMessages: (options?: {
     filter?: string
     sourceType?: string
