@@ -1666,6 +1666,10 @@ export default function EmailInboxBulkView({
     messageRowAfterDrain?: Record<string, unknown> | null
     queueRows?: Array<Record<string, unknown>>
   } | null>(null)
+  /** `inbox:debugAccountMigrationStatus` — gateway ids vs orphan inbox_messages.account_id */
+  const [accountMigrationDiag, setAccountMigrationDiag] = useState<Record<string, unknown> | null>(null)
+  /** Per-orphan chosen target account id for migrate (defaults to first suggestion in UI). */
+  const [orphanMigrateTargetId, setOrphanMigrateTargetId] = useState<Record<string, string>>({})
 
   /** Force full remote lifecycle reconcile for all accounts; drain runs in background until queue empty. */
   const handleRemoteSyncAll = useCallback(() => {
@@ -1814,6 +1818,17 @@ export default function EmailInboxBulkView({
         } else {
           setRemoteMainInboxDebug(null)
         }
+        const migFn = window.emailInbox?.debugAccountMigrationStatus
+        if (migFn) {
+          const mig = await migFn()
+          if (mig && typeof mig === 'object' && (mig as { ok?: boolean }).ok === true) {
+            setAccountMigrationDiag(mig as Record<string, unknown>)
+          } else {
+            setAccountMigrationDiag(null)
+          }
+        } else {
+          setAccountMigrationDiag(null)
+        }
       } finally {
         if (!opts?.silent) setRemoteDebugLoading(false)
       }
@@ -1830,6 +1845,7 @@ export default function EmailInboxBulkView({
     if (!remoteDebugOpen) {
       setRemoteDrainHistory([])
       setRemoteMainInboxDebug(null)
+      setAccountMigrationDiag(null)
       return
     }
     const id = window.setInterval(() => {
@@ -1888,6 +1904,37 @@ export default function EmailInboxBulkView({
       }
     },
     [addRemoteSyncLog, refreshRemoteDebugQueue],
+  )
+
+  const handleMigrateInboxAccount = useCallback(
+    async (fromAccountId: string, toAccountId: string) => {
+      const fn = window.emailInbox?.migrateInboxAccountId
+      if (!fn) {
+        addRemoteSyncLog('migrateInboxAccountId not in bridge (update app)')
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = (await fn(fromAccountId, toAccountId)) as {
+          ok?: boolean
+          error?: string
+          messagesUpdated?: number
+          queueRowsDeleted?: number
+        }
+        if (r?.ok) {
+          addRemoteSyncLog(
+            `Inbox migrate: ${fromAccountId.slice(0, 8)}… → ${toAccountId.slice(0, 8)}… — ${r.messagesUpdated ?? 0} message row(s), ${r.queueRowsDeleted ?? 0} queue row(s) removed. Run ☁ Sync Remote.`,
+          )
+          await refreshMessages()
+        } else {
+          addRemoteSyncLog(`Inbox migrate failed: ${r?.error ?? 'unknown'}`)
+        }
+        await refreshRemoteDebugQueue({ silent: true })
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshMessages, refreshRemoteDebugQueue],
   )
 
   const handleTestMoveOne = useCallback(async () => {
@@ -3900,6 +3947,131 @@ export default function EmailInboxBulkView({
                       ☁ Sync Remote or Retry failed. Current app moves to &quot;Pending Delete&quot; / &quot;Pending
                       Review&quot; folders only — it does not hard-delete those messages from the queue op.
                     </div>
+                  </section>
+                  <section
+                    style={{
+                      marginBottom: 12,
+                      padding: 10,
+                      background: '#fefce8',
+                      borderRadius: 6,
+                      border: '1px solid #fde047',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Account status (gateway vs inbox DB)</div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      Accounts are stored in <code>email-accounts.json</code>. Inbox rows use <code>account_id</code> — after
+                      reconnect the UUID may change. Orphan ids are absent from the gateway; migrate to the current
+                      account, then run <strong>☁ Sync Remote</strong> (classifications are kept; only the id is fixed).
+                    </div>
+                    {!window.emailInbox?.debugAccountMigrationStatus ? (
+                      <div style={{ color: MUTED, fontSize: 11 }}>Update app for account migration diagnostics.</div>
+                    ) : accountMigrationDiag && accountMigrationDiag.ok === true ? (
+                      <>
+                        <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>Connected accounts</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.5 }}>
+                          {(
+                            (accountMigrationDiag.gatewayAccounts as Array<Record<string, unknown>>) ?? []
+                          ).map((g) => (
+                            <li key={String(g.id)} style={{ marginBottom: 8 }}>
+                              <div>
+                                <strong>{String(g.email ?? '—')}</strong> · {String(g.provider ?? '—')} ·{' '}
+                                {String(g.status ?? '—')}
+                              </div>
+                              <div
+                                style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: '#475569' }}
+                              >
+                                id {String(g.id)}
+                              </div>
+                              <div>inbox_messages (non-deleted): {Number(g.inboxMessageCount) || 0}</div>
+                            </li>
+                          ))}
+                        </ul>
+                        {(
+                          (accountMigrationDiag.orphans as Array<Record<string, unknown>>) ?? []
+                        ).length > 0 ? (
+                          <>
+                            <div
+                              style={{ fontWeight: 600, fontSize: 11, margin: '10px 0 6px', color: '#a16207' }}
+                            >
+                              Orphan account_id (not in gateway — often old id after reconnect)
+                            </div>
+                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.5 }}>
+                              {(
+                                (accountMigrationDiag.orphans as Array<Record<string, unknown>>) ?? []
+                              ).map((o) => {
+                                const oid = String(o.accountId ?? '')
+                                const sugg = (o.suggestedTargetAccountIds as string[] | undefined) ?? []
+                                const gw =
+                                  (accountMigrationDiag.gatewayAccounts as Array<Record<string, unknown>>) ?? []
+                                const emailFor = (id: string) =>
+                                  String(gw.find((x) => String(x.id) === id)?.email ?? `${id.slice(0, 8)}…`)
+                                const target = orphanMigrateTargetId[oid] || (sugg.length > 0 ? sugg[0] : '')
+                                return (
+                                  <li key={oid} style={{ marginBottom: 10 }}>
+                                    <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10 }}>{oid}</div>
+                                    <div>
+                                      {Number(o.inboxMessageCount) || 0} messages · {Number(o.queueRowCount) || 0}{' '}
+                                      queue rows
+                                    </div>
+                                    {sugg.length === 0 ? (
+                                      <div style={{ color: '#b45309', fontSize: 10, marginTop: 4 }}>
+                                        No To/Cc match to a connected mailbox — use a manual SQL UPDATE or ensure
+                                        messages include your address in To/Cc so we can suggest a target.
+                                      </div>
+                                    ) : (
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          flexWrap: 'wrap',
+                                          gap: 6,
+                                          alignItems: 'center',
+                                          marginTop: 6,
+                                        }}
+                                      >
+                                        {sugg.length > 1 ? (
+                                          <select
+                                            value={target}
+                                            onChange={(e) =>
+                                              setOrphanMigrateTargetId((prev) => ({
+                                                ...prev,
+                                                [oid]: e.target.value,
+                                              }))
+                                            }
+                                            style={{ fontSize: 11, maxWidth: 240 }}
+                                          >
+                                            {sugg.map((tid) => (
+                                              <option key={tid} value={tid}>
+                                                {emailFor(tid)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <span style={{ fontSize: 11 }}>→ {emailFor(sugg[0])}</span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={remoteDebugLoading || !target}
+                                          style={{ fontSize: 11, padding: '4px 8px' }}
+                                          onClick={() => void handleMigrateInboxAccount(oid, target)}
+                                        >
+                                          Migrate messages + clear queue (old id)
+                                        </button>
+                                      </div>
+                                    )}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>
+                            No orphan account ids — inbox account_id values match the gateway.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 11, color: MUTED }}>Refresh to load account diagnostics.</div>
+                    )}
                   </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue overview</div>

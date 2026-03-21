@@ -1302,6 +1302,213 @@ export function cleanupStaleFailedRemoteQueueOnReconnect(
   return { deletedCount }
 }
 
+/** Distinct `inbox_messages.account_id` values that are not in the current gateway account list. */
+export function getDistinctOrphanInboxAccountIds(db: any, knownAccountIds: Set<string>): string[] {
+  if (!db || knownAccountIds.size === 0) return []
+  const ids = [...knownAccountIds]
+  const ph = ids.map(() => '?').join(',')
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT account_id FROM inbox_messages
+       WHERE account_id IS NOT NULL AND TRIM(account_id) != ''
+         AND account_id NOT IN (${ph})`,
+    )
+    .all(...ids) as Array<{ account_id: string }>
+  return rows.map((r) => String(r.account_id).trim()).filter((x) => x.length > 0)
+}
+
+/** True if any non-deleted inbox row for this orphan account lists the mailbox email in To/Cc (reconnect heuristic). */
+export function orphanInboxHasRecipientHintForEmail(
+  db: any,
+  orphanAccountId: string,
+  normalizedMailboxEmail: string,
+): boolean {
+  if (!db || !orphanAccountId?.trim() || !normalizedMailboxEmail?.trim()) return false
+  const needle = normalizeAccountEmailForQueueCleanup(normalizedMailboxEmail)
+  if (!needle) return false
+  const row = db
+    .prepare(
+      `SELECT 1 AS x FROM inbox_messages
+       WHERE account_id = ? AND deleted = 0
+         AND (
+           instr(lower(COALESCE(to_addresses, '')), ?) > 0
+           OR instr(lower(COALESCE(cc_addresses, '')), ?) > 0
+         )
+       LIMIT 1`,
+    )
+    .get(orphanAccountId, needle, needle) as { x?: number } | undefined
+  return !!row
+}
+
+export interface GatewayAccountInboxDiag {
+  id: string
+  email: string
+  provider?: string
+  status?: string
+  inboxMessageCount: number
+}
+
+export interface OrphanInboxDiag {
+  accountId: string
+  inboxMessageCount: number
+  queueRowCount: number
+  /** Gateway account ids whose normalized email appears in To/Cc of this orphan’s messages */
+  suggestedTargetAccountIds: string[]
+}
+
+/**
+ * Debug / migrate UI: connected accounts vs inbox DB + orphan ids (stale account_id after reconnect).
+ */
+export function getInboxAccountMigrationDiagnostics(
+  db: any,
+  gatewayAccounts: Array<{ id: string; email: string; provider?: string; status?: string }>,
+): { gatewayAccounts: GatewayAccountInboxDiag[]; orphans: OrphanInboxDiag[] } {
+  if (!db) return { gatewayAccounts: [], orphans: [] }
+  const knownIds = new Set(gatewayAccounts.map((a) => String(a.id ?? '').trim()).filter((x) => x.length > 0))
+  const gwOut: GatewayAccountInboxDiag[] = []
+  for (const a of gatewayAccounts) {
+    const id = String(a.id ?? '').trim()
+    if (!id) continue
+    const c = db.prepare(`SELECT COUNT(*) as c FROM inbox_messages WHERE deleted = 0 AND account_id = ?`).get(id) as {
+      c?: number
+    }
+    gwOut.push({
+      id,
+      email: a.email,
+      provider: a.provider,
+      status: a.status,
+      inboxMessageCount: Number(c?.c) || 0,
+    })
+  }
+  const orphanIds = getDistinctOrphanInboxAccountIds(db, knownIds)
+  const orphans: OrphanInboxDiag[] = []
+  for (const oid of orphanIds) {
+    const mc = db.prepare(`SELECT COUNT(*) as c FROM inbox_messages WHERE deleted = 0 AND account_id = ?`).get(oid) as {
+      c?: number
+    }
+    const qc = db
+      .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE account_id = ?`)
+      .get(oid) as { c?: number }
+    const suggestedTargetAccountIds: string[] = []
+    for (const a of gatewayAccounts) {
+      const gid = String(a.id ?? '').trim()
+      if (!gid) continue
+      if (orphanInboxHasRecipientHintForEmail(db, oid, normalizeAccountEmailForQueueCleanup(a.email))) {
+        suggestedTargetAccountIds.push(gid)
+      }
+    }
+    orphans.push({
+      accountId: oid,
+      inboxMessageCount: Number(mc?.c) || 0,
+      queueRowCount: Number(qc?.c) || 0,
+      suggestedTargetAccountIds,
+    })
+  }
+  return { gatewayAccounts: gwOut, orphans }
+}
+
+/**
+ * Point all inbox rows + delete all remote queue rows from `fromAccountId` onto `toAccountId`.
+ * Idempotent: second run updates 0 rows if already migrated. Does not delete inbox_messages.
+ */
+export function migrateInboxAccountIdAndClearQueue(
+  db: any,
+  fromAccountId: string,
+  toAccountId: string,
+): {
+  didMigrate: boolean
+  fromId: string
+  toId: string
+  messagesUpdated: number
+  queueRowsDeleted: number
+  reason?: string
+} {
+  const fromId = String(fromAccountId ?? '').trim()
+  const toId = String(toAccountId ?? '').trim()
+  if (!db || !fromId || !toId || fromId === toId) {
+    return {
+      didMigrate: false,
+      fromId,
+      toId,
+      messagesUpdated: 0,
+      queueRowsDeleted: 0,
+      reason: 'invalid_args',
+    }
+  }
+  const qDel = db.prepare(`DELETE FROM remote_orchestrator_mutation_queue WHERE account_id = ?`).run(fromId) as {
+    changes?: number
+  }
+  const queueRowsDeleted = typeof qDel?.changes === 'number' ? qDel.changes : 0
+  const mUp = db.prepare(`UPDATE inbox_messages SET account_id = ? WHERE account_id = ?`).run(toId, fromId) as {
+    changes?: number
+  }
+  const messagesUpdated = typeof mUp?.changes === 'number' ? mUp.changes : 0
+  console.log(
+    '[OrchestratorRemote] migrateInboxAccountIdAndClearQueue:',
+    fromId,
+    '→',
+    toId,
+    'messages=',
+    messagesUpdated,
+    'queue_deleted=',
+    queueRowsDeleted,
+  )
+  return { didMigrate: messagesUpdated > 0 || queueRowsDeleted > 0, fromId, toId, messagesUpdated, queueRowsDeleted }
+}
+
+/**
+ * After reconnect: if there is exactly one orphan account_id whose messages To/Cc hint the same mailbox
+ * as the newly connected account, and that mailbox is unique in the gateway, repoint inbox + wipe queue for the orphan.
+ */
+export function tryAutoMigrateInboxAccountOnReconnect(
+  db: any,
+  knownAccounts: Array<{ id: string; email: string }>,
+  newlyConnected: { id: string; email: string },
+): {
+  didMigrate: boolean
+  fromId?: string
+  toId?: string
+  messagesUpdated: number
+  queueRowsDeleted: number
+  reason?: string
+} {
+  const newEmail = normalizeAccountEmailForQueueCleanup(newlyConnected.email)
+  const newId = String(newlyConnected.id ?? '').trim()
+  if (!db || !newId || !newEmail) {
+    return { didMigrate: false, messagesUpdated: 0, queueRowsDeleted: 0, reason: 'missing_db_or_account' }
+  }
+  const sameEmailAccounts = knownAccounts.filter(
+    (a) => normalizeAccountEmailForQueueCleanup(a.email) === newEmail,
+  )
+  if (sameEmailAccounts.length !== 1 || String(sameEmailAccounts[0].id).trim() !== newId) {
+    return { didMigrate: false, messagesUpdated: 0, queueRowsDeleted: 0, reason: 'email_not_unique_in_gateway' }
+  }
+  const knownIds = new Set(knownAccounts.map((a) => String(a.id ?? '').trim()).filter((x) => x.length > 0))
+  const orphans = getDistinctOrphanInboxAccountIds(db, knownIds)
+  const candidates = orphans.filter((oid) => orphanInboxHasRecipientHintForEmail(db, oid, newEmail))
+  if (candidates.length !== 1) {
+    return {
+      didMigrate: false,
+      messagesUpdated: 0,
+      queueRowsDeleted: 0,
+      reason:
+        candidates.length === 0
+          ? 'no_orphan_matching_email_hint'
+          : 'ambiguous_orphan_candidates',
+    }
+  }
+  const fromId = candidates[0]
+  const r = migrateInboxAccountIdAndClearQueue(db, fromId, newId)
+  return {
+    didMigrate: r.didMigrate,
+    fromId: r.fromId,
+    toId: r.toId,
+    messagesUpdated: r.messagesUpdated,
+    queueRowsDeleted: r.queueRowsDeleted,
+    reason: r.didMigrate ? undefined : r.reason,
+  }
+}
+
 /**
  * Diagnostics for settings / support UI (optional).
  */

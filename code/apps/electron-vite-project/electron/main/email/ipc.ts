@@ -153,6 +153,9 @@ import {
   resetFailedOrchestratorRemoteQueueRows,
   clearFailedOrchestratorRemoteQueueForAccount,
   cleanupStaleFailedRemoteQueueOnReconnect,
+  tryAutoMigrateInboxAccountOnReconnect,
+  getInboxAccountMigrationDiagnostics,
+  migrateInboxAccountIdAndClearQueue,
   enqueueRemoteOpsForLocalLifecycleState,
   enqueueFullRemoteSync,
   enqueueFullRemoteSyncForAccountsTouchingMessages,
@@ -307,11 +310,19 @@ async function runPostEmailConnectFailedQueueCleanup(account: { id: string; emai
       typeof inboxDbGetterForEmailIpc === 'function' ? await inboxDbGetterForEmailIpc() : inboxDbGetterForEmailIpc
     if (!db) return
     const accounts = await emailGateway.listAccounts()
-    const { deletedCount } = cleanupStaleFailedRemoteQueueOnReconnect(
-      db,
-      accounts.map((a) => ({ id: a.id, email: a.email })),
-      { id: account.id, email: account.email },
-    )
+    const slim = accounts.map((a) => ({ id: a.id, email: a.email }))
+    const mig = tryAutoMigrateInboxAccountOnReconnect(db, slim, { id: account.id, email: account.email })
+    if (mig.didMigrate) {
+      console.log(
+        `[Email IPC] Post-connect: migrated inbox ${mig.fromId} → ${mig.toId} (${mig.messagesUpdated} messages, ${mig.queueRowsDeleted} queue row(s) removed)`,
+      )
+    } else if (mig.reason && mig.reason !== 'email_not_unique_in_gateway') {
+      console.log('[Email IPC] Post-connect: inbox account auto-migrate skipped:', mig.reason)
+    }
+    const { deletedCount } = cleanupStaleFailedRemoteQueueOnReconnect(db, slim, {
+      id: account.id,
+      email: account.email,
+    })
     if (deletedCount > 0) {
       console.log(
         `[Email IPC] Post-connect: removed ${deletedCount} stale failed remote queue row(s) (orphan / same-email old id)`,
@@ -474,7 +485,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     try {
       const account = await emailGateway.connectGmailAccount(displayName)
       BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email })
+        win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
@@ -516,8 +527,13 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     try {
       const account = await emailGateway.connectOutlookAccount(displayName)
       BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('email:accountConnected', { provider: 'microsoft365', email: account.email })
+        win.webContents.send('email:accountConnected', {
+          provider: 'microsoft365',
+          email: account.email,
+          accountId: account.id,
+        })
       })
+      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectOutlook error:', error)
@@ -557,7 +573,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     try {
       const account = await emailGateway.connectImapAccount(config)
       BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
+        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
@@ -574,7 +590,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     try {
       const account = await emailGateway.connectCustomImapSmtpAccount(payload)
       BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email })
+        win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
       return { ok: true, data: account }
@@ -935,6 +951,8 @@ export function registerInboxHandlers(
     'inbox:fullRemoteSyncForMessages',
     'inbox:fullRemoteSyncAllAccounts',
     'inbox:debugMainInboxRows',
+    'inbox:debugAccountMigrationStatus',
+    'inbox:migrateInboxAccountId',
     'inbox:debugTestMoveOne',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
@@ -1240,6 +1258,58 @@ export function registerInboxHandlers(
       }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'debugMainInboxRows failed' }
+    }
+  })
+
+  /** Debug: gateway accounts vs inbox_messages.account_id orphans (reconnect ID mismatch). */
+  ipcMain.handle('inbox:debugAccountMigrationStatus', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const accounts = await emailGateway.listAccounts()
+      const diag = getInboxAccountMigrationDiagnostics(
+        db,
+        accounts.map((a) => ({
+          id: a.id,
+          email: a.email,
+          provider: a.provider,
+          status: a.status,
+        })),
+      )
+      return { ok: true, ...diag }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'debugAccountMigrationStatus failed' }
+    }
+  })
+
+  /**
+   * Repoint inbox_messages from a stale account_id to the current gateway id and delete all remote queue rows for the old id.
+   * Does not delete message rows.
+   */
+  ipcMain.handle('inbox:migrateInboxAccountId', async (_e, fromAccountId: string, toAccountId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const fromId = typeof fromAccountId === 'string' ? fromAccountId.trim() : ''
+      const toId = typeof toAccountId === 'string' ? toAccountId.trim() : ''
+      if (!fromId || !toId) {
+        return { ok: false, error: 'fromAccountId and toAccountId are required' }
+      }
+      const known = new Set((await emailGateway.listAccounts()).map((a) => String(a.id).trim()))
+      if (!known.has(toId)) {
+        return { ok: false, error: 'toAccountId is not a connected account in the gateway' }
+      }
+      if (known.has(fromId)) {
+        return {
+          ok: false,
+          error:
+            'fromAccountId is still a connected account — disconnect it first or pick a stale orphan id from the debug list',
+        }
+      }
+      const r = migrateInboxAccountIdAndClearQueue(db, fromId, toId)
+      return { ok: true, ...r }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'migrateInboxAccountId failed' }
     }
   })
 

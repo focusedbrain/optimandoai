@@ -581,8 +581,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
   checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),
-  onAccountConnected: (cb: (data: { provider: string; email: string }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string }) => cb(data)
+  onAccountConnected: (cb: (data: { provider: string; email: string; accountId?: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string; accountId?: string }) =>
+      cb(data)
     ipcRenderer.on('email:accountConnected', handler)
     return () => { ipcRenderer.removeListener('email:accountConnected', handler) }
   },
@@ -595,6 +596,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
   /** Debug: main-inbox rows + why they may still be in server Inbox (optional accountId). */
   debugMainInboxRows: (accountId?: string | null) =>
     ipcRenderer.invoke('inbox:debugMainInboxRows', accountId ?? null),
+  /** Debug: gateway account ids vs orphan inbox_messages.account_id (reconnect mismatch). */
+  debugAccountMigrationStatus: () => ipcRenderer.invoke('inbox:debugAccountMigrationStatus'),
+  /** Repoint inbox_messages from stale account_id to a connected id; deletes queue rows for old id only. */
+  migrateInboxAccountId: (fromAccountId: string, toAccountId: string) =>
+    ipcRenderer.invoke('inbox:migrateInboxAccountId', fromAccountId, toAccountId),
   syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
   toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
   getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),

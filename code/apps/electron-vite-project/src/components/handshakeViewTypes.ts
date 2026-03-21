@@ -95,7 +95,9 @@ declare global {
         | { ok: true; result: { ok: boolean; entries: Array<{ role: string; mailbox: string; exists: boolean; created?: boolean; error?: string }> } }
         | { ok: false; error: string }
       >
-      onAccountConnected?: (callback: (data: { provider: string; email: string }) => void | Promise<void>) => () => void
+      onAccountConnected?: (
+        callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
+      ) => () => void
     }
     email?: {
       sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
@@ -111,6 +113,10 @@ export interface EmailInboxBridge {
   debugQueueStatus?: () => Promise<Record<string, unknown>>
   /** Main-inbox message rows (WR Desk “all” tab) + reasons they may not have a lifecycle remote move. */
   debugMainInboxRows?: (accountId?: string | null) => Promise<Record<string, unknown>>
+  /** Gateway vs DB: connected accounts, inbox row counts, orphan account_ids after reconnect. */
+  debugAccountMigrationStatus?: () => Promise<Record<string, unknown>>
+  /** Stale account_id → connected id; removes remote queue rows for old id only (not inbox rows). */
+  migrateInboxAccountId?: (fromAccountId: string, toAccountId: string) => Promise<Record<string, unknown>>
   debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
   /** Set all failed remote orchestrator queue rows back to pending + schedule drain. */
   retryFailedRemoteOps?: (accountId?: string) => Promise<{ ok: boolean; resetCount?: number; error?: string }>

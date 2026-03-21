@@ -156,6 +156,18 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                           : account.lastError || 'Error'}
                     </span>
                   </div>
+                  <div
+                    style={{
+                      fontSize: '9px',
+                      color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.45)',
+                      marginTop: '4px',
+                      fontFamily: 'ui-monospace, monospace',
+                      wordBreak: 'break-all',
+                    }}
+                    title="Account id (debug / inbox DB account_id must match after reconnect)"
+                  >
+                    id {account.id}
+                  </div>
                 </div>
               </div>
               <button
