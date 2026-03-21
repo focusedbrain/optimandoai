@@ -5,8 +5,9 @@
 | Internal operation (`OrchestratorRemoteOperation`) | Intent | Gmail | Microsoft 365 (Graph) | IMAP (custom) |
 | --- | --- | --- | --- | --- |
 | `archive` | Leave inbox / archive on server | Remove labels in `gmailArchiveRemoveLabelIds` (default `INBOX`) | Move to well-known **Archive** folder | `MOVE` to configured archive mailbox (default `Archive`) |
-| `pending_review` | Server-side quarantine bucket | Add user label `gmailPendingReviewLabel`, remove archive labels + pending-delete label | Move to child folder of Inbox `outlookPendingReviewFolder` | `MOVE` to `imapPendingReviewMailbox` |
-| `pending_delete` | Server-side pre-delete bucket | Add user label `gmailPendingDeleteLabel`, remove archive labels + pending-review label | Move to child folder `outlookPendingDeleteFolder` | `MOVE` to `imapPendingDeleteMailbox` |
+| `pending_review` | Server-side quarantine bucket | Add user label `gmailPendingReviewLabel`, remove archive labels + pending-delete + urgent labels | Move to root folder `outlookPendingReviewFolder` | `MOVE` to `imapPendingReviewMailbox` |
+| `pending_delete` | Server-side pre-delete bucket | Add user label `gmailPendingDeleteLabel`, remove archive labels + pending-review + urgent labels | Move to root folder `outlookPendingDeleteFolder` | `MOVE` to `imapPendingDeleteMailbox` |
+| `urgent` | High-priority bucket | Add user label `gmailUrgentLabel` (default `Urgent`), remove archive labels + other lifecycle labels | Move to root folder `outlookUrgentFolder` (default `Urgent`) | `MOVE` to `imapUrgentMailbox` |
 | *(delete API, not orchestrator op)* | Trash / recoverable delete | `POST …/messages/{id}/trash` | `POST …/move` → `deleteditems` | `MOVE` from inbox to `imapTrashMailbox` |
 
 Single source of truth for defaults and merge logic: `domain/mailboxLifecycleMapping.ts` → `resolveOrchestratorRemoteNames(account)`.

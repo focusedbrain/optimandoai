@@ -464,7 +464,10 @@ export function startAutoSync(
         if (result.newInboxMessageIds.length > 0) {
           enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
         }
-        await drainOrchestratorRemoteQueueBounded(db)
+        await drainOrchestratorRemoteQueueBounded(
+          db,
+          getDbForRemoteDrain ? { getDbForDrainContinue: getDbForRemoteDrain } : undefined,
+        )
         if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
       } catch (e: any) {
         console.warn('[SyncOrchestrator] Post-sync remote drain:', e?.message)

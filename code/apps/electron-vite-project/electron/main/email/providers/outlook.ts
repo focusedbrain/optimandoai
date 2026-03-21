@@ -480,7 +480,7 @@ export class OutlookProvider extends BaseEmailProvider {
   /**
    * Microsoft Graph mapping:
    * - **archive** — move to well-known `archive` folder (resolved id via GET).
-   * - **pending_review** / **pending_delete** — root-level folders by display name:
+   * - **pending_review** / **pending_delete** / **urgent** — root-level folders by display name:
    *   list `/me/mailFolders` (no OData `$filter`), client-side name match, else **POST /me/mailFolders**.
    *   Never uses Graph **DELETE** for these ops — only **POST …/move**.
    */
@@ -502,6 +502,8 @@ export class OutlookProvider extends BaseEmailProvider {
         destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingReviewFolder)
       } else if (operation === 'pending_delete') {
         destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingDeleteFolder)
+      } else if (operation === 'urgent') {
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.urgentFolder)
       } else {
         return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
       }

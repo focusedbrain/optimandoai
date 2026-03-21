@@ -78,7 +78,7 @@ export interface CustomImapSmtpConnectPayload {
 
 /** One row from IMAP lifecycle folder validation (`validateLifecycleRemoteBoxes` / IPC). */
 export interface ImapLifecycleValidationEntry {
-  role: 'archive' | 'pending_review' | 'pending_delete' | 'trash'
+  role: 'archive' | 'pending_review' | 'pending_delete' | 'urgent' | 'trash'
   mailbox: string
   exists: boolean
   /** Set when the server had no mailbox but `CREATE` succeeded. */
@@ -98,12 +98,15 @@ export interface ImapLifecycleValidationResult {
 export interface OrchestratorRemoteNamesInput {
   gmailPendingReviewLabel?: string
   gmailPendingDeleteLabel?: string
+  gmailUrgentLabel?: string
   gmailArchiveRemoveLabelIds?: string[]
   outlookPendingReviewFolder?: string
   outlookPendingDeleteFolder?: string
+  outlookUrgentFolder?: string
   imapArchiveMailbox?: string
   imapPendingReviewMailbox?: string
   imapPendingDeleteMailbox?: string
+  imapUrgentMailbox?: string
   imapTrashMailbox?: string
 }
 

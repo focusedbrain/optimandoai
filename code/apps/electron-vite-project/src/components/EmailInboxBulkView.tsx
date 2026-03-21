@@ -92,7 +92,7 @@ function aggregateLifecycleOpCounts(byOp: QueueStatusRow[]): Record<
   string,
   { pending: number; failed: number }
 > {
-  const base = ['archive', 'pending_delete', 'pending_review']
+  const base = ['archive', 'pending_delete', 'pending_review', 'urgent']
   const out: Record<string, { pending: number; failed: number }> = {}
   for (const o of base) out[o] = { pending: 0, failed: 0 }
   for (const row of byOp ?? []) {
@@ -1653,6 +1653,9 @@ export default function EmailInboxBulkView({
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
   const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
   const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
+  /** Optional account filter for `debugMainInboxRows` IPC (empty = all accounts). */
+  const [remoteMainInboxAccountId, setRemoteMainInboxAccountId] = useState('')
+  const [remoteMainInboxDebug, setRemoteMainInboxDebug] = useState<Record<string, unknown> | null>(null)
   /** Last ~30s of queue snapshots (while debug panel open) for drain ETA. */
   const [remoteDrainHistory, setRemoteDrainHistory] = useState<RemoteDrainSample[]>([])
   const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
@@ -1780,26 +1783,40 @@ export default function EmailInboxBulkView({
     return base
   }, [sortedMessages, removingItems])
 
-  const refreshRemoteDebugQueue = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setRemoteDebugLoading(true)
-    try {
-      const q = await window.emailInbox?.debugQueueStatus?.()
-      setRemoteDebugQueue(q && typeof q === 'object' ? (q as Record<string, unknown>) : null)
-      if (q && typeof q === 'object' && typeof (q as { error?: unknown }).error !== 'string') {
-        const byStatus = ((q as { byStatus?: QueueStatusRow[] }).byStatus ?? []) as QueueStatusRow[]
-        const completed = countStatus(byStatus, 'completed')
-        const pending = countStatus(byStatus, 'pending')
-        const processing = countStatus(byStatus, 'processing')
-        const now = Date.now()
-        setRemoteDrainHistory((prev) => {
-          const trimmed = prev.filter((x) => now - x.t <= 30_000)
-          return [...trimmed, { t: now, completed, pending, processing }]
-        })
+  const refreshRemoteDebugQueue = useCallback(
+    async (opts?: { silent?: boolean; mainInboxAccountOverride?: string }) => {
+      if (!opts?.silent) setRemoteDebugLoading(true)
+      try {
+        const q = await window.emailInbox?.debugQueueStatus?.()
+        setRemoteDebugQueue(q && typeof q === 'object' ? (q as Record<string, unknown>) : null)
+        if (q && typeof q === 'object' && typeof (q as { error?: unknown }).error !== 'string') {
+          const byStatus = ((q as { byStatus?: QueueStatusRow[] }).byStatus ?? []) as QueueStatusRow[]
+          const completed = countStatus(byStatus, 'completed')
+          const pending = countStatus(byStatus, 'pending')
+          const processing = countStatus(byStatus, 'processing')
+          const now = Date.now()
+          setRemoteDrainHistory((prev) => {
+            const trimmed = prev.filter((x) => now - x.t <= 30_000)
+            return [...trimmed, { t: now, completed, pending, processing }]
+          })
+        }
+        const inboxFn = window.emailInbox?.debugMainInboxRows
+        if (inboxFn) {
+          const accFilter =
+            opts?.mainInboxAccountOverride !== undefined
+              ? opts.mainInboxAccountOverride
+              : remoteMainInboxAccountId.trim() || undefined
+          const ir = await inboxFn(accFilter)
+          setRemoteMainInboxDebug(ir && typeof ir === 'object' ? (ir as Record<string, unknown>) : null)
+        } else {
+          setRemoteMainInboxDebug(null)
+        }
+      } finally {
+        if (!opts?.silent) setRemoteDebugLoading(false)
       }
-    } finally {
-      if (!opts?.silent) setRemoteDebugLoading(false)
-    }
-  }, [])
+    },
+    [remoteMainInboxAccountId],
+  )
 
   const openRemoteDebugPanel = useCallback(() => {
     setRemoteDebugOpen(true)
@@ -1809,6 +1826,7 @@ export default function EmailInboxBulkView({
   useEffect(() => {
     if (!remoteDebugOpen) {
       setRemoteDrainHistory([])
+      setRemoteMainInboxDebug(null)
       return
     }
     const id = window.setInterval(() => {
@@ -3864,7 +3882,7 @@ export default function EmailInboxBulkView({
                   </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>By operation</div>
-                    {(['archive', 'pending_delete', 'pending_review'] as const).map((op) => (
+                    {(['archive', 'pending_delete', 'pending_review', 'urgent'] as const).map((op) => (
                       <div key={op}>
                         {op}: {opAgg[op]?.pending ?? 0} pending, {opAgg[op]?.failed ?? 0} failed
                       </div>
@@ -3900,6 +3918,98 @@ export default function EmailInboxBulkView({
                           </li>
                         ))}
                       </ul>
+                    )}
+                  </section>
+                  <section
+                    style={{
+                      marginBottom: 12,
+                      padding: 10,
+                      background: '#fafafa',
+                      borderRadius: 6,
+                      border: '1px solid #e5e7eb',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                      Unclassified messages (main Inbox — may still be in server Posteingang)
+                    </div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      WR Desk “all” tab: not archived, not pending delete/review. Classified messages mirror to four server
+                      folders: <strong>Archive</strong> (archive / newsletter / normal / other categories),{' '}
+                      <strong>Pending Review</strong> (pending_review / important), <strong>Pending Delete</strong>,{' '}
+                      <strong>Urgent</strong>. Unclassified (no sort_category) stay in Inbox until Auto-Sort.
+                    </div>
+                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Account filter
+                        <select
+                          value={remoteMainInboxAccountId}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setRemoteMainInboxAccountId(v)
+                            void refreshRemoteDebugQueue({
+                              silent: true,
+                              mainInboxAccountOverride: v.trim() ? v : undefined,
+                            })
+                          }}
+                          style={{ fontSize: 11, maxWidth: 240 }}
+                        >
+                          <option value="">All accounts</option>
+                          {queueByAccountSummary
+                            .filter((a) => a.accountId && a.accountId !== '(no account_id)')
+                            .map((a) => (
+                              <option key={a.accountId} value={a.accountId}>
+                                {a.label}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    </div>
+                    {remoteMainInboxDebug && remoteMainInboxDebug.ok === false ? (
+                      <div style={{ color: '#b91c1c', fontSize: 11 }}>
+                        {String((remoteMainInboxDebug as { error?: string }).error ?? 'failed')}
+                      </div>
+                    ) : remoteMainInboxDebug && remoteMainInboxDebug.ok === true ? (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
+                          {String(remoteMainInboxDebug.summaryText ?? '')}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
+                          {String(remoteMainInboxDebug.policyNote ?? '')}
+                        </div>
+                        <ul
+                          style={{
+                            margin: 0,
+                            paddingLeft: 14,
+                            fontSize: 11,
+                            lineHeight: 1.45,
+                            maxHeight: 280,
+                            overflow: 'auto',
+                          }}
+                        >
+                          {(
+                            (remoteMainInboxDebug.rows as Array<Record<string, unknown>>) ?? []
+                          ).map((row) => (
+                            <li key={String(row.id)} style={{ marginBottom: 8 }}>
+                              <div style={{ fontWeight: 600 }}>
+                                {String(row.subject ?? '(no subject)').slice(0, 140)}
+                              </div>
+                              <div style={{ color: '#475569' }}>
+                                {String(row.from_address ?? '—')} · {String(row.received_at ?? '—')}
+                              </div>
+                              <div>
+                                <code>sort_category</code> {String(row.sort_category ?? 'null')} ·{' '}
+                                <code>imap_remote_mailbox</code> {String(row.imap_remote_mailbox ?? 'null')} ·{' '}
+                                <code>queue</code> {String(row.queue_op ?? '—')} / {String(row.queue_status ?? '—')}
+                              </div>
+                              <div style={{ color: '#0369a1' }}>{String(row.whyDetail ?? row.why ?? '')}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 11, color: MUTED }}>
+                        Open Refresh to load (needs app with debugMainInboxRows).
+                      </div>
                     )}
                   </section>
                   <section style={{ marginBottom: 12 }}>

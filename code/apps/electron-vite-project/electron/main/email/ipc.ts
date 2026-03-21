@@ -875,6 +875,7 @@ export function registerInboxHandlers(
     'inbox:fullRemoteSync',
     'inbox:fullRemoteSyncForMessages',
     'inbox:fullRemoteSyncAllAccounts',
+    'inbox:debugMainInboxRows',
     'inbox:debugTestMoveOne',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
@@ -1051,6 +1052,121 @@ export function registerInboxHandlers(
   })
 
   /**
+   * Debug: WR Desk “main inbox” rows (same filter as UI “all” tab) — explains why mail may still sit in server Inbox.
+   * Optional `accountId` limits to one account; omit / null = all accounts (capped).
+   */
+  ipcMain.handle('inbox:debugMainInboxRows', async (_e, accountId?: string | null) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const acc =
+        typeof accountId === 'string' && accountId.trim() && accountId.trim() !== '(no account_id)'
+          ? accountId.trim()
+          : null
+
+      const sql = `
+        SELECT m.id, m.account_id, m.email_message_id, m.subject, m.from_address, m.received_at,
+               m.sort_category, m.urgency_score, m.imap_remote_mailbox,
+               CASE WHEN m.ai_analysis_json IS NOT NULL AND TRIM(COALESCE(m.ai_analysis_json,'')) != '' THEN 1 ELSE 0 END AS has_ai_analysis,
+               (SELECT q.operation FROM remote_orchestrator_mutation_queue q WHERE q.message_id = m.id ORDER BY q.updated_at DESC LIMIT 1) AS queue_op,
+               (SELECT q.status FROM remote_orchestrator_mutation_queue q WHERE q.message_id = m.id ORDER BY q.updated_at DESC LIMIT 1) AS queue_status,
+               (SELECT q.last_error FROM remote_orchestrator_mutation_queue q WHERE q.message_id = m.id ORDER BY q.updated_at DESC LIMIT 1) AS queue_last_error
+        FROM inbox_messages m
+        WHERE m.deleted = 0
+          AND m.archived = 0
+          AND (m.pending_delete = 0 OR m.pending_delete IS NULL)
+          AND (m.sort_category IS NULL OR m.sort_category != 'pending_review')
+          AND (m.source_type = 'email_plain' OR m.source_type = 'email_beap')
+          AND (? IS NULL OR m.account_id = ?)
+        ORDER BY datetime(COALESCE(m.received_at, m.ingested_at)) DESC
+        LIMIT 40
+      `
+      const raw = db.prepare(sql).all(acc, acc) as Array<{
+        id: string
+        account_id: string | null
+        email_message_id: string | null
+        subject: string | null
+        from_address: string | null
+        received_at: string | null
+        sort_category: string | null
+        urgency_score: number | null
+        imap_remote_mailbox: string | null
+        has_ai_analysis: number
+        queue_op: string | null
+        queue_status: string | null
+        queue_last_error: string | null
+      }>
+
+      type Why =
+        | 'not_analyzed'
+        | 'urgent_stays_inbox'
+        | 'non_lifecycle_no_remote_folder'
+        | 'remote_queue_pending'
+        | 'remote_queue_failed'
+        | 'other'
+
+      function inferWhy(r: (typeof raw)[0]): Why {
+        if (!r.has_ai_analysis) return 'not_analyzed'
+        const u = typeof r.urgency_score === 'number' ? r.urgency_score : Number(r.urgency_score) || 0
+        const sc = (r.sort_category || '').trim().toLowerCase()
+        if (sc === 'urgent' || u >= 7) return 'urgent_stays_inbox'
+        if (sc === 'normal' || sc === 'important' || sc === 'newsletter')
+          return 'non_lifecycle_no_remote_folder'
+        if (r.queue_status === 'pending' || r.queue_status === 'processing') return 'remote_queue_pending'
+        if (r.queue_status === 'failed') return 'remote_queue_failed'
+        return 'other'
+      }
+
+      const whyLabels: Record<Why, string> = {
+        not_analyzed: 'Not analyzed (no AI classification yet — run Auto-Sort)',
+        urgent_stays_inbox: 'Urgent / high score — kept in Inbox by design (no lifecycle remote move)',
+        non_lifecycle_no_remote_folder:
+          'Classified normal/important/newsletter — no Archive/Pending folder move (by design)',
+        remote_queue_pending: 'Remote queue still pending/processing for this message',
+        remote_queue_failed: 'Remote queue row failed — see queue_last_error / Retry failed',
+        other: 'Other — check sort_category and imap_remote_mailbox',
+      }
+
+      const rows = raw.map((r) => {
+        const why = inferWhy(r)
+        return {
+          ...r,
+          why,
+          whyDetail: whyLabels[why],
+        }
+      })
+
+      const counts: Record<Why, number> = {
+        not_analyzed: 0,
+        urgent_stays_inbox: 0,
+        non_lifecycle_no_remote_folder: 0,
+        remote_queue_pending: 0,
+        remote_queue_failed: 0,
+        other: 0,
+      }
+      for (const r of rows) counts[r.why as Why]++
+
+      const summaryText = `${rows.length} main-inbox row(s) shown (max 40)${acc ? ` · account ${acc.slice(0, 8)}…` : ' · all accounts'} — ` +
+        Object.entries(counts)
+          .filter(([, n]) => n > 0)
+          .map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`)
+          .join(', ')
+
+      return {
+        ok: true,
+        accountIdFilter: acc,
+        rows,
+        counts,
+        summaryText,
+        policyNote:
+          'Only pending_delete, pending_review, and archive trigger remote folder moves. Normal / important / newsletter / urgent stay in Inbox unless you change product policy.',
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'debugMainInboxRows failed' }
+    }
+  })
+
+  /**
    * After a successful **local** orchestrator write, enqueue best-effort remote mailbox mutations.
    * Never throws — failures stay in the queue / `remote_orchestrator_last_error` on the message row.
    */
@@ -1152,6 +1268,10 @@ export function registerInboxHandlers(
         skippedDupes: result.skippedDuplicate ?? 0,
         errors: errors.length,
       }
+      const pullHint =
+        result.newMessages > 0
+          ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
+          : undefined
 
       if (!result.ok) {
         return {
@@ -1159,6 +1279,7 @@ export function registerInboxHandlers(
           error: errors[0] ?? 'Sync failed',
           data: result,
           pullStats,
+          pullHint,
           warningCount: warnCount,
           syncWarnings: errors,
         }
@@ -1188,12 +1309,13 @@ export function registerInboxHandlers(
           ok: true,
           data: result,
           pullStats,
+          pullHint,
           warningCount: warnCount,
           syncWarnings: errors,
         }
       }
 
-      return { ok: true, data: result, pullStats }
+      return { ok: true, data: result, pullStats, pullHint }
     } catch (err: any) {
       console.error('[Inbox] inbox:syncAccount unhandled error:', err)
       return { ok: false, error: err?.message ?? 'Sync failed (unhandled)' }
@@ -1378,9 +1500,11 @@ export function registerInboxHandlers(
       const ids = messageIds ?? []
       const stmt = db.prepare('UPDATE inbox_messages SET sort_category = ? WHERE id = ?')
       for (const id of ids) stmt.run(category ?? null, id)
-      const cat = (category ?? '').trim()
-      if (cat === 'pending_review') {
-        fireRemoteOrchestratorSync(db, ids, 'pending_review')
+      try {
+        enqueueRemoteOpsForLocalLifecycleState(db, ids)
+        scheduleOrchestratorRemoteDrain(getDb)
+      } catch (e: any) {
+        console.warn('[Inbox] setCategory remote mirror enqueue:', e?.message)
       }
       return { ok: true }
     } catch (err: any) {
@@ -2303,7 +2427,11 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         inboxRestoreNeeded += r.inboxRestoreNeeded
         accountCount += 1
       }
-      const drain = await drainOrchestratorRemoteQueueBounded(db, { maxMs: 28_000, maxBatches: 150 })
+      const drain = await drainOrchestratorRemoteQueueBounded(db, {
+        maxMs: 28_000,
+        maxBatches: 150,
+        getDbForDrainContinue: getDb,
+      })
       scheduleOrchestratorRemoteDrain(getDb)
       console.log(
         `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded} drainProcessed=${drain.processedTotal} drainFailed=${drain.failedTotal} pendingRemaining=${drain.pendingRemaining}`,

@@ -356,8 +356,9 @@ export class GmailProvider extends BaseEmailProvider {
   /**
    * Gmail mapping (names from `resolveOrchestratorRemoteNames`; defaults match IMAP bucket labels):
    * - **archive** — remove `INBOX` (All Mail / archive semantics).
-   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting pending-delete label.
-   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + pending-review label.
+   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting lifecycle labels.
+   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + other lifecycle labels.
+   * - **urgent** — user label (default `Urgent`), strip INBOX + other lifecycle labels.
    */
   async applyOrchestratorRemoteOperation(
     messageId: string,
@@ -371,6 +372,7 @@ export class GmailProvider extends BaseEmailProvider {
       const names = resolveOrchestratorRemoteNames(this.config)
       const reviewId = await this.ensureWrDeskUserLabel(names.gmail.pendingReviewLabel)
       const deleteId = await this.ensureWrDeskUserLabel(names.gmail.pendingDeleteLabel)
+      const urgentId = await this.ensureWrDeskUserLabel(names.gmail.urgentLabel)
 
       if (operation === 'archive') {
         await this.gmailModifyOrIdempotent(messageId, {
@@ -382,7 +384,7 @@ export class GmailProvider extends BaseEmailProvider {
       if (operation === 'pending_review') {
         await this.gmailModifyOrIdempotent(messageId, {
           addLabelIds: [reviewId],
-          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId, urgentId],
         })
         return { ok: true }
       }
@@ -390,7 +392,15 @@ export class GmailProvider extends BaseEmailProvider {
       if (operation === 'pending_delete') {
         await this.gmailModifyOrIdempotent(messageId, {
           addLabelIds: [deleteId],
-          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId, urgentId],
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'urgent') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [urgentId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId, deleteId],
         })
         return { ok: true }
       }

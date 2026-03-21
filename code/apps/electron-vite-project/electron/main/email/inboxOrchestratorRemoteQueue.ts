@@ -67,7 +67,7 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 /** Coarse bucket for comparing `imap_remote_mailbox` to local lifecycle columns. */
-type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review'
+type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review' | 'urgent'
 
 function localRowToExpectedBucket(row: {
   archived?: number | null
@@ -83,6 +83,11 @@ function localRowToExpectedBucket(row: {
   ) {
     return 'pending_review'
   }
+  const cat = (row.sort_category ?? '').trim()
+  if (cat === 'urgent') return 'urgent'
+  if (cat === 'important') return 'pending_review'
+  if (cat === 'newsletter' || cat === 'normal') return 'archive'
+  if (cat !== '') return 'archive'
   return 'inbox'
 }
 
@@ -123,18 +128,24 @@ function observedRemoteBucketFromImapColumn(
   const a = norm(names.imap.archiveMailbox)
   const pd = norm(names.imap.pendingDeleteMailbox)
   const pr = norm(names.imap.pendingReviewMailbox)
+  const u = norm(names.imap.urgentMailbox)
   const gPd = norm(names.gmail.pendingDeleteLabel)
   const gPr = norm(names.gmail.pendingReviewLabel)
+  const gU = norm(names.gmail.urgentLabel)
   const oPd = norm(names.outlook.pendingDeleteFolder)
   const oPr = norm(names.outlook.pendingReviewFolder)
+  const oU = norm(names.outlook.urgentFolder)
 
   if (a && s === a) return 'archive'
   if (pd && s === pd) return 'pending_delete'
   if (pr && s === pr) return 'pending_review'
+  if (u && s === u) return 'urgent'
   if (gPd && s === gPd) return 'pending_delete'
   if (gPr && s === gPr) return 'pending_review'
+  if (gU && s === gU) return 'urgent'
   if (oPd && s === oPd) return 'pending_delete'
   if (oPr && s === oPr) return 'pending_review'
+  if (oU && s === oU) return 'urgent'
 
   return 'inbox'
 }
@@ -143,6 +154,7 @@ function bucketToTargetOp(b: RemoteLifecycleBucket): OrchestratorRemoteOperation
   if (b === 'archive') return 'archive'
   if (b === 'pending_delete') return 'pending_delete'
   if (b === 'pending_review') return 'pending_review'
+  if (b === 'urgent') return 'urgent'
   return null
 }
 
@@ -162,7 +174,7 @@ function prepareClearStaleLifecycleQueueOps(db: any): ClearStaleStmts {
     allLifecycle: db.prepare(
       `UPDATE remote_orchestrator_mutation_queue
        SET status = 'completed', last_error = ?, updated_at = ?
-       WHERE message_id = ? AND operation IN ('archive', 'pending_delete', 'pending_review')
+       WHERE message_id = ? AND operation IN ('archive', 'pending_delete', 'pending_review', 'urgent')
          AND status IN ('pending', 'processing')`,
     ),
   }
@@ -618,7 +630,7 @@ export async function processOrchestratorRemoteQueueBatch(
 
 /**
  * Enqueue remote mirror ops from current local lifecycle columns (authoritative orchestrator state).
- * Priority per row: archived → pending_delete → pending_review (sort_category).
+ * Priority per row: archived → pending_delete → pending_review (sort_category / pending_review_at) → urgent → other classified → archive.
  *
  * Skips enqueue when `imap_remote_mailbox` already matches the expected bucket (configured names).
  * Cancels other pending/processing queue rows for that message when remote already matches or local is inbox.
@@ -642,6 +654,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   const archiveIds: string[] = []
   const pendingDeleteIds: string[] = []
   const pendingReviewIds: string[] = []
+  const urgentIds: string[] = []
 
   for (const mid of messageIds) {
     const row = select.get(mid)
@@ -761,6 +774,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     console.log('[ENQUEUE] QUEUE:', mid, 'op=', targetOp, 'email_message_id=', row.email_message_id)
     if (expected === 'archive') archiveIds.push(mid)
     else if (expected === 'pending_delete') pendingDeleteIds.push(mid)
+    else if (expected === 'urgent') urgentIds.push(mid)
     else pendingReviewIds.push(mid)
   }
 
@@ -778,6 +792,12 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   }
   if (pendingReviewIds.length) {
     const r = enqueueOrchestratorRemoteMutations(db, pendingReviewIds, 'pending_review')
+    enqueued += r.enqueued
+    skipped += r.skipped
+    skipReasons.push(...r.skipReasons)
+  }
+  if (urgentIds.length) {
+    const r = enqueueOrchestratorRemoteMutations(db, urgentIds, 'urgent')
     enqueued += r.enqueued
     skipped += r.skipped
     skipReasons.push(...r.skipReasons)
@@ -877,13 +897,23 @@ export interface DrainOrchestratorRemoteBoundedResult {
   timedOut: boolean
 }
 
+export interface DrainOrchestratorRemoteBoundedOptions {
+  maxMs?: number
+  maxBatches?: number
+  /**
+   * When the bounded drain stops with pending rows left (timeout / batch cap) or times out,
+   * schedule background drain so the queue does not stall until the next IPC tick.
+   */
+  getDbForDrainContinue?: () => Promise<any> | any
+}
+
 /**
  * Process pending remote queue rows in batches until empty, or time/batch budget exhausted.
  * Use after Pull / auto-sync so mailbox moves run before IPC returns (bounded — does not hang forever).
  */
 export async function drainOrchestratorRemoteQueueBounded(
   db: any,
-  options?: { maxMs?: number; maxBatches?: number },
+  options?: DrainOrchestratorRemoteBoundedOptions,
 ): Promise<DrainOrchestratorRemoteBoundedResult> {
   const maxMs = options?.maxMs ?? 28_000
   const maxBatches = options?.maxBatches ?? 150
@@ -928,8 +958,19 @@ export async function drainOrchestratorRemoteQueueBounded(
   const pendingRemaining = countPending()
   if (timedOut && pendingRemaining > 0) {
     console.warn(
-      `[OrchestratorRemote] Bounded drain stopped (timeout): ${pendingRemaining} pending — background drain will continue`,
+      `[OrchestratorRemote] Bounded drain stopped (timeout): ${pendingRemaining} pending — scheduling background drain`,
     )
+  }
+
+  const getDbCont = options?.getDbForDrainContinue
+  if (getDbCont && pendingRemaining > 0) {
+    setTimeout(() => {
+      try {
+        scheduleOrchestratorRemoteDrain(getDbCont)
+      } catch (e: any) {
+        console.warn('[OrchestratorRemote] scheduleOrchestratorRemoteDrain after bounded drain failed:', e?.message)
+      }
+    }, 450)
   }
 
   return { processedTotal, failedTotal, pendingRemaining, timedOut }
@@ -969,7 +1010,22 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
         return
       }
       const batch = await processOrchestratorRemoteQueueBatch(db, BATCH)
-      const continueChain = batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
+      let continueChain =
+        batch.pendingRemaining > 0 || batch.processed > 0 || drainRescheduleRequested
+      if (!continueChain) {
+        const snap = db
+          .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+          .get() as { c: number } | undefined
+        const pc = snap?.c ?? 0
+        if (pc > 0) {
+          console.warn(
+            '[OrchestratorRemote] Drain would stop but',
+            pc,
+            'pending row(s) still in queue — rescheduling background drain',
+          )
+          continueChain = true
+        }
+      }
       if (continueChain) {
         drainRescheduleRequested = false
         const deferOnly =
@@ -977,11 +1033,15 @@ export function scheduleOrchestratorRemoteDrain(getDb: () => Promise<any> | any)
           batch.failed === 0 &&
           (batch.deferredDueToPull ?? 0) > 0 &&
           batch.pendingRemaining > 0
-        if (deferOnly) {
-          setTimeout(() => scheduleOrchestratorRemoteDrain(getDb), 250)
-        } else {
-          scheduleOrchestratorRemoteDrain(getDb)
-        }
+        /** Throttle while backlog remains; no extra delay when this batch emptied the queue (fast finish). */
+        const delayMs = deferOnly ? 400 : batch.pendingRemaining > 0 ? 300 : 0
+        setTimeout(() => {
+          try {
+            scheduleOrchestratorRemoteDrain(getDb)
+          } catch (e: any) {
+            console.warn('[OrchestratorRemote] drain continuation schedule failed:', e?.message)
+          }
+        }, delayMs)
       }
     } catch (e) {
       console.error('[OrchestratorRemote] drain error:', e)

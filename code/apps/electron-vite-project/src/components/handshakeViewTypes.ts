@@ -109,6 +109,8 @@ declare global {
 export interface EmailInboxBridge {
   /** DevTools diagnostic: remote orchestrator queue snapshot (main process logs + return value). */
   debugQueueStatus?: () => Promise<Record<string, unknown>>
+  /** Main-inbox message rows (WR Desk “all” tab) + reasons they may not have a lifecycle remote move. */
+  debugMainInboxRows?: (accountId?: string | null) => Promise<Record<string, unknown>>
   debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
   /** Set all failed remote orchestrator queue rows back to pending + schedule drain. */
   retryFailedRemoteOps?: (accountId?: string) => Promise<{ ok: boolean; resetCount?: number; error?: string }>
@@ -118,6 +120,8 @@ export interface EmailInboxBridge {
     error?: string
     /** Pull diagnostics for in-app log */
     pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+    /** Shown in activity log when new mail was pulled — suggests Auto-Sort */
+    pullHint?: string
     /** Present when some messages failed to ingest but sync continued */
     warningCount?: number
     syncWarnings?: string[]

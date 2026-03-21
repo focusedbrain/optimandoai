@@ -20,17 +20,20 @@ export const DEFAULT_ORCHESTRATOR_REMOTE_NAMES = {
     /** Same workflow names as IMAP mailboxes — Gmail user labels (flat names). */
     pendingReviewLabel: 'Pending Review',
     pendingDeleteLabel: 'Pending Delete',
+    urgentLabel: 'Urgent',
     archiveRemoveLabelIds: ['INBOX'] as readonly string[],
   },
   outlook: {
     /** Root-level Graph mail folders — same display names as IMAP lifecycle mailboxes. */
     pendingReviewFolder: 'Pending Review',
     pendingDeleteFolder: 'Pending Delete',
+    urgentFolder: 'Urgent',
   },
   imap: {
     archiveMailbox: 'Archive',
     pendingReviewMailbox: 'Pending Review',
     pendingDeleteMailbox: 'Pending Delete',
+    urgentMailbox: 'Urgent',
     trashMailbox: 'Trash',
   },
 } as const
@@ -77,16 +80,19 @@ export function resolveOrchestratorRemoteNames(account: EmailAccountConfig): Res
     gmail: {
       pendingReviewLabel: coalesceTrim(o?.gmailPendingReviewLabel, g.pendingReviewLabel),
       pendingDeleteLabel: coalesceTrim(o?.gmailPendingDeleteLabel, g.pendingDeleteLabel),
+      urgentLabel: coalesceTrim(o?.gmailUrgentLabel, g.urgentLabel),
       archiveRemoveLabelIds: archiveRemove,
     },
     outlook: {
       pendingReviewFolder: coalesceTrim(o?.outlookPendingReviewFolder, ms.pendingReviewFolder),
       pendingDeleteFolder: coalesceTrim(o?.outlookPendingDeleteFolder, ms.pendingDeleteFolder),
+      urgentFolder: coalesceTrim(o?.outlookUrgentFolder, ms.urgentFolder),
     },
     imap: {
       archiveMailbox: coalesceTrim(o?.imapArchiveMailbox, im.archiveMailbox),
       pendingReviewMailbox: coalesceTrim(o?.imapPendingReviewMailbox, im.pendingReviewMailbox),
       pendingDeleteMailbox: coalesceTrim(o?.imapPendingDeleteMailbox, im.pendingDeleteMailbox),
+      urgentMailbox: coalesceTrim(o?.imapUrgentMailbox, im.urgentMailbox),
       trashMailbox: coalesceTrim(o?.imapTrashMailbox, im.trashMailbox),
     },
   }
@@ -121,6 +127,8 @@ export function describeOrchestratorRemoteOperation(op: OrchestratorRemoteOperat
       return 'lifecycle:pending_review (quarantine for human review on server)'
     case 'pending_delete':
       return 'lifecycle:pending_delete (mark for deletion bucket on server)'
+    case 'urgent':
+      return 'lifecycle:urgent (high-priority folder / label on server)'
     default:
       return `lifecycle:${op}`
   }

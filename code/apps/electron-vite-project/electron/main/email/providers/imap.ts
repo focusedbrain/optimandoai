@@ -466,6 +466,7 @@ export class ImapProvider extends BaseEmailProvider {
       inbox,
       im.pendingReviewMailbox,
       im.pendingDeleteMailbox,
+      im.urgentMailbox,
       im.archiveMailbox,
       im.trashMailbox,
     ].filter((x) => typeof x === 'string' && x.trim().length > 0)
@@ -1261,6 +1262,7 @@ export class ImapProvider extends BaseEmailProvider {
       { role: 'archive', mailbox: names.imap.archiveMailbox },
       { role: 'pending_review', mailbox: names.imap.pendingReviewMailbox },
       { role: 'pending_delete', mailbox: names.imap.pendingDeleteMailbox },
+      { role: 'urgent', mailbox: names.imap.urgentMailbox },
       { role: 'trash', mailbox: names.imap.trashMailbox },
     ]
     const entries: ImapLifecycleValidationEntry[] = []
@@ -1308,7 +1310,9 @@ export class ImapProvider extends BaseEmailProvider {
           ? names.imap.pendingReviewMailbox
           : operation === 'pending_delete'
             ? names.imap.pendingDeleteMailbox
-            : ''
+            : operation === 'urgent'
+              ? names.imap.urgentMailbox
+              : ''
     if (!dest) {
       return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
     }

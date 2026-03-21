@@ -18,10 +18,11 @@ Local IPC handlers **always** commit local state first, then enqueue remote work
 |------------------|---------------------|-------|------------------------|------|
 | Archive | `archive` | Remove `INBOX` | Move → well-known `archive` | `MOVE` → `Archive` (mailbox created if needed) |
 | Pending review | `pending_review` | Add user label `Pending Review`, remove `INBOX` + `Pending Delete` label | **Move** → root folder `Pending Review`: **GET** `/me/mailFolders?$top=100` + client-side name match, else **POST /me/mailFolders** (no OData `$filter`). **Never DELETE.** | `MOVE` → `Pending Review` (default mailbox; locate source via `imap_remote_mailbox` + RFC Message-ID search) |
-| Pending delete | `pending_delete` | Add user label `Pending Delete`, remove `INBOX` + `Pending Review` label | Same list/create pattern for **`Pending Delete`**. | `MOVE` → `Pending Delete` (same locate rules) |
+| Pending delete | `pending_delete` | Add user label `Pending Delete`, remove `INBOX` + `Pending Review` + `Urgent` label | Same list/create pattern for **`Pending Delete`**. | `MOVE` → `Pending Delete` (same locate rules) |
+| Urgent | `urgent` | Add user label `Urgent`, remove `INBOX` + conflicting lifecycle labels | **Move** → root folder **`Urgent`** (same list/create pattern as Pending *) | `MOVE` → `Urgent` (default mailbox) |
 | **Final delete** (grace elapsed) | *(existing)* | `users.messages.trash` via `deleteMessage` | Move → `deleteditems` via `deleteMessage` | `\Deleted` + expunge |
 
-AI classification enqueues `pending_review`, `pending_delete`, and **`archive`** (when the model chooses `archive`, local `archived = 1` and the `archive` remote op runs).
+**Sort category → bucket (local):** `newsletter` / `normal` / unknown non-empty `sort_category` → expect **archive**; `important` → **pending_review**; `urgent` → **urgent**; empty / null `sort_category` → **inbox** (no remote move until classified). AI + lifecycle enqueue uses **`enqueueRemoteOpsForLocalLifecycleState`** so all classified rows can drain to the four folders.
 
 ## Post-pull / auto-sync mirror
 
@@ -29,10 +30,10 @@ After **`inbox:syncAccount`** (Pull):
 
 1. `syncAccountEmails` collects `newInboxMessageIds` for rows ingested in that run.
 2. `processPendingPlainEmails` / `processPendingP2PBeapEmails` run (same as before).
-3. **`enqueueRemoteOpsForLocalLifecycleState`** enqueues remote ops from current local columns for those IDs (archive → `pending_delete` → `pending_review` precedence).
+3. **`enqueueRemoteOpsForLocalLifecycleState`** enqueues remote ops from current local columns for those IDs (`localRowToExpectedBucket`: archived → `pending_delete` → `pending_review` / `pending_review_at` → `urgent` → other classified → archive).
 4. **`scheduleOrchestratorRemoteDrain`** only — IPC returns without waiting; remote mailbox mirror continues in the background.
 
-After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** still runs inline (capped ~28s / 150 batches) before the next tick is scheduled, plus **`scheduleOrchestratorRemoteDrain`** for overflow.
+After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 are the same, then **`drainOrchestratorRemoteQueueBounded`** still runs inline (capped ~28s / 150 batches) before the next tick is scheduled. If rows remain **`pending`**, bounded drain also **`scheduleOrchestratorRemoteDrain`** after a short delay, and the main process still calls **`scheduleOrchestratorRemoteDrain`** once — so the queue never stalls after a timeout alone.
 
 ### Pull vs background remote drain
 
@@ -44,7 +45,7 @@ After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 ar
 
 **`inbox:aiCategorize`** schedules background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
 
-**`scheduleOrchestratorRemoteDrain`** runs one batch per tick, then **reschedules** while `pendingRemaining > 0`, after work was processed, or when a parallel enqueue set `drainRescheduleRequested` — so the queue is drained to completion in the background (not a single batch only).
+**`scheduleOrchestratorRemoteDrain`** runs one batch per tick, then **reschedules** (after **~300–400ms**) while `pendingRemaining > 0`, after work was processed, when a parallel enqueue set `drainRescheduleRequested`, or when a post-batch **SQL `pending` count** disagrees with “stop” (safety net). The queue should drain to completion in the background (not stop solely because inline bounded drain hit ~28s).
 
 **Pull vs drain:** `inbox:syncAccount` calls **`scheduleOrchestratorRemoteDrain`** only after **`syncAccountEmails`** resolves; the pull lock is released in **`syncAccountEmailsImpl`**’s **`finally { markPullInactive }`**, so the lock is cleared before the IPC handler schedules drain.
 
@@ -66,7 +67,7 @@ IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** 
 - **Providers:** Gmail/Outlook may return `skipped: true` only for explicit same-destination / already-moved Graph errors — **not** generic “not found” (avoids marking rows completed when the message id is stale). **IMAP** only returns `skipped: true` after verifying the message is already in the destination mailbox (HEADER Message-ID or UID in that folder).
 - **Outlook recovery:** If mail seems missing after an older build, check **Deleted items** (e.g. *Gelöschte Elemente*) and **Recoverable items** in Outlook on the web; move back to Inbox if needed, then re-sync. Current builds use **move** to **Pending Delete** / **Pending Review** folders only (no Graph hard-delete for those ops).
 - **Processor:** Default **50** pending rows per batch. Rows are grouped by **`account_id`** and each account is drained **in parallel** (`Promise.allSettled`); within one account, ops run **sequentially** with a short pause — **50ms** after IMAP moves, **200ms** after Gmail / Microsoft 365 (Graph rate limits). Up to **8** attempts per row; transient failures return row to `pending` with incrementing `attempts`. Stale `processing` (>5 min) reset to `pending`. Each apply is capped at **30s** (`Promise.race`) so hung IMAP does not block the drain forever. Before a row is marked `processing`, **`emailGateway.ensureConnectedForOrchestratorOperation`** runs (15s connect cap): failure → row **`failed`** immediately (max attempts), IMAP accounts get **`status: 'error'`**, and other rows for the **same `account_id` in that batch** reuse the error without repeated handshakes.
-- **Debug:** `debug:queueStatus` returns **`byAccountStatus`** (`GROUP BY account_id, status`) and **`queueByAccountSummary`** (human labels: `email (provider)` + pending/processing/completed/failed counts) for isolating one bad account (e.g. web.de) vs Outlook.
+- **Debug:** `debug:queueStatus` returns **`byAccountStatus`** (`GROUP BY account_id, status`) and **`queueByAccountSummary`** (human labels: `email (provider)` + pending/processing/completed/failed counts) for isolating one bad account (e.g. web.de) vs Outlook. **`inbox:debugMainInboxRows`** (optional `accountId`) lists WR Desk main-inbox rows (same filter as UI “all” tab) with **`why`** / **`whyDetail`** explaining why they may still sit in server Inbox (not analyzed, urgent, non-lifecycle sort, queue state).
 - **Visibility:** `inbox_messages.remote_orchestrator_last_error` holds the latest error / retry hint; `inbox:listRemoteOrchestratorQueue` exposes queue rows.
 - **Retry failed:** `inbox:retryFailedRemoteOps` (optional **`accountId`** argument) — bulk debug **Retry failed** resets **all** failed rows; **Per account → Retry failed (this account)** resets only **`status = 'failed'`** rows for that **`account_id`**. Both set **`status = 'pending'`, `attempts = 0`, `last_error = NULL`**, **`updated_at`**, then **`scheduleOrchestratorRemoteDrain`**. The debug panel auto-refreshes queue stats every **5s** while open and shows drain progress + ETA from the **completed** count trend over the last **30s**.
 

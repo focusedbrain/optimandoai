@@ -1075,6 +1075,10 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           pullStatsLine(pull.pullStats, pull.ok ? '' : ` — ${pull.error ?? 'failed'}`),
         )
       }
+      const pullHint = (pull as { pullHint?: string }).pullHint
+      if (typeof pullHint === 'string' && pullHint.trim()) {
+        get().addRemoteSyncLog(pullHint.trim())
+      }
 
       if (!res.ok) {
         set({
@@ -1178,12 +1182,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             error?: string
             syncWarnings?: string[]
             pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+            pullHint?: string
           }
           if (res.pullStats) {
             const label = accountId.length > 10 ? `${accountId.slice(0, 8)}…` : accountId
             get().addRemoteSyncLog(
               `[${label}] ${pullStatsLine(res.pullStats, res.ok ? '' : ` — ${res.error ?? 'fail'}`)}`,
             )
+          }
+          if (typeof res.pullHint === 'string' && res.pullHint.trim()) {
+            get().addRemoteSyncLog(res.pullHint.trim())
           }
           if (res.ok) okCount++
           if (res.syncWarnings?.length) {

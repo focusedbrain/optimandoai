@@ -592,6 +592,9 @@ contextBridge.exposeInMainWorld('emailAccounts', {
 contextBridge.exposeInMainWorld('emailInbox', {
   /** DevTools: `window.emailInbox.debugQueueStatus().then(console.log)` */
   debugQueueStatus: () => ipcRenderer.invoke('debug:queueStatus'),
+  /** Debug: main-inbox rows + why they may still be in server Inbox (optional accountId). */
+  debugMainInboxRows: (accountId?: string | null) =>
+    ipcRenderer.invoke('inbox:debugMainInboxRows', accountId ?? null),
   syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
   toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
   getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),

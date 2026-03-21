@@ -141,7 +141,7 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
             }
           }
           if (
-            sql.includes("operation IN ('archive', 'pending_delete', 'pending_review')") &&
+            sql.includes("operation IN ('archive', 'pending_delete', 'pending_review', 'urgent')") &&
             sql.includes('remote_orchestrator_mutation_queue')
           ) {
             return {
@@ -209,5 +209,41 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
     expect(r.skipReasons).toEqual([])
     expect(upsertRuns).toHaveLength(1)
     expect(upsertRuns[0]).toContain('archive')
+  })
+
+  it('enqueues archive for sort_category newsletter when remote is INBOX', () => {
+    const { db, upsertRuns } = makeLifecycleDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: '99',
+      archived: 0,
+      pending_delete: 0,
+      sort_category: 'newsletter',
+      pending_review_at: null,
+      imap_remote_mailbox: 'INBOX',
+      source_type: 'email_plain',
+    })
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
+    expect(r.enqueued).toBe(1)
+    expect(upsertRuns).toHaveLength(1)
+    expect(upsertRuns[0]).toContain('archive')
+  })
+
+  it('enqueues urgent for sort_category urgent when remote is INBOX', () => {
+    const { db, upsertRuns } = makeLifecycleDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: '99',
+      archived: 0,
+      pending_delete: 0,
+      sort_category: 'urgent',
+      pending_review_at: null,
+      imap_remote_mailbox: 'INBOX',
+      source_type: 'email_plain',
+    })
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
+    expect(r.enqueued).toBe(1)
+    expect(upsertRuns).toHaveLength(1)
+    expect(upsertRuns[0]).toContain('urgent')
   })
 })
