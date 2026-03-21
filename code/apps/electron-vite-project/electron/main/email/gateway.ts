@@ -493,6 +493,34 @@ class EmailGateway implements IEmailGateway {
   }
 
   /**
+   * True if a cached provider exists and reports connected (TCP may still be half-dead — use
+   * {@link pingImapSessionWithListFolders} for a real round-trip before a drain batch).
+   */
+  isProviderSessionConnected(accountId: string): boolean {
+    const p = this.providers.get(accountId)
+    if (!p || typeof p.isConnected !== 'function') return false
+    return p.isConnected()
+  }
+
+  /**
+   * IMAP only: ensure session and run LIST (liveness probe). Does not force-reconnect on failure.
+   * Other providers: no-op.
+   */
+  async pingImapSessionWithListFolders(accountId: string, timeoutMs: number = 15_000): Promise<void> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account || account.provider !== 'imap') return
+    await Promise.race([
+      (async () => {
+        const provider = await this.getConnectedProvider(account)
+        await provider.listFolders()
+      })(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('IMAP LIST ping timed out')), timeoutMs),
+      ),
+    ])
+  }
+
+  /**
    * After a successful reconnect during orchestrator drain, clear UI `error` state **without**
    * disconnecting the live provider (unlike `updateAccount`, which always disconnects).
    */

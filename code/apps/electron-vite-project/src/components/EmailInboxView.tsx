@@ -1088,7 +1088,8 @@ export default function EmailInboxView({
   }, [fetchMessages])
 
   useEffect(() => {
-    const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
+    const add = useEmailInboxStore.getState().addRemoteSyncLog
+    const unsubDrain = window.emailInbox?.onDrainProgress?.((raw) => {
       const p = raw as {
         processed?: number
         pending?: number
@@ -1098,15 +1099,21 @@ export default function EmailInboxView({
         batchSize?: number
         batchMoved?: number
         batchSkipped?: number
+        batchErrors?: number
+        batchImapDeferred?: number
       }
-      const add = useEmailInboxStore.getState().addRemoteSyncLog
       if (p.phase === 'simple_processing') {
         add(`Drain batch: starting up to ${p.batchSize ?? 0} row(s)…`)
         return
       }
       if (p.phase === 'simple_idle' && p.batchSize != null) {
+        const moved = p.batchMoved ?? 0
+        const skipped = p.batchSkipped ?? 0
+        const errors = p.batchErrors ?? p.failed ?? 0
+        const imapDef = p.batchImapDeferred ?? 0
+        const tail = imapDef > 0 ? `, ${imapDef} deferred (IMAP ping)` : ''
         add(
-          `Drain batch: ${p.batchSize} row(s) — ${p.batchMoved ?? 0} moved, ${p.batchSkipped ?? 0} idempotent skip, pending=${p.pending ?? 0}`,
+          `Drain: ${p.batchSize} processed (${moved} moved, ${skipped} skipped, ${errors} errors${tail}) | ${p.pending ?? 0} pending`,
         )
         return
       }
@@ -1114,7 +1121,28 @@ export default function EmailInboxView({
         `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
       )
     })
-    return () => unsub?.()
+    const unsubRow = window.emailInbox?.onSimpleDrainRow?.((raw) => {
+      const r = raw as {
+        status?: string
+        op?: string
+        msgId?: string
+        dest?: string
+        error?: string
+      }
+      const op = r.op ?? '?'
+      const msg = String(r.msgId ?? '').slice(0, 8)
+      if (r.status === 'moved') {
+        add(`MOVED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'skipped') {
+        add(`SKIPPED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'error') {
+        add(`ERROR: ${op} — ${r.error ?? '?'} (msg ${msg})`)
+      }
+    })
+    return () => {
+      unsubDrain?.()
+      unsubRow?.()
+    }
   }, [])
 
   const handleComposeClick = useCallback((fn: () => void) => {

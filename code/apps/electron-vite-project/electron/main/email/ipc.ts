@@ -1101,15 +1101,58 @@ export function registerInboxHandlers(
 
           if (rows.length === 0) return
 
-          console.log(`[SimpleDrain] Processing ${rows.length} row(s)`)
+          /* Outlook / Graph first — avoids a dead IMAP session consuming the whole batch quota. */
+          const orderedRows: SimpleDrainQueueRow[] = [...rows].sort((a, b) => {
+            let pa = 'imap'
+            let pb = 'imap'
+            try {
+              pa = emailGateway.getProviderSync(a.account_id)
+            } catch {
+              /* orphan account_id — deprioritize */
+            }
+            try {
+              pb = emailGateway.getProviderSync(b.account_id)
+            } catch {
+              /* same */
+            }
+            if (pa === 'imap' && pb !== 'imap') return 1
+            if (pa !== 'imap' && pb === 'imap') return -1
+            return 0
+          })
+
+          const imapAccountIdsInBatch = new Set<string>()
+          for (const r of orderedRows) {
+            try {
+              if (emailGateway.getProviderSync(r.account_id) === 'imap') imapAccountIdsInBatch.add(r.account_id)
+            } catch {
+              /* row may fail at apply */
+            }
+          }
+
+          const imapListPingFailed = new Set<string>()
+          for (const accId of imapAccountIdsInBatch) {
+            try {
+              await emailGateway.pingImapSessionWithListFolders(accId)
+              console.log('[SimpleDrain] IMAP LIST ping OK:', accId)
+            } catch (pingErr: any) {
+              console.warn(
+                '[SimpleDrain] IMAP LIST ping FAILED — deferring IMAP rows this tick:',
+                accId,
+                pingErr?.message || pingErr,
+              )
+              imapListPingFailed.add(accId)
+            }
+          }
+
+          console.log(`[SimpleDrain] Processing ${orderedRows.length} row(s)`)
           try {
             sendToRenderer('inbox:drainProgress', {
               processed: 0,
-              pending: rows.length,
+              pending: orderedRows.length,
               failed: 0,
               deferred: 0,
               phase: 'simple_processing',
-              batchSize: rows.length,
+              batchSize: orderedRows.length,
             })
           } catch {
             /* ignore */
@@ -1132,20 +1175,39 @@ export function registerInboxHandlers(
 
           let batchMoved = 0
           let batchSkipped = 0
-          const imapBatchReconnectDone = new Set<string>()
+          let batchErrors = 0
+          let batchImapDeferred = 0
+          const imapBatchWarmupDone = new Set<string>()
 
-          for (const r of rows) {
+          for (const r of orderedRows) {
             try {
-              if (!imapBatchReconnectDone.has(r.account_id)) {
-                imapBatchReconnectDone.add(r.account_id)
+              let rowProvider = 'unknown'
+              try {
+                rowProvider = emailGateway.getProviderSync(r.account_id)
+              } catch {
+                rowProvider = 'unknown'
+              }
+
+              if (rowProvider === 'imap' && imapListPingFailed.has(r.account_id)) {
+                batchImapDeferred += 1
+                console.log('[SimpleDrain] Defer row (IMAP LIST ping failed this tick):', r.id.slice(0, 8), r.account_id)
+                await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_INTER_ROW_MS))
+                continue
+              }
+
+              if (!imapBatchWarmupDone.has(r.account_id)) {
+                imapBatchWarmupDone.add(r.account_id)
                 try {
-                  const prov = emailGateway.getProviderSync(r.account_id)
-                  if (prov === 'imap') {
-                    console.log('[SimpleDrain] IMAP forceReconnect before batch rows for', r.account_id)
-                    await emailGateway.forceReconnect(r.account_id)
+                  if (emailGateway.getProviderSync(r.account_id) === 'imap') {
+                    if (!emailGateway.isProviderSessionConnected(r.account_id)) {
+                      console.log('[SimpleDrain] IMAP not connected, opening session:', r.account_id)
+                      await emailGateway.forceReconnect(r.account_id)
+                    } else {
+                      console.log('[SimpleDrain] IMAP session already connected, reusing:', r.account_id)
+                    }
                   }
                 } catch (reErr: any) {
-                  console.warn('[SimpleDrain] IMAP batch reconnect failed:', r.account_id, reErr?.message || reErr)
+                  console.warn('[SimpleDrain] IMAP session ensure failed:', r.account_id, reErr?.message || reErr)
                 }
               }
 
@@ -1173,33 +1235,31 @@ export function registerInboxHandlers(
 
               const rowNow = new Date().toISOString()
               const prevAttempts = r.attempts ?? 0
+              const msgShort = String(r.message_id).slice(0, 8)
 
               if (apply.ok) {
-                const shortId = String(r.message_id).slice(0, 8)
+                const detail = apply.skipped ? 'SKIPPED' : 'MOVED'
+                const dest = apply.imapMailboxAfterMove ?? '?'
+                try {
+                  sendToRenderer('inbox:simpleDrainRow', {
+                    status: apply.skipped ? 'skipped' : 'moved',
+                    op: r.operation,
+                    msgId: r.message_id,
+                    accountId: r.account_id,
+                    dest,
+                    emailMessageId: r.email_message_id,
+                  })
+                } catch {
+                  /* ignore */
+                }
+                console.log(
+                  `[SimpleDrain] ${detail}: op=${r.operation} msg=${msgShort} dest=${dest} emailId=${r.email_message_id}`,
+                )
+
                 if (apply.skipped) {
                   batchSkipped += 1
-                  console.log(`[SimpleDrain] SKIPPED (idempotent): ${r.operation} ${shortId}`)
-                  try {
-                    sendToRenderer('inbox:simpleDrainRow', {
-                      status: 'skipped',
-                      op: r.operation,
-                      msgId: r.message_id,
-                    })
-                  } catch {
-                    /* ignore */
-                  }
                 } else {
                   batchMoved += 1
-                  console.log(`[SimpleDrain] MOVED: ${r.operation} ${shortId}`)
-                  try {
-                    sendToRenderer('inbox:simpleDrainRow', {
-                      status: 'moved',
-                      op: r.operation,
-                      msgId: r.message_id,
-                    })
-                  } catch {
-                    /* ignore */
-                  }
                 }
 
                 markCompleted.run(rowNow, r.id)
@@ -1220,7 +1280,22 @@ export function registerInboxHandlers(
                   /* ignore */
                 }
               } else {
+                batchErrors += 1
                 const errMsg = (apply.error || 'Unknown error').slice(0, 2000)
+                const errShort = errMsg.slice(0, 120)
+                try {
+                  sendToRenderer('inbox:simpleDrainRow', {
+                    status: 'error',
+                    op: r.operation,
+                    msgId: r.message_id,
+                    accountId: r.account_id,
+                    error: errShort,
+                    emailMessageId: r.email_message_id,
+                  })
+                } catch {
+                  /* ignore */
+                }
+                console.log(`[SimpleDrain] ERROR: op=${r.operation} msg=${msgShort} err=${errShort}`)
 
                 if (simpleDrainIsPermanentOrchestratorError(errMsg)) {
                   markFailed.run(SIMPLE_DRAIN_MAX_ATTEMPTS, errMsg, rowNow, r.id)
@@ -1283,14 +1358,16 @@ export function registerInboxHandlers(
               .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
               .get() as { c: number }
             sendToRenderer('inbox:drainProgress', {
-              processed: rows.length,
+              processed: orderedRows.length,
               pending: remaining.c,
-              failed: 0,
-              deferred: 0,
+              failed: batchErrors,
+              deferred: batchImapDeferred,
               phase: 'simple_idle',
-              batchSize: rows.length,
+              batchSize: orderedRows.length,
               batchMoved,
               batchSkipped,
+              batchErrors,
+              batchImapDeferred,
             })
           } catch {
             /* ignore */
