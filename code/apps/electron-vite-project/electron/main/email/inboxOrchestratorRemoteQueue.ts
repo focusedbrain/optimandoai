@@ -827,7 +827,8 @@ export function markOrphanPendingQueueRowsAsFailed(db: any, knownAccountIds: str
 let remoteDrainWatchdogStarted = false
 
 /**
- * Every 30s, if any `pending` rows exist, nudge the background drain (covers stuck chains / races).
+ * Production safety net: every 15s, reset stuck `processing` rows and restart the drain if any work remains.
+ * Does not replace normal chaining — catches broken chains, stuck flags, and hung batches.
  */
 export function ensureOrchestratorRemoteDrainWatchdog(getDb: () => Promise<any> | any): void {
   if (remoteDrainWatchdogStarted) return
@@ -837,16 +838,38 @@ export function ensureOrchestratorRemoteDrainWatchdog(getDb: () => Promise<any> 
       try {
         const db = typeof getDb === 'function' ? await getDb() : getDb
         if (!db) return
+
+        const nowIso = new Date().toISOString()
+        const twoMinAgo = new Date(Date.now() - 2 * 60_000).toISOString()
+        try {
+          const resetInfo = db
+            .prepare(
+              `UPDATE remote_orchestrator_mutation_queue
+               SET status = 'pending', updated_at = ?
+               WHERE status = 'processing' AND updated_at < ?`,
+            )
+            .run(nowIso, twoMinAgo) as { changes?: number }
+          const n = typeof resetInfo?.changes === 'number' ? resetInfo.changes : 0
+          if (n > 0) {
+            console.warn('[OrchestratorRemote] Watchdog: reset', n, 'stuck processing row(s) (>2m) → pending')
+          }
+        } catch (e: any) {
+          console.error('[OrchestratorRemote] Watchdog: stuck-processing reset failed:', e?.message || e)
+        }
+
         const row = db
           .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
           .get() as { c?: number } | undefined
         const c = row?.c ?? 0
-        if (c > 0) scheduleOrchestratorRemoteDrain(getDb)
-      } catch {
-        /* ignore */
+        if (c > 0) {
+          forceDrainRestart()
+          scheduleOrchestratorRemoteDrain(getDb)
+        }
+      } catch (e: any) {
+        console.error('[OrchestratorRemote] Watchdog error (ignored):', e?.message || e)
       }
     })()
-  }, 30_000)
+  }, 15_000)
 }
 
 /**
@@ -1204,6 +1227,15 @@ let drainChainScheduled = false
  * with parallel `aiClassifySingle`) and never reschedule after later enqueues.
  */
 let drainRescheduleRequested = false
+
+/**
+ * Unstick the drain scheduler (e.g. watchdog) if flags were left true after an error or race.
+ * Safe to call while idle; next `scheduleOrchestratorRemoteDrain` will start a fresh chain.
+ */
+export function forceDrainRestart(): void {
+  drainChainScheduled = false
+  drainRescheduleRequested = false
+}
 
 /**
  * Schedule asynchronous drain (non-blocking). Safe to call after every local transition.

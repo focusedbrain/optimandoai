@@ -1659,6 +1659,8 @@ export default function EmailInboxBulkView({
   /** IMAP LIST + STATUS + lifecycle exact-match (read-only). */
   const [remoteFolderVerify, setRemoteFolderVerify] = useState<Record<string, unknown> | null>(null)
   const [remoteFolderVerifyLoading, setRemoteFolderVerifyLoading] = useState(false)
+  /** Which account the last verify was run for (debug panel). */
+  const [remoteFolderVerifyLabel, setRemoteFolderVerifyLabel] = useState<string | null>(null)
   /** Last ~30s of queue snapshots (while debug panel open) for drain ETA. */
   const [remoteDrainHistory, setRemoteDrainHistory] = useState<RemoteDrainSample[]>([])
   const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
@@ -1844,31 +1846,37 @@ export default function EmailInboxBulkView({
     void refreshRemoteDebugQueue()
   }, [refreshRemoteDebugQueue])
 
-  const handleVerifyImapRemoteFolders = useCallback(async () => {
-    const fn = window.emailInbox?.verifyImapRemoteFolders
-    if (!fn) {
-      setRemoteFolderVerify({ ok: false, error: 'verifyImapRemoteFolders not in bridge (update app)' })
-      return
-    }
-    const aid = remoteMainInboxAccountId.trim() || primaryAccountId || ''
-    if (!aid) {
-      setRemoteFolderVerify({
-        ok: false,
-        error: 'Choose an account in “Account filter” below, or ensure a default account is connected.',
-      })
-      return
-    }
-    setRemoteFolderVerifyLoading(true)
-    try {
-      const r = await fn(aid)
-      setRemoteFolderVerify(r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' })
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setRemoteFolderVerify({ ok: false, error: msg })
-    } finally {
-      setRemoteFolderVerifyLoading(false)
-    }
-  }, [remoteMainInboxAccountId, primaryAccountId])
+  const handleVerifyImapRemoteFolders = useCallback(
+    async (explicitAccountId?: string, accountLabelForUi?: string) => {
+      const fn = window.emailInbox?.verifyImapRemoteFolders
+      if (!fn) {
+        setRemoteFolderVerify({ ok: false, error: 'verifyImapRemoteFolders not in bridge (update app)' })
+        setRemoteFolderVerifyLabel(null)
+        return
+      }
+      const aid = (explicitAccountId?.trim() || remoteMainInboxAccountId.trim() || primaryAccountId || '').trim()
+      if (!aid) {
+        setRemoteFolderVerify({
+          ok: false,
+          error: 'Use “Verify” next to an IMAP account in Per account (queue), or pick an account in Account filter.',
+        })
+        setRemoteFolderVerifyLabel(null)
+        return
+      }
+      setRemoteFolderVerifyLabel(accountLabelForUi?.trim() || null)
+      setRemoteFolderVerifyLoading(true)
+      try {
+        const r = await fn(aid)
+        setRemoteFolderVerify(r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' })
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setRemoteFolderVerify({ ok: false, error: msg })
+      } finally {
+        setRemoteFolderVerifyLoading(false)
+      }
+    },
+    [remoteMainInboxAccountId, primaryAccountId],
+  )
 
   useEffect(() => {
     if (!remoteDebugOpen) {
@@ -1876,6 +1884,7 @@ export default function EmailInboxBulkView({
       setRemoteMainInboxDebug(null)
       setAccountMigrationDiag(null)
       setRemoteFolderVerify(null)
+      setRemoteFolderVerifyLabel(null)
       return
     }
     const id = window.setInterval(() => {
@@ -3901,14 +3910,6 @@ export default function EmailInboxBulkView({
               </button>
               <button
                 type="button"
-                onClick={() => void handleVerifyImapRemoteFolders()}
-                disabled={remoteDebugLoading || remoteFolderVerifyLoading}
-                title="IMAP only: LIST + message counts per folder + canonical lifecycle exact-match (legacy Archieve/WRDesk-* ignored)"
-              >
-                {remoteFolderVerifyLoading ? 'Verify…' : 'Verify remote'}
-              </button>
-              <button
-                type="button"
                 onClick={() => void handleRetryFailedRemoteQueue()}
                 disabled={remoteDebugLoading}
                 title="Set all failed remote queue rows to pending (attempts=0) and schedule background drain"
@@ -3947,10 +3948,15 @@ export default function EmailInboxBulkView({
                   fontSize: 11,
                 }}
               >
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>IMAP server folders (read-only)</div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                  IMAP server folders (read-only)
+                  {remoteFolderVerifyLabel ? (
+                    <span style={{ fontWeight: 400, color: '#475569' }}> — {remoteFolderVerifyLabel}</span>
+                  ) : null}
+                </div>
                 <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
                   Canonical lifecycle uses <strong>exact</strong> name match — typo <code>Archieve</code> and <code>WRDesk-*</code>{' '}
-                  do not count. Use account filter + Verify remote for the same account.
+                  do not count. Use <strong>Verify</strong> next to each IMAP account under Per account (queue).
                 </div>
                 {(() => {
                   const data = (remoteFolderVerify as { data?: { lifecycleOnServer?: unknown[]; folders?: unknown[] } }).data
@@ -4230,26 +4236,43 @@ export default function EmailInboxBulkView({
                               pending {acc.pending} · processing {acc.processing} · completed {acc.completed} · failed{' '}
                               {acc.failed} · total {acc.total}
                             </div>
-                            {acc.failed > 0 && acc.accountId !== '(no account_id)' ? (
+                            {acc.accountId !== '(no account_id)' ? (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                                <button
-                                  type="button"
-                                  disabled={remoteDebugLoading}
-                                  style={{ fontSize: 11, padding: '4px 8px' }}
-                                  title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
-                                  onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
-                                >
-                                  Retry failed (this account)
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={remoteDebugLoading}
-                                  style={{ fontSize: 11, padding: '4px 8px' }}
-                                  title="Delete failed queue rows for this account (e.g. Account not found after disconnect — use Sync Remote after reconnect)"
-                                  onClick={() => void handleClearFailedRemoteQueue(acc.accountId)}
-                                >
-                                  Clear failed (this account)
-                                </button>
+                                {String(acc.provider ?? '')
+                                  .toLowerCase()
+                                  .includes('imap') ? (
+                                  <button
+                                    type="button"
+                                    disabled={remoteDebugLoading || remoteFolderVerifyLoading}
+                                    style={{ fontSize: 11, padding: '4px 8px' }}
+                                    title="LIST + STATUS counts + lifecycle exact-match (read-only)"
+                                    onClick={() => void handleVerifyImapRemoteFolders(acc.accountId, acc.label)}
+                                  >
+                                    Verify remote
+                                  </button>
+                                ) : null}
+                                {acc.failed > 0 ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={remoteDebugLoading}
+                                      style={{ fontSize: 11, padding: '4px 8px' }}
+                                      title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
+                                      onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
+                                    >
+                                      Retry failed (this account)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={remoteDebugLoading}
+                                      style={{ fontSize: 11, padding: '4px 8px' }}
+                                      title="Delete failed queue rows for this account (e.g. Account not found after disconnect — use Sync Remote after reconnect)"
+                                      onClick={() => void handleClearFailedRemoteQueue(acc.accountId)}
+                                    >
+                                      Clear failed (this account)
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
                             ) : null}
                           </li>
