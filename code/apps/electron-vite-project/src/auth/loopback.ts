@@ -1,6 +1,23 @@
 import { createServer, type Server } from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { URL } from 'node:url';
 import { randomString } from './pkce';
+
+/** Same mark as renderer: `public/wrdesk-logo.svg` (dev) or `dist/wrdesk-logo.svg` (packaged). */
+function wrDeskLogoHtml(): string {
+  const pub = process.env.VITE_PUBLIC;
+  if (!pub) {
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+  }
+  try {
+    const svg = fs.readFileSync(path.join(pub, 'wrdesk-logo.svg'), 'utf8');
+    const uri = `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+    return `<div class="logo" role="img" aria-label="WR Desk"><img src="${uri}" alt="WR Desk" /></div>`;
+  } catch {
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+  }
+}
 
 export interface CallbackResult {
   code: string | null;
@@ -110,7 +127,8 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       const error = url.searchParams.get('error');
       const error_description = url.searchParams.get('error_description');
 
-      // Respond with enterprise-grade success page
+      // Respond with enterprise-grade success page (logo file matches app + extension)
+      const logoBlock = wrDeskLogoHtml();
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`<!DOCTYPE html>
 <html lang="en">
@@ -140,8 +158,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
     .logo {
       margin-bottom: 32px;
     }
-    .logo img,
-    .logo svg {
+    .logo img {
       width: 120px;
       height: auto;
       display: block;
@@ -245,21 +262,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 </head>
 <body>
   <div class="card">
-    <div class="logo" role="img" aria-label="WR Desk">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 150" style="background:transparent">
-        <path d="M60 8 L108 26 L108 82 Q108 120 60 142 Q12 120 12 82 L12 26 Z" fill="white" stroke="#1a1a1a" stroke-width="5"/>
-        <path d="M60 18 L98 33 L98 78 Q98 110 60 128 Q22 110 22 78 L22 33 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5"/>
-        <circle cx="60" cy="25" r="10" fill="#22c55e"/>
-        <path d="M54 25 L58 29 L67 20" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="60" y="70" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="34" font-weight="900" fill="#1a1a1a">WR</text>
-        <text x="60" y="98" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="24" font-weight="900" fill="#1a1a1a">DESK</text>
-        <circle cx="60" cy="122" r="16" fill="#1a1a1a"/>
-        <path d="M51 116 L51 110 Q51 101 60 101 Q69 101 69 110 L69 116" stroke="white" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-        <rect x="49" y="116" width="22" height="15" rx="2" fill="white"/>
-        <circle cx="60" cy="121" r="2.5" fill="#1a1a1a"/>
-        <rect x="58.5" y="121" width="3" height="6" fill="#1a1a1a"/>
-      </svg>
-    </div>
+    ${logoBlock}
     <div class="status">
       <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
       <span>Authentication successful</span>
