@@ -431,7 +431,44 @@ class EmailGateway implements IEmailGateway {
     }
     return fn.call(provider, emailMessageId, operation, context)
   }
-  
+
+  /**
+   * Ensure a live provider session exists before draining remote orchestrator queue rows.
+   * Avoids marking rows `processing` when IMAP/OAuth cannot connect (fail fast, terminal `failed`).
+   */
+  async ensureConnectedForOrchestratorOperation(
+    accountId: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      return {
+        ok: false,
+        error: 'Account not found (disconnected or removed). Clear queue rows or reconnect.',
+      }
+    }
+    const CONNECT_TIMEOUT_MS = 15_000
+    try {
+      await Promise.race([
+        (async () => {
+          const provider = await this.getConnectedProvider(account)
+          if (typeof provider.isConnected === 'function' && !provider.isConnected()) {
+            throw new Error('Not authenticated — provider session not connected.')
+          }
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Connection handshake timed out — reconnect required.')),
+            CONNECT_TIMEOUT_MS,
+          ),
+        ),
+      ])
+      return { ok: true }
+    } catch (e: any) {
+      const msg = (e?.message || String(e)).slice(0, 500)
+      return { ok: false, error: `Account authentication failed — reconnect required (${msg})` }
+    }
+  }
+
   // =================================================================
   // Attachment Operations
   // =================================================================

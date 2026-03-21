@@ -57,12 +57,15 @@ describe('enqueueOrchestratorRemoteMutations', () => {
 
   it('returns zeros for empty message id list', () => {
     const { db } = makeDb(undefined)
-    expect(enqueueOrchestratorRemoteMutations(db, [], 'archive')).toEqual({ enqueued: 0, skipped: 0 })
+    expect(enqueueOrchestratorRemoteMutations(db, [], 'archive')).toEqual({ enqueued: 0, skipped: 0, skipReasons: [] })
   })
 
   it('skips when inbox row missing account_id or email_message_id', () => {
     const { db } = makeDb({ id: 'm1', account_id: null, email_message_id: 'em1', source_type: 'email_plain' })
-    expect(enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_review')).toEqual({ enqueued: 0, skipped: 1 })
+    const rSkip = enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_review')
+    expect(rSkip.skipped).toBe(1)
+    expect(rSkip.skipReasons.length).toBe(1)
+    expect(rSkip.skipReasons[0]).toContain('no_account_id')
   })
 
   it('skips non-email-backed source_type', () => {
@@ -72,7 +75,9 @@ describe('enqueueOrchestratorRemoteMutations', () => {
       email_message_id: 'em1',
       source_type: 'other',
     })
-    expect(enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_delete')).toEqual({ enqueued: 0, skipped: 1 })
+    const rSt = enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_delete')
+    expect(rSt).toMatchObject({ enqueued: 0, skipped: 1 })
+    expect(rSt.skipReasons.some((s) => s.includes('wrong_source_type'))).toBe(true)
   })
 
   it('enqueues for email_plain row with provider from gateway', () => {
@@ -83,7 +88,7 @@ describe('enqueueOrchestratorRemoteMutations', () => {
       source_type: 'email_plain',
     })
     const r = enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_review')
-    expect(r).toEqual({ enqueued: 1, skipped: 0 })
+    expect(r).toEqual({ enqueued: 1, skipped: 0, skipReasons: [] })
     expect(supersedeRuns).toHaveLength(1)
     expect(supersedeRuns[0]).toContain('m1')
     expect(supersedeRuns[0]).toContain('pending_review')
@@ -181,6 +186,8 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
     const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
     expect(r.enqueued).toBe(0)
     expect(r.skipped).toBe(1)
+    expect(r.skipReasons.length).toBe(1)
+    expect(r.skipReasons[0]).toContain('already_matches_remote')
     expect(upsertRuns).toHaveLength(0)
     expect(clearWithKeepRuns.length).toBeGreaterThanOrEqual(1)
   })
@@ -199,6 +206,7 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
     })
     const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
     expect(r.enqueued).toBe(1)
+    expect(r.skipReasons).toEqual([])
     expect(upsertRuns).toHaveLength(1)
     expect(upsertRuns[0]).toContain('archive')
   })

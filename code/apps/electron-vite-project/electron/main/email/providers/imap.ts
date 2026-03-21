@@ -1396,7 +1396,8 @@ export class ImapProvider extends BaseEmailProvider {
     if (!variants.length) return null
     await this.imapOpenBox(mailbox, true)
     for (const v of variants) {
-      const uid = await this.imapSearchFirstUid(['HEADER', 'MESSAGE-ID', v])
+      /* node-imap: each criterion must be one nested array (not flat HEADER/UID tuples). */
+      const uid = await this.imapSearchFirstUid([['HEADER', 'MESSAGE-ID', v]])
       if (uid != null) return String(uid)
     }
     return null
@@ -1406,8 +1407,8 @@ export class ImapProvider extends BaseEmailProvider {
     await this.imapOpenBox(mailbox, true)
     const u = String(uid).trim()
     if (!/^\d+$/.test(u)) return false
-    /* node-imap: UID criterion expects a UID set (use a single-UID range). */
-    const n = await this.imapSearchFirstUid(['UID', `${u}:${u}`])
+    /* node-imap: UID criterion must be nested — flat ['UID', …] throws "Incorrect number of arguments". */
+    const n = await this.imapSearchFirstUid([['UID', `${u}:${u}`]])
     return n != null
   }
 

@@ -9,7 +9,7 @@ vi.mock('../remoteDeletion', () => ({
 }))
 
 const { enqueueMock, scheduleDrainMock } = vi.hoisted(() => ({
-  enqueueMock: vi.fn(() => ({ enqueued: 2, skipped: 0 })),
+  enqueueMock: vi.fn(() => ({ enqueued: 2, skipped: 0, skipReasons: [] as string[] })),
   scheduleDrainMock: vi.fn(),
 }))
 

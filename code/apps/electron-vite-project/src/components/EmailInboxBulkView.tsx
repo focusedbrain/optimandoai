@@ -67,6 +67,17 @@ function RemoteSyncStatusDot({ msg }: { msg: InboxMessage }) {
 }
 
 type QueueStatusRow = { operation?: string; status?: string; c?: number }
+type QueueAccountStatusRow = { account_id?: string | null; status?: string; c?: number }
+type QueueByAccountSummaryRow = {
+  accountId: string
+  label: string
+  provider?: string
+  pending: number
+  processing: number
+  completed: number
+  failed: number
+  total: number
+}
 type QueueMsgRow = {
   operation?: string
   last_error?: string | null
@@ -1617,7 +1628,14 @@ export default function EmailInboxBulkView({
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
   const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
   const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
-  const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{ enqueue: string; move: string } | null>(null)
+  const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
+    enqueue: string
+    move: string
+    skipReasons?: string[]
+    messageRowBeforeEnqueue?: Record<string, unknown> | null
+    messageRowAfterDrain?: Record<string, unknown> | null
+    queueRows?: Array<Record<string, unknown>>
+  } | null>(null)
 
   /** Force full remote lifecycle reconcile for all accounts + bounded inline drain (IPC returns drain stats). */
   const handleRemoteSyncAll = useCallback(() => {
@@ -1753,13 +1771,13 @@ export default function EmailInboxBulkView({
   const handleTestMoveOne = useCallback(async () => {
     const id = displayMessages[0]?.id
     if (!id) {
-      setRemoteDebugTestMove({ enqueue: 'No message in current view', move: '—' })
+      setRemoteDebugTestMove({ enqueue: 'No message in current view', move: '—', skipReasons: [] })
       setRemoteDebugOpen(true)
       return
     }
     const fn = window.emailInbox?.debugTestMoveOne
     if (!fn) {
-      setRemoteDebugTestMove({ enqueue: 'debugTestMoveOne not in bridge', move: '—' })
+      setRemoteDebugTestMove({ enqueue: 'debugTestMoveOne not in bridge', move: '—', skipReasons: [] })
       setRemoteDebugOpen(true)
       return
     }
@@ -1769,17 +1787,21 @@ export default function EmailInboxBulkView({
       const r = (await fn(id)) as {
         ok?: boolean
         error?: string
-        enqueue?: { enqueued: number; skipped: number }
+        enqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
         drainProcessed?: number
         drainFailed?: number
         lastRow?: { status?: string; last_error?: string | null } | null
+        messageRowBeforeEnqueue?: Record<string, unknown> | null
+        messageRowAfterDrain?: Record<string, unknown> | null
+        queueRowsForMessage?: Array<Record<string, unknown>>
       }
       if (!r?.ok) {
         const enc = `Enqueue: error ${r?.error ?? 'unknown'}`
-        setRemoteDebugTestMove({ enqueue: enc, move: '—' })
+        setRemoteDebugTestMove({ enqueue: enc, move: '—', skipReasons: [] })
         addRemoteSyncLog(enc)
       } else {
         const enq = r.enqueue
+        const reasons = Array.isArray(enq?.skipReasons) ? enq!.skipReasons! : []
         const encLine = `Enqueue result: ${enq?.enqueued ?? 0} enqueued, ${enq?.skipped ?? 0} skipped`
         const row = r.lastRow
         let moveLine: string
@@ -1788,8 +1810,16 @@ export default function EmailInboxBulkView({
         else if (row.status === 'failed') moveLine = `Move result: FAIL: ${row.last_error ?? 'unknown'}`
         else
           moveLine = `Move result: ${row.status} (batch processed=${r.drainProcessed ?? 0}, failed=${r.drainFailed ?? 0})`
-        setRemoteDebugTestMove({ enqueue: encLine, move: moveLine })
-        addRemoteSyncLog(`${encLine} · ${moveLine}`)
+        setRemoteDebugTestMove({
+          enqueue: encLine,
+          move: moveLine,
+          skipReasons: reasons,
+          messageRowBeforeEnqueue: r.messageRowBeforeEnqueue ?? null,
+          messageRowAfterDrain: r.messageRowAfterDrain ?? null,
+          queueRows: r.queueRowsForMessage ?? [],
+        })
+        const reasonSuffix = reasons.length ? ` · skips: ${reasons.join(' | ')}` : ''
+        addRemoteSyncLog(`${encLine} · ${moveLine}${reasonSuffix}`)
       }
       await refreshRemoteDebugQueue()
     } finally {
@@ -2046,7 +2076,8 @@ export default function EmailInboxBulkView({
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
                 ? result.recommended_action
                 : 'keep_for_manual_action') as BulkRecommendedAction
-              const remoteEnq = (result as { remoteEnqueue?: { enqueued: number; skipped: number } }).remoteEnqueue
+              const remoteEnq = (result as { remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] } })
+                .remoteEnqueue
               if (remoteEnq) {
                 useEmailInboxStore.getState().addRemoteSyncLog(
                   `Classified: ${category}, remote enqueue: ${remoteEnq.enqueued} enqueued / ${remoteEnq.skipped} skipped`,
@@ -3691,6 +3722,8 @@ export default function EmailInboxBulkView({
               const total = remoteDebugQueue?.total as { c?: number } | undefined
               const byStatus = (remoteDebugQueue?.byStatus as QueueStatusRow[]) ?? []
               const byOp = (remoteDebugQueue?.byOp as QueueStatusRow[]) ?? []
+              const byAccountStatus = (remoteDebugQueue?.byAccountStatus as QueueAccountStatusRow[]) ?? []
+              const queueByAccountSummary = (remoteDebugQueue?.queueByAccountSummary as QueueByAccountSummaryRow[]) ?? []
               const failed = (remoteDebugQueue?.failed as QueueMsgRow[]) ?? []
               const recent = (remoteDebugQueue?.sample as QueueMsgRow[]) ?? []
               const opAgg = aggregateLifecycleOpCounts(byOp)
@@ -3712,6 +3745,41 @@ export default function EmailInboxBulkView({
                         {op}: {opAgg[op]?.pending ?? 0} pending, {opAgg[op]?.failed ?? 0} failed
                       </div>
                     ))}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Per account (queue)</div>
+                    {queueByAccountSummary.length === 0 ? (
+                      <div style={{ color: MUTED }}>No rows (or no accounts in gateway).</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.5 }}>
+                        {queueByAccountSummary.map((acc) => (
+                          <li key={acc.accountId} style={{ marginBottom: 6 }}>
+                            <strong>{acc.label}</strong>
+                            <div style={{ fontSize: 11, color: '#334155' }}>
+                              id <code style={{ fontSize: 10 }}>{acc.accountId}</code>
+                            </div>
+                            <div style={{ fontSize: 11 }}>
+                              pending {acc.pending} · processing {acc.processing} · completed {acc.completed} · failed{' '}
+                              {acc.failed} · total {acc.total}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Raw: account × status</div>
+                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>
+                      {byAccountStatus.length === 0 ? (
+                        <li>—</li>
+                      ) : (
+                        byAccountStatus.map((row, i) => (
+                          <li key={i}>
+                            {row.account_id ?? 'null'} · {row.status} · {row.c}
+                          </li>
+                        ))
+                      )}
+                    </ul>
                   </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Failed rows (sample up to 10)</div>
@@ -3739,6 +3807,62 @@ export default function EmailInboxBulkView({
                       <div style={{ fontWeight: 600, marginBottom: 4 }}>Test Move 1</div>
                       <div>{remoteDebugTestMove.enqueue}</div>
                       <div>{remoteDebugTestMove.move}</div>
+                      {(() => {
+                        const fmt = (row: Record<string, unknown> | null | undefined, title: string) =>
+                          row ? (
+                            <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.45 }}>
+                              <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
+                              <div>
+                                <code>imap_remote_mailbox</code>:{' '}
+                                {row.imap_remote_mailbox != null ? String(row.imap_remote_mailbox) : 'null'}
+                              </div>
+                              <div>
+                                <code>email_message_id</code>:{' '}
+                                {row.email_message_id != null ? String(row.email_message_id) : 'null'}
+                              </div>
+                              <div>
+                                archived={String(row.archived ?? '—')} · pending_delete={String(row.pending_delete ?? '—')} ·
+                                sort_category={row.sort_category != null ? String(row.sort_category) : 'null'}
+                              </div>
+                              <div>
+                                pending_review_at={row.pending_review_at != null ? String(row.pending_review_at) : 'null'} ·
+                                source_type={String(row.source_type ?? '—')}
+                              </div>
+                            </div>
+                          ) : null
+                        return (
+                          <>
+                            {fmt(remoteDebugTestMove.messageRowBeforeEnqueue, 'Message (before enqueue — skip logic)')}
+                            {fmt(remoteDebugTestMove.messageRowAfterDrain, 'Message (after drain — current DB)')}
+                          </>
+                        )
+                      })()}
+                      {remoteDebugTestMove.skipReasons && remoteDebugTestMove.skipReasons.length > 0 ? (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>Skip reasons</div>
+                          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.4 }}>
+                            {remoteDebugTestMove.skipReasons.map((line, i) => (
+                              <li key={i} style={{ marginBottom: 4 }}>
+                                {line}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {remoteDebugTestMove.queueRows && remoteDebugTestMove.queueRows.length > 0 ? (
+                        <div style={{ marginTop: 8, fontSize: 11 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue rows (this message)</div>
+                          <ul style={{ margin: 0, paddingLeft: 16 }}>
+                            {remoteDebugTestMove.queueRows.map((qr, i) => (
+                              <li key={i} style={{ marginBottom: 4 }}>
+                                <code>{String(qr.operation ?? '—')}</code> · {String(qr.status ?? '—')} · attempts{' '}
+                                {String(qr.attempts ?? '—')}
+                                {qr.last_error ? ` · ${String(qr.last_error).slice(0, 120)}` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </section>
                   ) : null}
                   <section>

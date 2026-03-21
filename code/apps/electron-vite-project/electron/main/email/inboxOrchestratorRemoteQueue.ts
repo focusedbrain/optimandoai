@@ -18,7 +18,10 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
+import type {
+  OrchestratorRemoteApplyResult,
+  OrchestratorRemoteOperation,
+} from './domain/orchestratorRemoteTypes'
 import type { ResolvedOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
 import { resolveOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
 import { emailGateway } from './gateway'
@@ -26,6 +29,8 @@ import { isPullActive } from './syncPullLock'
 
 const MAX_ATTEMPTS = 8
 const BATCH = 20
+/** Prevent a hung IMAP/socket from leaving queue rows stuck in `processing` indefinitely. */
+const MOVE_TIMEOUT_MS = 30_000
 
 /** Immediate terminal failure — do not burn retries on dead sessions / bad credentials. */
 function isNonRetryableOrchestratorAuthOrConnectionError(message: string): boolean {
@@ -38,7 +43,12 @@ function isNonRetryableOrchestratorAuthOrConnectionError(message: string): boole
     m.includes('invalid credentials') ||
     m.includes('login failed') ||
     m.includes('bad credentials') ||
-    m.includes('unauthorized')
+    m.includes('unauthorized') ||
+    m.includes('reconnect required') ||
+    m.includes('session not connected') ||
+    m.includes('account not found') ||
+    m.includes('handshake timed out') ||
+    m.includes('disconnected or removed')
   )
 }
 /** Light throttle between remote moves (Graph mail ~4 rps for delegated tokens). */
@@ -62,6 +72,25 @@ function localRowToExpectedBucket(row: {
     return 'pending_review'
   }
   return 'inbox'
+}
+
+/** Human-readable skip line for debug UI / IPC (lifecycle enqueue). */
+function formatLifecycleSkipReason(
+  mid: string,
+  reason: string,
+  row: { imap_remote_mailbox?: unknown } | null | undefined,
+  expected?: RemoteLifecycleBucket,
+  observed?: RemoteLifecycleBucket,
+): string {
+  const exp = expected ?? 'n/a'
+  const obs = observed ?? 'n/a'
+  const mb =
+    row == null
+      ? 'no_row'
+      : row.imap_remote_mailbox != null && String(row.imap_remote_mailbox).trim() !== ''
+        ? String(row.imap_remote_mailbox)
+        : 'null'
+  return `${mid}: ${reason} (expected=${exp}, observed=${obs}, imap_remote_mailbox=${mb})`
 }
 
 /**
@@ -144,6 +173,8 @@ function clearStaleLifecycleQueueOpsExcept(
 export interface EnqueueOrchestratorRemoteResult {
   enqueued: number
   skipped: number
+  /** One entry per skipped message (lifecycle rules or mutation pre-checks). */
+  skipReasons: string[]
 }
 
 /**
@@ -156,7 +187,8 @@ export function enqueueOrchestratorRemoteMutations(
 ): EnqueueOrchestratorRemoteResult {
   let enqueued = 0
   let skipped = 0
-  if (!db || !messageIds?.length) return { enqueued, skipped }
+  const skipReasons: string[] = []
+  if (!db || !messageIds?.length) return { enqueued, skipped, skipReasons }
 
   console.log('[ENQUEUE_MUT] Called:', messageIds.length, 'ids, op=', operation)
 
@@ -205,21 +237,25 @@ export function enqueueOrchestratorRemoteMutations(
     const row = select.get(mid)
     if (!row) {
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_row')
+      skipReasons.push(`${mid}: no_row (op=${operation})`)
       skipped++
       continue
     }
     if (!row.account_id) {
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_account_id')
+      skipReasons.push(`${mid}: no_account_id (op=${operation}, source_type=${row.source_type ?? 'n/a'})`)
       skipped++
       continue
     }
     if (!row.email_message_id) {
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_email_message_id')
+      skipReasons.push(`${mid}: no_email_message_id (op=${operation})`)
       skipped++
       continue
     }
     if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=wrong_source_type')
+      skipReasons.push(`${mid}: wrong_source_type (op=${operation}, source_type=${row.source_type ?? 'n/a'})`)
       skipped++
       continue
     }
@@ -229,6 +265,7 @@ export function enqueueOrchestratorRemoteMutations(
       providerType = emailGateway.getProviderSync(row.account_id)
     } catch {
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=no_provider')
+      skipReasons.push(`${mid}: no_provider (op=${operation}, account_id=${row.account_id})`)
       skipped++
       continue
     }
@@ -257,11 +294,12 @@ export function enqueueOrchestratorRemoteMutations(
     } catch (e: any) {
       console.error('[OrchestratorRemote] enqueue upsert failed:', e?.message)
       console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=upsert_failed', 'err=', e?.message ?? e)
+      skipReasons.push(`${mid}: upsert_failed (op=${operation}, err=${(e?.message || String(e)).slice(0, 200)})`)
       skipped++
     }
   }
 
-  return { enqueued, skipped }
+  return { enqueued, skipped, skipReasons }
 }
 
 export interface ProcessOrchestratorRemoteBatchResult {
@@ -294,8 +332,8 @@ export async function processOrchestratorRemoteQueueBatch(
     .get() as { c: number }
   result.pendingRemaining = pendingCount?.c ?? 0
 
-  /* Unstick rows left in processing (e.g. crash mid-flight). Compare ISO timestamps in JS for reliability. */
-  const stuckCutoffIso = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+  /* Unstick rows left in processing (e.g. crash mid-flight, hung IMAP). Compare ISO timestamps in JS for reliability. */
+  const stuckCutoffIso = new Date(Date.now() - 5 * 60 * 1000).toISOString()
   const resetStuckAt = new Date().toISOString()
   db.prepare(
     `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', updated_at = ?
@@ -344,6 +382,8 @@ export async function processOrchestratorRemoteQueueBatch(
   )
 
   const now = () => new Date().toISOString()
+  /** Same-batch cache: fail remaining rows for an account without repeated connect attempts. */
+  const precheckFailedByAccount = new Map<string, string>()
 
   for (let idx = 0; idx < rows.length; idx++) {
     const r = rows[idx]
@@ -363,6 +403,38 @@ export async function processOrchestratorRemoteQueueBatch(
       console.log('[DRAIN_BATCH] DEFERRED (pull active):', r.id)
       continue
     }
+
+    const cachedPrecheckErr = precheckFailedByAccount.get(r.account_id)
+    if (cachedPrecheckErr) {
+      console.warn('[DRAIN_BATCH] Same-batch precheck failure — failing row', r.id, 'account=', r.account_id)
+      markFailed.run(MAX_ATTEMPTS, cachedPrecheckErr, now(), r.id)
+      touchMessageError.run(`[${r.operation}] ${cachedPrecheckErr}`, r.message_id)
+      result.failed++
+      continue
+    }
+
+    const pre = await emailGateway.ensureConnectedForOrchestratorOperation(r.account_id)
+    if (!pre.ok) {
+      const errMsg = (pre.error || 'Account authentication failed — reconnect required.').slice(0, 2000)
+      precheckFailedByAccount.set(r.account_id, errMsg)
+      console.warn('[DRAIN_BATCH] Precheck failed account=', r.account_id, errMsg)
+      markFailed.run(MAX_ATTEMPTS, errMsg, now(), r.id)
+      touchMessageError.run(`[${r.operation}] ${errMsg}`, r.message_id)
+      try {
+        const prov = emailGateway.getProviderSync(r.account_id)
+        if (prov === 'imap') {
+          await emailGateway.updateAccount(r.account_id, {
+            status: 'error',
+            lastError: errMsg.slice(0, 500) || 'IMAP session failed. Reconnect in Email settings.',
+          })
+        }
+      } catch (persistErr: any) {
+        console.warn('[OrchestratorRemote] Could not persist account error state:', persistErr?.message)
+      }
+      result.failed++
+      continue
+    }
+
     markProcessing.run(now(), r.id)
     try {
       console.log(
@@ -381,15 +453,24 @@ export async function processOrchestratorRemoteQueueBatch(
         r.email_message_id,
         r.operation,
       )
-      const apply = await emailGateway.applyOrchestratorRemoteOperation(
-        r.account_id,
-        r.email_message_id,
-        r.operation,
-        {
-          imapRemoteMailbox: r.imap_remote_mailbox ?? null,
-          imapRfcMessageId: r.imap_rfc_message_id ?? null,
-        },
-      )
+      const applyWithTimeout = Promise.race([
+        emailGateway.applyOrchestratorRemoteOperation(
+          r.account_id,
+          r.email_message_id,
+          r.operation,
+          {
+            imapRemoteMailbox: r.imap_remote_mailbox ?? null,
+            imapRfcMessageId: r.imap_rfc_message_id ?? null,
+          },
+        ),
+        new Promise<OrchestratorRemoteApplyResult>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`IMAP operation timed out after ${MOVE_TIMEOUT_MS / 1000}s`)),
+            MOVE_TIMEOUT_MS,
+          ),
+        ),
+      ])
+      const apply = await applyWithTimeout
       const skippedPart = (apply as { skipped?: boolean }).skipped ? '(already there)' : ''
       console.log(
         '[DRAIN_BATCH] Result:',
@@ -503,7 +584,8 @@ export async function processOrchestratorRemoteQueueBatch(
 export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: string[]): EnqueueOrchestratorRemoteResult {
   let enqueued = 0
   let skipped = 0
-  if (!db || !messageIds?.length) return { enqueued, skipped }
+  const skipReasons: string[] = []
+  if (!db || !messageIds?.length) return { enqueued, skipped, skipReasons }
 
   console.log('[ENQUEUE] Called with', messageIds.length, 'message ids')
 
@@ -523,21 +605,27 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     const row = select.get(mid)
     if (!row) {
       console.log('[ENQUEUE] SKIP:', mid, 'reason=no_row')
+      skipReasons.push(formatLifecycleSkipReason(mid, 'no_row', undefined))
       skipped++
       continue
     }
     if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
       console.log('[ENQUEUE] SKIP:', mid, 'reason=wrong_source_type')
+      skipReasons.push(
+        `${mid}: wrong_source_type (expected=n/a, observed=n/a, imap_remote_mailbox=${row.imap_remote_mailbox ?? 'null'}, source_type=${row.source_type ?? 'null'})`,
+      )
       skipped++
       continue
     }
     if (!row.account_id) {
       console.log('[ENQUEUE] SKIP:', mid, 'reason=no_account_id')
+      skipReasons.push(formatLifecycleSkipReason(mid, 'no_account_id', row))
       skipped++
       continue
     }
     if (!row.email_message_id) {
       console.log('[ENQUEUE] SKIP:', mid, 'reason=no_email_message_id')
+      skipReasons.push(formatLifecycleSkipReason(mid, 'no_email_message_id', row))
       skipped++
       continue
     }
@@ -547,12 +635,14 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
       const cfg = emailGateway.getAccountConfig(row.account_id)
       if (!cfg) {
         console.log('[ENQUEUE] SKIP:', mid, 'reason=no_account_config')
+        skipReasons.push(formatLifecycleSkipReason(mid, 'no_account_config', row))
         skipped++
         continue
       }
       names = resolveOrchestratorRemoteNames(cfg)
     } catch {
       console.log('[ENQUEUE] SKIP:', mid, 'reason=account_config_error')
+      skipReasons.push(formatLifecycleSkipReason(mid, 'account_config_error', row))
       skipped++
       continue
     }
@@ -572,6 +662,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
         'imap_remote_mailbox=',
         row.imap_remote_mailbox,
       )
+      skipReasons.push(formatLifecycleSkipReason(mid, 'inbox_state_local_not_lifecycle', row, expected, observed))
       clearStaleLifecycleQueueOpsExcept(
         clearStmts,
         mid,
@@ -596,6 +687,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
         'imap_remote_mailbox=',
         row.imap_remote_mailbox,
       )
+      skipReasons.push(formatLifecycleSkipReason(mid, 'no_target_op', row, expected, observed))
       skipped++
       continue
     }
@@ -612,6 +704,7 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
         'imap_remote_mailbox=',
         row.imap_remote_mailbox,
       )
+      skipReasons.push(formatLifecycleSkipReason(mid, 'already_matches_remote', row, expected, observed))
       clearStaleLifecycleQueueOpsExcept(
         clearStmts,
         mid,
@@ -633,19 +726,22 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
     const r = enqueueOrchestratorRemoteMutations(db, archiveIds, 'archive')
     enqueued += r.enqueued
     skipped += r.skipped
+    skipReasons.push(...r.skipReasons)
   }
   if (pendingDeleteIds.length) {
     const r = enqueueOrchestratorRemoteMutations(db, pendingDeleteIds, 'pending_delete')
     enqueued += r.enqueued
     skipped += r.skipped
+    skipReasons.push(...r.skipReasons)
   }
   if (pendingReviewIds.length) {
     const r = enqueueOrchestratorRemoteMutations(db, pendingReviewIds, 'pending_review')
     enqueued += r.enqueued
     skipped += r.skipped
+    skipReasons.push(...r.skipReasons)
   }
 
-  return { enqueued, skipped }
+  return { enqueued, skipped, skipReasons }
 }
 
 export interface EnqueueFullRemoteSyncResult {

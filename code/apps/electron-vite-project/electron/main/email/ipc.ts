@@ -960,6 +960,63 @@ export function registerInboxHandlers(
         )
         .all('failed')
 
+      const byAccountStatus = db
+        .prepare(
+          `SELECT account_id, status, COUNT(*) as c FROM remote_orchestrator_mutation_queue GROUP BY account_id, status ORDER BY account_id, status`,
+        )
+        .all() as Array<{ account_id: string | null; status: string; c: number }>
+
+      type AccAgg = {
+        accountId: string
+        label: string
+        provider?: string
+        pending: number
+        processing: number
+        completed: number
+        failed: number
+        total: number
+      }
+      const aggMap = new Map<string, AccAgg>()
+      const bump = (accountId: string, status: string, c: number) => {
+        const id = accountId || '(no account_id)'
+        let a = aggMap.get(id)
+        if (!a) {
+          a = {
+            accountId: id,
+            label: id,
+            pending: 0,
+            processing: 0,
+            completed: 0,
+            failed: 0,
+            total: 0,
+          }
+          aggMap.set(id, a)
+        }
+        a.total += c
+        if (status === 'pending') a.pending += c
+        else if (status === 'processing') a.processing += c
+        else if (status === 'completed') a.completed += c
+        else if (status === 'failed') a.failed += c
+      }
+      for (const row of byAccountStatus) {
+        bump(row.account_id != null ? String(row.account_id) : '(no account_id)', row.status, Number(row.c) || 0)
+      }
+
+      try {
+        const accounts = await emailGateway.listAccounts()
+        for (const acc of accounts) {
+          const a = aggMap.get(acc.id)
+          if (a) {
+            a.label = `${acc.email} (${acc.provider})`
+            a.provider = acc.provider
+          }
+        }
+      } catch (e: any) {
+        console.warn('[QUEUE_STATUS] listAccounts for labels failed:', e?.message)
+      }
+
+      const queueByAccountSummary = [...aggMap.values()].sort((x, y) => x.label.localeCompare(y.label))
+
       console.log('[QUEUE_STATUS] === QUEUE STATUS ===')
       console.log('[QUEUE_STATUS] Total rows:', total)
       console.log('[QUEUE_STATUS] By status:', JSON.stringify(byStatus))
@@ -969,11 +1026,15 @@ export function registerInboxHandlers(
       console.log('[QUEUE_STATUS] Processing (stuck?):', JSON.stringify(processing, null, 2))
       console.log('[QUEUE_STATUS] Recent (sample):', JSON.stringify(sample, null, 2))
       console.log('[QUEUE_STATUS] Failed by last_error:', JSON.stringify(failedByLastError))
+      console.log('[QUEUE_STATUS] By account × status:', JSON.stringify(byAccountStatus))
+      console.log('[QUEUE_STATUS] Per-account summary:', JSON.stringify(queueByAccountSummary))
 
       return {
         total,
         byStatus,
         byOp,
+        byAccountStatus,
+        queueByAccountSummary,
         failed,
         pending,
         processing,
@@ -1010,7 +1071,7 @@ export function registerInboxHandlers(
    * then schedule chained background drain until the queue is empty (see `scheduleOrchestratorRemoteDrain`).
    */
   async function runEnqueueRemoteLifecycleMirrorFromIds(messageIds: unknown): Promise<
-    { ok: true; enqueued: number; skipped: number } | { ok: false; error: string }
+    { ok: true; enqueued: number; skipped: number; skipReasons: string[] } | { ok: false; error: string }
   > {
     try {
       const db = await resolveDb()
@@ -1018,9 +1079,11 @@ export function registerInboxHandlers(
       const ids = Array.isArray(messageIds)
         ? messageIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
         : []
-      const r = ids.length ? enqueueRemoteOpsForLocalLifecycleState(db, ids) : { enqueued: 0, skipped: 0 }
+      const r = ids.length
+        ? enqueueRemoteOpsForLocalLifecycleState(db, ids)
+        : { enqueued: 0, skipped: 0, skipReasons: [] as string[] }
       scheduleOrchestratorRemoteDrain(getDb)
-      return { ok: true, enqueued: r.enqueued, skipped: r.skipped }
+      return { ok: true, enqueued: r.enqueued, skipped: r.skipped, skipReasons: r.skipReasons }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'enqueue failed' }
     }
@@ -1761,7 +1824,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     pending_review?: boolean
     error?: string
     /** Present when classify succeeded and remote lifecycle enqueue ran (non-urgent). */
-    remoteEnqueue?: { enqueued: number; skipped: number }
+    remoteEnqueue?: { enqueued: number; skipped: number; skipReasons: string[] }
   }> {
     const db = await resolveDb()
     if (!db) return { messageId, error: 'Database unavailable' }
@@ -1903,7 +1966,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
 
       /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. */
-      let remoteEnqueue: { enqueued: number; skipped: number } | undefined
+      let remoteEnqueue: { enqueued: number; skipped: number; skipReasons: string[] } | undefined
       if (!isUrgent) {
         try {
           remoteEnqueue = enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
@@ -2166,14 +2229,14 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       console.warn('[Inbox] enqueueRemoteLifecycleMirror:', out.error)
       return { ok: false, error: out.error }
     }
-    return { ok: true, data: { enqueued: out.enqueued, skipped: out.skipped } }
+    return { ok: true, data: { enqueued: out.enqueued, skipped: out.skipped, skipReasons: out.skipReasons } }
   })
 
-  /** Same as `inbox:enqueueRemoteLifecycleMirror` but flat `{ enqueued, skipped }` — used after Auto-Sort batch. */
+  /** Same as `inbox:enqueueRemoteLifecycleMirror` but flat `{ enqueued, skipped, skipReasons }` — used after Auto-Sort batch. */
   ipcMain.handle('inbox:enqueueRemoteSync', async (_e, messageIds: string[]) => {
     const out = await runEnqueueRemoteLifecycleMirrorFromIds(messageIds)
     if (!out.ok) return { ok: false, error: out.error }
-    return { ok: true, enqueued: out.enqueued, skipped: out.skipped }
+    return { ok: true, enqueued: out.enqueued, skipped: out.skipped, skipReasons: out.skipReasons }
   })
 
   /** Reconcile entire account: enqueue moves where local lifecycle ≠ `imap_remote_mailbox`. */
@@ -2269,6 +2332,13 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       const mid = typeof messageId === 'string' ? messageId.trim() : ''
       if (!mid) return { ok: false, error: 'messageId required' }
 
+      const selMsg = db.prepare(
+        `SELECT id, imap_remote_mailbox, email_message_id, archived, pending_delete, sort_category, pending_review_at,
+                source_type, account_id
+         FROM inbox_messages WHERE id = ?`,
+      )
+      const messageRowBeforeEnqueue = selMsg.get(mid) as Record<string, unknown> | undefined
+
       const enqueue = enqueueRemoteOpsForLocalLifecycleState(db, [mid])
       let drainProcessed = 0
       let drainFailed = 0
@@ -2309,6 +2379,18 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
           }
         | undefined
 
+      const queueRowsForMessage = db
+        .prepare(
+          `SELECT id, operation, status, attempts, last_error, created_at, updated_at, email_message_id
+           FROM remote_orchestrator_mutation_queue
+           WHERE message_id = ?
+           ORDER BY updated_at DESC
+           LIMIT 25`,
+        )
+        .all(mid) as Array<Record<string, unknown>>
+
+      const messageRowAfterDrain = selMsg.get(mid) as Record<string, unknown> | undefined
+
       try {
         scheduleOrchestratorRemoteDrain(getDb)
       } catch {
@@ -2321,6 +2403,9 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         drainProcessed,
         drainFailed,
         lastRow: lastRow ?? null,
+        messageRowBeforeEnqueue: messageRowBeforeEnqueue ?? null,
+        messageRowAfterDrain: messageRowAfterDrain ?? null,
+        queueRowsForMessage,
       }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'debugTestMoveOne failed' }

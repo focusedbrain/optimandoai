@@ -10,7 +10,7 @@
 | **`domain/remoteLifecycleAbstraction.ts`** | Shared lifecycle model: canonical bucket names, backend kind (`gmail_api_labels` / `microsoft_graph_mailfolder_move` / `imap_uid_move`), `resolveRemoteLifecycleSnapshot(account)`. |
 | **`emailGateway.applyOrchestratorRemoteOperation`** | Connects account + provider; no inbox UI logic. |
 
-Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` **exactly** matches the configured lifecycle mailbox/label name, case-insensitive — no substring match) — and **`scheduleOrchestratorRemoteDrain`**. Remote failures **do not** roll back local state.
+Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` **exactly** matches the configured lifecycle mailbox/label name, case-insensitive — no substring / `includes` matching) — and **`scheduleOrchestratorRemoteDrain`**. **`enqueueRemoteOpsForLocalLifecycleState`** returns **`skipReasons: string[]`** (one line per skipped id: reason + `expected` / `observed` buckets + raw `imap_remote_mailbox`) for UI / IPC diagnostics. Empty or unknown `imap_remote_mailbox` is mapped to observed bucket **`inbox`**. Remote failures **do not** roll back local state.
 
 ## Lifecycle → remote mapping
 
@@ -64,7 +64,8 @@ IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** 
 
 - **Queue:** `UNIQUE(message_id, operation)` collapses duplicate work; re-enqueue after completion resets the row to `pending`.
 - **Providers:** Gmail/Outlook may return `skipped: true` for ambiguous “already there” API errors. **IMAP** only returns `skipped: true` after verifying the message is already in the destination mailbox (HEADER Message-ID or UID in that folder).
-- **Processor:** Up to **8** attempts per row; transient failures return row to `pending` with incrementing `attempts`. Stale `processing` (>20 min) reset to `pending`.
+- **Processor:** Up to **8** attempts per row; transient failures return row to `pending` with incrementing `attempts`. Stale `processing` (>5 min) reset to `pending`. Each apply is capped at **30s** (`Promise.race`) so hung IMAP does not block the drain forever. Before a row is marked `processing`, **`emailGateway.ensureConnectedForOrchestratorOperation`** runs (15s connect cap): failure → row **`failed`** immediately (max attempts), IMAP accounts get **`status: 'error'`**, and other rows for the **same `account_id` in that batch** reuse the error without repeated handshakes.
+- **Debug:** `debug:queueStatus` returns **`byAccountStatus`** (`GROUP BY account_id, status`) and **`queueByAccountSummary`** (human labels: `email (provider)` + pending/processing/completed/failed counts) for isolating one bad account (e.g. web.de) vs Outlook.
 - **Visibility:** `inbox_messages.remote_orchestrator_last_error` holds the latest error / retry hint; `inbox:listRemoteOrchestratorQueue` exposes queue rows.
 
 ## Manual QA (Auto-Sort ↔ remote)

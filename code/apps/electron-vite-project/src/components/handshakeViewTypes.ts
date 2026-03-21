@@ -167,7 +167,7 @@ export interface EmailInboxBridge {
     recommended_action?: string
     pending_delete?: boolean
     pending_review?: boolean
-    remoteEnqueue?: { enqueued: number; skipped: number }
+    remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
     [key: string]: unknown
   }>
   /**
@@ -176,7 +176,7 @@ export interface EmailInboxBridge {
    */
   enqueueRemoteLifecycleMirror?: (messageIds: string[]) => Promise<{
     ok: boolean
-    data?: { enqueued: number; skipped: number }
+    data?: { enqueued: number; skipped: number; skipReasons?: string[] }
     error?: string
   }>
   /** Same lifecycle re-enqueue + drain as `enqueueRemoteLifecycleMirror` (flat result). */
@@ -184,6 +184,7 @@ export interface EmailInboxBridge {
     ok: boolean
     enqueued?: number
     skipped?: number
+    skipReasons?: string[]
     error?: string
   }>
   /** Enqueue lifecycle moves for any row on the account where local state ≠ `imap_remote_mailbox`. */

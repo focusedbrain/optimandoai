@@ -88,7 +88,7 @@ export interface BulkClassification {
   pending_delete: boolean
   classification_failed?: boolean
   /** Per-message remote lifecycle enqueue right after classify (when not urgent). */
-  remote_enqueue?: { enqueued: number; skipped: number }
+  remote_enqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
 }
 
 /**
