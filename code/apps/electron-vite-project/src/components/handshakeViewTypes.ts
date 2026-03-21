@@ -172,6 +172,31 @@ export interface EmailInboxBridge {
     skipped?: number
     error?: string
   }>
+  /** Enqueue lifecycle moves for any row on the account where local state ≠ `imap_remote_mailbox`. */
+  fullRemoteSync?: (accountId: string) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    error?: string
+  }>
+  /** Same as fullRemoteSync for each distinct account among the given message ids. */
+  fullRemoteSyncForMessages?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    error?: string
+  }>
+  /** Full reconcile for every connected email account (background queue drain). */
+  fullRemoteSyncAllAccounts?: () => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    accountCount?: number
+    error?: string
+  }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */
   persistManualBulkAnalysis?: (messageId: string, analysisJson: string) => Promise<{ ok: boolean; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>

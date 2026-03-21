@@ -652,6 +652,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
   /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */
   enqueueRemoteSync: (messageIds: string[]) => ipcRenderer.invoke('inbox:enqueueRemoteSync', messageIds),
+  fullRemoteSync: (accountId: string) => ipcRenderer.invoke('inbox:fullRemoteSync', accountId),
+  fullRemoteSyncForMessages: (messageIds: string[]) =>
+    ipcRenderer.invoke('inbox:fullRemoteSyncForMessages', messageIds),
+  /** Enqueue full lifecycle reconcile for every connected account + background drain (debug / force sync). */
+  fullRemoteSyncAllAccounts: () => ipcRenderer.invoke('inbox:fullRemoteSyncAllAccounts'),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),

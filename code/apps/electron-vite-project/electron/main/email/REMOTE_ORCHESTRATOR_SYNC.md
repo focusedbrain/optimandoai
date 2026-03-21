@@ -10,7 +10,7 @@
 | **`domain/remoteLifecycleAbstraction.ts`** | Shared lifecycle model: canonical bucket names, backend kind (`gmail_api_labels` / `microsoft_graph_mailfolder_move` / `imap_uid_move`), `resolveRemoteLifecycleSnapshot(account)`. |
 | **`emailGateway.applyOrchestratorRemoteOperation`** | Connects account + provider; no inbox UI logic. |
 
-Local IPC handlers **always** commit local state first, then call `fireRemoteOrchestratorSync` (enqueue + async drain). Remote failures **do not** roll back local state.
+Local IPC handlers **always** commit local state first, then enqueue remote work — either **`fireRemoteOrchestratorSync`** (direct op + drain) or **`enqueueRemoteOpsForLocalLifecycleState`** (DB columns as source of truth; skips when `imap_remote_mailbox` already matches) — and **`scheduleOrchestratorRemoteDrain`**. Remote failures **do not** roll back local state.
 
 ## Lifecycle → remote mapping
 
@@ -40,11 +40,17 @@ After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 ar
 - **`scheduleOrchestratorRemoteDrain`** can still run during Pull (e.g. `fireRemoteOrchestratorSync` from another IPC handler). **`processOrchestratorRemoteQueueBatch`** skips rows whose `account_id` is pull-active (rows stay `pending`; **`deferredDueToPull`**). Other accounts’ queue rows still process.
 - **`inbox:syncAccount`** already schedules drain **after** `syncAccountEmails` returns; the lock covers concurrent drains, not the manual Pull ordering alone.
 
-**`inbox:aiClassifySingle`** / **`inbox:aiCategorize`** schedule background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
+**`inbox:aiClassifySingle`**: after local DB updates, non-urgent paths call **`enqueueRemoteOpsForLocalLifecycleState(db, [messageId])`** (same supersede / skip rules as bulk mirror), then the handler calls **`scheduleOrchestratorRemoteDrain`** — background only (no inline bounded drain).
+
+**`inbox:aiCategorize`** schedules background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
 
 **`scheduleOrchestratorRemoteDrain`** runs one batch per tick, then **reschedules** while `pendingRemaining > 0`, after work was processed, or when a parallel enqueue set `drainRescheduleRequested` — so the queue is drained to completion in the background (not a single batch only).
 
-Bulk **Auto-Sort** (`runAiCategorizeForIds`) ends with **`inbox:enqueueRemoteSync`** (alias of lifecycle mirror) for **all successfully classified** message IDs (`allProcessedIds`), so coalesced per-message drains do not drop mirror work.
+Bulk **Auto-Sort** (`runAiCategorizeForIds`) ends with **`inbox:enqueueRemoteSync`** (alias of lifecycle mirror) for **all successfully classified** message IDs (`allProcessedIds`), then **`inbox:fullRemoteSyncForMessages`** so every touched account gets a pass over **all** rows where local lifecycle ≠ `imap_remote_mailbox` (lifecycle moves only; **inbox restore** when remote is wrong but local is inbox is counted as `inboxRestoreNeeded` until a dedicated op exists).
+
+**`inbox:fullRemoteSyncAllAccounts`** (UI **☁ Sync Remote**): loops **`emailGateway.listAccounts()`**, runs **`enqueueFullRemoteSync`** per account, then **`scheduleOrchestratorRemoteDrain`** once — useful to force reconciliation without re-running Auto-Sort.
+
+After each successful remote **`apply`**, **`processOrchestratorRemoteQueueBatch`** updates **`inbox_messages.email_message_id`** and **`inbox_messages.imap_remote_mailbox`** when the provider returns `imapUidAfterMove` / `imapMailboxAfterMove`, so the column tracks the message’s actual remote folder.
 
 IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** before `MOVE`. Gmail uses **`ensureWrDeskUserLabel`** to create missing user labels.
 
@@ -58,6 +64,7 @@ IMAP **`applyOrchestratorRemoteOperation`** calls **`imapEnsureMailbox(dest)`** 
 ## Manual QA (Auto-Sort ↔ remote)
 
 - [ ] Auto-Sort 10 messages → `remote_orchestrator_mutation_queue` shows expected pending rows (via `inbox:listRemoteOrchestratorQueue` / DB).
+- [ ] Optional: click **☁ Sync Remote** (bulk toolbar or standard inbox toolbar) → full account reconcile enqueued; drain still chained until queue empty.
 - [ ] Wait for background drain → rows move to `completed` (or failed with visible error).
 - [ ] web.de: messages appear in correct lifecycle folders.
 - [ ] Outlook: messages appear in correct lifecycle folders.

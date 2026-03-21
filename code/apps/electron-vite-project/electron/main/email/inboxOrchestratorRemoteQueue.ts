@@ -9,12 +9,18 @@
  * - Batch drain prefers **newest** queue rows first (`ORDER BY created_at DESC`) as a second line of defense.
  * - While a **Pull** is listing/fetching for an account (`syncPullLock`), rows for that `account_id` are left
  *   pending so the remote mirror cannot move messages out of INBOX between list and fetch.
+ * - **`enqueueRemoteOpsForLocalLifecycleState`** compares `imap_remote_mailbox` to local lifecycle (configured
+ *   names); skips enqueue when they already match; clears stale pending ops on reclassify / inbox reset.
+ * - **`enqueueFullRemoteSync` / `enqueueFullRemoteSyncForAccountsTouchingMessages`** scan account(s) and
+ *   enqueue any lifecycle mismatch (see IPC `inbox:fullRemoteSync*`).
  * - ON CONFLICT(message_id, operation): refreshes payload, resets to pending (unless row is mid-flight
  *   `processing`), clears attempts/last_error — compatible with supersede (other ops are already closed).
  */
 
 import { randomUUID } from 'crypto'
 import type { OrchestratorRemoteOperation } from './domain/orchestratorRemoteTypes'
+import type { ResolvedOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
+import { resolveOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
 import { emailGateway } from './gateway'
 import { isPullActive } from './syncPullLock'
 
@@ -22,6 +28,99 @@ const MAX_ATTEMPTS = 8
 const BATCH = 20
 /** Light throttle between remote moves (Graph mail ~4 rps for delegated tokens). */
 const INTER_REMOTE_OP_DELAY_MS = 220
+
+/** Coarse bucket for comparing `imap_remote_mailbox` to local lifecycle columns. */
+type RemoteLifecycleBucket = 'inbox' | 'archive' | 'pending_delete' | 'pending_review' | 'unknown'
+
+function localRowToExpectedBucket(row: {
+  archived?: number | null
+  pending_delete?: number | null
+  sort_category?: string | null
+  pending_review_at?: unknown
+}): RemoteLifecycleBucket {
+  if (row.archived === 1) return 'archive'
+  if (row.pending_delete === 1) return 'pending_delete'
+  if (
+    row.sort_category === 'pending_review' ||
+    (row.pending_review_at != null && String(row.pending_review_at).trim() !== '')
+  ) {
+    return 'pending_review'
+  }
+  return 'inbox'
+}
+
+/**
+ * Map persisted `imap_remote_mailbox` (IMAP path or label-ish string) to a lifecycle bucket using
+ * configured names — avoids enqueueing when remote already matches local.
+ */
+function observedRemoteBucketFromImapColumn(
+  path: string | null | undefined,
+  names: ResolvedOrchestratorRemoteNames,
+): RemoteLifecycleBucket {
+  const s = (path || '').trim().toLowerCase()
+  if (!s || s === 'inbox') return 'inbox'
+
+  const a = names.imap.archiveMailbox.trim().toLowerCase()
+  const pd = names.imap.pendingDeleteMailbox.trim().toLowerCase()
+  const pr = names.imap.pendingReviewMailbox.trim().toLowerCase()
+  const gPd = names.gmail.pendingDeleteLabel.trim().toLowerCase()
+  const gPr = names.gmail.pendingReviewLabel.trim().toLowerCase()
+  const oPd = names.outlook.pendingDeleteFolder.trim().toLowerCase()
+  const oPr = names.outlook.pendingReviewFolder.trim().toLowerCase()
+
+  if (a && s.includes(a)) return 'archive'
+  if (pd && s.includes(pd)) return 'pending_delete'
+  if (pr && s.includes(pr)) return 'pending_review'
+  if (gPd && s.includes(gPd)) return 'pending_delete'
+  if (gPr && s.includes(gPr)) return 'pending_review'
+  if (oPd && s.includes(oPd)) return 'pending_delete'
+  if (oPr && s.includes(oPr)) return 'pending_review'
+
+  return 'unknown'
+}
+
+function bucketToTargetOp(b: RemoteLifecycleBucket): OrchestratorRemoteOperation | null {
+  if (b === 'archive') return 'archive'
+  if (b === 'pending_delete') return 'pending_delete'
+  if (b === 'pending_review') return 'pending_review'
+  return null
+}
+
+type ClearStaleStmts = {
+  withKeep: { run: (lastError: string, nowIso: string, messageId: string, keepOperation: OrchestratorRemoteOperation) => void }
+  allLifecycle: { run: (lastError: string, nowIso: string, messageId: string) => void }
+}
+
+/** Prepared clears for pending/processing rows that no longer apply (reclassify or remote already correct). */
+function prepareClearStaleLifecycleQueueOps(db: any): ClearStaleStmts {
+  return {
+    withKeep: db.prepare(
+      `UPDATE remote_orchestrator_mutation_queue
+       SET status = 'completed', last_error = ?, updated_at = ?
+       WHERE message_id = ? AND operation != ? AND status IN ('pending', 'processing')`,
+    ),
+    allLifecycle: db.prepare(
+      `UPDATE remote_orchestrator_mutation_queue
+       SET status = 'completed', last_error = ?, updated_at = ?
+       WHERE message_id = ? AND operation IN ('archive', 'pending_delete', 'pending_review')
+         AND status IN ('pending', 'processing')`,
+    ),
+  }
+}
+
+function clearStaleLifecycleQueueOpsExcept(
+  stmts: ClearStaleStmts,
+  messageId: string,
+  keepOperation: OrchestratorRemoteOperation | null,
+  lastError: string,
+  nowIso: string,
+): void {
+  if (keepOperation) {
+    stmts.withKeep.run(lastError, nowIso, messageId, keepOperation)
+  } else {
+    stmts.allLifecycle.run(lastError, nowIso, messageId)
+  }
+}
 
 export interface EnqueueOrchestratorRemoteResult {
   enqueued: number
@@ -275,6 +374,9 @@ export async function processOrchestratorRemoteQueueBatch(
 /**
  * Enqueue remote mirror ops from current local lifecycle columns (authoritative orchestrator state).
  * Priority per row: archived → pending_delete → pending_review (sort_category).
+ *
+ * Skips enqueue when `imap_remote_mailbox` already matches the expected bucket (configured names).
+ * Cancels other pending/processing queue rows for that message when remote already matches or local is inbox.
  */
 export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: string[]): EnqueueOrchestratorRemoteResult {
   let enqueued = 0
@@ -282,9 +384,13 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   if (!db || !messageIds?.length) return { enqueued, skipped }
 
   const select = db.prepare(
-    `SELECT id, archived, pending_delete, sort_category, pending_review_at FROM inbox_messages WHERE id = ?`,
+    `SELECT id, account_id, email_message_id, archived, pending_delete, sort_category, pending_review_at,
+            imap_remote_mailbox, source_type
+     FROM inbox_messages WHERE id = ?`,
   ) as { get: (id: string) => any }
 
+  const nowIso = new Date().toISOString()
+  const clearStmts = prepareClearStaleLifecycleQueueOps(db)
   const archiveIds: string[] = []
   const pendingDeleteIds: string[] = []
   const pendingReviewIds: string[] = []
@@ -295,14 +401,64 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
       skipped++
       continue
     }
-    if (row.archived === 1) archiveIds.push(mid)
-    else if (row.pending_delete === 1) pendingDeleteIds.push(mid)
-    else if (
-      row.sort_category === 'pending_review' ||
-      (row.pending_review_at != null && String(row.pending_review_at).trim() !== '')
-    ) {
-      pendingReviewIds.push(mid)
+    if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') {
+      skipped++
+      continue
     }
+    if (!row.email_message_id || !row.account_id) {
+      skipped++
+      continue
+    }
+
+    let names: ResolvedOrchestratorRemoteNames
+    try {
+      const cfg = emailGateway.getAccountConfig(row.account_id)
+      if (!cfg) {
+        skipped++
+        continue
+      }
+      names = resolveOrchestratorRemoteNames(cfg)
+    } catch {
+      skipped++
+      continue
+    }
+
+    const expected = localRowToExpectedBucket(row)
+    const observed = observedRemoteBucketFromImapColumn(row.imap_remote_mailbox, names)
+
+    if (expected === 'inbox') {
+      clearStaleLifecycleQueueOpsExcept(
+        clearStmts,
+        mid,
+        null,
+        'Superseded: local state is inbox — clearing lifecycle queue rows',
+        nowIso,
+      )
+      skipped++
+      continue
+    }
+
+    const targetOp = bucketToTargetOp(expected)
+    if (!targetOp) {
+      skipped++
+      continue
+    }
+
+    if (observed === expected) {
+      clearStaleLifecycleQueueOpsExcept(
+        clearStmts,
+        mid,
+        targetOp,
+        'Superseded: remote mailbox already matches local lifecycle',
+        nowIso,
+      )
+      skipped++
+      continue
+    }
+
+    if (expected === 'archive') archiveIds.push(mid)
+    else if (expected === 'pending_delete') pendingDeleteIds.push(mid)
+    else pendingReviewIds.push(mid)
   }
 
   if (archiveIds.length) {
@@ -322,6 +478,89 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
   }
 
   return { enqueued, skipped }
+}
+
+export interface EnqueueFullRemoteSyncResult {
+  enqueued: number
+  skipped: number
+  /** Local inbox but `imap_remote_mailbox` looks like a lifecycle folder — no `restore_inbox` op yet. */
+  inboxRestoreNeeded: number
+}
+
+/**
+ * For one account: enqueue lifecycle mirror ops for every email row where local lifecycle ≠ observed `imap_remote_mailbox`.
+ */
+export function enqueueFullRemoteSync(db: any, accountId: string): EnqueueFullRemoteSyncResult {
+  const out: EnqueueFullRemoteSyncResult = { enqueued: 0, skipped: 0, inboxRestoreNeeded: 0 }
+  if (!db || !accountId?.trim()) return out
+
+  let names: ResolvedOrchestratorRemoteNames
+  try {
+    const cfg = emailGateway.getAccountConfig(accountId.trim())
+    if (!cfg) return out
+    names = resolveOrchestratorRemoteNames(cfg)
+  } catch {
+    return out
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, archived, pending_delete, sort_category, pending_review_at, imap_remote_mailbox, source_type, email_message_id
+       FROM inbox_messages WHERE account_id = ?`,
+    )
+    .all(accountId.trim()) as Array<Record<string, unknown>>
+
+  const lifecycleIds: string[] = []
+  for (const row of rows) {
+    if (row.source_type !== 'email_plain' && row.source_type !== 'email_beap') continue
+    if (!row.email_message_id) continue
+    const id = String(row.id)
+    const expected = localRowToExpectedBucket(row as any)
+    const observed = observedRemoteBucketFromImapColumn((row.imap_remote_mailbox as string) ?? null, names)
+
+    if (expected === observed) continue
+    if (expected === 'inbox' && (observed === 'inbox' || observed === 'unknown')) continue
+
+    if (expected === 'inbox' && observed !== 'inbox' && observed !== 'unknown') {
+      out.inboxRestoreNeeded += 1
+      continue
+    }
+
+    if (expected !== 'inbox') {
+      lifecycleIds.push(id)
+    }
+  }
+
+  if (lifecycleIds.length === 0) return out
+  const r = enqueueRemoteOpsForLocalLifecycleState(db, [...new Set(lifecycleIds)])
+  out.enqueued += r.enqueued
+  out.skipped += r.skipped
+  return out
+}
+
+/** Run {@link enqueueFullRemoteSync} once per distinct `account_id` among the given message rows. */
+export function enqueueFullRemoteSyncForAccountsTouchingMessages(
+  db: any,
+  messageIds: string[],
+): EnqueueFullRemoteSyncResult {
+  const agg: EnqueueFullRemoteSyncResult = { enqueued: 0, skipped: 0, inboxRestoreNeeded: 0 }
+  if (!db || !messageIds?.length) return agg
+  const uniq = [...new Set(messageIds.filter((x) => typeof x === 'string' && x.trim()))]
+  if (uniq.length === 0) return agg
+
+  const placeholders = uniq.map(() => '?').join(',')
+  const rows = db
+    .prepare(`SELECT DISTINCT account_id FROM inbox_messages WHERE id IN (${placeholders})`)
+    .all(...uniq) as Array<{ account_id: string | null }>
+
+  for (const r of rows) {
+    if (!r.account_id) continue
+    const part = enqueueFullRemoteSync(db, r.account_id)
+    agg.enqueued += part.enqueued
+    agg.skipped += part.skipped
+    agg.inboxRestoreNeeded += part.inboxRestoreNeeded
+  }
+  return agg
 }
 
 export interface DrainOrchestratorRemoteBoundedResult {

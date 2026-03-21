@@ -2083,6 +2083,26 @@ body {
   opacity: 0.6;
 }
 
+.bulk-view-sync-remote-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+  cursor: pointer;
+}
+
+.bulk-view-sync-remote-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.bulk-view-sync-remote-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .bulk-view-wr-expert-btn {
   padding: 4px 8px;
   font-size: 10px;

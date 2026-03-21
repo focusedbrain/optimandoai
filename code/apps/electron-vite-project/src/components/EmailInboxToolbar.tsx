@@ -15,6 +15,9 @@ export interface EmailInboxToolbarProps {
   autoSyncEnabled: boolean
   syncing: boolean
   onSync: () => void
+  /** Optional: enqueue full remote reconcile for all accounts (background). */
+  onRemoteLifecycleSync?: () => void
+  remoteLifecycleSyncing?: boolean
   onToggleAutoSync: (accountId: string, enabled: boolean) => void
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
@@ -100,6 +103,8 @@ export default function EmailInboxToolbar({
   autoSyncEnabled,
   syncing,
   onSync,
+  onRemoteLifecycleSync,
+  remoteLifecycleSyncing = false,
   onToggleAutoSync,
   bulkMode,
   onBulkModeChange,
@@ -203,6 +208,28 @@ export default function EmailInboxToolbar({
         >
           {syncing ? '↻ Syncing…' : '↻ Pull'}
         </button>
+
+        {onRemoteLifecycleSync && (
+          <button
+            type="button"
+            onClick={onRemoteLifecycleSync}
+            disabled={remoteLifecycleSyncing || !accounts.length}
+            title="Enqueue full remote folder reconcile for all accounts (background)"
+            style={{
+              padding: '6px 12px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: '1px solid rgba(56, 189, 248, 0.5)',
+              background: 'rgba(56, 189, 248, 0.12)',
+              color: '#38bdf8',
+              cursor: remoteLifecycleSyncing || !accounts.length ? 'not-allowed' : 'pointer',
+              opacity: remoteLifecycleSyncing || !accounts.length ? 0.65 : 1,
+            }}
+          >
+            {remoteLifecycleSyncing ? '☁ …' : '☁ Sync Remote'}
+          </button>
+        )}
 
         {/* Bulk mode toggle */}
         <button

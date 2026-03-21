@@ -1015,6 +1015,29 @@ export default function EmailInboxView({
     void syncAllAccounts(toSync)
   }, [accounts, primaryAccountId, syncAllAccounts])
 
+  const [remoteLifecycleSyncing, setRemoteLifecycleSyncing] = useState(false)
+  const handleRemoteLifecycleSyncAll = useCallback(() => {
+    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
+    if (!fn) {
+      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      return
+    }
+    setRemoteLifecycleSyncing(true)
+    void fn()
+      .then((r) => {
+        if (r?.ok) {
+          console.log(
+            '[Inbox] Sync Remote enqueued:',
+            `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+          )
+        } else {
+          console.warn('[Inbox] Sync Remote:', r?.error)
+        }
+      })
+      .catch((e) => console.warn('[Inbox] Sync Remote failed:', e))
+      .finally(() => setRemoteLifecycleSyncing(false))
+  }, [])
+
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
     if (ids.length) deleteMessages(ids)
@@ -1215,6 +1238,8 @@ export default function EmailInboxView({
           autoSyncEnabled={autoSyncEnabled}
           syncing={syncing}
           onSync={handleSync}
+          onRemoteLifecycleSync={window.emailInbox?.fullRemoteSyncAllAccounts ? handleRemoteLifecycleSyncAll : undefined}
+          remoteLifecycleSyncing={remoteLifecycleSyncing}
           onToggleAutoSync={toggleAutoSync}
           bulkMode={bulkMode}
           onBulkModeChange={setBulkMode}

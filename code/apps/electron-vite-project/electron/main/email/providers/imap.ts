@@ -57,22 +57,114 @@ function normalizeImapPrefix(raw: unknown): string {
   return s
 }
 
+/** After `move()` fails, use COPY+\\Deleted+EXPUNGE only when the error looks like MOVE is unusable (not e.g. missing UID). */
+function imapMoveErrWarrantsCopyDeleteFallback(err: unknown): boolean {
+  const raw = String((err as { text?: string })?.text ?? (err as Error)?.message ?? err ?? '')
+  const t = raw.toLowerCase()
+  if (!t.trim()) return false
+  const mentionsMove = /\bmove\b/.test(t) || /\[capability\]/i.test(raw)
+  const looksUnsupported =
+    /not supported|unsupported|unknown command|invalid command|bad command|parse error|unavailable|cannot move|can\x27t move/i.test(
+      t,
+    )
+  return mentionsMove && looksUnsupported
+}
+
+/** LIST attribs that indicate well-known mailboxes (RFC 6155 / common servers). */
+const IMAP_SPECIAL_USE_ANCHORS = ['\\Sent', '\\Trash', '\\Drafts', '\\Junk']
+
+function imapFolderBasename(path: string, delimiter: string): string {
+  const d = delimiter || '/'
+  const parts = path.split(d).filter(Boolean)
+  return parts[parts.length - 1] || path
+}
+
 /**
- * From flattened LIST (getBoxes), find delimiter for the configured inbox and infer whether child
- * folders live under `inbox+delimiter` (e.g. INBOX. on Dovecot) vs top-level (web.de).
+ * Name-based fallbacks when the server does not expose SPECIAL-USE (localized + English).
  */
-function inferNamespaceFromList(folders: FolderInfo[], inboxLogical: string): ImapNamespaceInfo {
+function imapPathLooksLikeStandardAnchor(path: string, delimiter: string): boolean {
+  const base = imapFolderBasename(path, delimiter).toLowerCase()
+  const hints = [
+    'sent',
+    'trash',
+    'drafts',
+    'deleted messages',
+    'junk',
+    'spam',
+    'junk e-mail',
+    'gesendet',
+    'papierkorb',
+    'entwürfe',
+    'entwuerfe',
+    'gelöschte elemente',
+    'geloeschte elemente',
+  ]
+  return hints.some((h) => base === h || base.includes(h))
+}
+
+/**
+ * From LIST (getBoxes): delimiter from the configured INBOX row; hierarchy pattern from where
+ * Sent/Trash/Drafts live vs INBOX (siblings → top-level lifecycle mailboxes; under INBOX → prefix).
+ * Avoids hardcoding `INBOX.` — uses the server's delimiter and observed layout (web.de vs Cyrus-style).
+ */
+function inferMailboxHierarchyFromList(folders: FolderInfo[], inboxLogical: string): ImapNamespaceInfo {
   const ib = inboxLogical.trim() || 'INBOX'
   const ibLower = ib.toLowerCase()
   const inboxRow =
     folders.find((f) => f.path.toLowerCase() === ibLower) ||
     folders.find((f) => f.name.toLowerCase() === ibLower)
   const delimiter = inboxRow?.delimiter || '.'
-  const hasChildUnderInbox = folders.some((f) => {
-    const pl = f.path.toLowerCase()
-    return pl.startsWith(ibLower + delimiter.toLowerCase())
+
+  const isDirectChildOfInbox = (path: string): boolean => {
+    const pl = path.toLowerCase()
+    if (pl === ibLower) return false
+    const d = delimiter.toLowerCase()
+    if (!pl.startsWith(ibLower.toLowerCase() + d)) return false
+    const rest = pl.slice(ibLower.length + d.length)
+    return rest.length > 0 && !rest.includes(d)
+  }
+
+  const isUnderInboxTree = (path: string): boolean => {
+    const pl = path.toLowerCase()
+    return pl !== ibLower && pl.startsWith(ibLower.toLowerCase() + delimiter.toLowerCase())
+  }
+
+  const specialAnchors = folders.filter((f) => {
+    if (f.path.toLowerCase() === ibLower) return false
+    return (f.flags || []).some((a) => IMAP_SPECIAL_USE_ANCHORS.includes(a))
   })
-  const prefix = hasChildUnderInbox ? ib + delimiter : ''
+
+  const nameAnchors = folders.filter((f) => {
+    if (f.path.toLowerCase() === ibLower) return false
+    if (specialAnchors.includes(f)) return false
+    return imapPathLooksLikeStandardAnchor(f.path, f.delimiter || delimiter)
+  })
+
+  const anchors = specialAnchors.length > 0 ? specialAnchors : nameAnchors
+
+  if (anchors.length > 0) {
+    const nested = anchors.filter((f) => isUnderInboxTree(f.path))
+    const top = anchors.filter((f) => !isUnderInboxTree(f.path))
+    if (nested.length > 0 && top.length === 0) {
+      return { prefix: ib + delimiter, delimiter }
+    }
+    if (top.length > 0 && nested.length === 0) {
+      return { prefix: '', delimiter }
+    }
+    // Mixed layout: prefer \Sent (or first special-use) placement
+    const sentLike =
+      specialAnchors.find((f) => (f.flags || []).includes('\\Sent')) ||
+      specialAnchors.find((f) => /sent/i.test(imapFolderBasename(f.path, f.delimiter || delimiter))) ||
+      anchors[0]
+    if (sentLike) {
+      if (isUnderInboxTree(sentLike.path)) return { prefix: ib + delimiter, delimiter }
+      return { prefix: '', delimiter }
+    }
+  }
+
+  // No anchors: if anything is a direct child of INBOX, assume nested lifecycle mailboxes
+  const anyChildUnderInbox = folders.some((f) => isDirectChildOfInbox(f.path) || isUnderInboxTree(f.path))
+  const prefix = anyChildUnderInbox ? ib + delimiter : ''
   return { prefix, delimiter }
 }
 
@@ -108,7 +200,7 @@ export class ImapProvider extends BaseEmailProvider {
   private client: ImapConnection | null = null
   private transporter: nodemailer.Transporter | null = null
   private messageCache: Map<string, RawEmailMessage> = new Map()
-  /** Cached per connection — from NAMESPACE or LIST fallback (see getNamespaceInfo). */
+  /** Cached per connection — RFC 2342 NAMESPACE or LIST + Sent/Trash/Drafts layout (see getNamespaceInfo). */
   private namespaceInfoCache: ImapNamespaceInfo | null = null
   /** Snapshot of IMAP CAPABILITY (uppercase); refreshed on `ready` and after mailbox open. `serverSupports()` is authoritative at move time. */
   private serverCapabilities: string[] = []
@@ -166,6 +258,9 @@ export class ImapProvider extends BaseEmailProvider {
         console.log('[IMAP] Connected to:', config.imap!.host)
         this.refreshImapCapabilitiesSnapshot()
         this.connected = true
+        void this.warmImapNamespacePattern().catch((e: any) => {
+          console.warn('[IMAP] Early namespace/delimiter detection failed (will retry on demand):', e?.message || e)
+        })
         resolve()
       })
 
@@ -274,6 +369,12 @@ export class ImapProvider extends BaseEmailProvider {
     })
   }
 
+  /** After `ready`, prime LIST-based delimiter / Sent-Trash layout so first CREATE uses the right path. */
+  private async warmImapNamespacePattern(): Promise<void> {
+    if (!this.client || !this.config) return
+    await this.getNamespaceInfo()
+  }
+
   /**
    * Personal namespace prefix + hierarchy delimiter (RFC 2342 NAMESPACE when available; else inferred from LIST).
    * Cached for the lifetime of the connection. Used to build full mailbox paths for CREATE/MOVE.
@@ -293,13 +394,24 @@ export class ImapProvider extends BaseEmailProvider {
       const prefix = normalizeImapPrefix(p.prefix)
       const delimiter = p.delimiter != null && p.delimiter !== '' ? String(p.delimiter) : '.'
       this.namespaceInfoCache = { prefix, delimiter }
+      this.logImapNamespacePattern('NAMESPACE')
       return this.namespaceInfoCache
     }
 
     const inboxLogical = (this.config?.folders?.inbox || 'INBOX').trim()
     const folders = await this.listFolders()
-    this.namespaceInfoCache = inferNamespaceFromList(folders, inboxLogical)
+    this.namespaceInfoCache = inferMailboxHierarchyFromList(folders, inboxLogical)
+    this.logImapNamespacePattern('LIST')
     return this.namespaceInfoCache
+  }
+
+  private logImapNamespacePattern(source: 'NAMESPACE' | 'LIST'): void {
+    const ns = this.namespaceInfoCache
+    if (!ns) return
+    const patternDesc = ns.prefix
+      ? `nested under configured inbox (hierarchy prefix ${JSON.stringify(ns.prefix)} via ${source})`
+      : `top-level folders for new mailboxes (no inbox prefix; ${source})`
+    console.log(`[IMAP] Server pattern: ${patternDesc}, delimiter=${JSON.stringify(ns.delimiter)}`)
   }
 
   /**
@@ -814,8 +926,10 @@ export class ImapProvider extends BaseEmailProvider {
     }
 
     const inbox = this.config?.folders.inbox || 'INBOX'
+    // A: INBOX first (fast path); lifecycle folders only if UID not in INBOX (e.g. already moved by mirror).
     let result = await this.fetchMessageFromFolder(messageId, inbox, { softOpen: false })
     if (result) {
+      result.folder = result.folder || inbox
       console.log(`[IMAP] fetchMessage: UID ${messageId} found in ${inbox}`)
       return result
     }
@@ -1346,8 +1460,8 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   /**
-   * RFC 6851 MOVE when advertised; otherwise COPY + \\Deleted + EXPUNGE (UID EXPUNGE if UIDPLUS).
-   * `node-imap`’s `move()` already falls back internally; we branch explicitly for logging and a straightforward fallback path.
+   * B: Always try `move()` first (`node-imap` uses RFC MOVE or internal COPY chain from CAPABILITY).
+   * If MOVE fails with an “unsupported / bad command” style error, fall back to explicit COPY + \\Deleted + EXPUNGE.
    */
   private imapMoveBetweenMailboxes(sourceMailbox: string, uid: string, destMailbox: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -1362,41 +1476,58 @@ export class ImapProvider extends BaseEmailProvider {
           return
         }
         this.refreshImapCapabilitiesSnapshot()
-        const hasMove = client.serverSupports('MOVE')
-        console.log(
-          `[IMAP] Moving UID ${uid} from "${sourceMailbox}" to "${destMailbox}" via ${hasMove ? 'MOVE' : 'COPY+DELETE'}`,
-        )
 
-        if (hasMove) {
-          client.move(uid, destMailbox, (moveErr) => {
-            if (moveErr) reject(moveErr)
-            else resolve()
-          })
-          return
+        const logMoved = (via: 'MOVE' | 'COPY+DELETE') => {
+          console.log(`[IMAP] Moved UID ${uid}: "${sourceMailbox}" → "${destMailbox}" via ${via}`)
         }
 
-        client.copy(uid, destMailbox, (copyErr) => {
-          if (copyErr) {
-            reject(copyErr)
-            return
-          }
-          client.addFlags(uid, ['\\Deleted'], (flagErr) => {
-            if (flagErr) {
-              reject(flagErr)
+        const runCopyDeleteFallback = () => {
+          client.copy(uid, destMailbox, (copyErr) => {
+            if (copyErr) {
+              reject(copyErr)
               return
             }
-            if (client.serverSupports('UIDPLUS')) {
-              client.expunge([uid], (expErr) => {
-                if (expErr) reject(expErr)
-                else resolve()
-              })
-            } else {
-              client.expunge((expErr) => {
-                if (expErr) reject(expErr)
-                else resolve()
-              })
-            }
+            client.addFlags(uid, ['\\Deleted'], (flagErr) => {
+              if (flagErr) {
+                reject(flagErr)
+                return
+              }
+              if (client.serverSupports('UIDPLUS')) {
+                client.expunge([uid], (expErr) => {
+                  if (expErr) reject(expErr)
+                  else {
+                    logMoved('COPY+DELETE')
+                    resolve()
+                  }
+                })
+              } else {
+                client.expunge((expErr) => {
+                  if (expErr) reject(expErr)
+                  else {
+                    logMoved('COPY+DELETE')
+                    resolve()
+                  }
+                })
+              }
+            })
           })
+        }
+
+        client.move(uid, destMailbox, (moveErr) => {
+          if (!moveErr) {
+            logMoved('MOVE')
+            resolve()
+            return
+          }
+          if (imapMoveErrWarrantsCopyDeleteFallback(moveErr)) {
+            console.warn(
+              `[IMAP] MOVE failed for UID ${uid} ("${sourceMailbox}" → "${destMailbox}"), using COPY+DELETE:`,
+              (moveErr as Error)?.message || moveErr,
+            )
+            runCopyDeleteFallback()
+            return
+          }
+          reject(moveErr)
         })
       })
     })
@@ -1406,19 +1537,29 @@ export class ImapProvider extends BaseEmailProvider {
     if (!this.client) {
       throw new Error('Not connected')
     }
-    const fullPath = await this.imapResolveMailboxPath(mailboxLogicalOrPath.trim())
+    const logical = mailboxLogicalOrPath.trim()
+    const fullPath = await this.imapResolveMailboxPath(logical)
     if (!fullPath) {
       throw new Error('IMAP: empty mailbox name')
     }
+    const labelForLog = logical || fullPath
+    console.log(
+      `[IMAP] Ensuring mailbox: logical=${JSON.stringify(labelForLog)} → CREATE ${JSON.stringify(fullPath)}`,
+    )
     return new Promise((resolve, reject) => {
       this.client!.addBox(fullPath, (err) => {
         if (!err) {
+          console.log(`[IMAP] Created folder: ${JSON.stringify(labelForLog)} (${JSON.stringify(fullPath)})`)
           resolve()
           return
         }
         const m = String((err as Error).message || err)
-        if (/exists|EXISTS|already/i.test(m)) resolve()
-        else reject(err)
+        if (/exists|EXISTS|already/i.test(m)) {
+          console.log(`[IMAP] Folder already exists: ${JSON.stringify(labelForLog)} (${JSON.stringify(fullPath)})`)
+          resolve()
+          return
+        }
+        reject(err)
       })
     })
   }

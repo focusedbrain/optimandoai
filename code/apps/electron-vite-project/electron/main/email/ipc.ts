@@ -151,6 +151,8 @@ import {
   scheduleOrchestratorRemoteDrain,
   listRemoteOrchestratorQueueRows,
   enqueueRemoteOpsForLocalLifecycleState,
+  enqueueFullRemoteSync,
+  enqueueFullRemoteSyncForAccountsTouchingMessages,
 } from './inboxOrchestratorRemoteQueue'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
@@ -865,6 +867,9 @@ export function registerInboxHandlers(
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
     'inbox:reconcileImapRemoteLifecycle',
+    'inbox:fullRemoteSync',
+    'inbox:fullRemoteSyncForMessages',
+    'inbox:fullRemoteSyncAllAccounts',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -1806,10 +1811,13 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
 
       const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
 
+      /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. */
       if (!isUrgent) {
-        if (pendingReview) fireRemoteOrchestratorSync(db, [messageId], 'pending_review')
-        if (pendingDelete) fireRemoteOrchestratorSync(db, [messageId], 'pending_delete')
-        if (validCategory === 'archive') fireRemoteOrchestratorSync(db, [messageId], 'archive')
+        try {
+          enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
+        } catch (e: any) {
+          console.warn('[Inbox] enqueueRemoteOpsForLocalLifecycleState after classify:', e?.message)
+        }
       }
 
       return {
@@ -2072,6 +2080,76 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
     const out = await runEnqueueRemoteLifecycleMirrorFromIds(messageIds)
     if (!out.ok) return { ok: false, error: out.error }
     return { ok: true, enqueued: out.enqueued, skipped: out.skipped }
+  })
+
+  /** Reconcile entire account: enqueue moves where local lifecycle ≠ `imap_remote_mailbox`. */
+  ipcMain.handle('inbox:fullRemoteSync', async (_e, accountId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      if (typeof accountId !== 'string' || !accountId.trim()) {
+        return { ok: false, error: 'accountId required' }
+      }
+      const r = enqueueFullRemoteSync(db, accountId.trim())
+      scheduleOrchestratorRemoteDrain(getDb)
+      return {
+        ok: true,
+        enqueued: r.enqueued,
+        skipped: r.skipped,
+        inboxRestoreNeeded: r.inboxRestoreNeeded,
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'fullRemoteSync failed' }
+    }
+  })
+
+  /** Run {@link enqueueFullRemoteSync} for every distinct account among these message ids. */
+  ipcMain.handle('inbox:fullRemoteSyncForMessages', async (_e, messageIds: string[]) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const ids = Array.isArray(messageIds)
+        ? messageIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+        : []
+      const r = enqueueFullRemoteSyncForAccountsTouchingMessages(db, ids)
+      scheduleOrchestratorRemoteDrain(getDb)
+      return {
+        ok: true,
+        enqueued: r.enqueued,
+        skipped: r.skipped,
+        inboxRestoreNeeded: r.inboxRestoreNeeded,
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'fullRemoteSyncForMessages failed' }
+    }
+  })
+
+  /** Full lifecycle reconcile for every connected email account (background drain). */
+  ipcMain.handle('inbox:fullRemoteSyncAllAccounts', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const accounts = await emailGateway.listAccounts()
+      let enqueued = 0
+      let skipped = 0
+      let inboxRestoreNeeded = 0
+      let accountCount = 0
+      for (const a of accounts) {
+        if (!a?.id) continue
+        const r = enqueueFullRemoteSync(db, a.id)
+        enqueued += r.enqueued
+        skipped += r.skipped
+        inboxRestoreNeeded += r.inboxRestoreNeeded
+        accountCount += 1
+      }
+      scheduleOrchestratorRemoteDrain(getDb)
+      console.log(
+        `[Inbox] fullRemoteSyncAllAccounts: accounts=${accountCount} enqueued=${enqueued} skipped=${skipped} inboxRestoreNeeded=${inboxRestoreNeeded}`,
+      )
+      return { ok: true, enqueued, skipped, inboxRestoreNeeded, accountCount }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'fullRemoteSyncAllAccounts failed' }
+    }
   })
 
   /** Diagnostics: recent remote orchestrator mutation queue rows (pending / failed / completed). */

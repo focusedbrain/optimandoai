@@ -1547,6 +1547,30 @@ export default function EmailInboxBulkView({
     void syncAllAccounts(toSync)
   }, [accounts, primaryAccountId, syncAllAccounts])
 
+  const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
+  /** Force full remote lifecycle reconcile for all accounts (background drain; does not block pull). */
+  const handleRemoteSyncAll = useCallback(() => {
+    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
+    if (!fn) {
+      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      return
+    }
+    setRemoteSyncBusy(true)
+    void fn()
+      .then((r) => {
+        if (r?.ok) {
+          console.log(
+            '[Inbox] Sync Remote enqueued:',
+            `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+          )
+        } else {
+          console.warn('[Inbox] Sync Remote:', r?.error)
+        }
+      })
+      .catch((e) => console.warn('[Inbox] Sync Remote failed:', e))
+      .finally(() => setRemoteSyncBusy(false))
+  }, [])
+
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
   const [providerSectionExpanded, setProviderSectionExpanded] = useState(false)
@@ -2142,6 +2166,20 @@ export default function EmailInboxBulkView({
               }
             } catch (e) {
               console.warn('[AutoSort] Remote enqueue failed:', e)
+            }
+            try {
+              const full = await window.emailInbox?.fullRemoteSyncForMessages?.(classifiedIdsForRemote)
+              if (full?.ok && (full.enqueued ?? 0) + (full.inboxRestoreNeeded ?? 0) > 0) {
+                console.log('[AutoSort] Full remote reconcile:', {
+                  enqueued: full.enqueued,
+                  skipped: full.skipped,
+                  inboxRestoreNeeded: full.inboxRestoreNeeded,
+                })
+              } else if (full && !full.ok) {
+                console.warn('[AutoSort] fullRemoteSyncForMessages:', full.error)
+              }
+            } catch (e) {
+              console.warn('[AutoSort] fullRemoteSyncForMessages failed:', e)
             }
           }
         }
@@ -3412,6 +3450,15 @@ export default function EmailInboxBulkView({
             title="Pull messages"
           >
             {syncing ? '↻ Syncing…' : '↻ Pull'}
+          </button>
+          <button
+            type="button"
+            className="bulk-view-sync-remote-btn"
+            onClick={handleRemoteSyncAll}
+            disabled={remoteSyncBusy || accounts.length === 0}
+            title="Enqueue full remote folder reconcile for all accounts (background; use after Auto-Sort or to fix drift)"
+          >
+            {remoteSyncBusy ? '☁ …' : '☁ Sync Remote'}
           </button>
           <button
             type="button"

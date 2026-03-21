@@ -6,10 +6,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../gateway', () => ({
   emailGateway: {
     getProviderSync: vi.fn(() => 'gmail'),
+    getAccountConfig: vi.fn(() => ({
+      provider: 'imap',
+      email: 't@example.com',
+      folders: { inbox: 'INBOX' },
+    })),
   },
 }))
 
-import { enqueueOrchestratorRemoteMutations } from '../inboxOrchestratorRemoteQueue'
+import { enqueueOrchestratorRemoteMutations, enqueueRemoteOpsForLocalLifecycleState } from '../inboxOrchestratorRemoteQueue'
 import { emailGateway } from '../gateway'
 
 describe('enqueueOrchestratorRemoteMutations', () => {
@@ -100,5 +105,100 @@ describe('enqueueOrchestratorRemoteMutations', () => {
     enqueueOrchestratorRemoteMutations(db, ['m1'], 'archive')
     enqueueOrchestratorRemoteMutations(db, ['m1'], 'archive')
     expect(upsertRuns.length).toBe(2)
+  })
+})
+
+describe('enqueueRemoteOpsForLocalLifecycleState', () => {
+  beforeEach(() => {
+    vi.mocked(emailGateway.getProviderSync).mockReturnValue('imap')
+  })
+
+  function makeLifecycleDb(row: Record<string, unknown> | undefined) {
+    const upsertRuns: unknown[][] = []
+    const supersedeRuns: unknown[][] = []
+    const clearWithKeepRuns: unknown[][] = []
+    const clearAllRuns: unknown[][] = []
+    return {
+      upsertRuns,
+      supersedeRuns,
+      clearWithKeepRuns,
+      clearAllRuns,
+      db: {
+        prepare: vi.fn((sql: string) => {
+          if (sql.includes('FROM inbox_messages WHERE id = ?')) {
+            return { get: (_id: string) => row }
+          }
+          if (sql.includes('operation != ?') && sql.includes('remote_orchestrator_mutation_queue')) {
+            return {
+              run: (...args: unknown[]) => {
+                clearWithKeepRuns.push(args)
+              },
+            }
+          }
+          if (
+            sql.includes("operation IN ('archive', 'pending_delete', 'pending_review')") &&
+            sql.includes('remote_orchestrator_mutation_queue')
+          ) {
+            return {
+              run: (...args: unknown[]) => {
+                clearAllRuns.push(args)
+              },
+            }
+          }
+          if (sql.includes('Superseded by newer classification')) {
+            return {
+              run: (...args: unknown[]) => {
+                supersedeRuns.push(args)
+              },
+            }
+          }
+          if (sql.includes('INSERT INTO remote_orchestrator_mutation_queue')) {
+            return {
+              run: (...args: unknown[]) => {
+                upsertRuns.push(args)
+              },
+            }
+          }
+          throw new Error(`Unexpected SQL in lifecycle mock: ${sql.slice(0, 80)}`)
+        }),
+      },
+    }
+  }
+
+  it('skips upsert when imap_remote_mailbox already matches archive bucket', () => {
+    const { db, upsertRuns, clearWithKeepRuns } = makeLifecycleDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: '99',
+      archived: 1,
+      pending_delete: 0,
+      sort_category: null,
+      pending_review_at: null,
+      imap_remote_mailbox: 'INBOX.Archive',
+      source_type: 'email_plain',
+    })
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
+    expect(r.enqueued).toBe(0)
+    expect(r.skipped).toBe(1)
+    expect(upsertRuns).toHaveLength(0)
+    expect(clearWithKeepRuns.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('enqueues archive when local archived but remote column is INBOX', () => {
+    const { db, upsertRuns } = makeLifecycleDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: '99',
+      archived: 1,
+      pending_delete: 0,
+      sort_category: null,
+      pending_review_at: null,
+      imap_remote_mailbox: 'INBOX',
+      source_type: 'email_plain',
+    })
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
+    expect(r.enqueued).toBe(1)
+    expect(upsertRuns).toHaveLength(1)
+    expect(upsertRuns[0]).toContain('archive')
   })
 })
