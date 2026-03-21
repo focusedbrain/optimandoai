@@ -48,7 +48,7 @@ After each **auto-sync tick** (`syncOrchestrator.startAutoSync`), steps 1–3 ar
 - **`scheduleOrchestratorRemoteDrain`** can still run during Pull (e.g. `fireRemoteOrchestratorSync` from another IPC handler). **`processOrchestratorRemoteQueueBatch`** skips rows whose `account_id` is pull-active (rows stay `pending`; **`deferredDueToPull`**). Other accounts’ queue rows still process.
 - **`inbox:syncAccount`** already schedules drain **after** `syncAccountEmails` returns; the lock covers concurrent drains, not the manual Pull ordering alone.
 
-**`inbox:aiClassifySingle`**: after local DB updates, non-urgent paths call **`enqueueRemoteOpsForLocalLifecycleState(db, [messageId])`** (same supersede / skip rules as bulk mirror), then the handler calls **`scheduleOrchestratorRemoteDrain`** — background only (no inline bounded drain).
+**`inbox:aiClassifySingle`**: after local DB updates, **every** successful classification (including **`sort_category = urgent`**) calls **`enqueueRemoteOpsForLocalLifecycleState(db, [messageId])`** (same supersede / skip rules as bulk mirror), then the handler calls **`scheduleOrchestratorRemoteDrain`** — background only (no inline bounded drain).
 
 **`inbox:aiCategorize`** schedules background drain only (no inline bounded drain), so Auto-Sort is not blocked on remote I/O.
 

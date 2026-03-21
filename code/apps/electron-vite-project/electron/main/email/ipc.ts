@@ -49,7 +49,7 @@ Move here if:
 - Meeting notes, summaries, reports for future reference
 - Any email explicitly marked by the user as "keep"
 
-### urgent (stays in inbox, flagged red, urgency >= 7)
+### urgent (WR Desk Urgent tab + mirrored to server **Urgent** folder on sync, urgency >= 7)
 Move here if ANY of these apply:
 - Invoice or payment overdue or due within 3 days
 - Legal deadline within 7 days
@@ -57,13 +57,13 @@ Move here if ANY of these apply:
 - Security alert requiring immediate action
 - Direct request from a known important contact requiring same-day response
 
-### action_required (stays in inbox, flagged orange, urgency 4–6)
+### action_required (WR Desk Important flow + mirrored to **Pending Review** on sync, urgency 4–6)
 Move here if:
 - Requires a response within the next 7 days
 - Requires a decision or manual step (not just reading)
 - Contains a question directed at you that is not automated
 
-### normal (stays in inbox, no special flag)
+### normal (WR Desk Normal / All until archived; mirrored to **Archive** on sync when classified)
 Move here if:
 - Requires attention but no urgency
 - Does not fit the above categories
@@ -1156,7 +1156,7 @@ export function registerInboxHandlers(
 
       type Why =
         | 'not_analyzed'
-        | 'urgent_stays_inbox'
+        | 'urgent_classified'
         | 'non_lifecycle_no_remote_folder'
         | 'remote_queue_pending'
         | 'remote_queue_failed'
@@ -1164,21 +1164,22 @@ export function registerInboxHandlers(
 
       function inferWhy(r: (typeof raw)[0]): Why {
         if (!r.has_ai_analysis) return 'not_analyzed'
-        const u = typeof r.urgency_score === 'number' ? r.urgency_score : Number(r.urgency_score) || 0
-        const sc = (r.sort_category || '').trim().toLowerCase()
-        if (sc === 'urgent' || u >= 7) return 'urgent_stays_inbox'
-        if (sc === 'normal' || sc === 'important' || sc === 'newsletter')
-          return 'non_lifecycle_no_remote_folder'
         if (r.queue_status === 'pending' || r.queue_status === 'processing') return 'remote_queue_pending'
         if (r.queue_status === 'failed') return 'remote_queue_failed'
+        const u = typeof r.urgency_score === 'number' ? r.urgency_score : Number(r.urgency_score) || 0
+        const sc = (r.sort_category || '').trim().toLowerCase()
+        if (sc === 'urgent' || u >= 7) return 'urgent_classified'
+        if (sc === 'normal' || sc === 'important' || sc === 'newsletter')
+          return 'non_lifecycle_no_remote_folder'
         return 'other'
       }
 
       const whyLabels: Record<Why, string> = {
         not_analyzed: 'Not analyzed (no AI classification yet — run Auto-Sort)',
-        urgent_stays_inbox: 'Urgent / high score — kept in Inbox by design (no lifecycle remote move)',
+        urgent_classified:
+          'Urgent / high urgency — remote **Urgent** folder move is enqueued; if server Inbox still shows the message, wait for queue drain or use ☁ Sync Remote / Pull.',
         non_lifecycle_no_remote_folder:
-          'Classified normal/important/newsletter — no Archive/Pending folder move (by design)',
+          'Classified normal/important/newsletter — lifecycle remote moves are enqueued from local columns; see queue_op / Sync Remote if the server folder lags',
         remote_queue_pending: 'Remote queue still pending/processing for this message',
         remote_queue_failed: 'Remote queue row failed — see queue_last_error / Retry failed',
         other: 'Other — check sort_category and imap_remote_mailbox',
@@ -1195,7 +1196,7 @@ export function registerInboxHandlers(
 
       const counts: Record<Why, number> = {
         not_analyzed: 0,
-        urgent_stays_inbox: 0,
+        urgent_classified: 0,
         non_lifecycle_no_remote_folder: 0,
         remote_queue_pending: 0,
         remote_queue_failed: 0,
@@ -1216,7 +1217,7 @@ export function registerInboxHandlers(
         counts,
         summaryText,
         policyNote:
-          'Only pending_delete, pending_review, and archive trigger remote folder moves. Normal / important / newsletter / urgent stay in Inbox unless you change product policy.',
+          'All classified lifecycle categories (including urgent, important, newsletter, normal, archive, pending) enqueue remote folder moves from local SQLite; main-inbox rows here may still appear until the drain completes and mail is moved on the server.',
       }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'debugMainInboxRows failed' }
@@ -2007,7 +2008,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     pending_delete?: boolean
     pending_review?: boolean
     error?: string
-    /** Present when classify succeeded and remote lifecycle enqueue ran (non-urgent). */
+    /** Present when classify succeeded and remote lifecycle enqueue ran (all categories, including urgent). */
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons: string[] }
   }> {
     const db = await resolveDb()
@@ -2092,7 +2093,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       let pendingDelete = validCategory === 'pending_delete'
       let pendingReview = validCategory === 'pending_review'
 
-      /** Urgent messages (urgency >= 7) stay unsorted — never move to pending_delete, pending_review, or archived. */
+      /** High urgency (score >= 7): local sort_category = urgent, no pending_delete / pending_review / archived locally — remote still mirrors to the Urgent folder via enqueue. */
       const URGENCY_THRESHOLD = 7
       const isUrgent = urgency >= URGENCY_THRESHOLD
       if (isUrgent) {
@@ -2139,7 +2140,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         reason: reason || '',
         needsReply,
         needsReplyReason: needsReply ? (reason || 'Reply warranted.') : 'No reply needed.',
-        recommendedAction: isUrgent ? 'keep_for_manual_action' : recommendedAction,
+        recommendedAction,
         actionExplanation: reason || '',
         actionItems: [],
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
@@ -2147,16 +2148,12 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       })
       db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
 
-      const effectiveRecommendedAction = isUrgent ? 'keep_for_manual_action' : recommendedAction
-
-      /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. */
+      /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. All classified categories (including urgent) enqueue remote lifecycle ops. */
       let remoteEnqueue: { enqueued: number; skipped: number; skipReasons: string[] } | undefined
-      if (!isUrgent) {
-        try {
-          remoteEnqueue = enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
-        } catch (e: any) {
-          console.warn('[Inbox] enqueueRemoteOpsForLocalLifecycleState after classify:', e?.message)
-        }
+      try {
+        remoteEnqueue = enqueueRemoteOpsForLocalLifecycleState(db, [messageId])
+      } catch (e: any) {
+        console.warn('[Inbox] enqueueRemoteOpsForLocalLifecycleState after classify:', e?.message)
       }
 
       return {
@@ -2167,7 +2164,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         summary,
         reason,
         draftReply: needsReply ? (parsed.draftReply ?? null) : null,
-        recommended_action: effectiveRecommendedAction,
+        recommended_action: recommendedAction,
         pending_delete: pendingDelete,
         pending_review: pendingReview,
         remoteEnqueue,

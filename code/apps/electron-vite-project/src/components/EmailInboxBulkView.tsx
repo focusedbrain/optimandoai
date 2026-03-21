@@ -849,9 +849,9 @@ function BulkActionCardStructured({
         <div
           className="bulk-action-card-autosort-retained"
           role="status"
-          aria-label="Auto-Sort kept this message in the inbox"
+          aria-label="Auto-Sort note for this message"
         >
-          <span className="bulk-action-card-autosort-retained-label">Kept in inbox</span>
+          <span className="bulk-action-card-autosort-retained-label">Auto-Sort note</span>
           <span className="bulk-action-card-autosort-retained-text">{output.autosortRetainExplanation}</span>
         </div>
       ) : null}
@@ -2222,14 +2222,24 @@ export default function EmailInboxBulkView({
               if (result.draftReply && (result.needsReply || recommendedAction === 'draft_reply_ready')) {
                 entry.draftReply = result.draftReply.slice(0, 4000)
               }
-              const isUrgent = entry.urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD
               const inboxStore = useEmailInboxStore.getState()
 
+              /** Urgent: main process sets sort_category + enqueues remote Urgent folder — no “retained in inbox” UX. */
+              if (result.category === 'urgent') {
+                processedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: { ...entry },
+                }))
+                await sortFeedbackPaintDwell()
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                return
+              }
+
               const willAutoMoveFromInbox =
-                !isUrgent &&
-                ((result.pending_delete && recommendedAction === 'pending_delete') ||
-                  (result.pending_review && recommendedAction === 'pending_review') ||
-                  recommendedAction === 'archive')
+                (result.pending_delete && recommendedAction === 'pending_delete') ||
+                (result.pending_review && recommendedAction === 'pending_review') ||
+                recommendedAction === 'archive'
 
               if (willAutoMoveFromInbox) {
                 setBulkAiOutputs((prev) => ({
@@ -2237,21 +2247,6 @@ export default function EmailInboxBulkView({
                   [messageId]: { ...entry },
                 }))
                 await sortFeedbackPaintDwell()
-              }
-
-              if (isUrgent) {
-                processedIds.push(messageId)
-                retainedCounts.urgent_threshold += 1
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: withAutosortRetained(
-                    entry,
-                    'urgent_threshold',
-                    `Urgency score ${entry.urgencyScore} ≥ ${BULK_AUTO_SORT_URGENCY_THRESHOLD} — high-priority mail is not auto-moved. Use the actions below if needed.`
-                  ),
-                }))
-                inboxStore.removeBulkDraftManualCompose(messageId)
-                return
               }
 
               if (result.pending_delete && recommendedAction === 'pending_delete') {
@@ -2328,7 +2323,7 @@ export default function EmailInboxBulkView({
                 retained = withAutosortRetained(
                   entry,
                   'keep_for_manual_action',
-                  'AI recommends manual handling — not auto-archived, deleted, or moved.'
+                  'AI recommends manual handling — Auto-Sort did not change local archive/delete/review; use actions below. Remote folders update via the sync queue / ☁ Sync Remote.'
                 )
               } else if (recommendedAction === 'draft_reply_ready') {
                 retainedCounts.draft_reply_ready += 1
@@ -2705,7 +2700,6 @@ export default function EmailInboxBulkView({
       const retainedN = processedIds.filter((id) => !movedIds.includes(id)).length
       const rc = retainedCounts
       const retainParts: string[] = []
-      if (rc.urgent_threshold) retainParts.push(`${rc.urgent_threshold} high-urgency (not auto-moved)`)
       if (rc.keep_for_manual_action) retainParts.push(`${rc.keep_for_manual_action} manual review`)
       if (rc.draft_reply_ready) retainParts.push(`${rc.draft_reply_ready} reply-ready`)
       if (rc.classified_no_auto_move) retainParts.push(`${rc.classified_no_auto_move} other no auto-move`)
@@ -2714,8 +2708,8 @@ export default function EmailInboxBulkView({
       if (retainedN > 0) {
         lines.push(
           retainParts.length > 0
-            ? `${retainedN} kept on purpose (${retainParts.join(', ')} — see “Kept in inbox” banners)`
-            : `${retainedN} kept on purpose (see “Kept in inbox” / Recommended Action on rows)`
+            ? `${retainedN} not locally moved by Auto-Sort (${retainParts.join(', ')} — see “Auto-Sort note” on rows)`
+            : `${retainedN} not locally moved by Auto-Sort (see row notes / Recommended Action)`
         )
       }
       lines.push(`${failedIds.length} failed (red error cards + Retry)`)
