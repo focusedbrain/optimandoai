@@ -29,6 +29,7 @@ import type {
   OrchestratorRemoteApplyContext,
 } from '../domain/orchestratorRemoteTypes'
 import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
+import { imapFoldersMatchExact, isLegacyImapMailboxLabel } from '../domain/imapLegacyFolders'
 
 export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
 
@@ -37,17 +38,6 @@ const ImapCtor = (ImapMod as any).default ?? ImapMod
 
 /** Connection instance type from @types/imap (`export = Connection`). */
 type ImapConnection = ImapApi
-
-function imapFolderListHasMailbox(folders: FolderInfo[], want: string): boolean {
-  const w = want.toLowerCase().trim()
-  if (!w) return false
-  return folders.some((f) => {
-    const n = f.name.toLowerCase()
-    const p = f.path.toLowerCase()
-    const d = f.delimiter || '/'
-    return n === w || p === w || p.endsWith(`${d}${w}`)
-  })
-}
 
 type ImapNamespaceInfo = { prefix: string; delimiter: string }
 
@@ -77,6 +67,27 @@ function imapFolderBasename(path: string, delimiter: string): string {
   const d = delimiter || '/'
   const parts = path.split(d).filter(Boolean)
   return parts[parts.length - 1] || path
+}
+
+/**
+ * True if LIST contains a mailbox that **exactly** matches the wanted logical or resolved path
+ * (case-insensitive, trimmed). Legacy / typo folders (Archieve, WRDesk-*) never count.
+ */
+function imapFolderListHasExactMailbox(folders: FolderInfo[], wantLogical: string, wantResolved: string): boolean {
+  const wl = wantLogical.trim()
+  const wr = wantResolved.trim()
+  if (!wl && !wr) return false
+  return folders.some((f) => {
+    if (isLegacyImapMailboxLabel(f.path) || isLegacyImapMailboxLabel(f.name)) return false
+    const d = f.delimiter || '/'
+    const base = imapFolderBasename(f.path, d)
+    const match = (wanted: string) =>
+      !!wanted &&
+      (imapFoldersMatchExact(f.name, wanted) ||
+        imapFoldersMatchExact(f.path, wanted) ||
+        imapFoldersMatchExact(base, wanted))
+    return (wl && match(wl)) || (wr && match(wr))
+  })
 }
 
 /**
@@ -1249,6 +1260,257 @@ export class ImapProvider extends BaseEmailProvider {
     )
   }
 
+  private imapIsDirectChildOfMailbox(path: string, parentPath: string, delimiter: string): boolean {
+    const ib = parentPath.toLowerCase()
+    const pl = path.toLowerCase()
+    const d = delimiter.toLowerCase()
+    if (pl === ib) return false
+    if (!pl.startsWith(ib + d)) return false
+    const rest = pl.slice(ib.length + d.length)
+    return rest.length > 0 && !rest.includes(d)
+  }
+
+  private looksLikeSpamMailbox(f: FolderInfo): boolean {
+    const delim = f.delimiter || '.'
+    const base = imapFolderBasename(f.path, delim).toLowerCase()
+    const flags = f.flags || []
+    if (flags.includes('\\Junk')) return true
+    if (/(spam|junk|bulk)/i.test(base) && !/(sent|draft)/i.test(base)) return true
+    return false
+  }
+
+  private async imapFindExistingMailboxPathForLabel(folders: FolderInfo[], label: string): Promise<string | null> {
+    const trimmed = label.trim()
+    if (!trimmed) return null
+    const resolved = await this.imapResolveMailboxPath(trimmed)
+    const hit = folders.find((f) => {
+      if (isLegacyImapMailboxLabel(f.path) || isLegacyImapMailboxLabel(f.name)) return false
+      const d = f.delimiter || '/'
+      const base = imapFolderBasename(f.path, d)
+      return (
+        imapFoldersMatchExact(f.name, trimmed) ||
+        imapFoldersMatchExact(f.path, trimmed) ||
+        imapFoldersMatchExact(base, trimmed) ||
+        imapFoldersMatchExact(f.name, resolved) ||
+        imapFoldersMatchExact(f.path, resolved) ||
+        imapFoldersMatchExact(base, resolved)
+      )
+    })
+    if (hit) return hit.path
+    if (/^spam$/i.test(trimmed)) {
+      const junk = folders.find(
+        (f) =>
+          !isLegacyImapMailboxLabel(f.path) &&
+          !isLegacyImapMailboxLabel(f.name) &&
+          this.looksLikeSpamMailbox(f),
+      )
+      return junk?.path ?? null
+    }
+    return null
+  }
+
+  private async expandPullFoldersWithDirectInboxChildren(
+    basePaths: string[],
+    folders: FolderInfo[],
+  ): Promise<string[]> {
+    if (!this.config) return basePaths
+    const inboxLogical = (this.config.folders?.inbox || 'INBOX').trim()
+    const ns = await this.getNamespaceInfo()
+    const delim = ns.delimiter || '.'
+    const inboxRow =
+      folders.find((f) => imapFoldersMatchExact(f.path, inboxLogical)) ||
+      folders.find((f) => imapFoldersMatchExact(f.name, inboxLogical))
+    const inboxPath = inboxRow?.path || inboxLogical
+
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const im = names.imap
+    const lifecycleLabels = [
+      im.archiveMailbox,
+      im.pendingDeleteMailbox,
+      im.pendingReviewMailbox,
+      im.urgentMailbox,
+      im.trashMailbox,
+    ]
+      .map((x) => x.trim())
+      .filter(Boolean)
+
+    const lifecyclePathKeys = new Set<string>()
+    for (const lab of lifecycleLabels) {
+      const r = await this.imapResolveMailboxPath(lab)
+      lifecyclePathKeys.add(r.toLowerCase())
+      lifecyclePathKeys.add(lab.toLowerCase())
+      const match = folders.find((f) => {
+        if (isLegacyImapMailboxLabel(f.path) || isLegacyImapMailboxLabel(f.name)) return false
+        const d = f.delimiter || '/'
+        const b = imapFolderBasename(f.path, d)
+        return (
+          imapFoldersMatchExact(f.path, lab) ||
+          imapFoldersMatchExact(b, lab) ||
+          imapFoldersMatchExact(f.name, lab)
+        )
+      })
+      if (match) lifecyclePathKeys.add(match.path.toLowerCase())
+    }
+
+    const out = [...basePaths]
+    const seen = new Set(out.map((x) => x.toLowerCase()))
+
+    for (const f of folders) {
+      if (isLegacyImapMailboxLabel(f.path) || isLegacyImapMailboxLabel(f.name)) continue
+      const pl = f.path
+      const fdelim = f.delimiter || delim
+      if (lifecyclePathKeys.has(pl.toLowerCase())) continue
+      const base = imapFolderBasename(pl, fdelim)
+      if (lifecyclePathKeys.has(base.toLowerCase())) continue
+      if (!this.imapIsDirectChildOfMailbox(pl, inboxPath, fdelim)) continue
+      if (imapPathLooksLikeStandardAnchor(pl, fdelim)) continue
+      if (!seen.has(pl.toLowerCase())) {
+        seen.add(pl.toLowerCase())
+        out.push(pl)
+      }
+    }
+    return out
+  }
+
+  /**
+   * Resolve pull labels to real LIST paths, discover Spam/Junk if needed, append direct INBOX.* children
+   * (excludes lifecycle + legacy + Sent/Trash/Drafts-like names).
+   */
+  async expandPullFoldersForSync(baseLabels: string[]): Promise<string[]> {
+    if (!this.client || !this.config) {
+      throw new Error('Not connected')
+    }
+    const folders = await this.listFolders()
+    const paths: string[] = []
+    const seen = new Set<string>()
+    const add = (p: string) => {
+      const x = p.trim()
+      if (!x) return
+      const k = x.toLowerCase()
+      if (seen.has(k)) return
+      seen.add(k)
+      paths.push(x)
+    }
+    for (const label of baseLabels) {
+      const path = await this.imapFindExistingMailboxPathForLabel(folders, label.trim())
+      if (path) add(path)
+    }
+    const hasSpamLike = paths.some((p) => {
+      const row = folders.find((f) => f.path === p)
+      return row ? this.looksLikeSpamMailbox(row) : false
+    })
+    if (!hasSpamLike) {
+      const junk = folders.find(
+        (f) =>
+          !isLegacyImapMailboxLabel(f.path) &&
+          !isLegacyImapMailboxLabel(f.name) &&
+          this.looksLikeSpamMailbox(f),
+      )
+      if (junk) add(junk.path)
+    }
+    const expanded = await this.expandPullFoldersWithDirectInboxChildren(paths, folders)
+    if (expanded.length === 0) {
+      return [this.config.folders?.inbox || 'INBOX']
+    }
+    return expanded
+  }
+
+  /**
+   * Debug: full LIST + STATUS (message counts). Read-only — does not CREATE mailboxes.
+   * `lifecycleOnServer` uses the same exact-match rules as drain (legacy typo folders do not count).
+   */
+  async debugListRemoteMailboxesWithStatus(): Promise<{
+    folders: Array<{
+      path: string
+      name: string
+      delimiter: string
+      flags: string[]
+      messages?: number
+      unseen?: number
+      legacy: boolean
+      statusError?: string
+    }>
+    lifecycleOnServer: Array<{
+      role: string
+      mailbox: string
+      resolved: string
+      exactMatch: boolean
+    }>
+  }> {
+    if (!this.client || !this.config) {
+      throw new Error('Not connected')
+    }
+    const folders = await this.listFolders()
+    const names = resolveOrchestratorRemoteNames(this.config)
+    const specs: { role: string; mailbox: string }[] = [
+      { role: 'archive', mailbox: names.imap.archiveMailbox },
+      { role: 'pending_review', mailbox: names.imap.pendingReviewMailbox },
+      { role: 'pending_delete', mailbox: names.imap.pendingDeleteMailbox },
+      { role: 'urgent', mailbox: names.imap.urgentMailbox },
+      { role: 'trash', mailbox: names.imap.trashMailbox },
+    ]
+    const lifecycleOnServer: Array<{
+      role: string
+      mailbox: string
+      resolved: string
+      exactMatch: boolean
+    }> = []
+    for (const { role, mailbox } of specs) {
+      const m = mailbox.trim()
+      const resolved = m ? await this.imapResolveMailboxPath(m) : ''
+      lifecycleOnServer.push({
+        role,
+        mailbox: m,
+        resolved,
+        exactMatch: m ? imapFolderListHasExactMailbox(folders, m, resolved) : false,
+      })
+    }
+
+    const enriched: Array<{
+      path: string
+      name: string
+      delimiter: string
+      flags: string[]
+      messages?: number
+      unseen?: number
+      legacy: boolean
+      statusError?: string
+    }> = []
+    for (const f of folders) {
+      const legacy = isLegacyImapMailboxLabel(f.path) || isLegacyImapMailboxLabel(f.name)
+      const st = await new Promise<{
+        box: { messages?: { total?: number; unseen?: number } } | null
+        err?: Error
+      }>((resolve) => {
+        this.client!.status(f.path, (err, mailbox) => {
+          if (err) resolve({ box: null, err })
+          else resolve({ box: mailbox })
+        })
+      })
+      if (st.err || !st.box) {
+        enriched.push({
+          path: f.path,
+          name: f.name,
+          delimiter: f.delimiter,
+          flags: f.flags || [],
+          legacy,
+          statusError: st.err?.message || 'STATUS unavailable',
+        })
+      } else {
+        enriched.push({
+          path: f.path,
+          name: f.name,
+          delimiter: f.delimiter,
+          flags: f.flags || [],
+          messages: st.box.messages?.total,
+          unseen: st.box.messages?.unseen,
+          legacy,
+        })
+      }
+    }
+    return { folders: enriched, lifecycleOnServer }
+  }
+
   /**
    * LIST mailboxes, then for each configured lifecycle name either confirm it exists or try `CREATE`.
    * Does not guarantee nested paths (e.g. `INBOX/Archive`) — use flat names or pre-create on the server.
@@ -1274,8 +1536,7 @@ export class ImapProvider extends BaseEmailProvider {
         continue
       }
       const resolved = await this.imapResolveMailboxPath(m)
-      const exists =
-        imapFolderListHasMailbox(folders, m) || imapFolderListHasMailbox(folders, resolved)
+      const exists = imapFolderListHasExactMailbox(folders, m, resolved)
       if (exists) {
         entries.push({ role, mailbox: m, exists: true })
         continue

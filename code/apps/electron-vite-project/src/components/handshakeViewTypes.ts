@@ -113,6 +113,8 @@ export interface EmailInboxBridge {
   debugQueueStatus?: () => Promise<Record<string, unknown>>
   /** Main-inbox message rows (WR Desk “all” tab) + reasons they may not have a lifecycle remote move. */
   debugMainInboxRows?: (accountId?: string | null) => Promise<Record<string, unknown>>
+  /** IMAP: LIST + STATUS counts + canonical lifecycle exact-match (read-only; legacy folders ignored for match). */
+  verifyImapRemoteFolders?: (accountId: string) => Promise<Record<string, unknown>>
   /** Gateway vs DB: connected accounts, inbox row counts, orphan account_ids after reconnect. */
   debugAccountMigrationStatus?: () => Promise<Record<string, unknown>>
   /** Stale account_id → connected id; removes remote queue rows for old id only (not inbox rows). */

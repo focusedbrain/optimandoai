@@ -1656,6 +1656,9 @@ export default function EmailInboxBulkView({
   /** Optional account filter for `debugMainInboxRows` IPC (empty = all accounts). */
   const [remoteMainInboxAccountId, setRemoteMainInboxAccountId] = useState('')
   const [remoteMainInboxDebug, setRemoteMainInboxDebug] = useState<Record<string, unknown> | null>(null)
+  /** IMAP LIST + STATUS + lifecycle exact-match (read-only). */
+  const [remoteFolderVerify, setRemoteFolderVerify] = useState<Record<string, unknown> | null>(null)
+  const [remoteFolderVerifyLoading, setRemoteFolderVerifyLoading] = useState(false)
   /** Last ~30s of queue snapshots (while debug panel open) for drain ETA. */
   const [remoteDrainHistory, setRemoteDrainHistory] = useState<RemoteDrainSample[]>([])
   const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
@@ -1841,11 +1844,38 @@ export default function EmailInboxBulkView({
     void refreshRemoteDebugQueue()
   }, [refreshRemoteDebugQueue])
 
+  const handleVerifyImapRemoteFolders = useCallback(async () => {
+    const fn = window.emailInbox?.verifyImapRemoteFolders
+    if (!fn) {
+      setRemoteFolderVerify({ ok: false, error: 'verifyImapRemoteFolders not in bridge (update app)' })
+      return
+    }
+    const aid = remoteMainInboxAccountId.trim() || primaryAccountId || ''
+    if (!aid) {
+      setRemoteFolderVerify({
+        ok: false,
+        error: 'Choose an account in “Account filter” below, or ensure a default account is connected.',
+      })
+      return
+    }
+    setRemoteFolderVerifyLoading(true)
+    try {
+      const r = await fn(aid)
+      setRemoteFolderVerify(r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setRemoteFolderVerify({ ok: false, error: msg })
+    } finally {
+      setRemoteFolderVerifyLoading(false)
+    }
+  }, [remoteMainInboxAccountId, primaryAccountId])
+
   useEffect(() => {
     if (!remoteDebugOpen) {
       setRemoteDrainHistory([])
       setRemoteMainInboxDebug(null)
       setAccountMigrationDiag(null)
+      setRemoteFolderVerify(null)
       return
     }
     const id = window.setInterval(() => {
@@ -3871,6 +3901,14 @@ export default function EmailInboxBulkView({
               </button>
               <button
                 type="button"
+                onClick={() => void handleVerifyImapRemoteFolders()}
+                disabled={remoteDebugLoading || remoteFolderVerifyLoading}
+                title="IMAP only: LIST + message counts per folder + canonical lifecycle exact-match (legacy Archieve/WRDesk-* ignored)"
+              >
+                {remoteFolderVerifyLoading ? 'Verify…' : 'Verify remote'}
+              </button>
+              <button
+                type="button"
                 onClick={() => void handleRetryFailedRemoteQueue()}
                 disabled={remoteDebugLoading}
                 title="Set all failed remote queue rows to pending (attempts=0) and schedule background drain"
@@ -3892,6 +3930,93 @@ export default function EmailInboxBulkView({
           </div>
           <div style={{ overflow: 'auto', padding: 12, flex: 1 }}>
             {remoteDebugLoading ? <div>Loading…</div> : null}
+            {remoteFolderVerifyLoading ? <div style={{ marginBottom: 8, fontSize: 11 }}>Verifying IMAP folders…</div> : null}
+            {remoteFolderVerify && remoteFolderVerify.ok === false ? (
+              <div style={{ marginBottom: 10, padding: 8, background: '#fef2f2', borderRadius: 6, fontSize: 11, color: '#b91c1c' }}>
+                Verify remote: {String((remoteFolderVerify as { error?: string }).error ?? 'failed')}
+              </div>
+            ) : null}
+            {remoteFolderVerify && remoteFolderVerify.ok === true && (remoteFolderVerify as { data?: unknown }).data ? (
+              <section
+                style={{
+                  marginBottom: 12,
+                  padding: 10,
+                  background: '#f0fdf4',
+                  borderRadius: 6,
+                  border: '1px solid #bbf7d0',
+                  fontSize: 11,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>IMAP server folders (read-only)</div>
+                <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                  Canonical lifecycle uses <strong>exact</strong> name match — typo <code>Archieve</code> and <code>WRDesk-*</code>{' '}
+                  do not count. Use account filter + Verify remote for the same account.
+                </div>
+                {(() => {
+                  const data = (remoteFolderVerify as { data?: { lifecycleOnServer?: unknown[]; folders?: unknown[] } }).data
+                  const lc = (data?.lifecycleOnServer ?? []) as Array<{
+                    role?: string
+                    mailbox?: string
+                    resolved?: string
+                    exactMatch?: boolean
+                  }>
+                  const fds = (data?.folders ?? []) as Array<{
+                    path?: string
+                    name?: string
+                    messages?: number
+                    unseen?: number
+                    legacy?: boolean
+                    statusError?: string
+                  }>
+                  return (
+                    <>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Expected lifecycle (exact on server)</div>
+                      <ul style={{ margin: '0 0 10px 14px', padding: 0, lineHeight: 1.5 }}>
+                        {lc.map((row) => (
+                          <li key={String(row.role)}>
+                            <strong>{String(row.role)}</strong>: {String(row.mailbox)} →{' '}
+                            <code style={{ fontSize: 10 }}>{String(row.resolved)}</code>{' '}
+                            {row.exactMatch ? (
+                              <span style={{ color: '#15803d' }}>✓</span>
+                            ) : (
+                              <span style={{ color: '#b45309' }}>missing / wrong name</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>All folders (STATUS)</div>
+                      <ul
+                        style={{
+                          margin: 0,
+                          paddingLeft: 14,
+                          maxHeight: 220,
+                          overflow: 'auto',
+                          lineHeight: 1.45,
+                          fontSize: 10,
+                        }}
+                      >
+                        {fds.map((f) => (
+                          <li key={String(f.path)} style={{ marginBottom: 4 }}>
+                            <code>{String(f.path)}</code>
+                            {f.legacy ? (
+                              <span style={{ color: '#b45309', marginLeft: 6 }}>(legacy)</span>
+                            ) : null}
+                            {typeof f.messages === 'number' ? (
+                              <span style={{ color: '#475569', marginLeft: 6 }}>
+                                msgs {f.messages}
+                                {typeof f.unseen === 'number' ? ` · unseen ${f.unseen}` : ''}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', marginLeft: 6 }}>{f.statusError || 'no count'}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )
+                })()}
+              </section>
+            ) : null}
             {(() => {
               const err = remoteDebugQueue?.error
               if (typeof err === 'string') {

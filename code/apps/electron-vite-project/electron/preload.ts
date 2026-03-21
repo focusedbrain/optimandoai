@@ -596,6 +596,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   /** Debug: main-inbox rows + why they may still be in server Inbox (optional accountId). */
   debugMainInboxRows: (accountId?: string | null) =>
     ipcRenderer.invoke('inbox:debugMainInboxRows', accountId ?? null),
+  /** IMAP: server folder LIST + STATUS counts + lifecycle exact-match (read-only). */
+  verifyImapRemoteFolders: (accountId: string) => ipcRenderer.invoke('inbox:verifyImapRemoteFolders', accountId),
   /** Debug: gateway account ids vs orphan inbox_messages.account_id (reconnect mismatch). */
   debugAccountMigrationStatus: () => ipcRenderer.invoke('inbox:debugAccountMigrationStatus'),
   /** Repoint inbox_messages from stale account_id to a connected id; deletes queue rows for old id only. */

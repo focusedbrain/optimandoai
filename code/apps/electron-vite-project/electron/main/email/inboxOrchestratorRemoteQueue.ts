@@ -436,6 +436,8 @@ export async function processOrchestratorRemoteQueueBatch(
   const precheckFailedByAccount = new Map<string, string>()
   /** Per-account successful IMAP applies in this batch — breathing pause every N ops. */
   const imapSuccessCountByAccount = new Map<string, number>()
+  /** Once per account per batch: ensure canonical lifecycle IMAP folders exist before first MOVE. */
+  const imapLifecyclePreflightDone = new Set<string>()
 
   async function ensureConnectedWithOptionalReconnect(
     accountId: string,
@@ -475,7 +477,7 @@ export async function processOrchestratorRemoteQueueBatch(
       pullActive,
     )
     if (pullActive) {
-      result.deferredDueToPull += 1
+      result.deferredDueToPull = (result.deferredDueToPull ?? 0) + 1
       console.log('[DRAIN_BATCH] DEFERRED (pull active):', r.id)
       continue
     }
@@ -531,6 +533,39 @@ export async function processOrchestratorRemoteQueueBatch(
       }
       result.failed++
       return
+    }
+
+    try {
+      let prov: string | undefined
+      try {
+        prov = emailGateway.getProviderSync(r.account_id)
+      } catch {
+        prov = undefined
+      }
+      if (prov === 'imap' && !imapLifecyclePreflightDone.has(r.account_id)) {
+        try {
+          const life = await emailGateway.ensureImapLifecycleFoldersForDrain(r.account_id)
+          imapLifecyclePreflightDone.add(r.account_id)
+          if (!life.ok) {
+            console.warn(
+              '[DRAIN_BATCH] IMAP lifecycle folder preflight incomplete (drain continues):',
+              r.account_id,
+              life.entries?.filter((e) => !e.exists),
+            )
+          } else {
+            console.log('[DRAIN_BATCH] IMAP lifecycle folders verified for account', r.account_id)
+          }
+        } catch (e: any) {
+          imapLifecyclePreflightDone.add(r.account_id)
+          console.warn(
+            '[DRAIN_BATCH] IMAP lifecycle preflight error (drain continues):',
+            r.account_id,
+            e?.message || e,
+          )
+        }
+      }
+    } catch {
+      /* ignore */
     }
 
     markProcessing.run(now(), r.id)

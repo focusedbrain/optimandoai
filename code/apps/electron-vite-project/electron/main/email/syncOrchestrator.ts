@@ -327,7 +327,11 @@ async function syncAccountEmailsImpl(
     markPullActive(accountId)
     try {
       const accountCfg = emailGateway.getAccountConfig(accountId)
-      const pullFolders = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
+      const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
+      const pullFolders =
+        accountCfg?.provider === 'imap'
+          ? await emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
+          : basePullLabels
       if (accountCfg?.provider === 'imap' && pullFolders.length > 1) {
         const merged: SanitizedMessage[] = []
         const seen = new Set<string>()

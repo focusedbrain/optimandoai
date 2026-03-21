@@ -951,6 +951,7 @@ export function registerInboxHandlers(
     'inbox:fullRemoteSyncForMessages',
     'inbox:fullRemoteSyncAllAccounts',
     'inbox:debugMainInboxRows',
+    'inbox:verifyImapRemoteFolders',
     'inbox:debugAccountMigrationStatus',
     'inbox:migrateInboxAccountId',
     'inbox:debugTestMoveOne',
@@ -1258,6 +1259,19 @@ export function registerInboxHandlers(
       }
     } catch (e: any) {
       return { ok: false, error: e?.message ?? 'debugMainInboxRows failed' }
+    }
+  })
+
+  /**
+   * IMAP: LIST + STATUS (counts per folder) + canonical lifecycle exact-match snapshot (read-only; no CREATE).
+   */
+  ipcMain.handle('inbox:verifyImapRemoteFolders', async (_e, accountId: string) => {
+    try {
+      const id = typeof accountId === 'string' ? accountId.trim() : ''
+      if (!id) return { ok: false, error: 'accountId required' }
+      return await emailGateway.verifyImapRemoteFolders(id)
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'verifyImapRemoteFolders failed' }
     }
   })
 

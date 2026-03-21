@@ -959,6 +959,87 @@ class EmailGateway implements IEmailGateway {
       }
     }
   }
+
+  /**
+   * IMAP Pull: resolve `INBOX`/`Spam` labels to LIST paths, add Junk if discoverable, add direct INBOX.* children
+   * (excluding lifecycle / legacy / standard anchors). Uses the live cached provider session.
+   */
+  async resolveImapPullFoldersExpanded(accountId: string, baseLabels: string[]): Promise<string[]> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    const fallback = baseLabels.length > 0 ? baseLabels : ['INBOX']
+    if (!account || account.provider !== 'imap') {
+      return fallback
+    }
+    try {
+      const provider = await this.getConnectedProvider(account)
+      const expand = (provider as ImapProvider).expandPullFoldersForSync
+      if (typeof expand === 'function') {
+        return await expand.call(provider, baseLabels.length > 0 ? baseLabels : ['INBOX'])
+      }
+    } catch (e: any) {
+      console.warn('[EmailGateway] resolveImapPullFoldersExpanded failed, using base labels:', e?.message || e)
+    }
+    return fallback
+  }
+
+  /**
+   * Before IMAP drain: LIST + CREATE missing canonical lifecycle folders (Archive, Pending *, Urgent, Trash).
+   * Uses the live session — do not disconnect.
+   */
+  async ensureImapLifecycleFoldersForDrain(accountId: string): Promise<ImapLifecycleValidationResult> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account || account.provider !== 'imap') {
+      return { ok: true, entries: [] }
+    }
+    const provider = await this.getConnectedProvider(account)
+    const fn = (provider as ImapProvider).validateLifecycleRemoteBoxes
+    if (typeof fn !== 'function') {
+      return {
+        ok: false,
+        entries: [
+          {
+            role: 'archive',
+            mailbox: '',
+            exists: false,
+            error: 'IMAP provider does not support lifecycle validation',
+          },
+        ],
+      }
+    }
+    return await fn.call(provider)
+  }
+
+  /**
+   * Read-only remote folder list + STATUS counts + whether canonical lifecycle names exist (exact match; legacy ignored).
+   */
+  async verifyImapRemoteFolders(
+    accountId: string,
+  ): Promise<
+    | {
+        ok: true
+        data: Awaited<ReturnType<ImapProvider['debugListRemoteMailboxesWithStatus']>>
+      }
+    | { ok: false; error: string }
+  > {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      return { ok: false, error: 'Account not found' }
+    }
+    if (account.provider !== 'imap') {
+      return { ok: false, error: 'Only IMAP accounts support remote folder verify.' }
+    }
+    try {
+      const provider = await this.getConnectedProvider(account)
+      const fn = (provider as ImapProvider).debugListRemoteMailboxesWithStatus
+      if (typeof fn !== 'function') {
+        return { ok: false, error: 'Provider does not support remote folder verify.' }
+      }
+      const data = await fn.call(provider)
+      return { ok: true, data }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  }
   
   // =================================================================
   // Private Helpers

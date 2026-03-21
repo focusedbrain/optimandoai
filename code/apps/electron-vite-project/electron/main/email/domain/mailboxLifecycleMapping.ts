@@ -43,16 +43,19 @@ export interface ResolvedOrchestratorRemoteNames {
   gmail: {
     pendingReviewLabel: string
     pendingDeleteLabel: string
+    urgentLabel: string
     archiveRemoveLabelIds: string[]
   }
   outlook: {
     pendingReviewFolder: string
     pendingDeleteFolder: string
+    urgentFolder: string
   }
   imap: {
     archiveMailbox: string
     pendingReviewMailbox: string
     pendingDeleteMailbox: string
+    urgentMailbox: string
     trashMailbox: string
   }
 }
