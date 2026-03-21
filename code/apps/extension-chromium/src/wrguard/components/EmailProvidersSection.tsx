@@ -10,6 +10,59 @@
 
 import React from 'react'
 import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
+import { ImapConnectionNotice } from '../../shared/email/ImapConnectionNotice'
+
+function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
+  if (provider === 'microsoft365') {
+    return (
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: '#15803d',
+          background: 'rgba(34,197,94,0.18)',
+          padding: '2px 6px',
+          borderRadius: 4,
+          letterSpacing: 0.2,
+        }}
+      >
+        Full sync
+      </span>
+    )
+  }
+  if (provider === 'gmail') {
+    return (
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: '#a16207',
+          background: 'rgba(234,179,8,0.22)',
+          padding: '2px 6px',
+          borderRadius: 4,
+          letterSpacing: 0.2,
+        }}
+      >
+        Gmail API sync (roadmap)
+      </span>
+    )
+  }
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 700,
+        color: '#a16207',
+        background: 'rgba(234,179,8,0.22)',
+        padding: '2px 6px',
+        borderRadius: 4,
+        letterSpacing: 0.2,
+      }}
+    >
+      Limited remote sync (IMAP)
+    </span>
+  )
+}
 
 // Email account type matching sidepanel state
 export interface EmailAccount {
@@ -41,6 +94,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onDisconnectEmail,
   onSelectEmailAccount
 }) => {
+  const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
   const textColor = isLightTheme ? '#0f172a' : 'white'
   const mutedColor = isLightTheme ? '#64748b' : 'rgba(255,255,255,0.7)'
@@ -109,82 +163,110 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
       ) : (
         /* Account List */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {emailAccounts.map(account => (
-            <div 
-              key={account.id} 
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                background: isLightTheme ? 'white' : 'rgba(255,255,255,0.08)',
-                borderRadius: '8px',
-                border: account.status === 'active' 
-                  ? (isLightTheme ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)')
-                  : (isLightTheme ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)')
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '18px' }}>
-                  {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
-                </span>
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: '500', color: textColor }}>
-                    {account.email || account.displayName}
-                  </div>
-                  <div style={{ 
-                    fontSize: '10px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px',
-                    marginTop: '2px'
-                  }}>
-                    <span style={{ 
-                      width: '6px', 
-                      height: '6px', 
-                      borderRadius: '50%', 
-                      background: account.status === 'active' ? '#22c55e' : '#ef4444' 
-                    }} />
-                    <span style={{ color: mutedColor }}>
-                      {account.status === 'active'
-                        ? 'Connected'
-                        : account.lastError &&
-                            /not authenticated|reconnect|session expired|re-auth|needs?\s*auth/i.test(
-                              account.lastError,
-                            )
-                          ? `Needs re-authentication — ${account.lastError}`
-                          : account.lastError || 'Error'}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '9px',
-                      color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.45)',
-                      marginTop: '4px',
-                      fontFamily: 'ui-monospace, monospace',
-                      wordBreak: 'break-all',
-                    }}
-                    title="Account id (debug / inbox DB account_id must match after reconnect)"
-                  >
-                    id {account.id}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => onDisconnectEmail(account.id)}
-                title="Disconnect account"
+          {emailAccounts.map((account) => (
+            <React.Fragment key={account.id}>
+              <div
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  fontSize: '14px'
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isLightTheme ? 'white' : 'rgba(255,255,255,0.08)',
+                  borderRadius: '8px',
+                  border:
+                    account.status === 'active'
+                      ? isLightTheme
+                        ? '1px solid rgba(34,197,94,0.3)'
+                        : '1px solid rgba(34,197,94,0.4)'
+                      : isLightTheme
+                        ? '1px solid rgba(239,68,68,0.3)'
+                        : '1px solid rgba(239,68,68,0.4)',
                 }}
               >
-                ✕
-              </button>
-            </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>
+                    {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                  </span>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: textColor,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <span>{account.email || account.displayName}</span>
+                      <RemoteSyncBadge provider={account.provider} />
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginTop: '2px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: account.status === 'active' ? '#22c55e' : '#ef4444',
+                        }}
+                      />
+                      <span style={{ color: mutedColor }}>
+                        {account.status === 'active'
+                          ? 'Connected'
+                          : account.lastError &&
+                              /not authenticated|reconnect|session expired|re-auth|needs?\s*auth/i.test(
+                                account.lastError,
+                              )
+                            ? `Needs re-authentication — ${account.lastError}`
+                            : account.lastError || 'Error'}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '9px',
+                        color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.45)',
+                        marginTop: '4px',
+                        fontFamily: 'ui-monospace, monospace',
+                        wordBreak: 'break-all',
+                      }}
+                      title="Account id (debug / inbox DB account_id must match after reconnect)"
+                    >
+                      id {account.id} · {account.provider}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onDisconnectEmail(account.id)}
+                  title="Disconnect account"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    fontSize: '14px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              {account.provider === 'imap' ? (
+                <ImapConnectionNotice
+                  accountId={account.id}
+                  variant="account-card"
+                  theme={isLightTheme ? 'professional' : 'dark'}
+                />
+              ) : null}
+            </React.Fragment>
           ))}
         </div>
       )}

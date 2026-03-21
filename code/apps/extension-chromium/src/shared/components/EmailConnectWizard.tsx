@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { ConnectEmailLaunchSource, formatConnectEmailLaunchSource } from '../email/connectEmailTypes'
+import { ImapConnectionNotice } from '../email/ImapConnectionNotice'
 
 const OAUTH_CALLBACK_PORT = 51249
 const CREDENTIALS_NEEDED_GMAIL = 'credentials not configured'
@@ -564,7 +565,8 @@ export function EmailConnectWizard({
   const hasElectron = isElectron()
   const hasExtension = isExtension()
   const canConnect = hasElectron || hasExtension
-  const modalWidth = provider === 'custom' ? 'min(500px, 96vw)' : '400px'
+  const modalWidth =
+    step === 'provider' ? 'min(520px, 96vw)' : provider === 'custom' ? 'min(500px, 96vw)' : '400px'
 
   return (
     <div
@@ -636,8 +638,10 @@ export function EmailConnectWizard({
           {/* Step 1: Provider */}
           {step === 'provider' && (
             <>
-              <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '16px' }}>
-                Choose your email provider to connect:
+              <div style={{ fontSize: '14px', fontWeight: 700, color: textColor, marginBottom: 6 }}>Connect email account</div>
+              <div style={{ fontSize: '12px', color: mutedColor, marginBottom: 14, lineHeight: 1.45 }}>
+                Recommended providers offer the most reliable <strong>remote folder sync</strong> (mirroring sorted mail back to the
+                server). IMAP works great for <strong>pull + classify</strong>; remote moves can be slower.
               </div>
               {!canConnect && (
                 <div
@@ -653,30 +657,9 @@ export function EmailConnectWizard({
                   Email connection requires the desktop app. Ensure WR Desk™ is running.
                 </div>
               )}
-              <button
-                onClick={() => canConnect && handleSelectProvider('gmail')}
-                disabled={!canConnect}
-                style={{
-                  width: '100%',
-                  padding: '14px 16px',
-                  background: inputBg,
-                  border: `1px solid ${borderColor}`,
-                  borderRadius: '10px',
-                  cursor: canConnect ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  marginBottom: '10px',
-                  textAlign: 'left',
-                }}
-              >
-                <span style={{ fontSize: '24px' }}>📧</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Gmail</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Connect via Google OAuth</div>
-                </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
-              </button>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: mutedColor, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+                Recommended — full sync support
+              </div>
               <button
                 onClick={() => canConnect && handleSelectProvider('outlook')}
                 disabled={!canConnect}
@@ -694,13 +677,64 @@ export function EmailConnectWizard({
                   textAlign: 'left',
                 }}
               >
-                <span style={{ fontSize: '24px' }}>📨</span>
-                <div>
+                <span style={{ fontSize: '24px' }}>🟢</span>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Microsoft 365 / Outlook</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Connect via Microsoft OAuth</div>
+                  <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.4 }}>
+                    Full pull, sort, and remote folder sync via Microsoft Graph
+                  </div>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
+                <span style={{ fontSize: '14px', color: mutedColor }}>→</span>
               </button>
+              <button
+                onClick={() => canConnect && handleSelectProvider('gmail')}
+                disabled={!canConnect}
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  background: inputBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '10px',
+                  cursor: canConnect ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  marginBottom: '10px',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: '24px' }}>🟡</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Gmail</div>
+                  <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.4 }}>
+                    OAuth today · Pull &amp; classify supported · Gmail API bulk remote sync on the roadmap
+                  </div>
+                </div>
+                <span style={{ fontSize: '14px', color: mutedColor }}>→</span>
+              </button>
+              <div
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  background: isPro ? 'rgba(148,163,184,0.12)' : 'rgba(255,255,255,0.04)',
+                  border: `1px dashed ${borderColor}`,
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  marginBottom: '12px',
+                  opacity: 0.85,
+                }}
+              >
+                <span style={{ fontSize: '24px' }}>🟡</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Zoho Mail</div>
+                  <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.4 }}>Full sync via Zoho API — coming soon</div>
+                </div>
+              </div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: mutedColor, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+                Other providers (IMAP)
+              </div>
               <button
                 onClick={() => canConnect && handleSelectProvider('custom')}
                 disabled={!canConnect}
@@ -718,13 +752,16 @@ export function EmailConnectWizard({
                   textAlign: 'left',
                 }}
               >
-                <span style={{ fontSize: '24px' }}>⚙️</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Custom Email (IMAP + SMTP)</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Any provider — inbox via IMAP, sending via SMTP</div>
+                <span style={{ fontSize: '24px' }}>📧</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>IMAP / SMTP</div>
+                  <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.4 }}>
+                    Pull &amp; classify: full support · Remote folder sync: limited (provider-dependent)
+                  </div>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
+                <span style={{ fontSize: '14px', color: mutedColor }}>→</span>
               </button>
+              <ImapConnectionNotice accountId="connect-wizard" variant="wizard-full" theme={isPro ? 'professional' : 'dark'} />
               <div style={{ marginTop: '16px', padding: '12px', background: isPro ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                   <span style={{ fontSize: '14px' }}>🔒</span>
@@ -764,6 +801,9 @@ export function EmailConnectWizard({
                   ? 'Custom email (IMAP + SMTP)'
                   : `Set up ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth`}
               </div>
+              {provider === 'custom' ? (
+                <ImapConnectionNotice accountId="wizard-imap-credentials" variant="wizard-compact" theme={isPro ? 'professional' : 'dark'} />
+              ) : null}
 
               {/* Vault status (for new saves) — only when no existing creds or source is none */}
               {provider !== 'custom' && !existingGmail && !existingOutlook && vaultUnlocked === true && (

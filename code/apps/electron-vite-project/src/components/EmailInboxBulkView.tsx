@@ -20,6 +20,7 @@ import EmailComposeOverlay from './EmailComposeOverlay'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import { ImapConnectionNotice } from '@ext/shared/email/ImapConnectionNotice'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -108,6 +109,38 @@ function aggregateLifecycleOpCounts(byOp: QueueStatusRow[]): Record<
 function countStatus(byStatus: QueueStatusRow[], s: string): number {
   const row = (byStatus ?? []).find((x) => x.status === s)
   return Number(row?.c) || 0
+}
+
+/** Plain-language remote sync line for the debug panel (honest, no fake ETAs). */
+function buildRemoteSyncUserSummary(
+  byStatus: QueueStatusRow[],
+  queueByAccountSummary: QueueByAccountSummaryRow[],
+): { line: string; showImapNotice: boolean; imapNoticeAccountId: string } {
+  const pending = countStatus(byStatus, 'pending')
+  const processing = countStatus(byStatus, 'processing')
+  const active = pending + processing
+  if (active === 0) {
+    return {
+      line: 'Remote folder sync: idle — no moves queued. ✓',
+      showImapNotice: false,
+      imapNoticeAccountId: 'debug-imap',
+    }
+  }
+  const imapRows = queueByAccountSummary.filter((s) => s.provider === 'imap')
+  const imapActive = imapRows.reduce((a, s) => a + s.pending + s.processing, 0)
+  if (imapActive > 0) {
+    const firstId = imapRows.find((s) => s.pending + s.processing > 0)?.accountId ?? 'debug-imap'
+    return {
+      line: `Remote sync: in progress — ${active} move(s) queued (~${imapActive} on IMAP). Large IMAP mailboxes can take 30–60+ minutes; the app throttles to respect provider limits.`,
+      showImapNotice: true,
+      imapNoticeAccountId: firstId,
+    }
+  }
+  return {
+    line: `Remote sync: in progress — ${active} move(s) queued (Microsoft 365 / API path).`,
+    showImapNotice: false,
+    imapNoticeAccountId: 'debug-imap',
+  }
 }
 
 /** Samples for ETA: `completed` trend over ~30s while debug panel polls. */
@@ -1734,6 +1767,13 @@ export default function EmailInboxBulkView({
   const [accountMigrationDiag, setAccountMigrationDiag] = useState<Record<string, unknown> | null>(null)
   /** Per-orphan chosen target account id for migrate (defaults to first suggestion in UI). */
   const [orphanMigrateTargetId, setOrphanMigrateTargetId] = useState<Record<string, string>>({})
+
+  const remoteSyncUserSummary = useMemo(() => {
+    if (!remoteDebugQueue || typeof remoteDebugQueue !== 'object') return null
+    const byStatus = (remoteDebugQueue.byStatus as QueueStatusRow[]) ?? []
+    const queueByAccountSummary = (remoteDebugQueue.queueByAccountSummary as QueueByAccountSummaryRow[]) ?? []
+    return buildRemoteSyncUserSummary(byStatus, queueByAccountSummary)
+  }, [remoteDebugQueue])
 
   /** Force full remote lifecycle reconcile for all accounts; drain runs in background until queue empty. */
   const handleRemoteSyncAll = useCallback(() => {
@@ -3970,7 +4010,10 @@ export default function EmailInboxBulkView({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #ddd' }}>
-            <strong>Remote queue debug</strong>
+            <div>
+              <strong>Developer tools — Remote sync</strong>
+              <div style={{ fontSize: 10, fontWeight: 400, color: MUTED, marginTop: 2 }}>Queue diagnostics &amp; IMAP folder checks</div>
+            </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
                 Refresh
@@ -3997,6 +4040,30 @@ export default function EmailInboxBulkView({
             </div>
           </div>
           <div style={{ overflow: 'auto', padding: 12, flex: 1 }}>
+            {remoteSyncUserSummary ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: '#0f172a',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Sync status</div>
+                {remoteSyncUserSummary.line}
+              </div>
+            ) : null}
+            {remoteSyncUserSummary?.showImapNotice ? (
+              <ImapConnectionNotice
+                accountId={remoteSyncUserSummary.imapNoticeAccountId}
+                variant="debug"
+                theme="professional"
+              />
+            ) : null}
             {remoteDebugLoading ? <div>Loading…</div> : null}
             {remoteFolderVerifyLoading ? <div style={{ marginBottom: 8, fontSize: 11 }}>Verifying IMAP folders…</div> : null}
             {remoteFolderVerify && remoteFolderVerify.ok === false ? (

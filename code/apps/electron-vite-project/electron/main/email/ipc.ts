@@ -932,10 +932,26 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
 }
 
 const SIMPLE_DRAIN_INTERVAL_MS = 10_000
-const SIMPLE_DRAIN_BATCH = 20
+/** Fetch extra candidates so we can cap IMAP rows per tick without starving API accounts. */
+const SIMPLE_DRAIN_FETCH_CAP = 45
+const SIMPLE_DRAIN_MAX_ROWS_PER_TICK = 20
+const SIMPLE_DRAIN_MAX_IMAP_ROWS_PER_TICK = 10
 const SIMPLE_DRAIN_MAX_ATTEMPTS = 8
-const SIMPLE_DRAIN_INTER_ROW_MS = 200
-const SIMPLE_DRAIN_TRANSIENT_PAUSE_MS = 3000
+/** After repeated IMAP apply failures, enforce a long cool-down (ms). */
+const SIMPLE_DRAIN_IMAP_LONG_COOLDOWN_MS = 300_000
+
+type SimpleDrainProfile = { interRowMs: number; pauseAfterBatchMs: number; transientPauseMs: number }
+
+function simpleDrainProfileForProvider(providerType: string): SimpleDrainProfile {
+  if (providerType === 'microsoft365' || providerType === 'gmail') {
+    return { interRowMs: 200, pauseAfterBatchMs: 5000, transientPauseMs: 3000 }
+  }
+  return { interRowMs: 1000, pauseAfterBatchMs: 30_000, transientPauseMs: 60_000 }
+}
+
+/** Gate the next batch start (conservative IMAP spacing — “slow and reliable”). */
+let simpleDrainNextBatchAllowedAt = 0
+let simpleDrainImapApplyErrorStreak = 0
 
 /** Single process-wide interval — started from {@link registerInboxHandlers}. */
 let simpleOrchestratorRemoteDrainInterval: ReturnType<typeof setInterval> | null = null
@@ -1086,6 +1102,18 @@ export function registerInboxHandlers(
             `UPDATE remote_orchestrator_mutation_queue SET status = 'pending', updated_at = ? WHERE status = 'processing' AND updated_at < ?`,
           ).run(nowIso, twoMinAgo)
 
+          if (Date.now() < simpleDrainNextBatchAllowedAt) {
+            return
+          }
+
+          const rowProviderType = (accountId: string): string => {
+            try {
+              return emailGateway.getProviderSync(accountId)
+            } catch {
+              return 'imap'
+            }
+          }
+
           const rows = db
             .prepare(
               `SELECT q.id, q.message_id, q.account_id, q.email_message_id,
@@ -1097,36 +1125,33 @@ export function registerInboxHandlers(
                ORDER BY q.created_at ASC
                LIMIT ?`,
             )
-            .all(SIMPLE_DRAIN_MAX_ATTEMPTS, SIMPLE_DRAIN_BATCH) as SimpleDrainQueueRow[]
+            .all(SIMPLE_DRAIN_MAX_ATTEMPTS, SIMPLE_DRAIN_FETCH_CAP) as SimpleDrainQueueRow[]
 
           if (rows.length === 0) return
 
-          /* Outlook / Graph first — avoids a dead IMAP session consuming the whole batch quota. */
-          const orderedRows: SimpleDrainQueueRow[] = [...rows].sort((a, b) => {
-            let pa = 'imap'
-            let pb = 'imap'
-            try {
-              pa = emailGateway.getProviderSync(a.account_id)
-            } catch {
-              /* orphan account_id — deprioritize */
-            }
-            try {
-              pb = emailGateway.getProviderSync(b.account_id)
-            } catch {
-              /* same */
-            }
+          /* API / OAuth accounts first; cap IMAP moves per tick for conservative provider-friendly draining. */
+          const sortedRows: SimpleDrainQueueRow[] = [...rows].sort((a, b) => {
+            const pa = rowProviderType(a.account_id)
+            const pb = rowProviderType(b.account_id)
             if (pa === 'imap' && pb !== 'imap') return 1
             if (pa !== 'imap' && pb === 'imap') return -1
             return 0
           })
 
+          const workRows: SimpleDrainQueueRow[] = []
+          let imapRowsThisTick = 0
+          for (const r of sortedRows) {
+            const pt = rowProviderType(r.account_id)
+            const isImap = pt === 'imap'
+            if (isImap && imapRowsThisTick >= SIMPLE_DRAIN_MAX_IMAP_ROWS_PER_TICK) continue
+            workRows.push(r)
+            if (isImap) imapRowsThisTick += 1
+            if (workRows.length >= SIMPLE_DRAIN_MAX_ROWS_PER_TICK) break
+          }
+
           const imapAccountIdsInBatch = new Set<string>()
-          for (const r of orderedRows) {
-            try {
-              if (emailGateway.getProviderSync(r.account_id) === 'imap') imapAccountIdsInBatch.add(r.account_id)
-            } catch {
-              /* row may fail at apply */
-            }
+          for (const r of workRows) {
+            if (rowProviderType(r.account_id) === 'imap') imapAccountIdsInBatch.add(r.account_id)
           }
 
           const imapListPingFailed = new Set<string>()
@@ -1144,15 +1169,15 @@ export function registerInboxHandlers(
             }
           }
 
-          console.log(`[SimpleDrain] Processing ${orderedRows.length} row(s)`)
+          console.log(`[SimpleDrain] Processing ${workRows.length} row(s) (${imapRowsThisTick} IMAP max cap ${SIMPLE_DRAIN_MAX_IMAP_ROWS_PER_TICK})`)
           try {
             sendToRenderer('inbox:drainProgress', {
               processed: 0,
-              pending: orderedRows.length,
+              pending: workRows.length,
               failed: 0,
               deferred: 0,
               phase: 'simple_processing',
-              batchSize: orderedRows.length,
+              batchSize: workRows.length,
             })
           } catch {
             /* ignore */
@@ -1179,19 +1204,15 @@ export function registerInboxHandlers(
           let batchImapDeferred = 0
           const imapBatchWarmupDone = new Set<string>()
 
-          for (const r of orderedRows) {
+          for (const r of workRows) {
             try {
-              let rowProvider = 'unknown'
-              try {
-                rowProvider = emailGateway.getProviderSync(r.account_id)
-              } catch {
-                rowProvider = 'unknown'
-              }
+              const rowProvider = rowProviderType(r.account_id)
+              const rowProf = simpleDrainProfileForProvider(rowProvider)
 
               if (rowProvider === 'imap' && imapListPingFailed.has(r.account_id)) {
                 batchImapDeferred += 1
                 console.log('[SimpleDrain] Defer row (IMAP LIST ping failed this tick):', r.id.slice(0, 8), r.account_id)
-                await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_INTER_ROW_MS))
+                await new Promise((res) => setTimeout(res, rowProf.interRowMs))
                 continue
               }
 
@@ -1238,6 +1259,9 @@ export function registerInboxHandlers(
               const msgShort = String(r.message_id).slice(0, 8)
 
               if (apply.ok) {
+                if (rowProvider === 'imap') {
+                  simpleDrainImapApplyErrorStreak = 0
+                }
                 const detail = apply.skipped ? 'SKIPPED' : 'MOVED'
                 const dest = apply.imapMailboxAfterMove ?? '?'
                 try {
@@ -1281,6 +1305,19 @@ export function registerInboxHandlers(
                 }
               } else {
                 batchErrors += 1
+                if (rowProvider === 'imap') {
+                  simpleDrainImapApplyErrorStreak += 1
+                  if (simpleDrainImapApplyErrorStreak >= 2) {
+                    const coolUntil = Date.now() + SIMPLE_DRAIN_IMAP_LONG_COOLDOWN_MS
+                    simpleDrainNextBatchAllowedAt = Math.max(simpleDrainNextBatchAllowedAt, coolUntil)
+                    console.warn(
+                      '[SimpleDrain] IMAP errors — long cool-down',
+                      SIMPLE_DRAIN_IMAP_LONG_COOLDOWN_MS,
+                      'ms (next batch gated)',
+                    )
+                    simpleDrainImapApplyErrorStreak = 0
+                  }
+                }
                 const errMsg = (apply.error || 'Unknown error').slice(0, 2000)
                 const errShort = errMsg.slice(0, 120)
                 try {
@@ -1320,7 +1357,7 @@ export function registerInboxHandlers(
                   } catch {
                     /* ignore */
                   }
-                  await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_TRANSIENT_PAUSE_MS))
+                  await new Promise((res) => setTimeout(res, rowProf.transientPauseMs))
                 } else {
                   const nextAttempts = prevAttempts + 1
                   if (nextAttempts >= SIMPLE_DRAIN_MAX_ATTEMPTS) {
@@ -1340,7 +1377,7 @@ export function registerInboxHandlers(
                 }
               }
 
-              await new Promise((res) => setTimeout(res, SIMPLE_DRAIN_INTER_ROW_MS))
+              await new Promise((res) => setTimeout(res, rowProf.interRowMs))
             } catch (rowErr: any) {
               try {
                 db.prepare(
@@ -1358,12 +1395,12 @@ export function registerInboxHandlers(
               .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
               .get() as { c: number }
             sendToRenderer('inbox:drainProgress', {
-              processed: orderedRows.length,
+              processed: workRows.length,
               pending: remaining.c,
               failed: batchErrors,
               deferred: batchImapDeferred,
               phase: 'simple_idle',
-              batchSize: orderedRows.length,
+              batchSize: workRows.length,
               batchMoved,
               batchSkipped,
               batchErrors,
@@ -1372,6 +1409,15 @@ export function registerInboxHandlers(
           } catch {
             /* ignore */
           }
+
+          let pauseAfterBatch = 5000
+          for (const wr of workRows) {
+            pauseAfterBatch = Math.max(
+              pauseAfterBatch,
+              simpleDrainProfileForProvider(rowProviderType(wr.account_id)).pauseAfterBatchMs,
+            )
+          }
+          simpleDrainNextBatchAllowedAt = Date.now() + pauseAfterBatch
         } catch (err) {
           console.error('[SimpleDrain] Error:', err)
         } finally {
