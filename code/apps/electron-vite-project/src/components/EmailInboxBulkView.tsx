@@ -1666,8 +1666,6 @@ export default function EmailInboxBulkView({
     messageRowAfterDrain?: Record<string, unknown> | null
     queueRows?: Array<Record<string, unknown>>
   } | null>(null)
-  /** Collapsible row: Debug / Test Move 1 (dev build only). */
-  const [bulkDevToolsOpen, setBulkDevToolsOpen] = useState(false)
 
   /** Force full remote lifecycle reconcile for all accounts + bounded inline drain (IPC returns drain stats). */
   const handleRemoteSyncAll = useCallback(() => {
@@ -2326,14 +2324,15 @@ export default function EmailInboxBulkView({
                   'AI recommends manual handling — Auto-Sort did not change local archive/delete/review; use actions below. Remote folders update via the sync queue / ☁ Sync Remote.'
                 )
               } else if (recommendedAction === 'draft_reply_ready') {
-                retainedCounts.draft_reply_ready += 1
-                retained = withAutosortRetained(
-                  entry,
-                  'draft_reply_ready',
-                  entry.draftReply?.trim()
-                    ? 'Draft suggested — review or send below; replies are never auto-sent.'
-                    : 'Classified as reply-ready — no draft text returned; not auto-moved.'
-                )
+                /** Urgent + needsReply: DB already updated in main; no local tab move — same as urgent early return if duplicate. */
+                processedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: { ...entry },
+                }))
+                await sortFeedbackPaintDwell()
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                return
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
                 retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
@@ -3775,6 +3774,14 @@ export default function EmailInboxBulkView({
             </button>
             <button
               type="button"
+              className="bulk-view-debug-btn"
+              onClick={openRemoteDebugPanel}
+              title="Remote queue diagnostics, drain progress, per-account queue"
+            >
+              🔧 Debug
+            </button>
+            <button
+              type="button"
               className="bulk-view-wr-expert-btn"
               onClick={() => setShowWrExpertModal(true)}
               title="Edit AI inbox rules (WRExpert.md)"
@@ -3783,43 +3790,6 @@ export default function EmailInboxBulkView({
             </button>
           </div>
         </div>
-
-        {import.meta.env.DEV ? (
-          <div className="bulk-view-toolbar-row bulk-view-toolbar-row--dev">
-            <button
-              type="button"
-              className="bulk-view-devtools-toggle"
-              onClick={() => setBulkDevToolsOpen((o) => !o)}
-              aria-expanded={bulkDevToolsOpen}
-              title="Show or hide temporary debug controls"
-            >
-              Developer tools {bulkDevToolsOpen ? '▼' : '▶'}
-            </button>
-            {bulkDevToolsOpen ? (
-              <>
-                <button
-                  type="button"
-                  className="bulk-view-sync-remote-btn"
-                  onClick={openRemoteDebugPanel}
-                  title="Remote queue diagnostics (temporary debug UI)"
-                  style={{ opacity: 0.85 }}
-                >
-                  Debug
-                </button>
-                <button
-                  type="button"
-                  className="bulk-view-sync-remote-btn"
-                  onClick={() => void handleTestMoveOne()}
-                  disabled={displayMessages.length === 0 || remoteDebugLoading}
-                  title="Enqueue + drain first visible message only"
-                  style={{ opacity: 0.85 }}
-                >
-                  Test Move 1
-                </button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
       </div>
 
       {remoteDebugOpen ? (
@@ -3845,7 +3815,7 @@ export default function EmailInboxBulkView({
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #ddd' }}>
             <strong>Remote queue debug</strong>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
                 Refresh
               </button>
@@ -3856,6 +3826,14 @@ export default function EmailInboxBulkView({
                 title="Set all failed remote queue rows to pending (attempts=0) and schedule background drain"
               >
                 Retry failed
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleTestMoveOne()}
+                disabled={displayMessages.length === 0 || remoteDebugLoading}
+                title="Enqueue + drain first visible message only"
+              >
+                Test Move 1
               </button>
               <button type="button" onClick={() => setRemoteDebugOpen(false)}>
                 Close

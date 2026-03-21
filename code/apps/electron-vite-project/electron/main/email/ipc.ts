@@ -2083,15 +2083,16 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
         normal: 'normal',
       }
       const sortCategory = sortCategoryMap[validCategory] ?? 'normal'
+      /** action_required → Pending Review locally (important) regardless of needsReply; reply-needed is metadata only. */
       const recommendedAction =
         validCategory === 'pending_delete' ? 'pending_delete'
         : validCategory === 'pending_review' ? 'pending_review'
         : validCategory === 'archive' ? 'archive'
+        : validCategory === 'action_required' ? 'pending_review'
         : validCategory === 'urgent' && needsReply ? 'draft_reply_ready'
-        : validCategory === 'action_required' && needsReply ? 'draft_reply_ready'
         : 'keep_for_manual_action'
       let pendingDelete = validCategory === 'pending_delete'
-      let pendingReview = validCategory === 'pending_review'
+      let pendingReview = validCategory === 'pending_review' || validCategory === 'action_required'
 
       /** High urgency (score >= 7): local sort_category = urgent, no pending_delete / pending_review / archived locally — remote still mirrors to the Urgent folder via enqueue. */
       const URGENCY_THRESHOLD = 7
