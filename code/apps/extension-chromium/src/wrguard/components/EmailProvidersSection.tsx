@@ -10,54 +10,46 @@
 
 import React from 'react'
 import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
-function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
-  if (provider === 'microsoft365') {
-    return (
-      <span
-        style={{
-          fontSize: 9,
-          fontWeight: 700,
-          color: '#15803d',
-          background: 'rgba(34,197,94,0.18)',
-          padding: '2px 6px',
-          borderRadius: 4,
-          letterSpacing: 0.2,
-        }}
-      >
-        Full sync
-      </span>
-    )
+
+function providerDisplayLabel(provider: EmailAccount['provider']): string {
+  switch (provider) {
+    case 'microsoft365':
+      return 'Microsoft 365'
+    case 'gmail':
+      return 'Gmail'
+    case 'zoho':
+      return 'Zoho'
+    default:
+      return 'IMAP'
   }
-  if (provider === 'gmail') {
+}
+
+function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
+  if (provider === 'microsoft365' || provider === 'gmail' || provider === 'zoho') {
     return (
       <span
         style={{
-          fontSize: 9,
-          fontWeight: 700,
-          color: '#a16207',
-          background: 'rgba(234,179,8,0.22)',
-          padding: '2px 6px',
-          borderRadius: 4,
+          fontSize: 11,
+          fontWeight: 600,
+          color: '#15803d',
           letterSpacing: 0.2,
         }}
       >
-        Gmail API sync (roadmap)
+        🟢 Smart Sync
       </span>
     )
   }
   return (
     <span
       style={{
-        fontSize: 9,
-        fontWeight: 700,
+        fontSize: 11,
+        fontWeight: 600,
         color: '#a16207',
-        background: 'rgba(234,179,8,0.22)',
-        padding: '2px 6px',
-        borderRadius: 4,
         letterSpacing: 0.2,
       }}
+      title="IMAP: pull and classify are full support; remote folder mirroring is limited."
     >
-      Limited remote sync (IMAP)
+      🟡 Limited Sync
     </span>
   )
 }
@@ -67,7 +59,7 @@ export interface EmailAccount {
   id: string
   displayName: string
   email: string
-  provider: 'gmail' | 'microsoft365' | 'imap'
+  provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   status: 'active' | 'error' | 'disabled'
   lastError?: string
 }
@@ -183,7 +175,13 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>
-                    {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                    {account.provider === 'gmail'
+                      ? '📧'
+                      : account.provider === 'microsoft365'
+                        ? '📨'
+                        : account.provider === 'zoho'
+                          ? '📬'
+                          : '✉️'}
                   </span>
                   <div>
                     <div
@@ -198,6 +196,9 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       }}
                     >
                       <span>{account.email || account.displayName}</span>
+                      <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
+                      <span style={{ color: mutedColor, fontWeight: 500 }}>{providerDisplayLabel(account.provider)}</span>
+                      <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
                       <RemoteSyncBadge provider={account.provider} />
                     </div>
                     <div

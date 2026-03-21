@@ -113,6 +113,8 @@ interface EmailInboxState {
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
   autoSyncEnabled: boolean
+  /** Account sync window (days); 0 = all mail. Loaded with `loadSyncState`. */
+  accountSyncWindowDays: number
   syncing: boolean
   lastSyncAt: string | null
   /** Non-fatal sync issues from last Pull (partial failures). Cleared on next Pull start. */
@@ -174,6 +176,12 @@ interface EmailInboxState {
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
+  /** Pull the next batch of older messages (Smart Sync). */
+  pullMoreAccount: (accountId: string) => Promise<void>
+  patchAccountSyncPreferences: (
+    accountId: string,
+    partial: { syncWindowDays?: number; maxMessagesPerPull?: number },
+  ) => Promise<boolean>
   /** Pull for each account (sequential IPC); one UI refresh at the end. */
   syncAllAccounts: (accountIds: string[]) => Promise<void>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<void>
@@ -461,6 +469,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   })(),
   autoSyncEnabled: false,
+  accountSyncWindowDays: 30,
   syncing: false,
   lastSyncAt: null,
   lastSyncWarnings: null,
@@ -1154,6 +1163,122 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
+  pullMoreAccount: async (accountId) => {
+    const bridge = getBridge()
+    if (!bridge?.pullMoreAccount) {
+      console.log('[PULL] store.pullMoreAccount skipped reason=no_bridge')
+      return
+    }
+    if (get().syncing) {
+      set({ lastSyncWarnings: ['Sync already in progress'] })
+      return
+    }
+    const lastSyncAt = new Date().toISOString()
+    set({ syncing: true, error: null, lastSyncWarnings: null })
+    try {
+      const res = await bridge.pullMoreAccount(accountId)
+      const syncWarnings = res.syncWarnings
+      const warnList = syncWarnings?.length ? syncWarnings : null
+      const pull = res as {
+        pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+        ok: boolean
+        error?: string
+      }
+      if (pull.pullStats) {
+        get().addRemoteSyncLog(
+          `Pull More: ${pullStatsLine(pull.pullStats, pull.ok ? '' : ` — ${pull.error ?? 'failed'}`)}`,
+        )
+      }
+      const pullHint = (pull as { pullHint?: string }).pullHint
+      if (typeof pullHint === 'string' && pullHint.trim()) {
+        get().addRemoteSyncLog(pullHint.trim())
+      }
+
+      if (!res.ok) {
+        set({
+          syncing: false,
+          bulkBackgroundRefresh: false,
+          loading: false,
+          error: res.error ?? 'Pull More failed',
+          lastSyncWarnings: null,
+        })
+        return
+      }
+
+      const bulkMode = get().bulkMode
+      if (bulkMode) {
+        const snapshot = await loadBulkInboxSnapshot(get)
+        if (snapshot) {
+          set({
+            ...snapshot,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after Pull More',
+            lastSyncWarnings: warnList,
+          })
+        }
+      } else {
+        const snapshot = await loadPagedListSnapshot(get)
+        if (snapshot) {
+          set({
+            messages: snapshot.messages,
+            total: snapshot.total,
+            analysisCache: snapshot.analysisCache,
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: null,
+            lastSyncWarnings: warnList,
+          })
+        } else {
+          set({
+            syncing: false,
+            lastSyncAt,
+            bulkBackgroundRefresh: false,
+            loading: false,
+            error: 'Failed to refresh inbox after Pull More',
+            lastSyncWarnings: warnList,
+          })
+        }
+      }
+    } catch (err: unknown) {
+      set({
+        syncing: false,
+        bulkBackgroundRefresh: false,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Pull More failed',
+        lastSyncWarnings: null,
+      })
+    }
+  },
+
+  patchAccountSyncPreferences: async (accountId, partial) => {
+    const bridge = getBridge()
+    if (!bridge?.patchAccountSyncPreferences) return false
+    try {
+      const res = await bridge.patchAccountSyncPreferences(accountId, partial)
+      if (res.ok && typeof partial.syncWindowDays === 'number') {
+        set({ accountSyncWindowDays: partial.syncWindowDays })
+      }
+      await get().loadSyncState(accountId)
+      return !!res.ok
+    } catch {
+      return false
+    }
+  },
+
   syncAllAccounts: async (accountIds) => {
     const bridge = getBridge()
     if (!bridge?.syncAccount || accountIds.length === 0) {
@@ -1301,8 +1426,18 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       const res = await bridge.getSyncState(accountId)
       if (!res.ok) return
       if (res.data) {
-        const row = res.data as { auto_sync_enabled?: number }
-        set({ autoSyncEnabled: row.auto_sync_enabled === 1 })
+        const row = res.data as {
+          auto_sync_enabled?: number
+          syncPreferences?: { syncWindowDays?: number }
+        }
+        const days =
+          typeof row.syncPreferences?.syncWindowDays === 'number'
+            ? row.syncPreferences.syncWindowDays
+            : undefined
+        set({
+          autoSyncEnabled: row.auto_sync_enabled === 1,
+          ...(days !== undefined ? { accountSyncWindowDays: days } : {}),
+        })
       } else {
         set({ autoSyncEnabled: false })
       }

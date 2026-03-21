@@ -245,7 +245,7 @@ export class OutlookProvider extends BaseEmailProvider {
   }
 
   /**
-   * Full sync: list **all** message IDs with stable paging ($top=100), then GET each message (concurrency 10).
+   * Complete listing: all message IDs with stable paging ($top=100), then GET each message (concurrency 10).
    * Matches Graph guidance for reliable pagination; list+item avoids truncated list payloads.
    */
   private async fetchAllMessagesTwoPhase(
@@ -349,6 +349,14 @@ export class OutlookProvider extends BaseEmailProvider {
     const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
 
     if (syncAll) {
+      const filterParts: string[] = []
+      if (options?.fromDate) filterParts.push(`receivedDateTime ge ${options.fromDate}`)
+      if (options?.toDate) filterParts.push(`receivedDateTime le ${options.toDate}`)
+      console.log(
+        `[Outlook] Smart Sync list: folder=${folderId} maxMessages=${maxTotal} ` +
+          `fromDate=${options?.fromDate ?? 'none'} toDate=${options?.toDate ?? 'none'} ` +
+          `($filter: ${filterParts.length ? filterParts.join(' and ') : 'none'})`,
+      )
       const raw = await this.fetchAllMessagesTwoPhase(folderId, options, maxTotal)
       let messages: any[] = raw
 

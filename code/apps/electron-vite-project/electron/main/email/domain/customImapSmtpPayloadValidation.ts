@@ -54,4 +54,10 @@ export function validateCustomImapSmtpPayload(p: CustomImapSmtpConnectPayload): 
   assertOptionalImapLifecycleMailbox(p.imapLifecyclePendingReviewMailbox, 'Pending review mailbox name')
   assertOptionalImapLifecycleMailbox(p.imapLifecyclePendingDeleteMailbox, 'Pending delete mailbox name')
   assertOptionalImapLifecycleMailbox(p.imapLifecycleTrashMailbox, 'Trash mailbox name')
+  if (p.syncWindowDays != null) {
+    const d = Number(p.syncWindowDays)
+    if (!Number.isInteger(d) || d < 0) {
+      throw new Error('Sync window must be 0 (all mail) or a positive number of days.')
+    }
+  }
 }

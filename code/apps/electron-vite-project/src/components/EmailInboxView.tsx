@@ -886,6 +886,9 @@ export default function EmailInboxView({
     syncAllAccounts,
     toggleAutoSync,
     loadSyncState,
+    accountSyncWindowDays,
+    pullMoreAccount,
+    patchAccountSyncPreferences,
   } = useEmailInboxStore()
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
@@ -901,7 +904,16 @@ export default function EmailInboxView({
   }, [selectedMessageId])
 
   // Provider/account state for no-selection workspace
-  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [providerAccounts, setProviderAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'error' | 'disabled'
+      lastError?: string
+    }>
+  >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   const [showEmailCompose, setShowEmailCompose] = useState(false)
@@ -920,14 +932,30 @@ export default function EmailInboxView({
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
         const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
-        setProviderAccounts(data.map((a) => ({
-          id: a.id,
-          displayName: a.displayName ?? a.email,
-          email: a.email,
-          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
-          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
-          lastError: a.lastError,
-        })))
+        setProviderAccounts(
+          data.map((a) => {
+            const p = a.provider
+            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+              p === 'gmail'
+                ? 'gmail'
+                : p === 'microsoft365'
+                  ? 'microsoft365'
+                  : p === 'zoho'
+                    ? 'zoho'
+                    : 'imap'
+            return {
+              id: a.id,
+              displayName: a.displayName ?? a.email,
+              email: a.email,
+              provider,
+              status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as
+                | 'active'
+                | 'error'
+                | 'disabled',
+              lastError: a.lastError,
+            }
+          }),
+        )
         setSelectedProviderAccountId((prev) => {
           if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
           const pick = pickDefaultEmailAccountRowId(
@@ -1014,6 +1042,22 @@ export default function EmailInboxView({
     if (toSync.length === 0) return
     void syncAllAccounts(toSync)
   }, [accounts, primaryAccountId, syncAllAccounts])
+
+  const handlePullMore = useCallback(() => {
+    if (primaryAccountId) void pullMoreAccount(primaryAccountId)
+  }, [primaryAccountId, pullMoreAccount])
+
+  const handleSyncWindowChange = useCallback(
+    async (days: number) => {
+      if (!primaryAccountId) return
+      if (days === 0) {
+        const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+        if (!ok) return
+      }
+      await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
+    },
+    [primaryAccountId, patchAccountSyncPreferences],
+  )
 
   const [remoteLifecycleSyncing, setRemoteLifecycleSyncing] = useState(false)
   const handleRemoteLifecycleSyncAll = useCallback(() => {
@@ -1311,6 +1355,11 @@ export default function EmailInboxView({
           autoSyncEnabled={autoSyncEnabled}
           syncing={syncing}
           onSync={handleSync}
+          onPullMore={handlePullMore}
+          accountSyncWindowDays={accountSyncWindowDays}
+          onSyncWindowChange={
+            window.emailInbox?.patchAccountSyncPreferences ? handleSyncWindowChange : undefined
+          }
           onRemoteLifecycleSync={window.emailInbox?.fullRemoteSyncAllAccounts ? handleRemoteLifecycleSyncAll : undefined}
           remoteLifecycleSyncing={remoteLifecycleSyncing}
           onToggleAutoSync={toggleAutoSync}
@@ -1443,6 +1492,57 @@ export default function EmailInboxView({
               onDisconnectEmail={handleDisconnectEmail}
               onSelectEmailAccount={setSelectedProviderAccountId}
               />
+              {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
+                <div
+                  style={{
+                    padding: '12px 18px',
+                    borderTop: '1px solid rgba(15,23,42,0.08)',
+                    background: 'rgba(59,130,246,0.04)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Account sync</div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 12,
+                      color: '#0f172a',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Sync window</span>
+                    <select
+                      value={accountSyncWindowDays}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!Number.isNaN(v)) void handleSyncWindowChange(v)
+                      }}
+                      style={{
+                        fontSize: 12,
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(15,23,42,0.15)',
+                        background: '#fff',
+                        color: '#0f172a',
+                      }}
+                    >
+                      <option value={7}>Last 7 days</option>
+                      <option value={30}>Last 30 days</option>
+                      <option value={90}>Last 90 days</option>
+                      <option value={0}>All mail (warning)</option>
+                    </select>
+                  </label>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
+                    Editable after connecting. Only recent mail syncs initially; use Pull More for older messages.
+                    {accountSyncWindowDays === 0 ? (
+                      <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
+                        Warning: syncing all mail may take a long time.
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
             <div
               style={{

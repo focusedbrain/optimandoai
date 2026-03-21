@@ -39,17 +39,26 @@ export interface OutlookCreds {
   tenantId?: string
 }
 
-export type EmailCreds = GmailCreds | OutlookCreds
+/** Zoho Mail OAuth client (Developer Console). */
+export interface ZohoCreds {
+  clientId: string
+  clientSecret: string
+  /** `com` (default) or `eu` for accounts.zoho.eu / mail.zoho.eu */
+  datacenter?: 'com' | 'eu'
+}
+
+export type EmailCreds = GmailCreds | OutlookCreds | ZohoCreds
 
 export interface CheckResult {
   source: CredentialSource
-  credentials: GmailCreds | OutlookCreds | null
+  credentials: GmailCreds | OutlookCreds | ZohoCreds | null
   clientId?: string
   hasSecret: boolean
 }
 
 const GMAIL_VAULT_TITLE = 'Gmail OAuth Client Credentials'
 const OUTLOOK_VAULT_TITLE = 'Outlook OAuth Client Credentials'
+const ZOHO_VAULT_TITLE = 'Zoho Mail OAuth Client Credentials'
 
 function getGmailConfigPath(): string {
   return path.join(app.getPath('userData'), 'email-oauth-config.json')
@@ -59,11 +68,56 @@ function getOutlookConfigPath(): string {
   return path.join(app.getPath('userData'), 'outlook-oauth-config.json')
 }
 
+function getZohoConfigPath(): string {
+  return path.join(app.getPath('userData'), 'zoho-oauth-config.json')
+}
+
+/** Plain-file Zoho OAuth client (no circular import with `providers/zoho.ts`). */
+export function loadZohoOAuthConfig(): ZohoCreds | null {
+  try {
+    const p = getZohoConfigPath()
+    if (fs.existsSync(p)) {
+      const j = JSON.parse(fs.readFileSync(p, 'utf-8'))
+      if (j?.clientId && j?.clientSecret) {
+        return {
+          clientId: String(j.clientId),
+          clientSecret: String(j.clientSecret),
+          datacenter: j.datacenter === 'eu' ? 'eu' : 'com',
+        }
+      }
+    }
+  } catch (err) {
+    debugLog('loadZohoOAuthConfig error:', err)
+  }
+  return null
+}
+
+export function saveZohoOAuthConfig(
+  clientId: string,
+  clientSecret: string,
+  datacenter: 'com' | 'eu' = 'com',
+): void {
+  try {
+    fs.writeFileSync(
+      getZohoConfigPath(),
+      JSON.stringify({ clientId, clientSecret, datacenter }, null, 2),
+      'utf-8',
+    )
+  } catch (err) {
+    debugLog('saveZohoOAuthConfig error:', err)
+  }
+}
+
 /** Load credentials from plain file only */
-export function loadFromFile(provider: 'gmail' | 'outlook'): GmailCreds | OutlookCreds | null {
+export function loadFromFile(
+  provider: 'gmail' | 'outlook' | 'zoho',
+): GmailCreds | OutlookCreds | ZohoCreds | null {
   if (provider === 'gmail') {
     const c = loadOAuthConfig()
     return c ? { clientId: c.clientId, clientSecret: c.clientSecret } : null
+  }
+  if (provider === 'zoho') {
+    return loadZohoOAuthConfig()
   }
   const c = loadOutlookOAuthConfig()
   return c ? { clientId: c.clientId, clientSecret: c.clientSecret, tenantId: c.tenantId } : null
@@ -72,14 +126,21 @@ export function loadFromFile(provider: 'gmail' | 'outlook'): GmailCreds | Outloo
 const DEFAULT_TIER = 'free' as const // automation_secret is free-tier accessible
 
 /** Load credentials from vault (requires vault unlocked) */
-export async function loadFromVault(provider: 'gmail' | 'outlook'): Promise<GmailCreds | OutlookCreds | null> {
+export async function loadFromVault(
+  provider: 'gmail' | 'outlook' | 'zoho',
+): Promise<GmailCreds | OutlookCreds | ZohoCreds | null> {
   try {
     const { vaultService } = await import('../vault/rpc')
     const status = vaultService.getStatus()
     if (!status.isUnlocked) return null
 
     const tier = DEFAULT_TIER
-    const title = provider === 'gmail' ? GMAIL_VAULT_TITLE : OUTLOOK_VAULT_TITLE
+    const title =
+      provider === 'gmail'
+        ? GMAIL_VAULT_TITLE
+        : provider === 'zoho'
+          ? ZOHO_VAULT_TITLE
+          : OUTLOOK_VAULT_TITLE
     const items = vaultService.search(title, 'automation_secret', tier)
     if (items.length === 0) return null
 
@@ -93,6 +154,17 @@ export async function loadFromVault(provider: 'gmail' | 'outlook'): Promise<Gmai
       if (!clientId || !clientSecret) return null
       return { clientId, clientSecret }
     }
+    if (provider === 'zoho') {
+      const clientId = getField('client_id')
+      const clientSecret = getField('client_secret')
+      const dcRaw = getField('zoho_datacenter')
+      if (!clientId || !clientSecret) return null
+      return {
+        clientId,
+        clientSecret,
+        datacenter: dcRaw === 'eu' ? 'eu' : 'com',
+      }
+    }
     const clientId = getField('client_id')
     const clientSecret = getField('client_secret')
     const tenantId = getField('tenant_id') || 'organizations'
@@ -105,7 +177,10 @@ export async function loadFromVault(provider: 'gmail' | 'outlook'): Promise<Gmai
 }
 
 /** Save credentials to vault */
-export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCreds | OutlookCreds): Promise<boolean> {
+export async function saveToVault(
+  provider: 'gmail' | 'outlook' | 'zoho',
+  creds: GmailCreds | OutlookCreds | ZohoCreds,
+): Promise<boolean> {
   debugLog('saveToVault called for:', provider)
   debugLog('userData path:', app.getPath('userData'))
   try {
@@ -121,11 +196,18 @@ export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCre
     const tier = DEFAULT_TIER
     const gmailCreds = creds as GmailCreds
     const outlookCreds = creds as OutlookCreds
+    const zohoCreds = creds as ZohoCreds
 
     // Use vault's expected field names (AUTOMATION_SECRET_STANDARD_FIELDS) for display in Secrets & API Keys,
     // plus internal fields (client_id, client_secret, tenant_id) for loadFromVault.
-    const title = provider === 'gmail' ? GMAIL_VAULT_TITLE : OUTLOOK_VAULT_TITLE
+    const title =
+      provider === 'gmail'
+        ? GMAIL_VAULT_TITLE
+        : provider === 'zoho'
+          ? ZOHO_VAULT_TITLE
+          : OUTLOOK_VAULT_TITLE
     const tenantId = outlookCreds.tenantId || 'organizations'
+    const zohoDc = zohoCreds.datacenter === 'eu' ? 'eu' : 'com'
 
     const fields =
       provider === 'gmail'
@@ -138,7 +220,23 @@ export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCre
             { key: 'client_id', value: gmailCreds.clientId, encrypted: false, type: 'text' as const },
             { key: 'client_secret', value: gmailCreds.clientSecret, encrypted: true, type: 'password' as const },
           ]
-        : [
+        : provider === 'zoho'
+          ? [
+              { key: 'service_name', value: 'Zoho Mail', encrypted: false, type: 'text' as const },
+              { key: 'key_name', value: zohoCreds.clientId, encrypted: false, type: 'text' as const },
+              { key: 'secret', value: zohoCreds.clientSecret, encrypted: true, type: 'password' as const },
+              {
+                key: 'endpoint',
+                value: `https://accounts.zoho.${zohoDc}`,
+                encrypted: false,
+                type: 'text' as const,
+              },
+              { key: 'notes', value: 'Auto-saved by WR Desk Email Connect Wizard', encrypted: false, type: 'text' as const },
+              { key: 'client_id', value: zohoCreds.clientId, encrypted: false, type: 'text' as const },
+              { key: 'client_secret', value: zohoCreds.clientSecret, encrypted: true, type: 'password' as const },
+              { key: 'zoho_datacenter', value: zohoDc, encrypted: false, type: 'text' as const },
+            ]
+          : [
             { key: 'service_name', value: 'Microsoft 365 / Outlook', encrypted: false, type: 'text' as const },
             { key: 'key_name', value: outlookCreds.clientId, encrypted: false, type: 'text' as const },
             { key: 'secret', value: outlookCreds.clientSecret || '', encrypted: true, type: 'password' as const },
@@ -179,9 +277,14 @@ export async function saveToVault(provider: 'gmail' | 'outlook', creds: GmailCre
 }
 
 /** Delete plain file (after migration to vault) */
-export function deletePlainFile(provider: 'gmail' | 'outlook'): void {
+export function deletePlainFile(provider: 'gmail' | 'outlook' | 'zoho'): void {
   try {
-    const configPath = provider === 'gmail' ? getGmailConfigPath() : getOutlookConfigPath()
+    const configPath =
+      provider === 'gmail'
+        ? getGmailConfigPath()
+        : provider === 'zoho'
+          ? getZohoConfigPath()
+          : getOutlookConfigPath()
     if (fs.existsSync(configPath)) {
       fs.unlinkSync(configPath)
       debugLog('Deleted plain file:', configPath)
@@ -205,7 +308,9 @@ export function isVaultUnlocked(): boolean {
  * Check existing credentials with honest source.
  * Used by the wizard for display.
  */
-export async function checkExistingCredentials(provider: 'gmail' | 'outlook'): Promise<CheckResult> {
+export async function checkExistingCredentials(
+  provider: 'gmail' | 'outlook' | 'zoho',
+): Promise<CheckResult> {
   const vaultUnlocked = isVaultUnlocked()
 
   if (vaultUnlocked) {
@@ -240,8 +345,8 @@ export async function checkExistingCredentials(provider: 'gmail' | 'outlook'): P
  * Used by gmail.ts and outlook.ts for the actual connect flow.
  */
 export async function getCredentialsForOAuth(
-  provider: 'gmail' | 'outlook'
-): Promise<GmailCreds | OutlookCreds | null> {
+  provider: 'gmail' | 'outlook' | 'zoho',
+): Promise<GmailCreds | OutlookCreds | ZohoCreds | null> {
   if (isVaultUnlocked()) {
     const vaultCreds = await loadFromVault(provider)
     if (vaultCreds) return vaultCreds
@@ -255,8 +360,8 @@ export async function getCredentialsForOAuth(
  *                     When false: save to plain file only.
  */
 export async function saveCredentials(
-  provider: 'gmail' | 'outlook',
-  creds: GmailCreds | OutlookCreds,
+  provider: 'gmail' | 'outlook' | 'zoho',
+  creds: GmailCreds | OutlookCreds | ZohoCreds,
   storeInVault: boolean = true
 ): Promise<{ ok: boolean; savedToVault: boolean }> {
   const vaultUnlocked = isVaultUnlocked()
@@ -271,6 +376,9 @@ export async function saveCredentials(
   }
   if (provider === 'gmail') {
     saveOAuthConfig((creds as GmailCreds).clientId, (creds as GmailCreds).clientSecret)
+  } else if (provider === 'zoho') {
+    const z = creds as ZohoCreds
+    saveZohoOAuthConfig(z.clientId, z.clientSecret, z.datacenter === 'eu' ? 'eu' : 'com')
   } else {
     saveOutlookOAuthConfig(
       (creds as OutlookCreds).clientId,

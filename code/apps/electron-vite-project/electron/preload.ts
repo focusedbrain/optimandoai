@@ -111,6 +111,7 @@ function assertCustomMailboxPayload(v: unknown): {
   imapLifecyclePendingReviewMailbox?: string
   imapLifecyclePendingDeleteMailbox?: string
   imapLifecycleTrashMailbox?: string
+  syncWindowDays?: number
 } {
   if (!v || typeof v !== 'object') throw new Error('customMailbox: expected object')
   const o = v as Record<string, unknown>
@@ -143,6 +144,14 @@ function assertCustomMailboxPayload(v: unknown): {
   const lifeReview = optionalImapLifecycleMailbox(o.imapLifecyclePendingReviewMailbox, 'imapLifecyclePendingReviewMailbox')
   const lifeDelete = optionalImapLifecycleMailbox(o.imapLifecyclePendingDeleteMailbox, 'imapLifecyclePendingDeleteMailbox')
   const lifeTrash = optionalImapLifecycleMailbox(o.imapLifecycleTrashMailbox, 'imapLifecycleTrashMailbox')
+  let syncWindowDays: number | undefined
+  if (o.syncWindowDays !== undefined && o.syncWindowDays !== null) {
+    const n = typeof o.syncWindowDays === 'number' ? o.syncWindowDays : parseInt(String(o.syncWindowDays).trim(), 10)
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error('customMailbox.syncWindowDays: expected non-negative integer')
+    }
+    syncWindowDays = n
+  }
   return {
     ...(displayName ? { displayName } : {}),
     email: emailRaw,
@@ -157,6 +166,11 @@ function assertCustomMailboxPayload(v: unknown): {
     smtpUseSameCredentials: useSame,
     ...(smtpUser ? { smtpUsername: smtpUser } : {}),
     ...(smtpPass ? { smtpPassword: smtpPass } : {}),
+    ...(lifeArchive ? { imapLifecycleArchiveMailbox: lifeArchive } : {}),
+    ...(lifeReview ? { imapLifecyclePendingReviewMailbox: lifeReview } : {}),
+    ...(lifeDelete ? { imapLifecyclePendingDeleteMailbox: lifeDelete } : {}),
+    ...(lifeTrash ? { imapLifecycleTrashMailbox: lifeTrash } : {}),
+    ...(syncWindowDays !== undefined ? { syncWindowDays } : {}),
   }
 }
 
@@ -568,8 +582,12 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
-  connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
-  connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
+  connectGmail: (displayName?: string, syncWindowDays?: number) =>
+    ipcRenderer.invoke('email:connectGmail', displayName, syncWindowDays),
+  connectOutlook: (displayName?: string, syncWindowDays?: number) =>
+    ipcRenderer.invoke('email:connectOutlook', displayName, syncWindowDays),
+  connectZoho: (displayName?: string, syncWindowDays?: number) =>
+    ipcRenderer.invoke('email:connectZoho', displayName, syncWindowDays),
   connectCustomMailbox: (payload: unknown) =>
     ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
   validateImapLifecycleRemote: (accountId: string) =>
@@ -578,8 +596,22 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
   setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId, storeInVault ?? true),
+  setZohoCredentials: (
+    clientId: string,
+    clientSecret: string,
+    datacenter?: 'com' | 'eu',
+    storeInVault?: boolean,
+  ) =>
+    ipcRenderer.invoke(
+      'email:setZohoCredentials',
+      clientId,
+      clientSecret,
+      datacenter ?? 'com',
+      storeInVault ?? true,
+    ),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
+  checkZohoCredentials: () => ipcRenderer.invoke('email:checkZohoCredentials'),
   checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),
   onAccountConnected: (cb: (data: { provider: string; email: string; accountId?: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string; accountId?: string }) =>
@@ -604,6 +636,9 @@ contextBridge.exposeInMainWorld('emailInbox', {
   migrateInboxAccountId: (fromAccountId: string, toAccountId: string) =>
     ipcRenderer.invoke('inbox:migrateInboxAccountId', fromAccountId, toAccountId),
   syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
+  pullMoreAccount: (accountId: string) => ipcRenderer.invoke('inbox:pullMore', accountId),
+  patchAccountSyncPreferences: (accountId: string, partial: { syncWindowDays?: number; maxMessagesPerPull?: number }) =>
+    ipcRenderer.invoke('inbox:patchAccountSyncPreferences', accountId, partial),
   toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
   getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),
   onNewMessages: (handler: (data: unknown) => void) => {

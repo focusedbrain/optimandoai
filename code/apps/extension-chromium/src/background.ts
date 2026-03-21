@@ -3031,7 +3031,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronOAuthRequest('/api/email/accounts/connect/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: msg.displayName || 'Gmail Account' })
+        body: JSON.stringify({
+          displayName: msg.displayName || 'Gmail Account',
+          ...(typeof msg.syncWindowDays === 'number' && Number.isInteger(msg.syncWindowDays) && msg.syncWindowDays >= 0
+            ? { syncWindowDays: msg.syncWindowDays }
+            : {}),
+        })
       })
         .then(result => {
           console.log('[BG] 📧 Gmail connect response:', result.ok ? 'success' : result.error)
@@ -3052,7 +3057,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronOAuthRequest('/api/email/accounts/connect/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: msg.displayName || 'Outlook Account' })
+        body: JSON.stringify({
+          displayName: msg.displayName || 'Outlook Account',
+          ...(typeof msg.syncWindowDays === 'number' && Number.isInteger(msg.syncWindowDays) && msg.syncWindowDays >= 0
+            ? { syncWindowDays: msg.syncWindowDays }
+            : {}),
+        })
       })
         .then(result => {
           console.log('[BG] 📧 Outlook connect response:', result.ok ? 'success' : result.error)
@@ -3064,6 +3074,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       
       return true // Keep channel open for async response
+    }
+
+    case 'EMAIL_CONNECT_ZOHO': {
+      console.log('[BG] 📧 Email connect Zoho request (OAuth flow)')
+      electronOAuthRequest('/api/email/accounts/connect/zoho', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: msg.displayName || 'Zoho Mail',
+          ...(typeof msg.syncWindowDays === 'number' && Number.isInteger(msg.syncWindowDays) && msg.syncWindowDays >= 0
+            ? { syncWindowDays: msg.syncWindowDays }
+            : {}),
+        }),
+      })
+        .then((result) => {
+          console.log('[BG] 📧 Zoho connect response:', result.ok ? 'success' : result.error)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      return true
     }
     
     case 'EMAIL_CONNECT_IMAP': {
@@ -3112,7 +3145,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           smtpSecurity: msg.smtpSecurity,
           smtpUseSameCredentials: msg.smtpUseSameCredentials,
           smtpUsername: msg.smtpUsername,
-          smtpPassword: msg.smtpPassword
+          smtpPassword: msg.smtpPassword,
+          ...(typeof msg.syncWindowDays === 'number' && Number.isInteger(msg.syncWindowDays) && msg.syncWindowDays >= 0
+            ? { syncWindowDays: msg.syncWindowDays }
+            : {}),
         })
       })
         .then(result => {
@@ -3241,7 +3277,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then(result => {
           console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
+          sendResponse(
+            result.ok
+              ? { ok: true, savedToVault: (result as { savedToVault?: boolean }).savedToVault }
+              : { ok: false, error: result.error },
+          )
         })
       
       return true
@@ -3269,9 +3309,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then(result => {
           console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
+          sendResponse(
+            result.ok
+              ? { ok: true, savedToVault: (result as { savedToVault?: boolean }).savedToVault }
+              : { ok: false, error: result.error },
+          )
         })
       
+      return true
+    }
+
+    case 'EMAIL_CHECK_ZOHO_CREDENTIALS': {
+      console.log('[BG] 📧 Check Zoho credentials')
+      electronRequest('/api/email/credentials/zoho')
+        .then((result) => {
+          sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
+        })
+      return true
+    }
+
+    case 'EMAIL_SAVE_ZOHO_CREDENTIALS': {
+      console.log('[BG] 📧 Save Zoho credentials')
+      electronRequest('/api/email/credentials/zoho', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: msg.clientId,
+          clientSecret: msg.clientSecret,
+          datacenter: msg.datacenter === 'eu' ? 'eu' : 'com',
+          storeInVault: msg.storeInVault !== false,
+        }),
+      })
+        .then((result) => {
+          sendResponse(
+            result.ok
+              ? { ok: true, savedToVault: (result as { savedToVault?: boolean }).savedToVault }
+              : { ok: false, error: result.error },
+          )
+        })
       return true
     }
     

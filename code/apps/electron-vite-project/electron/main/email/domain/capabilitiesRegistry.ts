@@ -34,6 +34,13 @@ export const PROVIDER_IMPLEMENTATION_PROFILE: Record<EmailProvider, ProviderImpl
     remoteFolderMutationCapable: true,
     adapterAutoListsAdditionalMailboxes: false,
   },
+  zoho: {
+    provider: 'zoho',
+    inboundSyncCapable: true,
+    outboundSendCapable: true,
+    remoteFolderMutationCapable: true,
+    adapterAutoListsAdditionalMailboxes: false,
+  },
   imap: {
     provider: 'imap',
     inboundSyncCapable: true,

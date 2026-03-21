@@ -3,7 +3,7 @@
  *
  * - Enqueue after successful local transitions (IPC handlers).
  * - Drain asynchronously in batches (default **50** rows); **parallel per `account_id`** with per-provider
- *   spacing (IMAP **50ms**, Gmail/Graph **200ms** between ops on the same account). Failures stay visible with retry backoff.
+ *   spacing (IMAP **1000ms**, Gmail/Graph **200ms** between ops on the same account). Failures stay visible with retry backoff.
  * - Idempotency: UNIQUE(message_id, operation) collapses duplicate pending work for the **same** op;
  *   enqueueing a **new** op for a message first marks other pending/processing rows for that message
  *   as completed with `Superseded by newer classification` so reclassification does not double-move.
@@ -24,7 +24,9 @@ import type {
   OrchestratorRemoteOperation,
 } from './domain/orchestratorRemoteTypes'
 import type { ResolvedOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
+import type { EmailAccountConfig } from './types'
 import { resolveOrchestratorRemoteNames } from './domain/mailboxLifecycleMapping'
+import { getRemoteSyncReceivedAtLowerBoundIso } from './domain/smartSyncPrefs'
 import { emailGateway } from './gateway'
 import { isPullActive } from './syncPullLock'
 
@@ -49,9 +51,9 @@ const MAX_ATTEMPTS = 8
 export const BATCH = 50
 /** Prevent a hung IMAP/socket from leaving queue rows stuck in `processing` indefinitely. */
 const MOVE_TIMEOUT_MS = 30_000
-/** After N successful IMAP moves on one account, pause so providers (e.g. web.de) do not drop the session. */
-const IMAP_BREATHING_EVERY_N_OPS = 50
-const IMAP_BREATHING_PAUSE_MS = 3000
+/** After N successful IMAP moves on one account, pause (legacy batch path; SimpleDrain is primary). */
+const IMAP_BREATHING_EVERY_N_OPS = 10
+const IMAP_BREATHING_PAUSE_MS = 30_000
 /** After forcing reconnect, brief pause before the next command. */
 const RECONNECT_SETTLE_MS = 2000
 
@@ -91,9 +93,10 @@ function isTransientOrchestratorRemoteConnectionError(message: string | undefine
 /** Throttle between remote moves on the **same** account (parallel across different accounts). */
 function interRemoteOpDelayMs(providerType: string | null | undefined): number {
   const p = String(providerType ?? '').toLowerCase()
-  if (p === 'imap') return 50
+  if (p === 'imap') return 1000
   if (p === 'microsoft365') return 200
   if (p === 'gmail') return 200
+  if (p === 'zoho') return 200
   return 100
 }
 
@@ -170,6 +173,10 @@ function observedRemoteBucketFromImapColumn(
   const oPd = norm(names.outlook.pendingDeleteFolder)
   const oPr = norm(names.outlook.pendingReviewFolder)
   const oU = norm(names.outlook.urgentFolder)
+  const zA = norm(names.zoho.archiveFolder)
+  const zPd = norm(names.zoho.pendingDeleteFolder)
+  const zPr = norm(names.zoho.pendingReviewFolder)
+  const zU = norm(names.zoho.urgentFolder)
 
   if (a && s === a) return 'archive'
   if (pd && s === pd) return 'pending_delete'
@@ -181,6 +188,10 @@ function observedRemoteBucketFromImapColumn(
   if (oPd && s === oPd) return 'pending_delete'
   if (oPr && s === oPr) return 'pending_review'
   if (oU && s === oU) return 'urgent'
+  if (zA && s === zA) return 'archive'
+  if (zPd && s === zPd) return 'pending_delete'
+  if (zPr && s === zPr) return 'pending_review'
+  if (zU && s === zU) return 'urgent'
 
   return 'inbox'
 }
@@ -1073,20 +1084,26 @@ export function enqueueFullRemoteSync(db: any, accountId: string): EnqueueFullRe
   if (!db || !accountId?.trim()) return out
 
   let names: ResolvedOrchestratorRemoteNames
+  let cfg: EmailAccountConfig | undefined
   try {
-    const cfg = emailGateway.getAccountConfig(accountId.trim())
+    cfg = emailGateway.getAccountConfig(accountId.trim())
     if (!cfg) return out
     names = resolveOrchestratorRemoteNames(cfg)
   } catch {
     return out
   }
 
+  const receivedLower = getRemoteSyncReceivedAtLowerBoundIso(cfg.sync)
+  const dateClause =
+    receivedLower != null
+      ? ' AND datetime(COALESCE(received_at, ingested_at)) >= datetime(?)'
+      : ''
   const rows = db
     .prepare(
-      `SELECT id, archived, pending_delete, sort_category, pending_review_at, imap_remote_mailbox, source_type, email_message_id
-       FROM inbox_messages WHERE account_id = ?`,
+      `SELECT id, archived, pending_delete, sort_category, pending_review_at, imap_remote_mailbox, source_type, email_message_id, received_at, ingested_at
+       FROM inbox_messages WHERE account_id = ?${dateClause}`,
     )
-    .all(accountId.trim()) as Array<Record<string, unknown>>
+    .all(receivedLower != null ? [accountId.trim(), receivedLower] : [accountId.trim()]) as Array<Record<string, unknown>>
 
   const lifecycleIds: string[] = []
   for (const row of rows) {

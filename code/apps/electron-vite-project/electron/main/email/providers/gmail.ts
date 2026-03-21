@@ -112,6 +112,38 @@ export class GmailProvider extends BaseEmailProvider {
     this.config = null
     this.wrDeskLabelIdCache.clear()
   }
+
+  /**
+   * Resolve the signed-in mailbox address after OAuth (`users/me/profile`).
+   * Connects with the given tokens, fetches profile, then disconnects (avoids leaving a stale singleton session).
+   */
+  async fetchProfileEmailAddress(oauth: NonNullable<EmailAccountConfig['oauth']>): Promise<string> {
+    const probe: EmailAccountConfig = {
+      id: '__gmail_profile_probe__',
+      displayName: 'Gmail',
+      email: '',
+      provider: 'gmail',
+      authType: 'oauth2',
+      oauth,
+      folders: { monitored: ['INBOX'], inbox: 'INBOX' },
+      sync: { maxAgeDays: 0, analyzePdfs: true, batchSize: 50 },
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await this.connect(probe)
+    try {
+      const profile = await this.apiRequest('GET', '/users/me/profile')
+      const addr = typeof profile?.emailAddress === 'string' ? profile.emailAddress.trim() : ''
+      if (!addr) {
+        throw new Error('Gmail users/me/profile did not return emailAddress')
+      }
+      console.log('[Gmail] Profile email resolved:', addr)
+      return addr
+    } finally {
+      await this.disconnect()
+    }
+  }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
     try {
@@ -434,6 +466,33 @@ export class GmailProvider extends BaseEmailProvider {
     } catch (e: any) {
       if (this.isGmailIdempotentModifyError(e?.message || '')) return
       throw e
+    }
+  }
+
+  /**
+   * Batch label changes (up to **1000** message ids per Gmail API call).
+   * Use for future drain optimization; current queue still applies per-message `modify`.
+   * @see https://developers.google.com/gmail/api/reference/rest/v1/users.messages/batchModify
+   */
+  async batchModifyMessages(
+    messageIds: string[],
+    body: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<void> {
+    const add = body.addLabelIds?.filter(Boolean) ?? []
+    const rem = body.removeLabelIds?.filter(Boolean) ?? []
+    if (add.length === 0 && rem.length === 0) {
+      throw new Error('batchModifyMessages: addLabelIds or removeLabelIds required')
+    }
+    const ids = [...new Set(messageIds.filter((id) => typeof id === 'string' && id.trim()))]
+    if (ids.length === 0) return
+    const chunkSize = 1000
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize)
+      await this.apiRequest('POST', '/users/me/messages/batchModify', {
+        ids: chunk,
+        ...(add.length ? { addLabelIds: add } : {}),
+        ...(rem.length ? { removeLabelIds: rem } : {}),
+      })
     }
   }
 

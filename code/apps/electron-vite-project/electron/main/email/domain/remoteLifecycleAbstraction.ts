@@ -28,6 +28,7 @@ export const CANONICAL_LIFECYCLE_BUCKET_LABELS = {
 export type RemoteLifecycleBackendKind =
   | 'gmail_api_labels'
   | 'microsoft_graph_mailfolder_move'
+  | 'zoho_mail_api_folder_move'
   | 'imap_uid_move'
 
 export function remoteLifecycleBackendForProvider(provider: EmailProvider): RemoteLifecycleBackendKind {
@@ -36,6 +37,8 @@ export function remoteLifecycleBackendForProvider(provider: EmailProvider): Remo
       return 'gmail_api_labels'
     case 'microsoft365':
       return 'microsoft_graph_mailfolder_move'
+    case 'zoho':
+      return 'zoho_mail_api_folder_move'
     case 'imap':
       return 'imap_uid_move'
   }
@@ -81,6 +84,18 @@ export function resolveRemoteLifecycleSnapshot(account: EmailAccountConfig): Res
         pendingReview: r.outlook.pendingReviewFolder,
         pendingDelete: r.outlook.pendingDeleteFolder,
         archive: 'graph:wellKnown:archive',
+      },
+    }
+  }
+  if (p === 'zoho') {
+    return {
+      providerType: 'zoho',
+      backend: 'zoho_mail_api_folder_move',
+      targets: {
+        pendingReview: r.zoho.pendingReviewFolder,
+        pendingDelete: r.zoho.pendingDeleteFolder,
+        archive: r.zoho.archiveFolder,
+        trashMailbox: r.zoho.trashFolder,
       },
     }
   }

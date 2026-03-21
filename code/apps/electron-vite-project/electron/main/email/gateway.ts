@@ -35,7 +35,9 @@ import {
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
+import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
+import { saveZohoOAuthConfig } from './credentials'
 import {
   sanitizeHtmlToText,
   sanitizeSubject,
@@ -60,6 +62,28 @@ import type {
 } from './domain/orchestratorRemoteTypes'
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
+
+/** New-account sync defaults; `syncWindowDays` 0 = all mail, else clamp to a sane range. */
+function normalizeNewAccountSyncWindowDays(syncWindowDays?: number): number {
+  if (syncWindowDays === 0) return 0
+  if (typeof syncWindowDays === 'number' && Number.isFinite(syncWindowDays)) {
+    const d = Math.round(syncWindowDays)
+    if (d === 0) return 0
+    if (d > 0 && d <= 3650) return d
+  }
+  return 30
+}
+
+function newAccountSyncBlock(syncWindowDays?: number): NonNullable<EmailAccountConfig['sync']> {
+  const days = normalizeNewAccountSyncWindowDays(syncWindowDays)
+  return {
+    maxAgeDays: 0,
+    syncWindowDays: days,
+    maxMessagesPerPull: 500,
+    analyzePdfs: true,
+    batchSize: 50,
+  }
+}
 
 function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap') return account
@@ -305,6 +329,19 @@ class EmailGateway implements IEmailGateway {
     }
     
     return this.toAccountInfo(this.accounts[index])
+  }
+
+  /** Merge into existing `sync` without dropping analyzePdfs / batchSize. */
+  async patchAccountSyncPreferences(
+    id: string,
+    partial: Partial<Pick<EmailAccountConfig['sync'], 'syncWindowDays' | 'maxMessagesPerPull' | 'maxAgeDays' | 'batchSize'>>,
+  ): Promise<EmailAccountInfo> {
+    const account = this.accounts.find((a) => a.id === id)
+    if (!account) {
+      throw new Error('Account not found')
+    }
+    const nextSync = { ...account.sync, ...partial }
+    return this.updateAccount(id, { sync: nextSync })
   }
   
   async deleteAccount(id: string): Promise<void> {
@@ -739,16 +776,16 @@ class EmailGateway implements IEmailGateway {
   /**
    * Start Gmail OAuth flow and create account
    */
-  async connectGmailAccount(displayName?: string): Promise<EmailAccountInfo> {
+  async connectGmailAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
     const oauth = await gmailProvider.startOAuthFlow()
-    
-    // Get user email from Gmail API
-    await gmailProvider.connect({ oauth } as any)
+
+    /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */
+    const emailFromProfile = await gmailProvider.fetchProfileEmailAddress(oauth)
     
     // Create account config
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
       displayName: displayName || 'Gmail Account',
-      email: '', // Will be filled from API
+      email: emailFromProfile,
       provider: 'gmail',
       authType: 'oauth2',
       oauth,
@@ -757,11 +794,7 @@ class EmailGateway implements IEmailGateway {
         inbox: 'INBOX',
         sent: 'SENT'
       },
-      sync: {
-        maxAgeDays: 0,
-        analyzePdfs: true,
-        batchSize: 50
-      },
+      sync: newAccountSyncBlock(syncWindowDays),
       status: 'active'
     }
     
@@ -771,7 +804,7 @@ class EmailGateway implements IEmailGateway {
   /**
    * Start Outlook/Microsoft 365 OAuth flow and create account
    */
-  async connectOutlookAccount(displayName?: string): Promise<EmailAccountInfo> {
+  async connectOutlookAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
     const { oauth, email } = await outlookProvider.startOAuthFlow()
     
     // Create account config
@@ -786,14 +819,29 @@ class EmailGateway implements IEmailGateway {
         inbox: 'inbox',
         sent: 'sentitems'
       },
-      sync: {
-        maxAgeDays: 0,
-        analyzePdfs: true,
-        batchSize: 50
-      },
+      sync: newAccountSyncBlock(syncWindowDays),
       status: 'active'
     }
     
+    return this.addAccount(account)
+  }
+
+  /**
+   * Zoho Mail OAuth — same Smart Sync defaults as other API providers (30d / 500).
+   */
+  async connectZohoAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
+    const { oauth, email, folders, zohoDatacenter } = await zohoProvider.startOAuthFlow()
+    const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
+      displayName: displayName || 'Zoho Mail',
+      email: email || '',
+      provider: 'zoho',
+      authType: 'oauth2',
+      oauth,
+      zohoDatacenter,
+      folders,
+      sync: newAccountSyncBlock(syncWindowDays),
+      status: 'active',
+    }
     return this.addAccount(account)
   }
   
@@ -802,6 +850,15 @@ class EmailGateway implements IEmailGateway {
    */
   setOutlookOAuthCredentials(clientId: string, clientSecret?: string): void {
     saveOutlookOAuthConfig(clientId, clientSecret)
+  }
+
+  /** Persist Zoho OAuth client credentials (plain file; wizard also uses {@link saveCredentials}). */
+  setZohoOAuthCredentials(
+    clientId: string,
+    clientSecret: string,
+    datacenter: 'com' | 'eu' = 'com',
+  ): void {
+    saveZohoOAuthConfig(clientId, clientSecret, datacenter)
   }
   
   /**
@@ -822,6 +879,7 @@ class EmailGateway implements IEmailGateway {
     smtpSecurity?: 'ssl' | 'starttls' | 'none'
     smtpUsername?: string
     smtpPassword?: string
+    syncWindowDays?: number
   }): Promise<EmailAccountInfo> {
     // Create account config for IMAP
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -848,11 +906,7 @@ class EmailGateway implements IEmailGateway {
         inbox: 'INBOX',
         sent: 'Sent'
       },
-      sync: {
-        maxAgeDays: 0,
-        analyzePdfs: true,
-        batchSize: 50
-      },
+      sync: newAccountSyncBlock(config.syncWindowDays),
       status: 'active'
     }
     
@@ -919,11 +973,7 @@ class EmailGateway implements IEmailGateway {
         inbox: 'INBOX',
         sent: 'Sent'
       },
-      sync: {
-        maxAgeDays: 0,
-        analyzePdfs: true,
-        batchSize: 50
-      },
+      sync: newAccountSyncBlock(payload.syncWindowDays),
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -1087,6 +1137,8 @@ class EmailGateway implements IEmailGateway {
         return new GmailProvider()
       case 'microsoft365':
         return new OutlookProvider()
+      case 'zoho':
+        return new ZohoProvider()
       case 'imap':
         return new ImapProvider()
       default:
@@ -1152,6 +1204,8 @@ class EmailGateway implements IEmailGateway {
         /** 0 = full history window for orchestrator (matches syncOrchestrator default). */
         maxAgeDays: account.sync?.maxAgeDays ?? 0,
         batchSize: account.sync?.batchSize ?? 50,
+        syncWindowDays: typeof account.sync?.syncWindowDays === 'number' ? account.sync.syncWindowDays : 30,
+        maxMessagesPerPull: typeof account.sync?.maxMessagesPerPull === 'number' ? account.sync.maxMessagesPerPull : 500,
       },
     }
   }

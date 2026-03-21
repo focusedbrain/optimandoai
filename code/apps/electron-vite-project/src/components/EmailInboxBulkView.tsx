@@ -1594,6 +1594,9 @@ export default function EmailInboxBulkView({
     syncAllAccounts,
     toggleAutoSync,
     loadSyncState,
+    accountSyncWindowDays,
+    pullMoreAccount,
+    patchAccountSyncPreferences,
     editingDraftForMessageId,
     setEditingDraftForMessageId,
     subFocus,
@@ -1647,6 +1650,9 @@ export default function EmailInboxBulkView({
       syncAllAccounts: s.syncAllAccounts,
       toggleAutoSync: s.toggleAutoSync,
       loadSyncState: s.loadSyncState,
+      accountSyncWindowDays: s.accountSyncWindowDays,
+      pullMoreAccount: s.pullMoreAccount,
+      patchAccountSyncPreferences: s.patchAccountSyncPreferences,
       editingDraftForMessageId: s.editingDraftForMessageId,
       setEditingDraftForMessageId: s.setEditingDraftForMessageId,
       subFocus: s.subFocus,
@@ -1740,6 +1746,22 @@ export default function EmailInboxBulkView({
     if (toSync.length === 0) return
     void syncAllAccounts(toSync)
   }, [accounts, primaryAccountId, syncAllAccounts])
+
+  const handlePullMore = useCallback(() => {
+    if (primaryAccountId) void pullMoreAccount(primaryAccountId)
+  }, [primaryAccountId, pullMoreAccount])
+
+  const handleSyncWindowChange = useCallback(
+    async (days: number) => {
+      if (!primaryAccountId) return
+      if (days === 0) {
+        const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+        if (!ok) return
+      }
+      await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
+    },
+    [primaryAccountId, patchAccountSyncPreferences],
+  )
 
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
@@ -3961,6 +3983,19 @@ export default function EmailInboxBulkView({
             </button>
             <button
               type="button"
+              className="bulk-view-pull-btn"
+              onClick={handlePullMore}
+              disabled={syncing || !primaryAccountId || !window.emailInbox?.pullMoreAccount}
+              title={
+                !window.emailInbox?.pullMoreAccount
+                  ? 'Pull More requires an updated WR Desk build'
+                  : 'Fetch the next ~500 older messages than your oldest local message'
+              }
+            >
+              ↻ Pull More
+            </button>
+            <button
+              type="button"
               className="bulk-view-sync-remote-btn"
               onClick={handleRemoteSyncAll}
               disabled={remoteSyncBusy || accounts.length === 0}
@@ -3985,6 +4020,46 @@ export default function EmailInboxBulkView({
               WR Expert
             </button>
           </div>
+        </div>
+
+        <div
+          className="bulk-view-toolbar-row"
+          style={{
+            flexWrap: 'wrap',
+            gap: 10,
+            alignItems: 'center',
+            fontSize: 11,
+            paddingTop: 2,
+            borderTop: '1px solid var(--color-border, rgba(0,0,0,0.08))',
+            marginTop: 6,
+            paddingBottom: 4,
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>Sync window</span>
+            <select
+              value={accountSyncWindowDays}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                if (!Number.isNaN(v)) void handleSyncWindowChange(v)
+              }}
+              disabled={!primaryAccountId || !window.emailInbox?.patchAccountSyncPreferences}
+              style={{ fontSize: 12, padding: '4px 8px' }}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={0}>All mail (warning)</option>
+            </select>
+          </label>
+          <span style={{ opacity: 0.88, maxWidth: 560, lineHeight: 1.35 }}>
+            After the first sync, only new incoming messages sync automatically. Use Pull More for older mail.
+            {accountSyncWindowDays === 0 ? (
+              <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
+                Large mailboxes may take a long time when syncing all mail.
+              </span>
+            ) : null}
+          </span>
         </div>
       </div>
 

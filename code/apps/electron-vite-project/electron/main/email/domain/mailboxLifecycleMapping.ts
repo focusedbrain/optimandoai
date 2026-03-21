@@ -24,10 +24,21 @@ export const DEFAULT_ORCHESTRATOR_REMOTE_NAMES = {
     archiveRemoveLabelIds: ['INBOX'] as readonly string[],
   },
   outlook: {
-    /** Root-level Graph mail folders — same display names as IMAP lifecycle mailboxes. */
+    /**
+     * Root-level Graph mail folders — same display names as IMAP lifecycle mailboxes.
+     * **Archive** is not listed here: `applyOrchestratorRemoteOperation('archive')` uses Graph well-known
+     * `GET /me/mailFolders/archive`, not a custom folder named "Archive".
+     */
     pendingReviewFolder: 'Pending Review',
     pendingDeleteFolder: 'Pending Delete',
     urgentFolder: 'Urgent',
+  },
+  zoho: {
+    pendingReviewFolder: 'Pending Review',
+    pendingDeleteFolder: 'Pending Delete',
+    urgentFolder: 'Urgent',
+    archiveFolder: 'Archive',
+    trashFolder: 'Trash',
   },
   imap: {
     archiveMailbox: 'Archive',
@@ -51,6 +62,13 @@ export interface ResolvedOrchestratorRemoteNames {
     pendingDeleteFolder: string
     urgentFolder: string
   }
+  zoho: {
+    pendingReviewFolder: string
+    pendingDeleteFolder: string
+    urgentFolder: string
+    archiveFolder: string
+    trashFolder: string
+  }
   imap: {
     archiveMailbox: string
     pendingReviewMailbox: string
@@ -72,6 +90,7 @@ export function resolveOrchestratorRemoteNames(account: EmailAccountConfig): Res
   const o = account.orchestratorRemote
   const g = DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail
   const ms = DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook
+  const zh = DEFAULT_ORCHESTRATOR_REMOTE_NAMES.zoho
   const im = DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap
 
   const archiveRemove =
@@ -90,6 +109,13 @@ export function resolveOrchestratorRemoteNames(account: EmailAccountConfig): Res
       pendingReviewFolder: coalesceTrim(o?.outlookPendingReviewFolder, ms.pendingReviewFolder),
       pendingDeleteFolder: coalesceTrim(o?.outlookPendingDeleteFolder, ms.pendingDeleteFolder),
       urgentFolder: coalesceTrim(o?.outlookUrgentFolder, ms.urgentFolder),
+    },
+    zoho: {
+      pendingReviewFolder: coalesceTrim(o?.zohoPendingReviewFolder, zh.pendingReviewFolder),
+      pendingDeleteFolder: coalesceTrim(o?.zohoPendingDeleteFolder, zh.pendingDeleteFolder),
+      urgentFolder: coalesceTrim(o?.zohoUrgentFolder, zh.urgentFolder),
+      archiveFolder: coalesceTrim(o?.zohoArchiveFolder, zh.archiveFolder),
+      trashFolder: coalesceTrim(o?.zohoTrashFolder, zh.trashFolder),
     },
     imap: {
       archiveMailbox: coalesceTrim(o?.imapArchiveMailbox, im.archiveMailbox),
@@ -149,5 +175,9 @@ export const REMOTE_DELETION_TARGETS = {
   outlook: {
     /** Graph well-known folder name segment for deleted items */
     deletedItemsFolderId: 'deleteditems' as const,
+  },
+  zoho: {
+    /** Move to folder display name (resolved via `resolveOrchestratorRemoteNames` → Trash) */
+    trashFolderKey: 'trashFolder' as const,
   },
 } as const

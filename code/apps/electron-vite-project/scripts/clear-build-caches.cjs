@@ -29,6 +29,7 @@ function clearBuildCaches() {
   rmDir(path.join(extensionRoot, 'build1'))
   rmDir(path.join(extensionRoot, 'build1024'))
   rmDir(path.join(extensionRoot, 'build24'))
+  rmDir(path.join(extensionRoot, 'build74'))
 
   /** Vite / Rollup transform caches */
   const dirs = [

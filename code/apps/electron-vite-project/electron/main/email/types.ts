@@ -16,13 +16,14 @@
 export type EmailProvider = 
   | 'gmail'           // Google Gmail (OAuth2)
   | 'microsoft365'    // Microsoft 365 / Outlook.com (OAuth2)
+  | 'zoho'            // Zoho Mail (OAuth2)
   | 'imap'            // Generic IMAP provider
 
 /**
  * Authentication type for email accounts
  */
 export type AuthType = 
-  | 'oauth2'          // OAuth2 (Gmail, Microsoft)
+  | 'oauth2'          // OAuth2 (Gmail, Microsoft, Zoho)
   | 'password'        // Username/password (IMAP)
   | 'app_password'    // App-specific password
 
@@ -74,6 +75,8 @@ export interface CustomImapSmtpConnectPayload {
   imapLifecyclePendingReviewMailbox?: string
   imapLifecyclePendingDeleteMailbox?: string
   imapLifecycleTrashMailbox?: string
+  /** Initial inbox sync window in days; `0` = all mail (use with care). Default 30 when omitted. */
+  syncWindowDays?: number
 }
 
 /** One row from IMAP lifecycle folder validation (`validateLifecycleRemoteBoxes` / IPC). */
@@ -103,6 +106,11 @@ export interface OrchestratorRemoteNamesInput {
   outlookPendingReviewFolder?: string
   outlookPendingDeleteFolder?: string
   outlookUrgentFolder?: string
+  zohoPendingReviewFolder?: string
+  zohoPendingDeleteFolder?: string
+  zohoUrgentFolder?: string
+  zohoArchiveFolder?: string
+  zohoTrashFolder?: string
   imapArchiveMailbox?: string
   imapPendingReviewMailbox?: string
   imapPendingDeleteMailbox?: string
@@ -284,7 +292,13 @@ export interface EmailAccountConfig {
    */
   externalPrincipalId?: string
   
-  /** OAuth tokens (for gmail/microsoft365) */
+  /**
+   * Zoho Mail API region: `mail.zoho.com` / `accounts.zoho.com` vs `.eu` for EU accounts.
+   * Persisted at connect time from OAuth client config + wizard.
+   */
+  zohoDatacenter?: 'com' | 'eu'
+
+  /** OAuth tokens (for gmail / microsoft365 / zoho) */
   oauth?: {
     accessToken: string
     refreshToken: string
@@ -339,6 +353,13 @@ export interface EmailAccountConfig {
   sync: {
     /** Only fetch emails from the last N days */
     maxAgeDays: number
+    /**
+     * Smart Sync initial/window: 7, 30, 90, or **0** = entire mailbox (UI warns).
+     * When omitted, orchestrator falls back to `maxAgeDays` if > 0, else **30**.
+     */
+    syncWindowDays?: number
+    /** Cap for first pull / Pull More batches (default 500). */
+    maxMessagesPerPull?: number
     /** Whether to auto-analyze PDF attachments */
     analyzePdfs: boolean
     /** Maximum emails to fetch per sync */
@@ -394,6 +415,9 @@ export interface EmailAccountInfo {
   sync?: {
     maxAgeDays: number
     batchSize: number
+    /** Smart Sync window days (0 = all mail). */
+    syncWindowDays?: number
+    maxMessagesPerPull?: number
   }
 }
 
@@ -725,6 +749,10 @@ export interface IEmailGateway {
   getAccount(id: string): Promise<EmailAccountInfo | null>
   addAccount(config: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<EmailAccountInfo>
   updateAccount(id: string, updates: Partial<EmailAccountConfig>): Promise<EmailAccountInfo>
+  patchAccountSyncPreferences(
+    id: string,
+    partial: Partial<Pick<EmailAccountConfig['sync'], 'syncWindowDays' | 'maxMessagesPerPull' | 'maxAgeDays' | 'batchSize'>>,
+  ): Promise<EmailAccountInfo>
   deleteAccount(id: string): Promise<void>
   testConnection(id: string): Promise<{ success: boolean; error?: string }>
   

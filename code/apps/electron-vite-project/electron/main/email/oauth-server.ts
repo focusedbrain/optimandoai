@@ -35,7 +35,7 @@ export interface OAuthCallbackResult {
 
 // Pending OAuth request
 interface PendingOAuthRequest {
-  provider: 'gmail' | 'outlook'
+  provider: 'gmail' | 'outlook' | 'zoho'
   resolve: (result: OAuthCallbackResult) => void
   reject: (error: Error) => void
   timeout: NodeJS.Timeout
@@ -119,7 +119,7 @@ class OAuthServerManager {
    * Returns a promise that resolves when the callback is received
    */
   async startOAuthFlow(
-    provider: 'gmail' | 'outlook',
+    provider: 'gmail' | 'outlook' | 'zoho',
     timeoutMs: number = DEFAULT_TIMEOUT
   ): Promise<OAuthCallbackResult> {
     // Prevent concurrent OAuth flows
@@ -414,6 +414,10 @@ class OAuthServerManager {
 
 // Export singleton instance
 export const oauthServerManager = new OAuthServerManager()
+
+/** Zoho OAuth (US data center); EU uses `accounts.zoho.eu` / `mail.zoho.eu`. */
+export const ZOHO_OAUTH_AUTH_URL = 'https://accounts.zoho.com/oauth/v2/auth'
+export const ZOHO_OAUTH_TOKEN_URL = 'https://accounts.zoho.com/oauth/v2/token'
 
 // Export types (OAuthCallbackResult already exported as interface above)
 export type { PendingOAuthRequest }

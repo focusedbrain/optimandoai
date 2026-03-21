@@ -15,6 +15,12 @@ export interface EmailInboxToolbarProps {
   autoSyncEnabled: boolean
   syncing: boolean
   onSync: () => void
+  /** Next 500 older messages (Smart Sync). */
+  onPullMore?: () => void
+  /** Current sync window in days (0 = all mail). */
+  accountSyncWindowDays?: number
+  /** Persist sync window; parent should confirm when days === 0. */
+  onSyncWindowChange?: (days: number) => void
   /** Optional: enqueue full remote reconcile for all accounts (background). */
   onRemoteLifecycleSync?: () => void
   remoteLifecycleSyncing?: boolean
@@ -103,6 +109,9 @@ export default function EmailInboxToolbar({
   autoSyncEnabled,
   syncing,
   onSync,
+  onPullMore,
+  accountSyncWindowDays = 30,
+  onSyncWindowChange,
   onRemoteLifecycleSync,
   remoteLifecycleSyncing = false,
   onToggleAutoSync,
@@ -209,6 +218,32 @@ export default function EmailInboxToolbar({
           {syncing ? '↻ Syncing…' : '↻ Pull'}
         </button>
 
+        {primaryAccountId && (
+          <button
+            type="button"
+            onClick={() => onPullMore?.()}
+            disabled={syncing || !onPullMore}
+            title={
+              !onPullMore
+                ? 'Pull More requires an updated WR Desk build'
+                : 'Fetch the next ~500 older messages than your oldest local message'
+            }
+            style={{
+              padding: '6px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+              background: 'var(--color-surface, rgba(255,255,255,0.06))',
+              color: 'var(--color-text, #e2e8f0)',
+              cursor: syncing || !onPullMore ? 'not-allowed' : 'pointer',
+              opacity: syncing || !onPullMore ? 0.55 : 1,
+            }}
+          >
+            ↻ Pull More
+          </button>
+        )}
+
         {onRemoteLifecycleSync && (
           <button
             type="button"
@@ -248,6 +283,51 @@ export default function EmailInboxToolbar({
           Bulk
         </button>
       </div>
+
+      {primaryAccountId && onSyncWindowChange && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 10,
+            color: 'var(--color-text-muted, #94a3b8)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Sync window</span>
+            <select
+              value={accountSyncWindowDays}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                if (!Number.isNaN(v)) onSyncWindowChange(v)
+              }}
+              style={{
+                fontSize: 11,
+                padding: '4px 8px',
+                borderRadius: 4,
+                border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+                background: 'var(--color-surface, #1e293b)',
+                color: 'var(--color-text, #e2e8f0)',
+              }}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={0}>All mail (warning)</option>
+            </select>
+          </label>
+          <span style={{ lineHeight: 1.35, maxWidth: 420 }}>
+            After the first sync, only new mail syncs automatically. Use Pull More for older messages.
+            {accountSyncWindowDays === 0 ? (
+              <span style={{ color: '#fbbf24', display: 'block', marginTop: 4 }}>
+                Large mailboxes may take a long time when syncing all mail.
+              </span>
+            ) : null}
+          </span>
+        </div>
+      )}
 
       {/* Bulk actions (when selectedCount > 0) */}
       {selectedCount > 0 && (

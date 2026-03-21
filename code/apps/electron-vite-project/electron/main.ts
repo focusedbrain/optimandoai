@@ -7322,6 +7322,56 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // GET /api/email/credentials/zoho
+    httpApp.get('/api/email/credentials/zoho', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/credentials/zoho')
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('zoho')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error checking Zoho credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/email/credentials/zoho
+    httpApp.post('/api/email/credentials/zoho', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/credentials/zoho')
+        const { clientId, clientSecret, datacenter } = req.body
+        if (!clientId || !clientSecret) {
+          res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
+          return
+        }
+        const { saveCredentials } = await import('./main/email/credentials')
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials(
+          'zoho',
+          {
+            clientId,
+            clientSecret,
+            datacenter: datacenter === 'eu' ? 'eu' : 'com',
+          },
+          storeInVault,
+        )
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error saving Zoho credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // GET /api/email/accounts - List all email accounts
     httpApp.get('/api/email/accounts', async (_req, res) => {
@@ -7366,12 +7416,19 @@ app.whenReady().then(async () => {
         res.setTimeout(6 * 60 * 1000)
         
         const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
-          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account', syncWindowDays)
           console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
@@ -7415,12 +7472,19 @@ app.whenReady().then(async () => {
         res.setTimeout(6 * 60 * 1000)
         
         const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Outlook OAuth flow...')
-          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account', syncWindowDays)
           console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
@@ -7451,12 +7515,52 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    httpApp.post('/api/email/accounts/connect/zoho', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/zoho')
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
+        const { emailGateway } = await import('./main/email/gateway')
+        try {
+          const account = await emailGateway.connectZohoAccount(displayName || 'Zoho Mail', syncWindowDays)
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (
+            credError.message?.includes('not configured') ||
+            credError.message?.includes('Client ID')
+          ) {
+            res.json({ ok: false, error: credError.message })
+          } else {
+            throw credError
+          }
+        }
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Zoho:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // POST /api/email/accounts/connect/imap - Connect IMAP account
     httpApp.post('/api/email/accounts/connect/imap', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/imap')
-        const { displayName, email, host, port, username, password, security } = req.body
+        const { displayName, email, host, port, username, password, security, syncWindowDays: imapSw } = req.body
+        const swRaw = imapSw
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         
         if (!email || !host || !username || !password) {
           res.status(400).json({ ok: false, error: 'Missing required fields: email, host, username, password' })
@@ -7471,7 +7575,8 @@ app.whenReady().then(async () => {
           port: port || 993,
           username,
           password,
-          security: security || 'ssl'
+          security: security || 'ssl',
+          syncWindowDays,
         })
         res.json({ ok: true, data: account })
       } catch (error: any) {
@@ -7485,6 +7590,13 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/custom-mailbox')
         const b = req.body || {}
+        const swRaw = b.syncWindowDays
+        const customSyncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         const { emailGateway } = await import('./main/email/gateway')
         const account = await emailGateway.connectCustomImapSmtpAccount({
           displayName: typeof b.displayName === 'string' ? b.displayName : undefined,
@@ -7499,7 +7611,8 @@ app.whenReady().then(async () => {
           smtpSecurity: b.smtpSecurity === 'ssl' || b.smtpSecurity === 'none' ? b.smtpSecurity : 'starttls',
           smtpUseSameCredentials: b.smtpUseSameCredentials !== false,
           smtpUsername: typeof b.smtpUsername === 'string' ? b.smtpUsername : undefined,
-          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined
+          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined,
+          ...(customSyncWindowDays !== undefined ? { syncWindowDays: customSyncWindowDays } : {}),
         })
         res.json({ ok: true, data: account })
       } catch (error: any) {

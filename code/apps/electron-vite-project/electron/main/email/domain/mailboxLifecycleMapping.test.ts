@@ -49,6 +49,7 @@ describe('resolveOrchestratorRemoteNames', () => {
     const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'gmail' }))
     expect(r.gmail.pendingReviewLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel)
     expect(r.gmail.pendingDeleteLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingDeleteLabel)
+    expect(r.gmail.urgentLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.urgentLabel)
     expect(r.gmail.archiveRemoveLabelIds).toEqual(['INBOX'])
   })
 
@@ -70,6 +71,15 @@ describe('resolveOrchestratorRemoteNames', () => {
     expect(r.outlook.pendingReviewFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingReviewFolder)
     expect(r.outlook.pendingDeleteFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingDeleteFolder)
     expect(r.outlook.urgentFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.urgentFolder)
+  })
+
+  it('Zoho Mail: lifecycle folder names match IMAP-style defaults', () => {
+    const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'zoho' }))
+    expect(r.zoho.pendingReviewFolder).toBe('Pending Review')
+    expect(r.zoho.pendingDeleteFolder).toBe('Pending Delete')
+    expect(r.zoho.urgentFolder).toBe('Urgent')
+    expect(r.zoho.archiveFolder).toBe('Archive')
+    expect(r.zoho.trashFolder).toBe('Trash')
   })
 
   it('IMAP: merges lifecycle mailbox overrides from orchestratorRemote', () => {

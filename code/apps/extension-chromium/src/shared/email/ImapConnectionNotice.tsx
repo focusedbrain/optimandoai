@@ -19,11 +19,12 @@ export interface ImapConnectionNoticeProps {
 }
 
 const BODY_PARAGRAPHS = [
-  'This account uses IMAP (basic email protocol). Remote folder sync (moving sorted emails back to your mailbox) may be slow or unreliable depending on your email provider’s connection limits.',
+  'This account uses IMAP (basic email protocol). First inbox pull uses a Smart Sync window (default: last 30 days, up to 500 messages) plus Pull More for older mail — same as other providers.',
+  'Remote folder sync (moving sorted emails back to your mailbox) may be slow or unreliable depending on your email provider’s connection limits.',
   'For best results, use a provider with API access:',
-  '• Microsoft 365 / Outlook — full sync support ✓',
-  '• Gmail — full sync via API (roadmap) ✓',
-  '• Zoho Mail — full sync via API (roadmap) ✓',
+  '• Microsoft 365 / Outlook — Smart Sync ✓',
+  '• Gmail — Smart Sync via Gmail API ✓',
+  '• Zoho Mail — Smart Sync via Zoho API ✓',
   'IMAP limitations:',
   '• Sorting back to remote folders may take 30–60+ minutes for large mailboxes',
   '• Some providers (web.de, GMX) limit connections and may interrupt sync',

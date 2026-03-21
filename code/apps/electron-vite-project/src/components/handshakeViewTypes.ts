@@ -136,6 +136,20 @@ export interface EmailInboxBridge {
     warningCount?: number
     syncWarnings?: string[]
   }>
+  /** Next batch of older messages (see Smart Sync / Pull More). */
+  pullMoreAccount?: (accountId: string) => Promise<{
+    ok: boolean
+    data?: unknown
+    error?: string
+    pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+    pullHint?: string
+    warningCount?: number
+    syncWarnings?: string[]
+  }>
+  patchAccountSyncPreferences?: (
+    accountId: string,
+    partial: { syncWindowDays?: number; maxMessagesPerPull?: number },
+  ) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
   getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   onNewMessages: (handler: (data: unknown) => void) => () => void

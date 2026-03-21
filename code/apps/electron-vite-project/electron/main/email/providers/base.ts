@@ -83,7 +83,7 @@ export interface IEmailProvider {
   /**
    * Provider type identifier
    */
-  readonly providerType: 'gmail' | 'microsoft365' | 'imap'
+  readonly providerType: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   
   /**
    * Connect to the email server
@@ -207,7 +207,7 @@ export type TokenRefreshCallback = (newTokens: {
  * Base implementation with common helper methods
  */
 export abstract class BaseEmailProvider implements IEmailProvider {
-  abstract readonly providerType: 'gmail' | 'microsoft365' | 'imap'
+  abstract readonly providerType: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   
   protected connected: boolean = false
   protected config: EmailAccountConfig | null = null

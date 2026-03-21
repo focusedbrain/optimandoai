@@ -553,7 +553,14 @@ export class ImapProvider extends BaseEmailProvider {
           reject(err)
           return
         }
-        this.client!.search([['SINCE', since]], (sErr, seqnums: number[]) => {
+        let searchCriteria: any = ['SINCE', since]
+        if (options?.toDate) {
+          const before = new Date(options.toDate)
+          if (!Number.isNaN(before.getTime())) {
+            searchCriteria = ['AND', ['SINCE', since], ['BEFORE', before]]
+          }
+        }
+        this.client!.search([searchCriteria], (sErr, seqnums: number[]) => {
           if (sErr) {
             reject(sErr)
             return
@@ -625,6 +632,133 @@ export class ImapProvider extends BaseEmailProvider {
     })
   }
 
+  /**
+   * SEARCH BEFORE → sequence numbers; take the **newest** `maxM` matches (highest seq), then fetch headers.
+   * Used for Pull More (older than local oldest message).
+   */
+  private fetchMessagesBeforeExclusive(folder: string, before: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const limit = options?.limit || 50
+    const syncAll = options?.syncFetchAllPages === true
+    const maxM = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
+    const chunkSize = 60
+
+    const attachParser = (msg: any, msgData: Partial<RawEmailMessage>) => {
+      msg.on('body', (stream: NodeJS.ReadableStream, info: { which: string }) => {
+        let buffer = ''
+        stream.on('data', (chunk: Buffer | string) => {
+          buffer += chunk.toString('utf8')
+        })
+        stream.once('end', () => {
+          if (info.which.includes('HEADER')) {
+            const headers = ImapCtor.parseHeader(buffer)
+            msgData.subject = headers.subject?.[0] || '(No Subject)'
+            msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+            msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+            msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+            msgData.date = new Date(headers.date?.[0] || Date.now())
+            msgData.headers = {
+              messageId: headers['message-id']?.[0],
+              inReplyTo: headers['in-reply-to']?.[0],
+              references: headers.references?.[0]?.split(/\s+/) || [],
+            }
+          }
+        })
+      })
+      msg.once('attributes', (attrs: { uid?: number; flags?: string[] }) => {
+        const uidStr = String(attrs.uid)
+        msgData.id = uidStr
+        msgData.uid = uidStr
+        if (attrs.flags) {
+          msgData.flags = {
+            seen: attrs.flags.includes('\\Seen'),
+            flagged: attrs.flags.includes('\\Flagged'),
+            answered: attrs.flags.includes('\\Answered'),
+            draft: attrs.flags.includes('\\Draft'),
+            deleted: attrs.flags.includes('\\Deleted'),
+          }
+        }
+      })
+    }
+
+    return new Promise((resolve, reject) => {
+      this.client!.openBox(folder, true, (err) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        this.client!.search([['BEFORE', before]], (sErr, seqnums: number[]) => {
+          if (sErr) {
+            reject(sErr)
+            return
+          }
+          if (!seqnums?.length) {
+            resolve([])
+            return
+          }
+          const sortedDesc = [...seqnums].sort((a, b) => b - a)
+          const pick = sortedDesc.slice(0, maxM)
+
+          const all: RawEmailMessage[] = []
+          let i = 0
+          let imapChunkIdx = 0
+
+          const nextChunk = () => {
+            if (i >= pick.length) {
+              if (syncAll && pick.length > 0) {
+                console.log(`[IMAP] BEFORE fetch done: ${all.length} message(s) from ${pick.length} seq pick(es)`)
+              }
+              resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
+              return
+            }
+            imapChunkIdx++
+            const slice = pick.slice(i, i + chunkSize)
+            i += chunkSize
+            if (syncAll) {
+              console.log(
+                `[IMAP] BEFORE fetch chunk ${imapChunkIdx}: seq ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length})`,
+              )
+            }
+            const spec = slice.join(',')
+            const batch: RawEmailMessage[] = []
+            const fetch = this.client!.seq.fetch(spec, {
+              bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+              struct: true,
+            })
+            fetch.on('message', (msg) => {
+              const msgData: Partial<RawEmailMessage> = {
+                id: '',
+                folder,
+                flags: {
+                  seen: false,
+                  flagged: false,
+                  answered: false,
+                  draft: false,
+                  deleted: false,
+                },
+                labels: [],
+              }
+              attachParser(msg, msgData)
+              msg.once('end', () => {
+                batch.push(msgData as RawEmailMessage)
+              })
+            })
+            fetch.once('error', reject)
+            fetch.once('end', () => {
+              all.push(...batch)
+              nextChunk()
+            })
+          }
+
+          nextChunk()
+        })
+      })
+    })
+  }
+
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     if (!this.client) {
       throw new Error('Not connected')
@@ -638,6 +772,13 @@ export class ImapProvider extends BaseEmailProvider {
         : Number.MAX_SAFE_INTEGER
       : Math.min(Math.max(1, options?.syncMaxMessages ?? limit), limit)
     const chunkSize = 60
+
+    if (options?.toDate && !options?.fromDate) {
+      const before = new Date(options.toDate)
+      if (!Number.isNaN(before.getTime())) {
+        return this.fetchMessagesBeforeExclusive(folder, before, options)
+      }
+    }
 
     if (options?.fromDate) {
       const since = new Date(options.fromDate)

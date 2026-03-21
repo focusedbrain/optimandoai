@@ -352,8 +352,10 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   const channels = [
     'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
-    'email:checkGmailCredentials', 'email:checkOutlookCredentials',
-    'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup', 'email:connectImap', 'email:connectCustomMailbox',
+    'email:checkGmailCredentials', 'email:checkOutlookCredentials', 'email:checkZohoCredentials',
+    'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
+    'email:setZohoCredentials', 'email:connectZoho',
+    'email:connectImap', 'email:connectCustomMailbox',
     'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
     'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail', 'email:sendBeapEmail',
@@ -484,13 +486,32 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: false, error: error.message }
     }
   })
+
+  ipcMain.handle('email:checkZohoCredentials', async () => {
+    try {
+      const result = await checkExistingCredentials('zoho')
+      return {
+        ok: true,
+        data: {
+          configured: !!result.credentials,
+          clientId: result.clientId,
+          source: result.source,
+          credentials: result.credentials,
+          hasSecret: result.hasSecret,
+          vaultUnlocked: isVaultUnlocked(),
+        },
+      }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
   
   /**
    * Start Gmail OAuth flow
    */
-  ipcMain.handle('email:connectGmail', async (_e, displayName?: string) => {
+  ipcMain.handle('email:connectGmail', async (_e, displayName?: string, syncWindowDays?: number) => {
     try {
-      const account = await emailGateway.connectGmailAccount(displayName)
+      const account = await emailGateway.connectGmailAccount(displayName, syncWindowDays)
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email, accountId: account.id })
       })
@@ -530,9 +551,9 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   /**
    * Start Outlook OAuth flow
    */
-  ipcMain.handle('email:connectOutlook', async (_e, displayName?: string) => {
+  ipcMain.handle('email:connectOutlook', async (_e, displayName?: string, syncWindowDays?: number) => {
     try {
-      const account = await emailGateway.connectOutlookAccount(displayName)
+      const account = await emailGateway.connectOutlookAccount(displayName, syncWindowDays)
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', {
           provider: 'microsoft365',
@@ -544,6 +565,51 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectOutlook error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle(
+    'email:setZohoCredentials',
+    async (
+      _e,
+      clientId: string,
+      clientSecret: string,
+      datacenter: 'com' | 'eu' = 'com',
+      storeInVault: boolean = true,
+    ) => {
+      try {
+        const result = await saveCredentials(
+          'zoho',
+          {
+            clientId,
+            clientSecret,
+            datacenter: datacenter === 'eu' ? 'eu' : 'com',
+          },
+          storeInVault,
+        )
+        return { ok: result.ok, savedToVault: result.savedToVault }
+      } catch (error: any) {
+        console.error('[Email IPC] setZohoCredentials error:', error)
+        return { ok: false, error: error.message }
+      }
+    },
+  )
+
+  ipcMain.handle('email:connectZoho', async (_e, displayName?: string, syncWindowDays?: number) => {
+    try {
+      const account = await emailGateway.connectZohoAccount(displayName, syncWindowDays)
+      BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('email:accountConnected', {
+          provider: 'zoho',
+          email: account.email,
+          accountId: account.id,
+        })
+      })
+      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      return { ok: true, data: account }
+    } catch (error: any) {
+      console.error('[Email IPC] connectZoho error:', error)
       return { ok: false, error: error.message }
     }
   })
@@ -576,6 +642,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     smtpSecurity?: 'ssl' | 'starttls' | 'none'
     smtpUsername?: string
     smtpPassword?: string
+    syncWindowDays?: number
   }) => {
     try {
       const account = await emailGateway.connectImapAccount(config)
@@ -931,11 +998,24 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
   return { where, params }
 }
 
-const SIMPLE_DRAIN_INTERVAL_MS = 10_000
+/**
+ * Conservative IMAP drain profile (SimpleDrain timer path).
+ * - Does **not** force reconnect on every tick: only when `isProviderSessionConnected` is false or on transient errors.
+ * - `tickIntervalMs` is how often we **wake** to dequeue; spacing between moves/batches uses the other fields.
+ * - Reconnect policy: **on_error_only** — see IMAP warmup + transient handler (no reconnect when session already connected).
+ */
+const IMAP_SIMPLE_DRAIN = {
+  interRowDelayMs: 1000,
+  batchSize: 10,
+  pauseAfterBatchMs: 30_000,
+  tickIntervalMs: 10_000,
+}
+
+const SIMPLE_DRAIN_INTERVAL_MS = IMAP_SIMPLE_DRAIN.tickIntervalMs
 /** Fetch extra candidates so we can cap IMAP rows per tick without starving API accounts. */
 const SIMPLE_DRAIN_FETCH_CAP = 45
 const SIMPLE_DRAIN_MAX_ROWS_PER_TICK = 20
-const SIMPLE_DRAIN_MAX_IMAP_ROWS_PER_TICK = 10
+const SIMPLE_DRAIN_MAX_IMAP_ROWS_PER_TICK = IMAP_SIMPLE_DRAIN.batchSize
 const SIMPLE_DRAIN_MAX_ATTEMPTS = 8
 /** After repeated IMAP apply failures, enforce a long cool-down (ms). */
 const SIMPLE_DRAIN_IMAP_LONG_COOLDOWN_MS = 300_000
@@ -945,6 +1025,13 @@ type SimpleDrainProfile = { interRowMs: number; pauseAfterBatchMs: number; trans
 function simpleDrainProfileForProvider(providerType: string): SimpleDrainProfile {
   if (providerType === 'microsoft365' || providerType === 'gmail') {
     return { interRowMs: 200, pauseAfterBatchMs: 5000, transientPauseMs: 3000 }
+  }
+  if (providerType === 'imap') {
+    return {
+      interRowMs: IMAP_SIMPLE_DRAIN.interRowDelayMs,
+      pauseAfterBatchMs: IMAP_SIMPLE_DRAIN.pauseAfterBatchMs,
+      transientPauseMs: 60_000,
+    }
   }
   return { interRowMs: 1000, pauseAfterBatchMs: 30_000, transientPauseMs: 60_000 }
 }
@@ -1005,7 +1092,11 @@ export function registerInboxHandlers(
   getAnthropicApiKey?: GetAnthropicApiKey,
 ): void {
   const channels = [
-    'inbox:syncAccount', 'inbox:toggleAutoSync', 'inbox:getSyncState',
+    'inbox:syncAccount',
+    'inbox:pullMore',
+    'inbox:patchAccountSyncPreferences',
+    'inbox:toggleAutoSync',
+    'inbox:getSyncState',
     'inbox:listMessages', 'inbox:listMessageIds', 'inbox:getMessage',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
@@ -1220,6 +1311,7 @@ export function registerInboxHandlers(
                 imapBatchWarmupDone.add(r.account_id)
                 try {
                   if (emailGateway.getProviderSync(r.account_id) === 'imap') {
+                    /** on_error_only: reconnect only when the cached session is gone — not every timer tick. */
                     if (!emailGateway.isProviderSessionConnected(r.account_id)) {
                       console.log('[SimpleDrain] IMAP not connected, opening session:', r.account_id)
                       await emailGateway.forceReconnect(r.account_id)
@@ -1811,116 +1903,154 @@ export function registerInboxHandlers(
   }
 
   // ── Sync ──
+  async function runInboxAccountPullKind(accountId: string, kind: 'pull' | 'pullMore') {
+    console.log(
+      `[PULL] inbox:${kind === 'pullMore' ? 'pullMore' : 'syncAccount'} called for account:`,
+      accountId,
+    )
+    const db = await resolveDb()
+    if (!db) return { ok: false, error: 'Database unavailable' }
+
+    let result: Awaited<ReturnType<typeof syncAccountEmails>>
+    try {
+      result = await syncAccountEmails(
+        db,
+        kind === 'pullMore' ? { accountId, pullMore: true } : { accountId },
+      )
+    } catch (syncErr: any) {
+      console.error('[Inbox] syncAccountEmails threw:', syncErr)
+      const msg = syncErr?.message ?? 'Sync failed'
+      return {
+        ok: false,
+        error: msg,
+        data: undefined,
+        warningCount: 1,
+        syncWarnings: [msg],
+      }
+    }
+
+    try {
+      processPendingPlainEmails(db)
+    } catch (e: any) {
+      console.warn('[Inbox] Plain email post-sync processing:', e?.message)
+    }
+    try {
+      processPendingP2PBeapEmails(db)
+    } catch (e: any) {
+      console.warn('[Inbox] BEAP post-sync processing:', e?.message)
+    }
+
+    try {
+      if (result.newInboxMessageIds?.length) {
+        enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
+      }
+      scheduleOrchestratorRemoteDrain(resolveDb)
+    } catch (e: any) {
+      console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
+      try {
+        scheduleOrchestratorRemoteDrain(resolveDb)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const errors = result.errors ?? []
+    const warnCount = errors.length
+    const pullStats = {
+      listed: result.listedFromProvider ?? 0,
+      new: result.newMessages,
+      skippedDupes: result.skippedDuplicate ?? 0,
+      errors: errors.length,
+    }
+    const pullHint =
+      result.newMessages > 0
+        ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
+        : undefined
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: errors[0] ?? 'Sync failed',
+        data: result,
+        pullStats,
+        pullHint,
+        warningCount: warnCount,
+        syncWarnings: errors,
+      }
+    }
+
+    if (result.newMessages === 0 && warnCount > 0) {
+      return {
+        ok: false,
+        error: 'All messages failed to sync',
+        data: result,
+        pullStats,
+        warningCount: warnCount,
+        syncWarnings: errors,
+      }
+    }
+
+    if (result.newMessages > 0) {
+      try {
+        sendToRenderer('inbox:newMessages', result)
+      } catch (e: any) {
+        console.warn('[Inbox] sendToRenderer inbox:newMessages:', e?.message)
+      }
+    }
+
+    if (warnCount > 0) {
+      return {
+        ok: true,
+        data: result,
+        pullStats,
+        pullHint,
+        warningCount: warnCount,
+        syncWarnings: errors,
+      }
+    }
+
+    return { ok: true, data: result, pullStats, pullHint }
+  }
+
   ipcMain.handle('inbox:syncAccount', async (_e, accountId: string) => {
     try {
-      console.log('[PULL] inbox:syncAccount called for account:', accountId)
-      const db = await resolveDb()
-      if (!db) return { ok: false, error: 'Database unavailable' }
-
-      let result: Awaited<ReturnType<typeof syncAccountEmails>>
-      try {
-        result = await syncAccountEmails(db, { accountId, fullSync: true })
-      } catch (syncErr: any) {
-        console.error('[Inbox] syncAccountEmails threw:', syncErr)
-        const msg = syncErr?.message ?? 'Sync failed'
-        return {
-          ok: false,
-          error: msg,
-          data: undefined,
-          warningCount: 1,
-          syncWarnings: [msg],
-        }
-      }
-
-      try {
-        processPendingPlainEmails(db)
-      } catch (e: any) {
-        console.warn('[Inbox] Plain email post-sync processing:', e?.message)
-      }
-      try {
-        processPendingP2PBeapEmails(db)
-      } catch (e: any) {
-        console.warn('[Inbox] BEAP post-sync processing:', e?.message)
-      }
-
-      try {
-        if (result.newInboxMessageIds?.length) {
-          enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
-        }
-        /**
-         * Pull lock (`markPullActive` / `markPullInactive` in `syncAccountEmailsImpl`) is cleared in
-         * `finally` before `syncAccountEmails` resolves — so this drain runs after the lock is released
-         * and deferred queue rows for this account can execute.
-         */
-        scheduleOrchestratorRemoteDrain(resolveDb)
-      } catch (e: any) {
-        console.warn('[Inbox] Post-pull remote mailbox mirror:', e?.message)
-        try {
-          scheduleOrchestratorRemoteDrain(resolveDb)
-        } catch {
-          /* ignore */
-        }
-      }
-
-      const errors = result.errors ?? []
-      const warnCount = errors.length
-      const pullStats = {
-        listed: result.listedFromProvider ?? 0,
-        new: result.newMessages,
-        skippedDupes: result.skippedDuplicate ?? 0,
-        errors: errors.length,
-      }
-      const pullHint =
-        result.newMessages > 0
-          ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
-          : undefined
-
-      if (!result.ok) {
-        return {
-          ok: false,
-          error: errors[0] ?? 'Sync failed',
-          data: result,
-          pullStats,
-          pullHint,
-          warningCount: warnCount,
-          syncWarnings: errors,
-        }
-      }
-
-      if (result.newMessages === 0 && warnCount > 0) {
-        return {
-          ok: false,
-          error: 'All messages failed to sync',
-          data: result,
-          pullStats,
-          warningCount: warnCount,
-          syncWarnings: errors,
-        }
-      }
-
-      if (result.newMessages > 0) {
-        try {
-          sendToRenderer('inbox:newMessages', result)
-        } catch (e: any) {
-          console.warn('[Inbox] sendToRenderer inbox:newMessages:', e?.message)
-        }
-      }
-
-      if (warnCount > 0) {
-        return {
-          ok: true,
-          data: result,
-          pullStats,
-          pullHint,
-          warningCount: warnCount,
-          syncWarnings: errors,
-        }
-      }
-
-      return { ok: true, data: result, pullStats, pullHint }
+      return await runInboxAccountPullKind(accountId, 'pull')
     } catch (err: any) {
       console.error('[Inbox] inbox:syncAccount unhandled error:', err)
       return { ok: false, error: err?.message ?? 'Sync failed (unhandled)' }
+    }
+  })
+
+  ipcMain.handle('inbox:pullMore', async (_e, accountId: string) => {
+    try {
+      return await runInboxAccountPullKind(accountId, 'pullMore')
+    } catch (err: any) {
+      console.error('[Inbox] inbox:pullMore unhandled error:', err)
+      return { ok: false, error: err?.message ?? 'Pull More failed (unhandled)' }
+    }
+  })
+
+  ipcMain.handle('inbox:patchAccountSyncPreferences', async (_e, accountId: string, partial: unknown) => {
+    try {
+      const id = String(accountId ?? '').trim()
+      if (!id) return { ok: false, error: 'accountId required' }
+      const p = partial && typeof partial === 'object' && partial !== null ? (partial as Record<string, unknown>) : {}
+      const syncWindowDays = p.syncWindowDays
+      const maxMessagesPerPull = p.maxMessagesPerPull
+      const patch: { syncWindowDays?: number; maxMessagesPerPull?: number } = {}
+      if (typeof syncWindowDays === 'number' && syncWindowDays >= 0 && Number.isFinite(syncWindowDays)) {
+        patch.syncWindowDays = Math.min(3650, Math.floor(syncWindowDays))
+      }
+      if (typeof maxMessagesPerPull === 'number' && maxMessagesPerPull > 0 && Number.isFinite(maxMessagesPerPull)) {
+        patch.maxMessagesPerPull = Math.min(5000, Math.floor(maxMessagesPerPull))
+      }
+      if (Object.keys(patch).length === 0) {
+        return { ok: false, error: 'No valid sync fields (syncWindowDays, maxMessagesPerPull)' }
+      }
+      const info = await emailGateway.patchAccountSyncPreferences(id, patch)
+      return { ok: true, data: info }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? 'patchAccountSyncPreferences failed' }
     }
   })
 
@@ -1936,7 +2066,7 @@ export function registerInboxHandlers(
       }
       if (enabled) {
         const row = db.prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?').get(accountId) as { sync_interval_ms?: number } | undefined
-        const intervalMs = row?.sync_interval_ms ?? 30_000
+        const intervalMs = row?.sync_interval_ms ?? 300_000
         const loop = startAutoSync(db, accountId, intervalMs, (result) => {
           if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
         }, resolveDb)
@@ -1952,8 +2082,16 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId)
-      return { ok: true, data: row ?? null }
+      const row = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId) as Record<string, unknown> | undefined
+      const cfg = emailGateway.getAccountConfig(String(accountId ?? '').trim())
+      const syncPrefs = cfg
+        ? {
+            syncWindowDays: cfg.sync?.syncWindowDays ?? 30,
+            maxMessagesPerPull: cfg.sync?.maxMessagesPerPull ?? 500,
+          }
+        : null
+      const base = row && typeof row === 'object' ? { ...row } : {}
+      return { ok: true, data: { ...base, syncPreferences: syncPrefs } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Failed' }
     }
@@ -1969,7 +2107,7 @@ export function registerInboxHandlers(
         .all() as Array<{ account_id: string; sync_interval_ms?: number }>
       for (const r of rows) {
         if (activeAutoSyncLoops.has(r.account_id)) continue
-        const intervalMs = r.sync_interval_ms ?? 30_000
+        const intervalMs = r.sync_interval_ms ?? 300_000
         const loop = startAutoSync(db, r.account_id, intervalMs, (syncRes) => {
           if (syncRes.newMessages > 0) sendToRenderer('inbox:newMessages', syncRes)
         }, resolveDb)

@@ -1,15 +1,14 @@
 /**
  * Sync Orchestrator — Pulls emails from connected providers and routes through message detection.
  *
- * **Model**
- * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — lists the **entire** mailbox (no `maxAgeDays` bound);
- *   uses `syncFetchAllPages` until the provider has no more pages.
- * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
- * - **Auto-sync tick**: incremental from `last_sync_at`, same full pagination for new mail (no message-count cap).
- * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
+ * **Model (Smart Sync)**
+ * - **First run** (no `last_sync_at`): pull up to `maxMessagesPerPull` (default 500) within `syncWindowDays` (default 30; **0** = all time, same cap).
+ * - **Auto-sync / manual Pull** (after first sync): incremental from `last_sync_at` only (new mail).
+ * - **Pull More** (`pullMore: true`): next batch older than `MIN(received_at)` in DB, capped at `maxMessagesPerPull`.
+ * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP SEARCH + fetch chunks).
  * - **`syncPullLock`** during list+fetch prevents remote-queue moves for the same account (see `REMOTE_ORCHESTRATOR_SYNC.md`).
  *
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
@@ -28,6 +27,7 @@ export { clearAllPullActiveLocks } from './syncPullLock'
 import { ImapProvider } from './providers/imap'
 import { resolveImapPullFolders } from './domain/imapPullFolders'
 import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'
+import { getEffectiveSyncWindowDays, getMaxMessagesPerPull } from './domain/smartSyncPrefs'
 
 function isLikelyEmailAuthError(message: string): boolean {
   const m = (message || '').toLowerCase()
@@ -44,8 +44,12 @@ export interface SyncAccountOptions {
   accountId: string
   limit?: number
   /**
-   * Manual Pull: list the whole sync window on the host (subject to account `sync.maxAgeDays`),
-   * not only messages newer than `last_sync_at`.
+   * Fetch the next batch of messages **older** than the oldest `inbox_messages.received_at` for this account.
+   * @see `domain/smartSyncPrefs` for batch size.
+   */
+  pullMore?: boolean
+  /**
+   * @deprecated No longer used — manual Pull is incremental after the first Smart Sync bootstrap.
    */
   fullSync?: boolean
 }
@@ -92,7 +96,7 @@ export function updateSyncState(db: any, accountId: string, updates: EmailSyncSt
       last_uid: updates.last_uid ?? row?.last_uid ?? null,
       sync_cursor: updates.sync_cursor ?? row?.sync_cursor ?? null,
       auto_sync_enabled: updates.auto_sync_enabled ?? row?.auto_sync_enabled ?? 0,
-      sync_interval_ms: updates.sync_interval_ms ?? row?.sync_interval_ms ?? 30000,
+      sync_interval_ms: updates.sync_interval_ms ?? row?.sync_interval_ms ?? 300_000,
       total_synced: updates.total_synced ?? row?.total_synced ?? 0,
       last_error: updates.last_error ?? row?.last_error ?? null,
       last_error_at: updates.last_error_at ?? row?.last_error_at ?? null,
@@ -135,6 +139,24 @@ function getExistingEmailMessageIds(db: any, accountId: string): Set<string> {
     return new Set(rows.map((r) => r.email_message_id))
   } catch {
     return new Set()
+  }
+}
+
+/** Oldest message timestamp in local inbox for this account (for Pull More upper bound). */
+function getOldestInboxReceivedAtIso(db: any, accountId: string): string | null {
+  if (!db) return null
+  try {
+    const row = db
+      .prepare(
+        `SELECT MIN(datetime(COALESCE(received_at, ingested_at))) AS oldest
+         FROM inbox_messages WHERE account_id = ?`,
+      )
+      .get(accountId) as { oldest?: string | null }
+    const o = row?.oldest
+    if (o == null || String(o).trim() === '') return null
+    return String(o)
+  } catch {
+    return null
   }
 }
 
@@ -260,7 +282,7 @@ async function syncAccountEmailsImpl(
   db: any,
   options: SyncAccountOptions,
 ): Promise<SyncResult> {
-  const { accountId, fullSync = false } = options
+  const { accountId, pullMore = false } = options
   const result: SyncResult = {
     ok: true,
     newMessages: 0,
@@ -275,14 +297,15 @@ async function syncAccountEmailsImpl(
     if (accountInfo?.provider === 'imap') {
       await maybeRunImapLegacyFolderConsolidation(db, accountId)
     }
-    /** Default 0 = no lower date bound unless account sets sync.maxAgeDays (incremental / auto-sync window). */
-    const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 0
+    const accountCfg = emailGateway.getAccountConfig(accountId)
+    const windowDays = getEffectiveSyncWindowDays(accountCfg?.sync)
+    const maxPerPull = getMaxMessagesPerPull(accountCfg?.sync)
 
-    let oldestIso: string | undefined
-    if (maxAgeDays > 0) {
+    let windowStartIso: string | undefined
+    if (windowDays > 0) {
       const d = new Date()
-      d.setUTCDate(d.getUTCDate() - maxAgeDays)
-      oldestIso = d.toISOString()
+      d.setUTCDate(d.getUTCDate() - windowDays)
+      windowStartIso = d.toISOString()
     }
 
     const stateRow = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId) as Record<string, unknown> | undefined
@@ -291,31 +314,46 @@ async function syncAccountEmailsImpl(
     const syncCursor = stateRow?.sync_cursor as string | undefined
 
     const hasPriorSync = Boolean(lastSyncAt)
-    const bootstrap = !hasPriorSync
-    const treatAsFullImport = fullSync || bootstrap
+    const bootstrap = !hasPriorSync && !pullMore
 
-    let effectiveFrom: string | undefined
-    if (treatAsFullImport) {
-      /** Manual Pull (`fullSync: true`) must list the whole mailbox — ignore account `maxAgeDays` lower bound. */
-      effectiveFrom = fullSync ? undefined : oldestIso
-    } else if (lastSyncAt) {
-      effectiveFrom = lastSyncAt
-      if (oldestIso) {
-        const a = new Date(effectiveFrom).getTime()
-        const b = new Date(oldestIso).getTime()
-        if (!Number.isNaN(a) && !Number.isNaN(b) && a < b) {
-          effectiveFrom = oldestIso
-        }
+    let listOptions: MessageSearchOptions
+
+    if (pullMore) {
+      const oldestLocal = getOldestInboxReceivedAtIso(db, accountId)
+      if (!oldestLocal) {
+        result.errors.push('Pull More: no local messages — run Pull first.')
+        result.ok = false
+        result.listedFromProvider = 0
+        return result
+      }
+      const t = new Date(oldestLocal).getTime()
+      if (Number.isNaN(t)) {
+        result.errors.push('Pull More: invalid oldest message date in local DB.')
+        result.ok = false
+        result.listedFromProvider = 0
+        return result
+      }
+      const beforeIso = new Date(t - 1).toISOString()
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        syncMaxMessages: maxPerPull,
+        toDate: beforeIso,
+      }
+    } else if (bootstrap) {
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        syncMaxMessages: maxPerPull,
+        ...(windowStartIso ? { fromDate: windowStartIso } : {}),
       }
     } else {
-      effectiveFrom = oldestIso
-    }
-
-    const listOptions: MessageSearchOptions = {
-      limit: 200,
-      syncFetchAllPages: true,
-      // Omit syncMaxMessages — providers paginate until exhaustion (still bounded by maxAgeDays when set).
-      ...(effectiveFrom ? { fromDate: effectiveFrom } : {}),
+      /** Incremental: only messages newer than last successful sync (auto-sync + manual Pull after bootstrap). */
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        fromDate: lastSyncAt as string,
+      }
     }
 
     /** Hold during list + per-message fetch so remote mirror cannot move mail out of INBOX mid-pull. */
@@ -329,7 +367,6 @@ async function syncAccountEmailsImpl(
 
     markPullActive(accountId)
     try {
-      const accountCfg = emailGateway.getAccountConfig(accountId)
       const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
       const pullFolders =
         accountCfg?.provider === 'imap'
@@ -365,7 +402,7 @@ async function syncAccountEmailsImpl(
       skippedDuplicate = 0
 
       console.log(
-        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (fullSync=${treatAsFullImport}, fromDate=${effectiveFrom ?? 'none'}, pullFolders=${pullFolders.join(',')})`,
+        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (bootstrap=${bootstrap}, pullMore=${pullMore}, fromDate=${listOptions.fromDate ?? 'none'}, toDate=${listOptions.toDate ?? 'none'}, pullFolders=${pullFolders.join(',')})`,
       )
 
       for (const msg of messages) {
@@ -476,7 +513,7 @@ async function syncAccountEmailsImpl(
 export function startAutoSync(
   db: any,
   accountId: string,
-  intervalMs: number = 30_000,
+  intervalMs: number = 300_000,
   onNewMessages?: (result: SyncResult) => void,
   /** Resume background remote-queue drain when bounded inline drain does not finish. */
   getDbForRemoteDrain?: () => Promise<any> | any,
