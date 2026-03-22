@@ -27,6 +27,8 @@ export interface InboxAttachment {
   storage_path: string | null
   extracted_text: string | null
   text_extraction_status: string | null
+  /** When extraction failed, main-process error detail (for UI). */
+  text_extraction_error?: string | null
   raster_path: string | null
 }
 
@@ -126,6 +128,8 @@ interface EmailInboxState {
   lastSyncAt: string | null
   /** Non-fatal sync issues from last Pull (partial failures). Cleared on next Pull start. */
   lastSyncWarnings: string[] | null
+  /** Clear Pull sync warnings (e.g. after successful IMAP credential reconnect). */
+  clearLastSyncWarnings: () => void
   /** Cache of AI analysis results keyed by messageId. Cleared for messages no longer in list after fetch. */
   analysisCache: Record<string, NormalInboxAiResult>
   /** FIX-H6: Message ID whose draft is currently being edited. Only one at a time. */
@@ -497,6 +501,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }))
   },
   clearRemoteSyncLog: () => set({ remoteSyncLog: [] }),
+  clearLastSyncWarnings: () => set({ lastSyncWarnings: null }),
 
   addBulkDraftManualCompose: (messageId) =>
     set((s) => {

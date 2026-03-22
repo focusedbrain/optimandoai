@@ -6,7 +6,9 @@
  */
 
 import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
+import { createHash } from 'crypto'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 
 // ── WRExpert.md: user-editable AI behaviour (userData, survives app updates) ──
@@ -162,6 +164,7 @@ import {
   enqueueFullRemoteSyncForAccountsTouchingMessages,
   enqueueUnmirroredClassifiedLifecycleMessages,
   markOrphanPendingQueueRowsAsFailed,
+  purgeImapRemoteQueueRows,
   ensureOrchestratorRemoteDrainWatchdog,
   processOrchestratorRemoteQueueBatch,
   setOrchestratorDrainProgressReporter,
@@ -180,7 +183,7 @@ import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { extractPdfText, isPdfFile } from './pdf-extractor'
-import { extractPdfTextWithVisionApi } from '../vault/hsContextOcrJob'
+import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 
 // ── Inbox: active auto-sync loops ──
 
@@ -1117,12 +1120,12 @@ function simpleDrainIsTransientOrchestratorError(message: string): boolean {
  * Register inbox IPC handlers.
  * Requires db (or getter) and optional mainWindow for sending events.
  * Call from main.ts alongside registerEmailHandlers.
- * When getAnthropicApiKey is provided, PDF extraction will try Vision API fallback when basic extraction fails.
+ * getAnthropicApiKey is reserved for future use; inbox PDF text uses extractPdfText only (no Vision fallback).
  */
 export function registerInboxHandlers(
   getDb: () => Promise<any> | any,
   mainWindow?: BrowserWindow | null,
-  getAnthropicApiKey?: GetAnthropicApiKey,
+  _getAnthropicApiKey?: GetAnthropicApiKey,
 ): void {
   const channels = [
     'inbox:syncAccount',
@@ -1666,7 +1669,9 @@ export function registerInboxHandlers(
         console.warn('[QUEUE_STATUS] listAccounts for labels failed:', e?.message)
       }
 
-      const queueByAccountSummary = [...aggMap.values()].sort((x, y) => x.label.localeCompare(y.label))
+      const queueByAccountSummary = [...aggMap.values()]
+        .filter((x) => x.provider !== 'imap')
+        .sort((x, y) => x.label.localeCompare(y.label))
 
       console.log('[QUEUE_STATUS] === QUEUE STATUS ===')
       console.log('[QUEUE_STATUS] Total rows:', total)
@@ -2356,55 +2361,96 @@ export function registerInboxHandlers(
       const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
       if (!row) return { ok: false, error: 'Attachment not found' }
       if (row.text_extraction_status === 'done' && row.extracted_text) {
-        return { ok: true, data: { text: row.extracted_text, status: 'done' } }
+        return {
+          ok: true,
+          data: {
+            text: row.extracted_text,
+            status: 'done',
+            error: null,
+            content_sha256: row.content_sha256 ?? null,
+            extracted_text_sha256: row.extracted_text_sha256 ?? null,
+          },
+        }
       }
       if (row.text_extraction_status === 'done' && !row.extracted_text) {
-        return { ok: true, data: { text: '', status: 'done' } }
+        return {
+          ok: true,
+          data: {
+            text: '',
+            status: 'done',
+            error: null,
+            content_sha256: row.content_sha256 ?? null,
+            extracted_text_sha256: row.extracted_text_sha256 ?? null,
+          },
+        }
       }
       if (row.text_extraction_status === 'skipped' || row.text_extraction_status === 'failed') {
-        return { ok: true, data: { text: '', status: row.text_extraction_status } }
+        return {
+          ok: true,
+          data: {
+            text: '',
+            status: row.text_extraction_status,
+            error: row.text_extraction_error ?? null,
+            content_sha256: row.content_sha256 ?? null,
+            extracted_text_sha256: row.extracted_text_sha256 ?? null,
+          },
+        }
       }
       if (row.storage_path && fs.existsSync(row.storage_path) && isPdfFile(row.content_type || '', row.filename)) {
-        const buf = fs.readFileSync(row.storage_path)
-        let result = await extractPdfText(buf)
-        let text = result?.text ?? ''
-        let status = result?.success ? 'done' : 'failed'
-
-        // Vision fallback: when basic extraction fails or yields unusable text, try Anthropic Vision if API key available
-        const minUsableChars = 30
-        const needsFallback = !result?.success || (text.replace(/\s/g, '').length < minUsableChars)
-        if (needsFallback && getAnthropicApiKey) {
-          const apiKey = await getAnthropicApiKey()
-          if (apiKey?.trim()?.startsWith('sk-ant-')) {
-            try {
-              const visionResult = await extractPdfTextWithVisionApi(buf, apiKey.trim())
-              if (visionResult.success && visionResult.text) {
-                text = visionResult.text
-                status = 'done'
-                result = { ...result, success: true, text }
-              }
-            } catch (visionErr: any) {
-              console.warn('[Inbox IPC] Vision fallback failed:', visionErr?.message)
-            }
-          }
+        let buf: Buffer
+        try {
+          buf = readDecryptedAttachmentBuffer(row)
+        } catch (decErr: any) {
+          return { ok: false, error: decErr?.message ?? 'Could not read attachment' }
         }
+        const result = await extractPdfText(buf)
+        const text = result?.text ?? ''
+        const ok = Boolean(result?.success && text.trim().length > 0)
+        const status = ok ? 'done' : 'failed'
+        const errMsg = ok
+          ? null
+          : (result?.error ??
+              (result?.warnings?.length ? result.warnings.join('; ') : null) ??
+              'No text extracted')
 
-        db.prepare('UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ? WHERE id = ?')
-          .run(text, status, attachmentId)
+        const contentSha256 = createHash('sha256').update(buf).digest('hex')
+        const extractedTextSha256 = createHash('sha256').update(text, 'utf8').digest('hex')
 
-        // Merge extracted_text into depackaged_json so BEAP/depackaged attachment structure includes it
+        db.prepare(
+          `UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
+           content_sha256 = ?, extracted_text_sha256 = ?
+           WHERE id = ?`,
+        ).run(text, status, errMsg, contentSha256, extractedTextSha256, attachmentId)
+
+        // Merge extracted text + status + hashes into depackaged_json (same shape as ingest-time depackaging)
         const messageId = row.message_id
-        if (messageId && text) {
+        if (messageId) {
           try {
-            const msgRow = db.prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?').get(messageId) as { depackaged_json?: string } | undefined
+            const msgRow = db.prepare('SELECT depackaged_json FROM inbox_messages WHERE id = ?').get(messageId) as
+              | { depackaged_json?: string }
+              | undefined
             const depackaged = msgRow?.depackaged_json
             if (depackaged) {
-              const parsed = JSON.parse(depackaged) as { attachments?: Array<{ content_id?: string; extracted_text?: string }> }
+              const parsed = JSON.parse(depackaged) as {
+                attachments?: Array<{
+                  id?: string
+                  content_id?: string
+                  extracted_text?: string
+                  extraction_status?: string
+                  extraction_error?: string | null
+                  content_sha256?: string
+                  extracted_text_sha256?: string
+                }>
+              }
               if (Array.isArray(parsed.attachments)) {
                 let updated = false
                 for (const att of parsed.attachments) {
-                  if (att.content_id === attachmentId) {
+                  if (att.content_id === attachmentId || att.id === attachmentId) {
                     att.extracted_text = text
+                    att.extraction_status = status
+                    att.extraction_error = errMsg
+                    att.content_sha256 = contentSha256
+                    att.extracted_text_sha256 = extractedTextSha256
                     updated = true
                     break
                   }
@@ -2419,10 +2465,22 @@ export function registerInboxHandlers(
           }
         }
 
-        return { ok: true, data: { text, status } }
+        return {
+          ok: true,
+          data: { text, status, error: errMsg, content_sha256: contentSha256, extracted_text_sha256: extractedTextSha256 },
+        }
       }
       db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
-      return { ok: true, data: { text: '', status: 'skipped' } }
+      return {
+        ok: true,
+        data: {
+          text: '',
+          status: 'skipped',
+          error: null,
+          content_sha256: row.content_sha256 ?? null,
+          extracted_text_sha256: row.extracted_text_sha256 ?? null,
+        },
+      }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Extract failed' }
     }
@@ -2432,12 +2490,30 @@ export function registerInboxHandlers(
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT storage_path FROM inbox_attachments WHERE id = ?').get(attachmentId) as { storage_path?: string } | undefined
-      if (!row?.storage_path || !fs.existsSync(row.storage_path)) {
+      const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as Record<string, unknown> | undefined
+      if (!row?.storage_path || typeof row.storage_path !== 'string' || !fs.existsSync(row.storage_path)) {
         return { ok: false, error: 'Attachment file not found' }
       }
-      const result = await shell.openPath(row.storage_path)
-      return { ok: true, data: { opened: result === '' } }
+      let plaintext: Buffer
+      try {
+        plaintext = readDecryptedAttachmentBuffer(row as AttachmentRowCrypto)
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Could not decrypt attachment' }
+      }
+      const rawName = typeof row.filename === 'string' && row.filename.trim() ? row.filename : 'attachment'
+      const safeBase = rawName.replace(/[^a-zA-Z0-9._-]/g, '_') || 'attachment'
+      const tempPath = path.join(os.tmpdir(), `wrdesk-open-${attachmentId}-${Date.now()}-${safeBase}`)
+      fs.writeFileSync(tempPath, plaintext)
+      const result = await shell.openPath(tempPath)
+      const opened = result === ''
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
+        } catch {
+          /* ignore */
+        }
+      }, 120_000)
+      return { ok: true, data: { opened } }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Open failed' }
     }
@@ -3625,6 +3701,20 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
   }
   deletionInterval = setInterval(runLifecycle, 5 * 60 * 1000)
   setImmediate(runLifecycle)
+
+  void (async () => {
+    try {
+      const db = await resolveDb()
+      if (db) {
+        const n = purgeImapRemoteQueueRows(db)
+        if (n > 0) {
+          console.log('[OrchestratorRemote] Startup purge: removed', n, 'IMAP remote queue row(s)')
+        }
+      }
+    } catch (e: any) {
+      console.warn('[OrchestratorRemote] Startup IMAP queue purge failed:', e?.message || e)
+    }
+  })()
 
   console.log('[Inbox IPC] Handlers registered')
 }

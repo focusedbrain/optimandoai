@@ -340,6 +340,13 @@ export function enqueueOrchestratorRemoteMutations(
       continue
     }
 
+    if (String(providerType).toLowerCase() === 'imap') {
+      console.log('[ENQUEUE_MUT] SKIP:', mid, 'reason=imap_remote_disabled')
+      skipReasons.push(`${mid}: imap_remote_disabled (op=${operation}, provider=imap)`)
+      skipped++
+      continue
+    }
+
     try {
       supersedeOtherPendingOps.run(now, mid, operation)
       upsert.run(
@@ -397,11 +404,12 @@ export async function processOrchestratorRemoteQueueBatch(
 
   const pendingCount = db
     .prepare(
-      `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`,
+      `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'
+       AND LOWER(TRIM(COALESCE(provider_type, ''))) != 'imap'`,
     )
     .get() as { c: number }
   result.pendingRemaining = pendingCount?.c ?? 0
-  console.log(`[DRAIN_BATCH] START: pendingCount=${pendingCount?.c ?? 0}`)
+  console.log(`[DRAIN_BATCH] START: pendingCount(non-IMAP)=${pendingCount?.c ?? 0}`)
 
   /* Unstick rows left in processing (e.g. crash mid-flight, hung IMAP). Compare ISO timestamps in JS for reliability. */
   const stuckCutoffIso = new Date(Date.now() - 5 * 60 * 1000).toISOString()
@@ -417,6 +425,7 @@ export async function processOrchestratorRemoteQueueBatch(
     FROM remote_orchestrator_mutation_queue q
     LEFT JOIN inbox_messages m ON m.id = q.message_id
     WHERE q.status = 'pending' AND q.attempts < ?
+      AND LOWER(TRIM(COALESCE(q.provider_type, ''))) != 'imap'
     ORDER BY q.created_at DESC
     LIMIT ?
   `)
@@ -735,7 +744,8 @@ export async function processOrchestratorRemoteQueueBatch(
 
   const after = db
     .prepare(
-      `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`,
+      `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'
+       AND LOWER(TRIM(COALESCE(provider_type, ''))) != 'imap'`,
     )
     .get() as { c: number }
   result.pendingRemaining = after?.c ?? 0
@@ -843,6 +853,24 @@ export function markOrphanPendingQueueRowsAsFailed(db: any, knownAccountIds: str
   return { cleared }
 }
 
+/**
+ * Remove all IMAP rows from the remote orchestrator queue (IMAP no longer performs server-side folder moves).
+ */
+export function purgeImapRemoteQueueRows(db: any): number {
+  if (!db) return 0
+  try {
+    const info = db
+      .prepare(
+        `DELETE FROM remote_orchestrator_mutation_queue WHERE LOWER(TRIM(COALESCE(provider_type, ''))) = 'imap'`,
+      )
+      .run() as { changes?: number }
+    return typeof info?.changes === 'number' ? info.changes : 0
+  } catch (e: any) {
+    console.warn('[OrchestratorRemote] purgeImapRemoteQueueRows failed:', e?.message || e)
+    return 0
+  }
+}
+
 let remoteDrainWatchdogStarted = false
 
 /**
@@ -877,7 +905,10 @@ export function ensureOrchestratorRemoteDrainWatchdog(getDb: () => Promise<any> 
         }
 
         const row = db
-          .prepare(`SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'`)
+          .prepare(
+            `SELECT COUNT(*) as c FROM remote_orchestrator_mutation_queue WHERE status = 'pending'
+             AND LOWER(TRIM(COALESCE(provider_type, ''))) != 'imap'`,
+          )
           .get() as { c?: number } | undefined
         const c = row?.c ?? 0
         if (c > 0) {
@@ -954,6 +985,12 @@ export function enqueueRemoteOpsForLocalLifecycleState(db: any, messageIds: stri
       if (!cfg) {
         console.log('[ENQUEUE] SKIP:', mid, 'reason=no_account_config')
         skipReasons.push(formatLifecycleSkipReason(mid, 'no_account_config', row))
+        skipped++
+        continue
+      }
+      if (cfg.provider === 'imap') {
+        console.log('[ENQUEUE] SKIP:', mid, 'reason=imap_remote_disabled')
+        skipReasons.push(`${mid}: imap_remote_disabled (provider=imap)`)
         skipped++
         continue
       }
@@ -1088,6 +1125,7 @@ export function enqueueFullRemoteSync(db: any, accountId: string): EnqueueFullRe
   try {
     cfg = emailGateway.getAccountConfig(accountId.trim())
     if (!cfg) return out
+    if (cfg.provider === 'imap') return out
     names = resolveOrchestratorRemoteNames(cfg)
   } catch {
     return out
@@ -1703,8 +1741,9 @@ export function listRemoteOrchestratorQueueRows(db: any, limit: number = 50): an
   if (!db) return []
   return db
     .prepare(
-      `SELECT id, message_id, operation, status, attempts, last_error, created_at, updated_at
+      `SELECT id, message_id, account_id, provider_type, operation, status, attempts, last_error, created_at, updated_at
        FROM remote_orchestrator_mutation_queue
+       WHERE LOWER(TRIM(COALESCE(provider_type, ''))) != 'imap'
        ORDER BY updated_at DESC
        LIMIT ?`,
     )

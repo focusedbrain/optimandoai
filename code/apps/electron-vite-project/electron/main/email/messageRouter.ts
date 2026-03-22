@@ -7,14 +7,13 @@
  * @version 1.0.0
  */
 
-import { randomUUID } from 'crypto'
-import * as fs from 'fs'
-import * as path from 'path'
-import { app } from 'electron'
+import { createHash, randomUUID } from 'crypto'
 import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
 import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
+import { extractPdfText, isPdfFile } from './pdf-extractor'
+import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 
 // ── Types ──
 
@@ -133,30 +132,6 @@ function extractHandshakeId(parsed: Record<string, unknown>): string | null {
   return null
 }
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'attachment'
-}
-
-// ── Attachment storage ──
-
-function getAttachmentsBasePath(): string {
-  return path.join(app.getPath('userData'), 'inbox-attachments')
-}
-
-function storeAttachment(messageId: string, attId: string, filename: string, content: Buffer): string {
-  const base = getAttachmentsBasePath()
-  const dir = path.join(base, messageId)
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-  const safeName = sanitizeFilename(filename) || 'attachment'
-  const ext = path.extname(safeName) || ''
-  const baseName = path.basename(safeName, ext) || 'file'
-  const storagePath = path.join(dir, `${attId}_${baseName}${ext}`)
-  fs.writeFileSync(storagePath, content)
-  return storagePath
-}
-
 // ── Main router ──
 
 /**
@@ -188,12 +163,13 @@ function resolveStorageEmailMessageId(accountId: string, rawMsg: RawEmailMessage
 /**
  * Detect BEAP content and route to the correct ingestion path.
  * Inserts into inbox_messages and into p2p_pending_beap (BEAP) or plain_email_inbox (plain).
+ * PDFs: text is extracted at ingest (no Vision fallback — same as inbox IPC policy).
  */
-export function detectAndRouteMessage(
+export async function detectAndRouteMessage(
   db: any,
   accountId: string,
   rawMsg: RawEmailMessage,
-): DetectAndRouteResult {
+): Promise<DetectAndRouteResult> {
   const messageId = resolveStorageEmailMessageId(accountId, rawMsg)
   const inboxMessageId = randomUUID()
   const now = new Date().toISOString()
@@ -341,13 +317,53 @@ export function detectAndRouteMessage(
     INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
+  const updateContentSha256 = db.prepare(`
+    UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?
+  `)
+  const updatePdfExtracted = db.prepare(`
+    UPDATE inbox_attachments
+    SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?, extracted_text_sha256 = ?
+    WHERE id = ?
+  `)
+  const updatePdfFailed = db.prepare(`
+    UPDATE inbox_attachments
+    SET text_extraction_status = 'failed', text_extraction_error = ?
+    WHERE id = ?
+  `)
+  const updateAttEncryption = db.prepare(`
+    UPDATE inbox_attachments
+    SET encryption_key = ?, encryption_iv = ?, encryption_tag = ?, storage_encrypted = ?
+    WHERE id = ?
+  `)
+
+  /** Metadata for plain_email_inbox JSON (includes PDF text when extracted at ingest). */
+  const plainAttachmentMeta: Array<{
+    id: string
+    filename: string
+    mimeType: string
+    size: number
+    extracted_text?: string
+    extraction_status?: string
+    extraction_error?: string | null
+    content_sha256?: string
+    extracted_text_sha256?: string
+  }> = []
 
   for (const att of attachments) {
     const attId = att.id || randomUUID()
     let storagePath: string | null = null
+    let encKey: string | null = null
+    let encIv: string | null = null
+    let encTag: string | null = null
+    let storageEncrypted = 0
     if (att.content && att.content.length > 0) {
       try {
-        storagePath = storeAttachment(inboxMessageId, attId, att.filename, att.content)
+        const w = writeEncryptedAttachmentFile(inboxMessageId, attId, att.filename, att.content)
+        storagePath = w.storagePath
+        encKey = w.encryptionKeyStored
+        encIv = w.ivB64
+        encTag = w.tagB64
+        storageEncrypted = 1
       } catch (e) {
         console.warn('[MessageRouter] Failed to store attachment:', att.filename, e)
       }
@@ -362,6 +378,56 @@ export function detectAndRouteMessage(
       storagePath,
       now,
     )
+    if (storageEncrypted && encKey && encIv && encTag) {
+      updateAttEncryption.run(encKey, encIv, encTag, storageEncrypted, attId)
+    }
+
+    let contentSha256: string | undefined
+    if (att.content && att.content.length > 0) {
+      contentSha256 = createHash('sha256').update(att.content).digest('hex')
+      updateContentSha256.run(contentSha256, attId)
+    }
+
+    let extractedText: string | undefined
+    let extractionStatus: string | undefined
+    let extractionError: string | null | undefined
+    let extractedTextSha256: string | undefined
+    if (isPdfFile(att.contentType || '', att.filename) && att.content && att.content.length > 0) {
+      try {
+        const result = await extractPdfText(att.content)
+        const text = result?.text ?? ''
+        const textHash = createHash('sha256').update(text, 'utf8').digest('hex')
+        const ok = Boolean(result?.success && text.trim().length > 0)
+        const status = ok ? 'done' : 'failed'
+        const errMsg = ok
+          ? null
+          : (result?.error ??
+              (result?.warnings?.length ? result.warnings.join('; ') : null) ??
+              'No text extracted')
+        updatePdfExtracted.run(text, status, errMsg, textHash, attId)
+        extractedText = text
+        extractionStatus = status
+        extractionError = errMsg
+        extractedTextSha256 = textHash
+      } catch (e: any) {
+        const msg = e?.message ?? String(e) ?? 'Extraction crashed'
+        updatePdfFailed.run(msg, attId)
+        extractionStatus = 'failed'
+        extractionError = msg
+      }
+    }
+
+    plainAttachmentMeta.push({
+      id: attId,
+      filename: att.filename || 'attachment',
+      mimeType: att.contentType || 'application/octet-stream',
+      size: att.size ?? 0,
+      ...(extractedText !== undefined && { extracted_text: extractedText }),
+      ...(extractionStatus !== undefined && { extraction_status: extractionStatus }),
+      ...(extractionError !== undefined && { extraction_error: extractionError }),
+      ...(contentSha256 !== undefined && { content_sha256: contentSha256 }),
+      ...(extractedTextSha256 !== undefined && { extracted_text_sha256: extractedTextSha256 }),
+    })
   }
 
   if (detectedType === 'beap' && beapPackageJson) {
@@ -386,15 +452,7 @@ export function detectAndRouteMessage(
       bodySafeHtml: bodyHtml ?? undefined,
     }
     const plainMsg = plainEmailToBeapMessage(sanitizedDetail, accountId)
-    const enrichedMsg = enrichWithAttachments(
-      plainMsg,
-      attachments.map((a) => ({
-        id: a.id || randomUUID(),
-        filename: a.filename || 'attachment',
-        mimeType: a.contentType || 'application/octet-stream',
-        size: a.size ?? 0,
-      })),
-    )
+    const enrichedMsg = enrichWithAttachments(plainMsg, plainAttachmentMeta)
     insertPendingPlainEmail(db, accountId, messageId, JSON.stringify(enrichedMsg))
   }
 

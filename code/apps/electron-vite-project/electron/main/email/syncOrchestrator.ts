@@ -433,7 +433,7 @@ async function syncAccountEmailsImpl(
           }
 
           const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })
-          const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
+          const routeResult = await detectAndRouteMessage(db, accountId, rawMsg)
 
           newCount++
           result.newInboxMessageIds.push(routeResult.inboxMessageId)

@@ -192,7 +192,11 @@ export interface EmailInboxBridge {
   cancelDeletion: (id: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   getDeletedMessages: () => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
   getAttachment: (id: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
-  getAttachmentText: (id: string) => Promise<{ ok: boolean; data?: { text: string; status: string }; error?: string }>
+  getAttachmentText: (id: string) => Promise<{
+    ok: boolean
+    data?: { text: string; status: string; error?: string | null; content_sha256?: string | null; extracted_text_sha256?: string | null }
+    error?: string
+  }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>

@@ -21,13 +21,14 @@ export function isSecureStorageAvailable(): boolean {
   if (encryptionAvailable === null) {
     try {
       encryptionAvailable = safeStorage.isEncryptionAvailable()
-      console.log('[SecureStorage] Encryption available:', encryptionAvailable)
+      console.log('[SecureStorage] isSecureStorageAvailable() =>', encryptionAvailable)
     } catch (err) {
       console.error('[SecureStorage] Error checking encryption availability:', err)
       encryptionAvailable = false
+      console.log('[SecureStorage] isSecureStorageAvailable() =>', false)
     }
   }
-  return encryptionAvailable
+  return encryptionAvailable ?? false
 }
 
 /**

@@ -814,6 +814,31 @@ const HANDSHAKE_MIGRATIONS: Array<{
          AND imap_rfc_message_id NOT LIKE '<%'`,
     ],
   },
+  {
+    version: 43,
+    description: 'Schema v43: inbox_attachments.text_extraction_error for PDF ingest failures',
+    sql: [`ALTER TABLE inbox_attachments ADD COLUMN text_extraction_error TEXT DEFAULT NULL`],
+  },
+  {
+    version: 44,
+    description:
+      'Schema v44: inbox_attachments content_sha256 + extracted_text_sha256 (link blob to extracted text)',
+    sql: [
+      `ALTER TABLE inbox_attachments ADD COLUMN content_sha256 TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN extracted_text_sha256 TEXT DEFAULT NULL`,
+    ],
+  },
+  {
+    version: 45,
+    description:
+      'Schema v45: inbox_attachments AES-GCM at rest — encryption_key/iv/tag + storage_encrypted',
+    sql: [
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_key TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_iv TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_tag TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN storage_encrypted INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 /**
@@ -887,6 +912,13 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_attachments', column: 'storage_path', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'extracted_text', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'text_extraction_status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'inbox_attachments', column: 'text_extraction_error', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'content_sha256', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'extracted_text_sha256', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_key', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_iv', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_tag', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'storage_encrypted', ddl: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'inbox_attachments', column: 'raster_path', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'embedding_status', ddl: "TEXT DEFAULT 'pending'" },
   { table: 'inbox_attachments', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },

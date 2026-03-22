@@ -5,7 +5,7 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
@@ -988,8 +988,14 @@ export default function EmailInboxView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
+  const handleAfterEmailConnected = useCallback(async () => {
+    await loadProviderAccounts()
+    useEmailInboxStore.getState().clearLastSyncWarnings()
+    useEmailInboxStore.getState().clearRemoteSyncLog()
+  }, [loadProviderAccounts])
+
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
-    onAfterConnected: loadProviderAccounts,
+    onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
   })
 
@@ -1099,6 +1105,11 @@ export default function EmailInboxView({
   )
 
   const [remoteLifecycleSyncing, setRemoteLifecycleSyncing] = useState(false)
+  /** Show ☁ Sync Remote when there is no account list yet, or at least one OAuth provider. */
+  const remoteLifecycleSyncEnabled = useMemo(
+    () => providerAccounts.length === 0 || providerAccounts.some((a) => a.provider !== 'imap'),
+    [providerAccounts],
+  )
   const handleRemoteLifecycleSyncAll = useCallback(() => {
     console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
@@ -1399,7 +1410,12 @@ export default function EmailInboxView({
           onSyncWindowChange={
             window.emailInbox?.patchAccountSyncPreferences ? handleSyncWindowChange : undefined
           }
-          onRemoteLifecycleSync={window.emailInbox?.fullRemoteSyncAllAccounts ? handleRemoteLifecycleSyncAll : undefined}
+          onRemoteLifecycleSync={
+            window.emailInbox?.fullRemoteSyncAllAccounts && remoteLifecycleSyncEnabled
+              ? handleRemoteLifecycleSyncAll
+              : undefined
+          }
+          remoteLifecycleSyncEnabled={remoteLifecycleSyncEnabled}
           remoteLifecycleSyncing={remoteLifecycleSyncing}
           onToggleAutoSync={toggleAutoSync}
           bulkMode={bulkMode}

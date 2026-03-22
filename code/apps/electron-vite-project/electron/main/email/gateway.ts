@@ -93,6 +93,12 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
   if (next.imap && next.imap._encrypted === true) {
     try {
       const plain = decryptValue(next.imap.password)
+      console.log(
+        '[Gateway] IMAP decrypt: _encrypted=',
+        next.imap._encrypted,
+        'decrypted length=',
+        plain.length,
+      )
       next = {
         ...next,
         imap: {
@@ -118,6 +124,12 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
   if (next.smtp && next.smtp._encrypted === true) {
     try {
       const plain = decryptValue(next.smtp.password)
+      console.log(
+        '[Gateway] SMTP decrypt: _encrypted=',
+        next.smtp._encrypted,
+        'decrypted length=',
+        plain.length,
+      )
       next = {
         ...next,
         smtp: {
@@ -147,13 +159,34 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
   const encAvail = isSecureStorageAvailable()
   /** Never persist `undefined` — JSON.stringify omits it and the password would be lost on reload. */
   const imapPlain = String(account.imap.password ?? '')
+  const imapEncrypted = encryptValue(imapPlain)
+  console.log(
+    '[Gateway] IMAP encrypt: encAvail=',
+    encAvail,
+    'password length=',
+    imapPlain.length,
+    'encrypted length=',
+    imapEncrypted.length,
+  )
   const imap = {
     host: account.imap.host,
     port: account.imap.port,
     security: account.imap.security,
     username: account.imap.username,
-    password: encryptValue(imapPlain),
+    password: imapEncrypted,
     _encrypted: encAvail,
+  }
+  const smtpPlain = account.smtp ? String(account.smtp.password ?? '') : ''
+  const smtpEncrypted = account.smtp ? encryptValue(smtpPlain) : ''
+  if (account.smtp) {
+    console.log(
+      '[Gateway] SMTP encrypt: encAvail=',
+      encAvail,
+      'password length=',
+      smtpPlain.length,
+      'encrypted length=',
+      smtpEncrypted.length,
+    )
   }
   const smtp = account.smtp
     ? {
@@ -161,7 +194,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
         port: account.smtp.port,
         security: account.smtp.security,
         username: account.smtp.username,
-        password: encryptValue(String(account.smtp.password ?? '')),
+        password: smtpEncrypted,
         _encrypted: encAvail,
       }
     : undefined

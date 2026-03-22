@@ -19,7 +19,6 @@ import EmailComposeOverlay from './EmailComposeOverlay'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
-import { ImapConnectionNotice } from '@ext/shared/email/ImapConnectionNotice'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
@@ -111,35 +110,16 @@ function countStatus(byStatus: QueueStatusRow[], s: string): number {
   return Number(row?.c) || 0
 }
 
-/** Plain-language remote sync line for the debug panel (honest, no fake ETAs). */
-function buildRemoteSyncUserSummary(
-  byStatus: QueueStatusRow[],
-  queueByAccountSummary: QueueByAccountSummaryRow[],
-): { line: string; showImapNotice: boolean; imapNoticeAccountId: string } {
+/** Plain-language remote sync line for the debug panel (honest, no fake ETAs). IMAP is pull-only — no remote queue rows. */
+function buildRemoteSyncUserSummary(byStatus: QueueStatusRow[]): { line: string } {
   const pending = countStatus(byStatus, 'pending')
   const processing = countStatus(byStatus, 'processing')
   const active = pending + processing
   if (active === 0) {
-    return {
-      line: 'Remote folder sync: idle — no moves queued. ✓',
-      showImapNotice: false,
-      imapNoticeAccountId: 'debug-imap',
-    }
-  }
-  const imapRows = queueByAccountSummary.filter((s) => s.provider === 'imap')
-  const imapActive = imapRows.reduce((a, s) => a + s.pending + s.processing, 0)
-  if (imapActive > 0) {
-    const firstId = imapRows.find((s) => s.pending + s.processing > 0)?.accountId ?? 'debug-imap'
-    return {
-      line: `Remote sync: in progress — ${active} move(s) queued (~${imapActive} on IMAP). Large IMAP mailboxes can take 30–60+ minutes; the app throttles to respect provider limits.`,
-      showImapNotice: true,
-      imapNoticeAccountId: firstId,
-    }
+    return { line: 'Remote folder sync: idle — no moves queued. ✓' }
   }
   return {
-    line: `Remote sync: in progress — ${active} move(s) queued (Microsoft 365 / API path).`,
-    showImapNotice: false,
-    imapNoticeAccountId: 'debug-imap',
+    line: `Remote sync: in progress — ${active} move(s) queued (Gmail / Microsoft 365 / Zoho).`,
   }
 }
 
@@ -1799,13 +1779,28 @@ export default function EmailInboxBulkView({
     }
   }, [addRemoteSyncLog])
 
-  /** Pull from mailbox(es), then enqueue remote folder reconcile — one user-facing Sync action. */
+  /** Pull from mailbox(es); optionally enqueue remote folder reconcile when at least one OAuth account exists. */
   const handleUnifiedSync = useCallback(async () => {
     const ids = activeEmailAccountIdsForSync(accounts)
     const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
     if (toSync.length === 0) return
     await syncAllAccounts(toSync)
-    await enqueueFullRemoteSync()
+    let shouldEnqueueRemote = true
+    if (typeof window.emailAccounts?.listAccounts === 'function') {
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res.data && res.data.length > 0) {
+          const allImap = res.data.every((a: { provider?: string }) => {
+            const p = a.provider
+            return p !== 'gmail' && p !== 'microsoft365' && p !== 'zoho'
+          })
+          if (allImap) shouldEnqueueRemote = false
+        }
+      } catch {
+        /* keep shouldEnqueueRemote true */
+      }
+    }
+    if (shouldEnqueueRemote) await enqueueFullRemoteSync()
   }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
 
   const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
@@ -1837,8 +1832,7 @@ export default function EmailInboxBulkView({
   const remoteSyncUserSummary = useMemo(() => {
     if (!remoteDebugQueue || typeof remoteDebugQueue !== 'object') return null
     const byStatus = (remoteDebugQueue.byStatus as QueueStatusRow[]) ?? []
-    const queueByAccountSummary = (remoteDebugQueue.queueByAccountSummary as QueueByAccountSummaryRow[]) ?? []
-    return buildRemoteSyncUserSummary(byStatus, queueByAccountSummary)
+    return buildRemoteSyncUserSummary(byStatus)
   }, [remoteDebugQueue])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
@@ -1867,6 +1861,11 @@ export default function EmailInboxBulkView({
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
+  /** True when every listed account is IMAP — unified Sync runs pull only (no remote enqueue). */
+  const bulkToolbarPullOnly = useMemo(
+    () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
+    [providerAccounts],
+  )
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
@@ -3084,8 +3083,14 @@ export default function EmailInboxBulkView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
+  const handleAfterEmailConnected = useCallback(async () => {
+    await loadProviderAccounts()
+    useEmailInboxStore.getState().clearLastSyncWarnings()
+    useEmailInboxStore.getState().clearRemoteSyncLog()
+  }, [loadProviderAccounts])
+
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
-    onAfterConnected: loadProviderAccounts,
+    onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
   })
 
@@ -4070,9 +4075,13 @@ export default function EmailInboxBulkView({
               className="bulk-view-pull-btn"
               onClick={() => void handleUnifiedSync()}
               disabled={syncing || remoteSyncBusy || !primaryAccountId}
-              title="Pull new mail and enqueue remote folder sync"
+              title={
+                bulkToolbarPullOnly
+                  ? 'Fetch new mail from the server (IMAP: local classification only; no server folder moves)'
+                  : 'Pull new mail, then enqueue remote folder sync for Gmail / Microsoft 365 / Zoho'
+              }
             >
-              {syncing || remoteSyncBusy ? '↻ Syncing…' : '↻ Sync'}
+              {syncing || remoteSyncBusy ? '↻ Syncing…' : bulkToolbarPullOnly ? '↻ Pull' : '↻ Sync'}
             </button>
             <button
               type="button"
@@ -4162,13 +4171,6 @@ export default function EmailInboxBulkView({
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Sync status</div>
                 {remoteSyncUserSummary.line}
               </div>
-            ) : null}
-            {remoteSyncUserSummary?.showImapNotice ? (
-              <ImapConnectionNotice
-                accountId={remoteSyncUserSummary.imapNoticeAccountId}
-                variant="debug"
-                theme="professional"
-              />
             ) : null}
             {remoteDebugLoading ? <div>Loading…</div> : null}
             {remoteFolderVerifyLoading ? <div style={{ marginBottom: 8, fontSize: 11 }}>Verifying IMAP folders…</div> : null}

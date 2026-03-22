@@ -44,12 +44,12 @@ function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
       style={{
         fontSize: 11,
         fontWeight: 600,
-        color: '#a16207',
+        color: '#0f766e',
         letterSpacing: 0.2,
       }}
-      title="IMAP: pull and classify are full support; remote folder mirroring is limited."
+      title="IMAP: fetch mail and classify locally. The app does not move folders on the mail server."
     >
-      🟡 Limited Sync
+      🟢 Pull & Classify
     </span>
   )
 }

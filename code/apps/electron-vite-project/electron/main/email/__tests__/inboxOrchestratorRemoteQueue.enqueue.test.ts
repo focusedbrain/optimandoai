@@ -7,7 +7,7 @@ vi.mock('../gateway', () => ({
   emailGateway: {
     getProviderSync: vi.fn(() => 'gmail'),
     getAccountConfig: vi.fn(() => ({
-      provider: 'imap',
+      provider: 'gmail',
       email: 't@example.com',
       folders: { inbox: 'INBOX' },
     })),
@@ -19,7 +19,7 @@ import { emailGateway } from '../gateway'
 
 describe('enqueueOrchestratorRemoteMutations', () => {
   beforeEach(() => {
-    vi.mocked(emailGateway.getProviderSync).mockReturnValue('imap')
+    vi.mocked(emailGateway.getProviderSync).mockReturnValue('gmail')
   })
 
   function makeDb(row: Record<string, unknown> | undefined) {
@@ -80,6 +80,20 @@ describe('enqueueOrchestratorRemoteMutations', () => {
     expect(rSt.skipReasons.some((s) => s.includes('wrong_source_type'))).toBe(true)
   })
 
+  it('skips IMAP accounts (no remote folder moves)', () => {
+    vi.mocked(emailGateway.getProviderSync).mockReturnValue('imap')
+    const { db, upsertRuns } = makeDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: 'em1',
+      source_type: 'email_plain',
+    })
+    const r = enqueueOrchestratorRemoteMutations(db, ['m1'], 'pending_review')
+    expect(r).toMatchObject({ enqueued: 0, skipped: 1 })
+    expect(r.skipReasons.some((s) => s.includes('imap_remote_disabled'))).toBe(true)
+    expect(upsertRuns).toHaveLength(0)
+  })
+
   it('enqueues for email_plain row with provider from gateway', () => {
     const { db, upsertRuns, supersedeRuns } = makeDb({
       id: 'm1',
@@ -93,7 +107,7 @@ describe('enqueueOrchestratorRemoteMutations', () => {
     expect(supersedeRuns[0]).toContain('m1')
     expect(supersedeRuns[0]).toContain('pending_review')
     expect(upsertRuns).toHaveLength(1)
-    expect(upsertRuns[0]).toContain('imap')
+    expect(upsertRuns[0]).toContain('gmail')
     expect(upsertRuns[0]).toContain('pending_review')
     expect(upsertRuns[0]).toContain('m1')
     expect(upsertRuns[0]).toContain('a1')
@@ -115,7 +129,13 @@ describe('enqueueOrchestratorRemoteMutations', () => {
 
 describe('enqueueRemoteOpsForLocalLifecycleState', () => {
   beforeEach(() => {
-    vi.mocked(emailGateway.getProviderSync).mockReturnValue('imap')
+    vi.mocked(emailGateway.getProviderSync).mockReturnValue('gmail')
+    vi.mocked(emailGateway.getAccountConfig).mockReturnValue({
+      provider: 'gmail',
+      email: 't@example.com',
+      folders: { inbox: 'INBOX', monitored: [], sent: 'Sent' },
+      sync: { maxAgeDays: 0, analyzePdfs: true, batchSize: 50 },
+    } as any)
   })
 
   function makeLifecycleDb(row: Record<string, unknown> | undefined) {
@@ -169,6 +189,31 @@ describe('enqueueRemoteOpsForLocalLifecycleState', () => {
       },
     }
   }
+
+  it('skips when provider is IMAP', () => {
+    vi.mocked(emailGateway.getAccountConfig).mockReturnValue({
+      provider: 'imap',
+      email: 't@example.com',
+      folders: { inbox: 'INBOX', monitored: [], sent: 'Sent' },
+      sync: { maxAgeDays: 0, analyzePdfs: true, batchSize: 50 },
+    } as any)
+    const { db, upsertRuns } = makeLifecycleDb({
+      id: 'm1',
+      account_id: 'a1',
+      email_message_id: '99',
+      archived: 1,
+      pending_delete: 0,
+      sort_category: null,
+      pending_review_at: null,
+      imap_remote_mailbox: 'INBOX',
+      source_type: 'email_plain',
+    })
+    const r = enqueueRemoteOpsForLocalLifecycleState(db, ['m1'])
+    expect(r.enqueued).toBe(0)
+    expect(r.skipped).toBe(1)
+    expect(r.skipReasons.some((s) => s.includes('imap_remote_disabled'))).toBe(true)
+    expect(upsertRuns).toHaveLength(0)
+  })
 
   it('skips upsert when imap_remote_mailbox exactly equals configured archive mailbox name', () => {
     const { db, upsertRuns, clearWithKeepRuns } = makeLifecycleDb({

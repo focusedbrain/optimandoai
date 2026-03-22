@@ -760,10 +760,16 @@ export function EmailConnectWizard({
           const em = res.email || (provider === 'custom' ? customForm.email.trim() : '')
           setResultEmail(em)
           const providerTag = provider === 'custom' ? 'imap' : provider!
-          setTimeout(() => {
-            onConnected({ provider: providerTag, email: em })
-            onClose()
-          }, 3000)
+          const isImapReconnect =
+            Boolean(reconnectAccountId) && isElectron() && provider === 'custom'
+          if (isImapReconnect) {
+            // Show result screen until the user clicks Done — do not auto-close.
+          } else {
+            setTimeout(() => {
+              onConnected({ provider: providerTag, email: em })
+              onClose()
+            }, 3000)
+          }
         } else {
           setResult('failure')
           setResultError(res.error || 'Connection failed')
@@ -2028,9 +2034,13 @@ export function EmailConnectWizard({
                       autoComplete="new-password"
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     />
-                    {reconnectAccountId && reconnectHasStoredImapPassword && (
-                      <div style={{ fontSize: '11px', color: mutedColor, marginTop: '6px', lineHeight: 1.4 }}>
-                        A password is already saved for this account. Enter your current or new password above to verify and update — the field stays empty for security until you type.
+                    {reconnectAccountId && (
+                      <div style={{ fontSize: '11px', color: mutedColor, marginTop: '8px', lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 700, color: reconnectHasStoredImapPassword ? '#22c55e' : '#f59e0b' }}>
+                          {reconnectHasStoredImapPassword ? 'Password saved ✓' : 'No password stored'}
+                        </span>
+                        {' — '}
+                        The field stays empty for security until you type. Enter your password to verify or update; the connection test result is shown on the next step.
                       </div>
                     )}
                   </div>
@@ -2182,33 +2192,66 @@ export function EmailConnectWizard({
           {step === 'result' && result && (
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
               {result === 'success' ? (
-                <>
-                  <div style={{ fontSize: '48px', marginBottom: '16px', color: '#22c55e' }}>✓</div>
-                  <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-                    Connected as {resultEmail || 'your account'}
-                  </div>
-                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>Closing in 3 seconds...</div>
-                  <button
-                    onClick={handleDone}
-                    style={{
-                      padding: '12px 24px',
-                      background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: 'white',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Done
-                  </button>
-                </>
+                reconnectAccountId && isElectron() ? (
+                  <>
+                    <div style={{ fontSize: '48px', marginBottom: '12px', color: '#22c55e' }}>✓</div>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: '#22c55e', marginBottom: '10px' }}>Connected ✓</div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+                      IMAP and SMTP tests passed — credentials saved.
+                    </div>
+                    <div style={{ fontSize: '13px', color: textColor, marginBottom: '6px' }}>{resultEmail || 'Your account'}</div>
+                    <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>
+                      Click Done to refresh the inbox and clear sign-in warnings.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDone}
+                      style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: 'white',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Done
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '48px', marginBottom: '16px', color: '#22c55e' }}>✓</div>
+                    <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+                      Connected as {resultEmail || 'your account'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>Closing in 3 seconds...</div>
+                    <button
+                      type="button"
+                      onClick={handleDone}
+                      style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: 'white',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Done
+                    </button>
+                  </>
+                )
               ) : (
                 <>
                   <div style={{ fontSize: '48px', marginBottom: '16px', color: '#dc2626' }}>✗</div>
                   <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>Connection failed</div>
-                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '80px', overflowY: 'auto' }}>{resultError}</div>
+                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '100px', overflowY: 'auto', lineHeight: 1.45 }}>
+                    {resultError ? `Connection failed: ${resultError}` : 'Connection failed: Unknown error'}
+                  </div>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button
                       onClick={handleTryAgain}

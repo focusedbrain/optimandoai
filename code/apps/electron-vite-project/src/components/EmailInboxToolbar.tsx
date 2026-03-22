@@ -21,9 +21,11 @@ export interface EmailInboxToolbarProps {
   accountSyncWindowDays?: number
   /** Persist sync window; parent should confirm when days === 0. */
   onSyncWindowChange?: (days: number) => void
-  /** Optional: enqueue full remote reconcile for all accounts (background). */
+  /** Optional: enqueue full remote reconcile for all accounts (background). Hidden when only IMAP accounts. */
   onRemoteLifecycleSync?: () => void
   remoteLifecycleSyncing?: boolean
+  /** When false, ☁ Sync Remote is not shown (e.g. all connected accounts are IMAP). Default true. */
+  remoteLifecycleSyncEnabled?: boolean
   onToggleAutoSync: (accountId: string, enabled: boolean) => void
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
@@ -112,8 +114,9 @@ export default function EmailInboxToolbar({
   onPullMore: _onPullMore,
   accountSyncWindowDays = 30,
   onSyncWindowChange,
-  onRemoteLifecycleSync: _onRemoteLifecycleSync,
-  remoteLifecycleSyncing: _remoteLifecycleSyncing = false,
+  onRemoteLifecycleSync,
+  remoteLifecycleSyncing = false,
+  remoteLifecycleSyncEnabled = true,
   onToggleAutoSync,
   bulkMode: _bulkMode,
   onBulkModeChange: _onBulkModeChange,
@@ -215,9 +218,31 @@ export default function EmailInboxToolbar({
               cursor: syncing ? 'not-allowed' : 'pointer',
               opacity: syncing ? 0.7 : 1,
             }}
+            title="Fetch new mail from the server (IMAP: pull only — no remote folder moves)"
           >
             {syncing ? '↻ Syncing…' : '↻ Pull'}
           </button>
+          {remoteLifecycleSyncEnabled && onRemoteLifecycleSync && (
+            <button
+              type="button"
+              onClick={onRemoteLifecycleSync}
+              disabled={remoteLifecycleSyncing}
+              title="Reconcile remote folders for Gmail / Microsoft 365 / Zoho (not used for IMAP)"
+              style={{
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 6,
+                border: '1px solid rgba(59,130,246,0.45)',
+                background: 'rgba(59,130,246,0.12)',
+                color: '#93c5fd',
+                cursor: remoteLifecycleSyncing ? 'not-allowed' : 'pointer',
+                opacity: remoteLifecycleSyncing ? 0.7 : 1,
+              }}
+            >
+              {remoteLifecycleSyncing ? '☁ …' : '☁ Sync Remote'}
+            </button>
+          )}
           {primaryAccountId && onSyncWindowChange && (
             <select
               value={accountSyncWindowDays}
