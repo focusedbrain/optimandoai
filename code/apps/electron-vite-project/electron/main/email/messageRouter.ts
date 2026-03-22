@@ -12,7 +12,7 @@ import { insertPendingP2PBeap, insertPendingPlainEmail } from '../handshake/db'
 import { plainEmailToBeapMessage, enrichWithAttachments } from './plainEmailConverter'
 import type { SanitizedMessageDetail } from './types'
 import { emailGateway } from './gateway'
-import { extractPdfText, isPdfFile } from './pdf-extractor'
+import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
 
 // ── Types ──
@@ -395,22 +395,17 @@ export async function detectAndRouteMessage(
     if (isPdfFile(att.contentType || '', att.filename) && att.content && att.content.length > 0) {
       try {
         const result = await extractPdfText(att.content)
-        const text = result?.text ?? ''
+        const text = result.text ?? ''
         const textHash = createHash('sha256').update(text, 'utf8').digest('hex')
-        const ok = Boolean(result?.success && text.trim().length > 0)
-        const status = ok ? 'done' : 'failed'
-        const errMsg = ok
-          ? null
-          : (result?.error ??
-              (result?.warnings?.length ? result.warnings.join('; ') : null) ??
-              'No text extracted')
-        const pc = typeof result?.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
+        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
+        const pc = typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
         updatePdfExtracted.run(text, status, errMsg, textHash, pc, attId)
         extractedText = text
         extractionStatus = status
         extractionError = errMsg
         extractedTextSha256 = textHash
       } catch (e: any) {
+        console.error('[MessageRouter] PDF extraction failed:', att.filename, e)
         const msg = e?.message ?? String(e) ?? 'Extraction crashed'
         updatePdfFailed.run(msg, attId)
         extractionStatus = 'failed'

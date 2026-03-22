@@ -844,6 +844,49 @@ const HANDSHAKE_MIGRATIONS: Array<{
     description: 'Schema v46: inbox_attachments.page_count for PDF page count (pdfjs extraction)',
     sql: [`ALTER TABLE inbox_attachments ADD COLUMN page_count INTEGER DEFAULT NULL`],
   },
+  {
+    version: 47,
+    description:
+      "Schema v47: inbox_attachments.text_extraction_status allows 'partial' (sparse PDF text vs page count)",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS inbox_attachments_v47 (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL REFERENCES inbox_messages(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        content_type TEXT,
+        size_bytes INTEGER,
+        content_id TEXT,
+        storage_path TEXT,
+        extracted_text TEXT,
+        text_extraction_status TEXT DEFAULT 'pending' CHECK(text_extraction_status IN ('pending','done','failed','skipped','partial')),
+        raster_path TEXT,
+        embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending','done','failed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        text_extraction_error TEXT DEFAULT NULL,
+        content_sha256 TEXT DEFAULT NULL,
+        extracted_text_sha256 TEXT DEFAULT NULL,
+        encryption_key TEXT DEFAULT NULL,
+        encryption_iv TEXT DEFAULT NULL,
+        encryption_tag TEXT DEFAULT NULL,
+        storage_encrypted INTEGER NOT NULL DEFAULT 0,
+        page_count INTEGER DEFAULT NULL
+      )`,
+      `INSERT INTO inbox_attachments_v47 (
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count
+      ) SELECT
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count
+      FROM inbox_attachments`,
+      `DROP TABLE inbox_attachments`,
+      `ALTER TABLE inbox_attachments_v47 RENAME TO inbox_attachments`,
+      `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
+    ],
+  },
 ]
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Compact bulk inbox card — attachment list below the AI action card (right column).
+ * Compact bulk inbox — attachment list at bottom of LEFT column (message side), below body preview.
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -17,14 +17,6 @@ function formatKb(sizeBytes: number | null): string {
   if (sizeBytes == null || sizeBytes < 0) return '—'
   if (sizeBytes < 1024) return `${sizeBytes} B`
   return `${Math.round(sizeBytes / 1024)} KB`
-}
-
-function typeShort(contentType: string | null, filename: string): string {
-  const ct = (contentType || '').toLowerCase()
-  const fn = (filename || '').toLowerCase()
-  if (ct.includes('/')) return (ct.split('/')[1] || 'file').toUpperCase()
-  if (fn.endsWith('.pdf')) return 'PDF'
-  return 'FILE'
 }
 
 export interface BulkInboxAttachmentsStripProps {
@@ -94,7 +86,14 @@ export function BulkInboxAttachmentsStrip({
     return (
       <div
         className="bulk-action-card-attachments-loading"
-        style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #e2e8f0', fontSize: 10, color: '#94a3b8' }}
+        data-subfocus="attachment"
+        style={{
+          marginTop: 8,
+          paddingTop: 6,
+          borderTop: '1px solid rgba(0,0,0,0.06)',
+          fontSize: 10,
+          color: '#94a3b8',
+        }}
       >
         Loading attachments…
       </div>
@@ -120,6 +119,7 @@ export function BulkInboxAttachmentsStrip({
                 filename: readerAtt.filename || 'document.pdf',
                 content_type: readerAtt.content_type,
                 text_extraction_status: readerAtt.text_extraction_status,
+                text_extraction_error: readerAtt.text_extraction_error,
               }
             : null
         }
@@ -127,96 +127,129 @@ export function BulkInboxAttachmentsStrip({
       />
       <div
         data-subfocus="attachment"
-        style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}
+        style={{
+          marginTop: 8,
+          paddingTop: 6,
+          borderTop: '1px solid rgba(0,0,0,0.06)',
+          fontSize: '0.82em',
+          flexShrink: 0,
+        }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, fontWeight: 600 }}>
-          📎 Attachments ({attachments.length})
-        </div>
         {attachments.map((att) => {
           const isSel = selectedAttachmentId === att.id
           const isPdf = isPdfAttachment(att.content_type, att.filename)
-          const extractionFailed = att.text_extraction_status === 'failed'
+          const failed = att.text_extraction_status === 'failed'
+          const partial = att.text_extraction_status === 'partial'
+          const showExtractionWarning = failed || partial
           return (
-            <div
-              key={att.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 6,
-                fontSize: 11,
-                padding: '4px 0',
-                color: '#334155',
-              }}
-            >
-              <span style={{ fontWeight: 500 }}>📄 {att.filename || 'Attachment'}</span>
-              <span style={{ color: '#94a3b8' }}>
-                ({typeShort(att.content_type, att.filename)}, {formatKb(att.size_bytes)})
-              </span>
-              <button
-                type="button"
-                className="bulk-attachment-btn"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleSelectChat(att)
-                }}
+            <div key={att.id} style={{ marginBottom: 6 }}>
+              <div
                 style={{
-                  fontSize: 10,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  border: '1px solid #c4b5fd',
-                  background: isSel ? 'rgba(139,92,246,0.2)' : '#f5f3ff',
-                  color: '#6d28d9',
-                  cursor: 'pointer',
-                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                  color: '#334155',
                 }}
               >
-                {isSel ? 'Selected for chat' : 'Select for chat'}
-              </button>
-              {isPdf && !extractionFailed ? (
+                <span style={{ color: '#666' }}>
+                  📎 {att.filename || 'Attachment'}
+                  <span style={{ color: '#999', marginLeft: 4 }}>({formatKb(att.size_bytes)})</span>
+                </span>
                 <button
                   type="button"
                   className="bulk-attachment-btn"
                   onClick={(e) => {
                     e.stopPropagation()
-                    setReaderAtt(att)
+                    handleSelectChat(att)
                   }}
                   style={{
-                    fontSize: 10,
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    border: '1px solid #c4b5fd',
-                    background: '#fafafa',
-                    color: '#6d28d9',
+                    fontSize: '0.85em',
+                    padding: '2px 6px',
+                    border: '1px solid #ccc',
+                    borderRadius: 3,
                     cursor: 'pointer',
-                    fontWeight: 600,
+                    background: isSel ? 'rgba(139,92,246,0.15)' : '#fff',
                   }}
                 >
-                  Open Reader
+                  Chat
                 </button>
+                {isPdf && !failed ? (
+                  <button
+                    type="button"
+                    className="bulk-attachment-btn"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setReaderAtt(att)
+                    }}
+                    style={{
+                      fontSize: '0.85em',
+                      padding: '2px 6px',
+                      border: '1px solid #ccc',
+                      borderRadius: 3,
+                      cursor: 'pointer',
+                      background: '#fff',
+                    }}
+                  >
+                    Read
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="bulk-attachment-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setOriginalAtt(att)
+                  }}
+                  style={{
+                    fontSize: '0.85em',
+                    padding: '2px 6px',
+                    border: '1px solid #ccc',
+                    borderRadius: 3,
+                    cursor: 'pointer',
+                    background: '#fff',
+                  }}
+                >
+                  Original
+                </button>
+              </div>
+              {showExtractionWarning ? (
+                <div
+                  style={{
+                    fontSize: '0.82em',
+                    color: '#c44',
+                    marginTop: 4,
+                    padding: '4px 8px',
+                    background: '#fff3f3',
+                    borderRadius: 4,
+                  }}
+                >
+                  ⚠️{' '}
+                  {failed
+                    ? 'Text could not be extracted from this PDF.'
+                    : 'Text extraction is incomplete — some pages may be empty.'}
+                  {att.text_extraction_error ? (
+                    <div style={{ color: '#888', marginTop: 4, fontSize: '0.95em', wordBreak: 'break-word' }}>
+                      {att.text_extraction_error}
+                    </div>
+                  ) : null}
+                  <div style={{ color: '#888', marginTop: 4 }}>
+                    You can still view the original document securely.{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOriginalAtt(att)
+                      }}
+                      style={{ marginLeft: 4, fontSize: 'inherit', cursor: 'pointer', textDecoration: 'underline', border: 'none', background: 'none', padding: 0, color: '#6d28d9' }}
+                    >
+                      Open original
+                    </button>
+                  </div>
+                </div>
               ) : null}
-              <button
-                type="button"
-                className="bulk-attachment-btn"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setOriginalAtt(att)
-                }}
-                style={{
-                  fontSize: 10,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  border: '1px solid #e2e8f0',
-                  background: '#fff',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                Open original
-              </button>
             </div>
           )
         })}

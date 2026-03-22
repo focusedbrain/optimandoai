@@ -4926,7 +4926,14 @@ export default function EmailInboxBulkView({
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('.bulk-view-expand-btn') || (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn')) return
+                      if (
+                        (e.target as HTMLElement).closest('input[type="checkbox"]') ||
+                        (e.target as HTMLElement).closest('.bulk-view-expand-btn') ||
+                        (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
+                        (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
+                      ) {
+                        return
+                      }
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
@@ -5074,6 +5081,14 @@ export default function EmailInboxBulkView({
                             )
                           )}
                         </div>
+                        {hasAttachments ? (
+                          <BulkInboxAttachmentsStrip
+                            msg={msg}
+                            selectedAttachmentId={selectedAttachmentId ?? null}
+                            selectAttachment={selectAttachment}
+                            onSelectAttachment={onSelectAttachment}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -5147,14 +5162,6 @@ export default function EmailInboxBulkView({
                     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                       {renderActionCard(msg, output, isCardExpanded)}
                     </div>
-                    {hasAttachments ? (
-                      <BulkInboxAttachmentsStrip
-                        msg={msg}
-                        selectedAttachmentId={selectedAttachmentId ?? null}
-                        selectAttachment={selectAttachment}
-                        onSelectAttachment={onSelectAttachment}
-                      />
-                    ) : null}
                   </div>
                   {/* Full-row expand toggle — CSS gives this grid-column: 1/-1 so it spans both panes */}
                   <div

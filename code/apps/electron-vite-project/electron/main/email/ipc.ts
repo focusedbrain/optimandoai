@@ -182,7 +182,7 @@ import type {
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
-import { extractPdfText, isPdfFile } from './pdf-extractor'
+import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
@@ -2369,14 +2369,17 @@ export function registerInboxHandlers(
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT * FROM inbox_attachments WHERE id = ?').get(attachmentId) as any
       if (!row) return { ok: false, error: 'Attachment not found' }
-      if (row.text_extraction_status === 'done' && row.extracted_text) {
+      if (
+        (row.text_extraction_status === 'done' || row.text_extraction_status === 'partial') &&
+        row.extracted_text
+      ) {
         return {
           ok: true,
           data: {
             text: row.extracted_text,
             pages: inboxPagesFromStoredExtractedText(row.extracted_text),
-            status: 'done',
-            error: null,
+            status: row.text_extraction_status,
+            error: row.text_extraction_error ?? null,
             content_sha256: row.content_sha256 ?? null,
             extracted_text_sha256: row.extracted_text_sha256 ?? null,
           },
@@ -2416,20 +2419,14 @@ export function registerInboxHandlers(
           return { ok: false, error: decErr?.message ?? 'Could not read attachment' }
         }
         const result = await extractPdfText(buf)
-        const text = result?.text ?? ''
-        const ok = Boolean(result?.success && text.trim().length > 0)
-        const status = ok ? 'done' : 'failed'
-        const errMsg = ok
-          ? null
-          : (result?.error ??
-              (result?.warnings?.length ? result.warnings.join('; ') : null) ??
-              'No text extracted')
+        const text = result.text ?? ''
+        const { status, error: errMsg } = resolveInboxPdfExtractionStatus(result)
 
         const contentSha256 = createHash('sha256').update(buf).digest('hex')
         const extractedTextSha256 = createHash('sha256').update(text, 'utf8').digest('hex')
 
         const pageCount =
-          typeof result?.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
+          typeof result.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
         db.prepare(
           `UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
            content_sha256 = ?, extracted_text_sha256 = ?, page_count = ?

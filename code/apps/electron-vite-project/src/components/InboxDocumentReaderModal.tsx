@@ -21,6 +21,7 @@ export interface InboxDocumentReaderModalAttachment {
   filename: string
   content_type: string | null
   text_extraction_status?: string | null
+  text_extraction_error?: string | null
 }
 
 export interface InboxDocumentReaderModalProps {
@@ -48,6 +49,7 @@ export function InboxDocumentReaderModal({
     attachment?.content_type?.trim() ||
     (isPdf ? 'application/pdf' : 'application/octet-stream')
   const extractionFailed = attachment?.text_extraction_status === 'failed'
+  const extractionPartial = attachment?.text_extraction_status === 'partial'
 
   useEffect(() => {
     if (!open || !attachment?.id || !isPdf || extractionFailed) return
@@ -96,6 +98,13 @@ export function InboxDocumentReaderModal({
   }, [onOpenOriginalWarning])
 
   if (!open || !attachment || !isPdf || extractionFailed) return null
+
+  const partialNotice =
+    extractionPartial && attachment.text_extraction_error?.trim()
+      ? attachment.text_extraction_error.trim()
+      : extractionPartial
+        ? 'Text extraction may be incomplete — some pages may have no extractable text.'
+        : null
   if (typeof document === 'undefined') return null
 
   return createPortal(
@@ -146,19 +155,53 @@ export function InboxDocumentReaderModal({
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 0 }}>
-            <HsContextDocumentReader
-              documentId={attachment.id}
-              filename={attachment.filename || 'document.pdf'}
-              mimeType={mimeForReader}
-              api={null}
-              fullText={readerText}
-              pageTexts={readerPages}
-              fillParent
-              hideSyntheticPageBanner
-              canViewOriginal
-              onViewOriginal={handleViewOriginalFromReader}
-              onClose={onClose}
-            />
+            {partialNotice ? (
+              <div
+                role="alert"
+                style={{
+                  flexShrink: 0,
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: '#b45309',
+                  background: 'rgba(251,191,36,0.12)',
+                  borderBottom: '1px solid rgba(251,191,36,0.35)',
+                }}
+              >
+                ⚠️ {partialNotice}{' '}
+                <button
+                  type="button"
+                  onClick={handleViewOriginalFromReader}
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 'inherit',
+                    cursor: 'pointer',
+                    color: '#a78bfa',
+                    textDecoration: 'underline',
+                    border: 'none',
+                    background: 'none',
+                    padding: 0,
+                  }}
+                >
+                  Open original
+                </button>
+              </div>
+            ) : null}
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <HsContextDocumentReader
+                documentId={attachment.id}
+                filename={attachment.filename || 'document.pdf'}
+                mimeType={mimeForReader}
+                api={null}
+                fullText={readerText}
+                pageTexts={readerPages}
+                fillParent
+                hideSyntheticPageBanner
+                canViewOriginal
+                onViewOriginal={handleViewOriginalFromReader}
+                onClose={onClose}
+              />
+            </div>
           </div>
         )}
       </div>

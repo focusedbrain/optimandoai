@@ -74,6 +74,35 @@ export type ExtractPdfTextResult = ExtractedAttachmentText & {
 }
 
 /**
+ * Map raw pdfjs output to inbox attachment status (done / partial / failed).
+ * Partial: text exists but is sparse vs page count (likely missing text on many pages).
+ */
+export function resolveInboxPdfExtractionStatus(result: ExtractPdfTextResult): {
+  status: 'done' | 'partial' | 'failed'
+  error: string | null
+} {
+  const text = (result.text ?? '').trim()
+  const pc = typeof result.pageCount === 'number' ? result.pageCount : 0
+  if (!result.success || text.length === 0) {
+    return {
+      status: 'failed',
+      error:
+        result.error ??
+        (result.warnings?.length ? result.warnings.join('; ') : null) ??
+        'No text extracted',
+    }
+  }
+  const avg = pc > 0 ? text.length / pc : 0
+  if (pc > 5 && avg < 50) {
+    return {
+      status: 'partial',
+      error: `Only ${text.length} chars extracted from ${pc} pages (~${Math.round(avg)} chars/page avg). Text extraction may be incomplete.`,
+    }
+  }
+  return { status: 'done', error: null }
+}
+
+/**
  * Extract text from a PDF buffer using pdfjs-dist (main entry for inbox / gateway).
  */
 export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResult> {
@@ -117,9 +146,16 @@ export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResu
     const pages: string[] = []
 
     for (let i = 1; i <= pageCount; i++) {
-      const page = await pdf.getPage(i)
-      const content = await page.getTextContent()
-      pages.push(reconstructPageText(content.items))
+      try {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        const pageText = reconstructPageText(content.items)
+        console.log(`[pdf-extractor] Page ${i}/${pageCount}: ${pageText.length} chars`)
+        pages.push(pageText)
+      } catch (pageErr: any) {
+        console.error(`[pdf-extractor] Page ${i}/${pageCount} failed:`, pageErr)
+        pages.push('')
+      }
     }
 
     const text = pages.join('\n\n')
@@ -137,6 +173,7 @@ export async function extractPdfText(buffer: Buffer): Promise<ExtractPdfTextResu
       error: text.trim().length > 0 ? undefined : warnings[0] ?? 'No text extracted',
     }
   } catch (err: any) {
+    console.error('[pdf-extractor] Extraction failed:', err)
     return {
       attachmentId: '',
       text: '',

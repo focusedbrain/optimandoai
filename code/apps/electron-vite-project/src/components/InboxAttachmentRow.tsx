@@ -61,6 +61,7 @@ export default function InboxAttachmentRow({
   const isPdf = isPdfAttachment(attachment.content_type, attachment.filename)
 
   const extractionFailed = attachment.text_extraction_status === 'failed'
+  const extractionPartial = attachment.text_extraction_status === 'partial'
   const extractionError = attachment.text_extraction_error?.trim() || null
 
   const handleOpenOriginalClick = useCallback(() => {
@@ -171,6 +172,7 @@ export default function InboxAttachmentRow({
                 filename: attachment.filename || 'document.pdf',
                 content_type: attachment.content_type,
                 text_extraction_status: attachment.text_extraction_status,
+                text_extraction_error: attachment.text_extraction_error,
               }
             : null
         }
@@ -224,7 +226,7 @@ export default function InboxAttachmentRow({
                   fontWeight: 600,
                 }}
               >
-                Open Document Reader
+                {extractionPartial ? 'Open Reader (incomplete text)' : 'Open Document Reader'}
               </button>
             )}
             <button
@@ -267,6 +269,44 @@ export default function InboxAttachmentRow({
                 {extractionError}
               </div>
             ) : null}
+          </div>
+        )}
+        {extractionPartial && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 6,
+              background: 'rgba(251,191,36,0.08)',
+              border: '1px solid rgba(251,191,36,0.35)',
+              fontSize: 12,
+              lineHeight: 1.45,
+              color: 'var(--color-text, #e2e8f0)',
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              ⚠️ Text extraction is incomplete — some pages may be empty. The original document can still be opened for full content.
+            </div>
+            {extractionError ? (
+              <div style={{ fontSize: 11, color: MUTED, wordBreak: 'break-word' }}>{extractionError}</div>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleOpenOriginalClick}
+              style={{
+                marginTop: 8,
+                fontSize: '10px',
+                padding: '4px 8px',
+                background: 'rgba(139,92,246,0.15)',
+                border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: '4px',
+                color: '#a78bfa',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Open original
+            </button>
           </div>
         )}
       </div>
