@@ -6,7 +6,7 @@
  */
 
 import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -1160,6 +1160,13 @@ export function registerInboxHandlers(
     'inbox:debugAccountMigrationStatus',
     'inbox:migrateInboxAccountId',
     'inbox:debugTestMoveOne',
+    'autosort:createSession',
+    'autosort:finalizeSession',
+    'autosort:getSession',
+    'autosort:listSessions',
+    'autosort:deleteSession',
+    'autosort:getSessionMessages',
+    'autosort:generateSummary',
   ] as const
   channels.forEach((ch) => ipcMain.removeHandler(ch))
 
@@ -1206,6 +1213,168 @@ export function registerInboxHandlers(
 
   /** Same DB accessor as all inbox handlers + drain; drives optional UI drain progress. */
   const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+
+  // ── AutoSort sessions (autosort_sessions + inbox_messages.last_autosort_session_id) ──
+  ipcMain.handle('autosort:createSession', async () => {
+    const db = await resolveDb()
+    if (!db) return null
+    const id = randomUUID()
+    db.prepare('INSERT INTO autosort_sessions (id, started_at, status) VALUES (?, ?, ?)').run(id, new Date().toISOString(), 'running')
+    return id
+  })
+
+  ipcMain.handle(
+    'autosort:finalizeSession',
+    async (
+      _e,
+      sessionId: string,
+      stats: {
+        total: number
+        urgent: number
+        pendingReview: number
+        pendingDelete: number
+        archived: number
+        errors: number
+        durationMs: number
+      },
+    ) => {
+      const db = await resolveDb()
+      if (!db) return
+      db.prepare(
+        `UPDATE autosort_sessions SET completed_at = ?, total_messages = ?, urgent_count = ?, pending_review_count = ?, pending_delete_count = ?, archived_count = ?, error_count = ?, duration_ms = ?, status = ? WHERE id = ?`,
+      ).run(
+        new Date().toISOString(),
+        stats.total,
+        stats.urgent,
+        stats.pendingReview,
+        stats.pendingDelete,
+        stats.archived,
+        stats.errors,
+        stats.durationMs,
+        'completed',
+        sessionId,
+      )
+    },
+  )
+
+  ipcMain.handle('autosort:getSession', async (_e, sessionId: string) => {
+    const db = await resolveDb()
+    if (!db) return undefined
+    return db.prepare('SELECT * FROM autosort_sessions WHERE id = ?').get(sessionId)
+  })
+
+  ipcMain.handle('autosort:listSessions', async (_e, limit: number = 50) => {
+    const db = await resolveDb()
+    if (!db) return []
+    return db.prepare('SELECT * FROM autosort_sessions WHERE status = ? ORDER BY started_at DESC LIMIT ?').all('completed', limit)
+  })
+
+  ipcMain.handle('autosort:deleteSession', async (_e, sessionId: string) => {
+    const db = await resolveDb()
+    if (!db) return
+    db.prepare('UPDATE inbox_messages SET last_autosort_session_id = NULL WHERE last_autosort_session_id = ?').run(sessionId)
+    db.prepare('DELETE FROM autosort_sessions WHERE id = ?').run(sessionId)
+  })
+
+  ipcMain.handle('autosort:getSessionMessages', async (_e, sessionId: string) => {
+    const db = await resolveDb()
+    if (!db) return []
+    return db
+      .prepare(
+        'SELECT id, from_address, from_name, subject, sort_category, urgency_score, needs_reply, sort_reason, pending_delete, pending_review_at, archived FROM inbox_messages WHERE last_autosort_session_id = ? ORDER BY urgency_score DESC, received_at DESC',
+      )
+      .all(sessionId)
+  })
+
+  ipcMain.handle('autosort:generateSummary', async (_e, sessionId: string) => {
+    const db = await resolveDb()
+    if (!db) return null
+    const messages = db
+      .prepare(
+        'SELECT id, from_name, from_address, subject, sort_category, urgency_score, needs_reply, sort_reason FROM inbox_messages WHERE last_autosort_session_id = ? ORDER BY urgency_score DESC',
+      )
+      .all(sessionId) as Array<{
+      id: string
+      from_name?: string | null
+      from_address?: string | null
+      subject?: string | null
+      sort_category?: string | null
+      urgency_score?: number | null
+      needs_reply?: number | null
+      sort_reason?: string | null
+    }>
+
+    if (!messages.length) return null
+
+    const lines = messages.map((m, i) =>
+      `${i + 1}. [${m.sort_category}|urgency:${m.urgency_score}|reply:${m.needs_reply ? 'Y' : 'N'}] ${m.from_name || m.from_address}: ${m.subject}${m.sort_reason ? ' — ' + m.sort_reason : ''}`,
+    ).join('\n')
+
+    const systemPrompt = `You are a concise email triage assistant. Analyze the AutoSort results and produce a JSON summary for a dashboard.
+
+RESPOND ONLY WITH VALID JSON. No markdown, no explanation, no fences.
+
+Schema:
+{
+  "headline": "<one sentence: what happened, e.g. '27 emails sorted — 3 need urgent attention'>",
+  "urgent_highlights": [
+    { "idx": <message number>, "from": "<sender>", "subject": "<subject>", "reason": "<why urgent, 1 sentence>", "action": "<recommended action, 1 sentence>" }
+  ],
+  "review_highlights": [
+    { "idx": <message number>, "from": "<sender>", "subject": "<subject>", "reason": "<why needs review, 1 sentence>", "action": "<recommended action, 1 sentence>" }
+  ],
+  "patterns_note": "<1-2 sentences: notable patterns>"
+}
+
+Rules:
+- urgent_highlights: max 5, only urgency >= 7 or category = urgent
+- review_highlights: max 5, only pending_review or needs_reply = Y
+- If none qualify, return empty array
+- All text very concise — this is a quick-glance dashboard
+- headline must include total count and most important takeaway`
+
+    const userPrompt = `AutoSort batch — ${messages.length} messages:\n\n${lines}`
+
+    try {
+      const { ollamaManager } = await import('../llm/ollama-manager')
+      const models = await ollamaManager.listModels()
+      if (!models.length) throw new Error('No Ollama models available')
+
+      const chatRes = await ollamaManager.chat(models[0].name, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ])
+      const rawStr = chatRes?.content?.trim() ?? ''
+      const parsed = parseAiJson(rawStr)
+      if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
+
+      const urgentList = Array.isArray(parsed.urgent_highlights) ? parsed.urgent_highlights : []
+      for (const h of urgentList) {
+        if (h && typeof h === 'object') {
+          const rec = h as Record<string, unknown>
+          const idx = typeof rec.idx === 'number' ? rec.idx : 0
+          const msg = messages[(idx || 0) - 1]
+          if (msg) rec.message_id = msg.id
+        }
+      }
+      const reviewList = Array.isArray(parsed.review_highlights) ? parsed.review_highlights : []
+      for (const h of reviewList) {
+        if (h && typeof h === 'object') {
+          const rec = h as Record<string, unknown>
+          const idx = typeof rec.idx === 'number' ? rec.idx : 0
+          const msg = messages[(idx || 0) - 1]
+          if (msg) rec.message_id = msg.id
+        }
+      }
+
+      db.prepare('UPDATE autosort_sessions SET ai_summary_json = ? WHERE id = ?').run(JSON.stringify(parsed), sessionId)
+
+      return parsed
+    } catch (err) {
+      console.error('[AutoSort] Summary generation failed:', err)
+      return null
+    }
+  })
 
   setOrchestratorDrainProgressReporter((p) => {
     try {
@@ -2821,7 +2990,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
   })
 
   /** Per-message classification — used by both aiClassifySingle and aiCategorize. */
-  async function classifySingleMessage(messageId: string): Promise<{
+  async function classifySingleMessage(messageId: string, sessionId?: string): Promise<{
     messageId: string
     category?: string
     urgency?: number
@@ -2974,6 +3143,10 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       })
       db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(aiAnalysisJson, messageId)
 
+      if (sessionId) {
+        db.prepare('UPDATE inbox_messages SET last_autosort_session_id = ? WHERE id = ?').run(sessionId, messageId)
+      }
+
       /** Single path: DB columns are source of truth; skips if `imap_remote_mailbox` already matches; supersedes stale queue rows. All classified categories (including urgent) enqueue remote lifecycle ops. */
       let remoteEnqueue: { enqueued: number; skipped: number; skipReasons: string[] } | undefined
       try {
@@ -3003,8 +3176,8 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
     }
   }
 
-  ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string) => {
-    const out = await classifySingleMessage(messageId)
+  ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string, sessionId?: string) => {
+    const out = await classifySingleMessage(messageId, sessionId)
     try {
       const db = await resolveDb()
       if (db) {

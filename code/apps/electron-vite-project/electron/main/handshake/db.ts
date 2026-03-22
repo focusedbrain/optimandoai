@@ -887,6 +887,30 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
     ],
   },
+  {
+    version: 48,
+    description:
+      'Schema v48: autosort_sessions (Auto-Sort run metadata) + inbox_messages.last_autosort_session_id',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS autosort_sessions (
+        id                      TEXT PRIMARY KEY,
+        started_at              TEXT NOT NULL,
+        completed_at            TEXT,
+        total_messages          INTEGER NOT NULL DEFAULT 0,
+        urgent_count            INTEGER NOT NULL DEFAULT 0,
+        pending_review_count  INTEGER NOT NULL DEFAULT 0,
+        pending_delete_count    INTEGER NOT NULL DEFAULT 0,
+        archived_count          INTEGER NOT NULL DEFAULT 0,
+        error_count             INTEGER NOT NULL DEFAULT 0,
+        duration_ms             INTEGER,
+        ai_summary_json         TEXT,
+        status                  TEXT NOT NULL DEFAULT 'running'
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_autosort_sessions_started
+        ON autosort_sessions(started_at)`,
+      `ALTER TABLE inbox_messages ADD COLUMN last_autosort_session_id TEXT`,
+    ],
+  },
 ]
 
 /**
@@ -951,6 +975,7 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'lifecycle_final_delete_queued_utc', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'imap_remote_mailbox', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'imap_rfc_message_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'last_autosort_session_id', ddl: 'TEXT' },
   // ── inbox_attachments (messageRouter, ipc) ──
   { table: 'inbox_attachments', column: 'message_id', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'filename', ddl: 'TEXT' },

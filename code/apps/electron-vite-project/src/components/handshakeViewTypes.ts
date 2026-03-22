@@ -6,6 +6,17 @@
 import type { VerifiedContextBlock } from './contextEscaping'
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
 
+/** AutoSort session persistence / review (preload `window.autosortSession`). */
+export interface AutosortSessionAPI {
+  create: () => Promise<string | null>
+  finalize: (id: string, stats: any) => Promise<void>
+  generateSummary: (id: string) => Promise<unknown>
+  getSession: (id: string) => Promise<Record<string, unknown> | undefined>
+  listSessions: (limit?: number) => Promise<Record<string, unknown>[]>
+  deleteSession: (id: string) => Promise<void>
+  getSessionMessages: (id: string) => Promise<Record<string, unknown>[]>
+}
+
 declare global {
   interface Window {
     handshakeView?: {
@@ -112,6 +123,8 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
+    /** AutoSort run CRUD + session summary (IPC). */
+    autosortSession?: AutosortSessionAPI
   }
 }
 
@@ -214,7 +227,10 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
-  aiClassifySingle?: (messageId: string) => Promise<{
+  aiClassifySingle?: (
+    messageId: string,
+    sessionId?: string,
+  ) => Promise<{
     messageId?: string
     category?: string
     error?: string

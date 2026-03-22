@@ -718,7 +718,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
   },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
-  aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
+  aiClassifySingle: (messageId: string, sessionId?: string) =>
+    ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),
   enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
   /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */
@@ -753,6 +754,16 @@ contextBridge.exposeInMainWorld('emailInbox', {
   readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
   reconcileImapRemoteLifecycle: (accountId: string) =>
     ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
+})
+
+contextBridge.exposeInMainWorld('autosortSession', {
+  create: () => ipcRenderer.invoke('autosort:createSession'),
+  finalize: (id: string, stats: any) => ipcRenderer.invoke('autosort:finalizeSession', id, stats),
+  generateSummary: (id: string) => ipcRenderer.invoke('autosort:generateSummary', id),
+  getSession: (id: string) => ipcRenderer.invoke('autosort:getSession', id),
+  listSessions: (limit?: number) => ipcRenderer.invoke('autosort:listSessions', limit),
+  deleteSession: (id: string) => ipcRenderer.invoke('autosort:deleteSession', id),
+  getSessionMessages: (id: string) => ipcRenderer.invoke('autosort:getSessionMessages', id),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

@@ -37,6 +37,8 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
 import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
+import { AutoSortSessionReview } from './AutoSortSessionReview'
+import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -1534,6 +1536,14 @@ function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
   })
 }
 
+/** Auto-Sort toolbar progress (animated bar + optional session phases). */
+export interface AiSortProgressState {
+  done: number
+  total: number
+  label: string
+  phase: 'sorting' | 'summarizing' | 'complete'
+}
+
 export interface EmailInboxBulkViewProps {
   accounts: Array<{ id: string; email: string; status?: string }>
   /** Focused message for chat/search scope; syncs with Hybrid Search */
@@ -1891,7 +1901,11 @@ export default function EmailInboxBulkView({
   )
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
-  const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
+  const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
+  /* Session id + review/history toggles — populated by later AutoSort session prompts */
+  const [lastSessionId, setLastSessionId] = useState<string | null>(null)
+  const [showSessionReview, setShowSessionReview] = useState<string | null>(null)
+  const [showSessionHistory, setShowSessionHistory] = useState(false)
   /** One-line summary after a bulk Auto-Sort run (moved / kept / failed counts). */
   const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
   /** Shown when user triggers Auto-Sort while a run is already active. */
@@ -2390,7 +2404,8 @@ export default function EmailInboxBulkView({
       ids: string[],
       clearSelection: boolean,
       isRetry = false,
-      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean }
+      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean },
+      sessionId?: string
     ): Promise<BulkSortRunAggregate> => {
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
       const suppressGlobalSortingUi = opts?.suppressGlobalSortingUi === true
@@ -2414,7 +2429,12 @@ export default function EmailInboxBulkView({
       }
       if (!suppressGlobalSortingUi) {
         useEmailInboxStore.getState().setSortingActive(true)
-        setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+        setAiSortProgress({
+          done: 0,
+          total: ids.length,
+          label: `Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`,
+          phase: 'sorting',
+        })
       }
       /** Parallel IPC calls — Ollama queues; 5 keeps GPU fed without huge bursts (was 3). */
       const CONCURRENCY = 5
@@ -2429,12 +2449,17 @@ export default function EmailInboxBulkView({
           const batch = ids.slice(i, i + CONCURRENCY)
           const doneAfterBatch = Math.min(i + batch.length, ids.length)
           if (!suppressGlobalSortingUi) {
-            setAiSortProgress(`Analyzing ${doneAfterBatch}/${ids.length}…`)
+            setAiSortProgress({
+              done: doneAfterBatch,
+              total: ids.length,
+              label: `Analyzing ${doneAfterBatch}/${ids.length}…`,
+              phase: 'sorting',
+            })
           }
           const settled = await Promise.allSettled(
             batch.map(async (messageId) => {
               try {
-              const result = await window.emailInbox!.aiClassifySingle(messageId)
+              const result = await window.emailInbox!.aiClassifySingle(messageId, sessionId)
               if (result.error) {
                 failedIds.push(messageId)
                 console.warn('[SORT] Failed to analyze message:', messageId, result.error)
@@ -2673,7 +2698,7 @@ export default function EmailInboxBulkView({
             manageConcurrencyLock: false,
             suppressGlobalSortingUi,
             skipEndRefresh,
-          })
+          }, sessionId)
           allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
@@ -2938,12 +2963,19 @@ export default function EmailInboxBulkView({
       window.setTimeout(() => setConcurrentSortNotice(null), 12_000)
       return
     }
+    const startTime = Date.now()
+    let sessionId: string | null = null
     isSortingRef.current = true
     useEmailInboxStore.getState().setSortingActive(true)
-    setAiSortProgress('Gathering messages…')
+    setAiSortProgress({ done: 0, total: 0, label: 'Gathering messages…', phase: 'sorting' })
     setConcurrentSortNotice(null)
     setAiSortOutcomeSummary(null)
     try {
+      const sessionApi = window.autosortSession
+      if (sessionApi?.create) {
+        sessionId = await sessionApi.create()
+      }
+
       let targetIds: string[]
       if (bulkBatchSize === 'all') {
         await useEmailInboxStore.getState().fetchAllMessages({ soft: true })
@@ -2953,52 +2985,83 @@ export default function EmailInboxBulkView({
       }
       if (!targetIds.length) {
         console.info('[SORT] Auto-Sort: no messages in target set (nothing to do)')
+        if (sessionId && sessionApi?.finalize) {
+          try {
+            await sessionApi.finalize(sessionId, {
+              total: 0,
+              urgent: 0,
+              pendingReview: 0,
+              pendingDelete: 0,
+              archived: 0,
+              errors: 0,
+              durationMs: Date.now() - startTime,
+            })
+          } catch {
+            /* ignore */
+          }
+        }
         setAiSortProgress(null)
         return
       }
-      setAiSortProgress(`Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`)
+      setAiSortProgress({
+        done: 0,
+        total: targetIds.length,
+        label: `Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`,
+        phase: 'sorting',
+      })
       console.log('[SORT] Start. Batch:', bulkBatchSize, 'Target:', targetIds.length)
-      const { processedIds, failedIds, movedIds, missedIds, retainedCounts } = await runAiCategorizeForIds(
+      await runAiCategorizeForIds(
         targetIds,
         true,
         false,
         {
           manageConcurrencyLock: false,
-        }
+        },
+        sessionId ?? undefined
       )
-      const retainedN = processedIds.filter((id) => !movedIds.includes(id)).length
-      const rc = retainedCounts
-      const retainParts: string[] = []
-      if (rc.keep_for_manual_action) retainParts.push(`${rc.keep_for_manual_action} manual review`)
-      if (rc.draft_reply_ready) retainParts.push(`${rc.draft_reply_ready} reply-ready`)
-      if (rc.classified_no_auto_move) retainParts.push(`${rc.classified_no_auto_move} other no auto-move`)
 
-      const lines: string[] = [`Auto-Sort: ${movedIds.length} moved`]
-      if (retainedN > 0) {
-        lines.push(
-          retainParts.length > 0
-            ? `${retainedN} not locally moved by Auto-Sort (${retainParts.join(', ')} — see “Auto-Sort note” on rows)`
-            : `${retainedN} not locally moved by Auto-Sort (see row notes / Recommended Action)`
-        )
+      if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize && sessionApi.generateSummary) {
+        const sessionMessages = await sessionApi.getSessionMessages(sessionId)
+        const stats = {
+          total: sessionMessages.length,
+          urgent: sessionMessages.filter(
+            (m: { sort_category?: string; urgency_score?: number | null }) =>
+              m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
+          ).length,
+          pendingReview: sessionMessages.filter((m: { pending_review_at?: string | null }) => !!m.pending_review_at)
+            .length,
+          pendingDelete: sessionMessages.filter((m: { pending_delete?: number | null }) => !!m.pending_delete).length,
+          archived: sessionMessages.filter((m: { archived?: number | null }) => !!m.archived).length,
+          errors: Math.max(0, targetIds.length - sessionMessages.length),
+          durationMs: Date.now() - startTime,
+        }
+        await sessionApi.finalize(sessionId, stats)
+        setAiSortProgress({
+          done: stats.total,
+          total: stats.total,
+          label: '✦ Generating session summary…',
+          phase: 'summarizing',
+        })
+        await sessionApi.generateSummary(sessionId)
+        setLastSessionId(sessionId)
       }
-      lines.push(`${failedIds.length} failed (red error cards + Retry)`)
-      if (missedIds.length > 0) {
-        lines.push(`${missedIds.length} still incomplete — run Auto-Sort again`)
+    } catch (err) {
+      console.error('[AutoSort] Session error:', err)
+      if (sessionId && window.autosortSession?.finalize) {
+        try {
+          await window.autosortSession.finalize(sessionId, {
+            total: 0,
+            urgent: 0,
+            pendingReview: 0,
+            pendingDelete: 0,
+            archived: 0,
+            errors: 1,
+            durationMs: Date.now() - startTime,
+          })
+        } catch {
+          /* ignore */
+        }
       }
-      if (failedIds.length > 0) {
-        const sample = failedIds.slice(0, 5).map(shortIdForSummary).join(', ')
-        lines.push(`Failed sample: ${sample}${failedIds.length > 5 ? ` (+${failedIds.length - 5} more)` : ''}`)
-      }
-      console.log('[SORT] Toolbar run summary', {
-        targeted: targetIds.length,
-        moved: movedIds.length,
-        retained: retainedN,
-        failed: failedIds.length,
-        missed: missedIds.length,
-        retainedCounts: rc,
-      })
-      setAiSortOutcomeSummary(lines.join(' · '))
-      window.setTimeout(() => setAiSortOutcomeSummary(null), 16_000)
     } finally {
       isSortingRef.current = false
       useEmailInboxStore.getState().setSortingActive(false)
@@ -3952,6 +4015,7 @@ export default function EmailInboxBulkView({
 
   const showBulkStatusDock =
     Boolean(aiSortProgress) ||
+    Boolean(lastSessionId) ||
     Boolean(sendEmailToast) ||
     Boolean(concurrentSortNotice) ||
     Boolean(aiSortOutcomeSummary)
@@ -3969,6 +4033,17 @@ export default function EmailInboxBulkView({
               data-active={filter.filter === 'all'}
             >
               All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
+            </button>
+            <button
+              type="button"
+              className="session-history-btn"
+              title="AutoSort History"
+              onClick={() => setShowSessionHistory(true)}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="6.5" />
+                <polyline points="8,4.5 8,8 10.5,9.5" />
+              </svg>
             </button>
             <button
               type="button"
@@ -4822,9 +4897,31 @@ export default function EmailInboxBulkView({
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
                   {aiSortProgress ? (
-                    <div className="bulk-view-sort-progress" role="status">
-                      <span className="bulk-view-sort-progress-text">{aiSortProgress}</span>
+                    <div className="autosort-progress-container" role="status">
+                      <div
+                        className="autosort-progress-fill"
+                        style={{
+                          width:
+                            aiSortProgress.phase === 'summarizing'
+                              ? '100%'
+                              : `${Math.round((aiSortProgress.done / Math.max(aiSortProgress.total, 1)) * 100)}%`,
+                        }}
+                      />
+                      <span className="autosort-progress-text">
+                        {aiSortProgress.phase === 'summarizing'
+                          ? '✦ Generating session summary…'
+                          : aiSortProgress.label}
+                      </span>
                     </div>
+                  ) : null}
+                  {!aiSortProgress && lastSessionId ? (
+                    <button
+                      type="button"
+                      className="autosort-review-btn"
+                      onClick={() => setShowSessionReview(lastSessionId)}
+                    >
+                      ▶ Review Session
+                    </button>
                   ) : null}
                   {sendEmailToast ? (
                     <div
@@ -5378,6 +5475,27 @@ export default function EmailInboxBulkView({
           </div>
         </div>
       )}
+
+      {showSessionReview ? (
+        <AutoSortSessionReview
+          sessionId={showSessionReview}
+          onClose={() => setShowSessionReview(null)}
+          onNavigateToMessage={(id) => {
+            setShowSessionReview(null)
+            void selectMessage(id)
+          }}
+        />
+      ) : null}
+
+      {showSessionHistory ? (
+        <AutoSortSessionHistory
+          onClose={() => setShowSessionHistory(false)}
+          onOpenSession={(id) => {
+            setShowSessionHistory(false)
+            setShowSessionReview(id)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
