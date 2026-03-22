@@ -1739,6 +1739,13 @@ body {
   height: 184px;
   max-height: 184px;
   border-radius: 8px;
+  --bulk-shell-inset-t: 5px;
+  --bulk-shell-inset-b: 5px;
+  --bulk-shell-inset-outer-x: 6px;
+  --bulk-shell-inset-gutter-x: 5px;
+  --bulk-footer-pad-x: 7px;
+  --bulk-footer-pad-y: 6px;
+  --bulk-footer-min-height: 34px;
 }
 
 /* Compact expanded: same behavior as standard — row grows, both sides show full detail */
@@ -1759,19 +1766,14 @@ body {
 }
 
 .bulk-view--compact .bulk-view-message {
-  padding: 5px 5px 5px 6px;
+  padding: var(--bulk-shell-inset-t) var(--bulk-shell-inset-gutter-x) var(--bulk-shell-inset-b)
+    var(--bulk-shell-inset-outer-x);
 }
 
 .bulk-view--compact .bulk-view-message-inner {
   padding: 5px 7px 6px;
   gap: 0;
   border-radius: 8px;
-}
-
-.bulk-view--compact .bulk-view-row {
-  --bulk-footer-pad-x: 7px;
-  --bulk-footer-pad-y: 6px;
-  --bulk-footer-min-height: 34px;
 }
 
 .bulk-view--compact .bulk-view-message-meta {
@@ -1831,7 +1833,8 @@ body {
 }
 
 .bulk-view--compact .bulk-view-ai {
-  padding: 5px 8px 0;
+  padding: var(--bulk-shell-inset-t) var(--bulk-shell-inset-outer-x) var(--bulk-shell-inset-b)
+    var(--bulk-shell-inset-gutter-x);
 }
 
 .bulk-view--compact .bulk-view-ai > .action-card-badges {
@@ -2629,6 +2632,11 @@ body {
 }
 
 .bulk-view-row {
+  /* Outer shell → inner white panels: mirrored insets (esp. bottom above .bulk-card-expand-toggle) */
+  --bulk-shell-inset-t: 10px;
+  --bulk-shell-inset-b: 10px;
+  --bulk-shell-inset-outer-x: 10px;
+  --bulk-shell-inset-gutter-x: 8px;
   /* Left attachment footer + right AI action footers — shared rhythm */
   --bulk-footer-pad-x: 12px;
   --bulk-footer-pad-y: 10px;
@@ -2710,7 +2718,8 @@ body {
 /* Left message pane — outer “deck” matches AI column shell; inner white card contains content */
 .bulk-view-message {
   grid-row: 1;
-  padding: 10px 8px 10px 10px;
+  padding: var(--bulk-shell-inset-t) var(--bulk-shell-inset-gutter-x) var(--bulk-shell-inset-b)
+    var(--bulk-shell-inset-outer-x);
   background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
   border-right: 1px solid #e2e8f0;
   cursor: pointer;
@@ -3096,7 +3105,9 @@ body {
 /* AI column — outer shell (neutral deck) vs inner white control stack */
 .bulk-view-ai {
   grid-row: 1;
-  padding: 12px 10px 0;
+  /* Mirror .bulk-view-message: same top/bottom breathing room above full-row expand toggle */
+  padding: var(--bulk-shell-inset-t) var(--bulk-shell-inset-outer-x) var(--bulk-shell-inset-b)
+    var(--bulk-shell-inset-gutter-x);
   border: none;
   border-radius: 0;
   display: flex;
