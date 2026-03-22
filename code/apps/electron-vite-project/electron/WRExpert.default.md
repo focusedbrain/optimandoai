@@ -18,6 +18,7 @@ Move here if ANY of these apply:
 - Promotional offers
 - Spam or unsolicited commercial email
 - System status emails with no incident
+- Never classify messages with meaningful attachments as pending_delete
 
 ### pending_review (human review required, auto-deleted after 14 days)
 Move here if ANY of these apply:
@@ -26,6 +27,7 @@ Move here if ANY of these apply:
 - Any email where the intent is unclear and automatic action seems risky
 - Receipts or invoices over €500 (even if automated)
 - First contact from an unknown sender on a potentially relevant topic
+- Messages with attachments that need manual inspection
 
 ### archive (kept permanently, no action needed)
 Move here if:
@@ -54,6 +56,12 @@ Move here if:
 - Does not fit the above categories
 - Personal or low-stakes business communication
 
+# Attachment Handling Rules
+Messages that include attachments (PDFs, documents, images, spreadsheets, or any file) should be treated with higher priority:
+- A message with attachments should be classified as minimum "pending_review" — never "pending_delete" or "archive" unless the sender is a known newsletter or automated notification.
+- If a message with attachments also has urgency indicators (deadline language, request for action, important sender), classify as "urgent" or "action_required".
+- Attachments from unknown senders should be "pending_review" for manual inspection.
+
 ## URGENCY SCORING (1–10)
 1–3: No action required, informational only
 4–6: Action required within the week
@@ -65,6 +73,7 @@ category, urgency (1–10), needsReply, reason, and summary MUST agree:
 - Promotional offers, newsletters, marketing blasts, and unsolicited commercial email with NO billing/legal/security angle MUST use category pending_delete (or archive if it is reference material you want to keep), urgency 1–3, and needsReply false. NEVER use urgent or action_required for those.
 - Do NOT assign urgency 9–10 unless the reason explicitly cites a legal deadline, financial consequence, security incident, account lockout, or same-day human deadline from a real counterparty.
 - If the reason describes "no action required" or "informational/promotional only", urgency MUST be 1–3 and needsReply MUST be false.
+- If the email body references attachments (e.g. "please find attached", "see the attachment", "I've attached") but attachment metadata is missing or unclear, treat as if attachments may be present and apply the Attachment Handling Rules conservatively (minimum pending_review when in doubt).
 
 ## DRAFT REPLY RULES
 Generate a draft reply (draftReply field) when:

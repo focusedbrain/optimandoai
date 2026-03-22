@@ -109,7 +109,7 @@ export function AutoSortSessionHistory({ onClose, onOpenSession }: AutoSortSessi
                     <div className="session-history-badges">
                       <span className="sh-badge sh-badge-total">{total} messages</span>
                       {urgent > 0 ? <span className="sh-badge sh-badge-urgent">{urgent} urgent</span> : null}
-                      {review > 0 ? <span className="sh-badge sh-badge-review">{review} review</span> : null}
+                      {review > 0 ? <span className="sh-badge sh-badge-review">{review} pending review</span> : null}
                     </div>
                   </div>
                   <button

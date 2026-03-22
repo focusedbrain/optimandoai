@@ -17,6 +17,8 @@ import {
 } from 'recharts'
 import './handshakeViewTypes'
 
+const MESSAGES_PER_PAGE = 50
+
 const CATEGORY_COLORS: Record<string, string> = {
   urgent: '#dc2626',
   important: '#ea580c',
@@ -73,6 +75,37 @@ type MessageRow = {
   archived?: number | null
 }
 
+function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id: string) => void }) {
+  const sender = msg.from_name || msg.from_address || 'Unknown'
+  const subject = msg.subject || '(No subject)'
+  const category = (msg.sort_category || 'unknown').replace(/_/g, ' ')
+  const urgency = msg.urgency_score ?? 0
+
+  return (
+    <div
+      className="session-msg-row"
+      onClick={() => onNavigate(msg.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onNavigate(msg.id)
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="session-msg-main">
+        <span className="session-msg-sender">{sender}</span>
+        <span className="session-msg-subject">{subject}</span>
+      </div>
+      <div className="session-msg-meta">
+        <span className={`session-msg-cat session-msg-cat--${msg.sort_category || 'unknown'}`}>{category}</span>
+        {urgency >= 7 ? <span className="session-msg-urgency">⚡ {urgency}</span> : null}
+      </div>
+    </div>
+  )
+}
+
 type AiSummaryParsed = {
   headline?: string
   urgent_highlights?: Array<{
@@ -108,6 +141,8 @@ export function AutoSortSessionReview({
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<SessionRow | null>(null)
   const [messages, setMessages] = useState<MessageRow[]>([])
+  const [otherMessagesExpanded, setOtherMessagesExpanded] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(MESSAGES_PER_PAGE)
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -122,6 +157,8 @@ export function AutoSortSessionReview({
         if (cancelled) return
         setSession((s as SessionRow) ?? null)
         setMessages(Array.isArray(msgs) ? (msgs as MessageRow[]) : [])
+        setVisibleCount(MESSAGES_PER_PAGE)
+        setOtherMessagesExpanded(false)
       } catch {
         if (!cancelled) setSession(null)
       } finally {
@@ -202,10 +239,39 @@ export function AutoSortSessionReview({
     return `${started} · ${total} messages · ${dur}`
   }, [session, messages.length])
 
+  const messageGroups = useMemo(() => {
+    const urgent: MessageRow[] = []
+    const pendingReview: MessageRow[] = []
+    const other: MessageRow[] = []
+
+    for (const m of messages) {
+      const isUrgent = m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
+      const isPendingReview = m.sort_category === 'pending_review' || !!m.pending_review_at
+
+      if (isUrgent) {
+        urgent.push(m)
+      } else if (isPendingReview) {
+        pendingReview.push(m)
+      } else {
+        other.push(m)
+      }
+    }
+
+    urgent.sort((a, b) => (b.urgency_score ?? 0) - (a.urgency_score ?? 0))
+    pendingReview.sort((a, b) => (b.urgency_score ?? 0) - (a.urgency_score ?? 0))
+
+    return { urgent, pendingReview, other }
+  }, [messages])
+
   if (loading) {
     return (
       <div className="session-review-overlay" onClick={onClose} role="presentation">
-        <div className="session-review-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div
+          className="session-review-panel session-review-panel--loading"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+        >
           <p className="session-review-loading">Loading session…</p>
         </div>
       </div>
@@ -215,7 +281,12 @@ export function AutoSortSessionReview({
   if (!session?.id) {
     return (
       <div className="session-review-overlay" onClick={onClose} role="presentation">
-        <div className="session-review-panel session-review-panel--error" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="session-review-panel session-review-panel--error"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+        >
           <p>Session not found</p>
           <button type="button" className="session-review-close-inline" onClick={onClose}>
             Close
@@ -241,141 +312,207 @@ export function AutoSortSessionReview({
           </button>
         </header>
 
-        {summaryJsonInvalid && (
-          <p className="session-review-parse-warn">Could not parse saved AI summary JSON.</p>
-        )}
-
-        {aiSummary?.headline ? (
-          <div className="session-review-headline">{aiSummary.headline}</div>
-        ) : null}
-
-        <div className="session-review-stats">
-          <div className="stat-chip stat-chip--urgent">
-            <span className="stat-chip-value">{stats.urgent}</span>
-            <span className="stat-chip-label">Urgent</span>
-          </div>
-          <div className="stat-chip stat-chip--review">
-            <span className="stat-chip-value">{stats.review}</span>
-            <span className="stat-chip-label">Review</span>
-          </div>
-          <div className="stat-chip stat-chip--delete">
-            <span className="stat-chip-value">{stats.delete}</span>
-            <span className="stat-chip-label">Delete</span>
-          </div>
-          <div className="stat-chip stat-chip--archived">
-            <span className="stat-chip-value">{stats.archived}</span>
-            <span className="stat-chip-label">Archived</span>
-          </div>
-          {stats.errors > 0 ? (
-            <div className="stat-chip stat-chip--errors">
-              <span className="stat-chip-value">{stats.errors}</span>
-              <span className="stat-chip-label">Errors</span>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="session-review-charts">
-          <div className="session-chart-card">
-            <h3 className="session-chart-title">Category Breakdown</h3>
-            {categoryData.length === 0 ? (
-              <p className="session-chart-empty">No category data</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
-                    paddingAngle={2}
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+        <div className="session-review-body">
+          <div className="session-review-main">
+            {summaryJsonInvalid && (
+              <p className="session-review-parse-warn">Could not parse saved AI summary JSON.</p>
             )}
-          </div>
-          <div className="session-chart-card">
-            <h3 className="session-chart-title">Urgency Distribution</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={urgencyBarData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} width={32} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {urgencyBarData.map((entry, index) => (
-                    <Cell key={`urg-${index}`} fill={entry.fill} />
+
+            {aiSummary?.headline ? (
+              <div className="session-review-headline">{aiSummary.headline}</div>
+            ) : null}
+
+            <div className="session-review-stats">
+              <div className="stat-chip stat-chip--urgent">
+                <span className="stat-chip-value">{stats.urgent}</span>
+                <span className="stat-chip-label">Urgent</span>
+              </div>
+              <div className="stat-chip stat-chip--review">
+                <span className="stat-chip-value">{stats.review}</span>
+                <span className="stat-chip-label">Pending Review</span>
+              </div>
+              <div className="stat-chip stat-chip--delete">
+                <span className="stat-chip-value">{stats.delete}</span>
+                <span className="stat-chip-label">Pending Delete</span>
+              </div>
+              <div className="stat-chip stat-chip--archived">
+                <span className="stat-chip-value">{stats.archived}</span>
+                <span className="stat-chip-label">Archived</span>
+              </div>
+              {stats.errors > 0 ? (
+                <div className="stat-chip stat-chip--errors">
+                  <span className="stat-chip-value">{stats.errors}</span>
+                  <span className="stat-chip-label">Errors</span>
+                </div>
+              ) : null}
+            </div>
+
+            {urgentHighlights.length > 0 ? (
+              <section className="session-review-section session-review-section--urgent">
+                <h3 className="section-heading">Urgent — Action Required</h3>
+                <ul className="highlight-list">
+                  {urgentHighlights.map((h, i) => (
+                    <li key={`u-${i}`} className="highlight-card highlight-card--urgent">
+                      <div className="highlight-card-head">
+                        <strong>{h.from || 'Unknown'}</strong>
+                        <span className="highlight-subj">{h.subject || '(No subject)'}</span>
+                      </div>
+                      {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
+                      {h.action ? <p className="highlight-action">{h.action}</p> : null}
+                      {h.message_id ? (
+                        <button
+                          type="button"
+                          className="highlight-link"
+                          onClick={() => onNavigateToMessage(h.message_id!)}
+                        >
+                          Open message
+                        </button>
+                      ) : null}
+                    </li>
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                </ul>
+              </section>
+            ) : null}
+
+            {reviewHighlights.length > 0 ? (
+              <section className="session-review-section session-review-section--review">
+                <h3 className="section-heading">Pending Review</h3>
+                <ul className="highlight-list">
+                  {reviewHighlights.map((h, i) => (
+                    <li key={`r-${i}`} className="highlight-card highlight-card--review">
+                      <div className="highlight-card-head">
+                        <strong>{h.from || 'Unknown'}</strong>
+                        <span className="highlight-subj">{h.subject || '(No subject)'}</span>
+                      </div>
+                      {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
+                      {h.action ? <p className="highlight-action">{h.action}</p> : null}
+                      {h.message_id ? (
+                        <button
+                          type="button"
+                          className="highlight-link"
+                          onClick={() => onNavigateToMessage(h.message_id!)}
+                        >
+                          Open message
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {messageGroups.urgent.length > 0 ? (
+              <section className="session-review-section">
+                <h3 className="section-heading section-heading--urgent">
+                  ⚡ Urgent Messages ({messageGroups.urgent.length})
+                </h3>
+                <div className="session-msg-list">
+                  {messageGroups.urgent.map((m) => (
+                    <MessageListRow key={m.id} msg={m} onNavigate={onNavigateToMessage} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {messageGroups.pendingReview.length > 0 ? (
+              <section className="session-review-section">
+                <h3 className="section-heading section-heading--review">
+                  🔍 Pending Review ({messageGroups.pendingReview.length})
+                </h3>
+                <div className="session-msg-list">
+                  {messageGroups.pendingReview.map((m) => (
+                    <MessageListRow key={m.id} msg={m} onNavigate={onNavigateToMessage} />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {messageGroups.other.length > 0 ? (
+              <section className="session-review-section">
+                <button
+                  type="button"
+                  className="session-other-toggle"
+                  onClick={() => {
+                    setOtherMessagesExpanded((prev) => !prev)
+                    setVisibleCount(MESSAGES_PER_PAGE)
+                  }}
+                >
+                  <span>
+                    {otherMessagesExpanded ? '▾' : '▸'} Other Messages ({messageGroups.other.length})
+                  </span>
+                  <span className="session-other-hint">
+                    {otherMessagesExpanded ? 'Click to collapse' : 'Pending Delete, Archived, Normal…'}
+                  </span>
+                </button>
+                {otherMessagesExpanded ? (
+                  <div className="session-msg-list">
+                    {messageGroups.other.slice(0, visibleCount).map((m) => (
+                      <MessageListRow key={m.id} msg={m} onNavigate={onNavigateToMessage} />
+                    ))}
+                    {visibleCount < messageGroups.other.length ? (
+                      <button
+                        type="button"
+                        className="session-load-more"
+                        onClick={() => setVisibleCount((prev) => prev + MESSAGES_PER_PAGE)}
+                      >
+                        Load more ({messageGroups.other.length - visibleCount} remaining)
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {aiSummary?.patterns_note ? (
+              <p className="session-review-note">{aiSummary.patterns_note}</p>
+            ) : null}
           </div>
+
+          <aside className="session-review-sidebar" aria-label="Session charts">
+            <div className="session-chart-card">
+              <h3 className="session-chart-title">Category Breakdown</h3>
+              {categoryData.length === 0 ? (
+                <p className="session-chart-empty">No category data</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={150}>
+                  <PieChart>
+                    <Pie
+                      data={categoryData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={35}
+                      outerRadius={55}
+                      paddingAngle={2}
+                    >
+                      {categoryData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            <div className="session-chart-card">
+              <h3 className="session-chart-title">Urgency Distribution</h3>
+              <ResponsiveContainer width="100%" height={150}>
+                <BarChart data={urgencyBarData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} width={28} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {urgencyBarData.map((entry, index) => (
+                      <Cell key={`urg-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </aside>
         </div>
-
-        {urgentHighlights.length > 0 ? (
-          <section className="session-review-section session-review-section--urgent">
-            <h3 className="section-heading">Urgent Highlights</h3>
-            <ul className="highlight-list">
-              {urgentHighlights.map((h, i) => (
-                <li key={`u-${i}`} className="highlight-card highlight-card--urgent">
-                  <div className="highlight-card-head">
-                    <strong>{h.from || 'Unknown'}</strong>
-                    <span className="highlight-subj">{h.subject || '(No subject)'}</span>
-                  </div>
-                  {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
-                  {h.action ? <p className="highlight-action">{h.action}</p> : null}
-                  {h.message_id ? (
-                    <button
-                      type="button"
-                      className="highlight-link"
-                      onClick={() => onNavigateToMessage(h.message_id!)}
-                    >
-                      Open message
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        {reviewHighlights.length > 0 ? (
-          <section className="session-review-section session-review-section--review">
-            <h3 className="section-heading">Review Highlights</h3>
-            <ul className="highlight-list">
-              {reviewHighlights.map((h, i) => (
-                <li key={`r-${i}`} className="highlight-card highlight-card--review">
-                  <div className="highlight-card-head">
-                    <strong>{h.from || 'Unknown'}</strong>
-                    <span className="highlight-subj">{h.subject || '(No subject)'}</span>
-                  </div>
-                  {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
-                  {h.action ? <p className="highlight-action">{h.action}</p> : null}
-                  {h.message_id ? (
-                    <button
-                      type="button"
-                      className="highlight-link"
-                      onClick={() => onNavigateToMessage(h.message_id!)}
-                    >
-                      Open message
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        {aiSummary?.patterns_note ? (
-          <p className="session-review-note">{aiSummary.patterns_note}</p>
-        ) : null}
       </div>
     </div>
   )
