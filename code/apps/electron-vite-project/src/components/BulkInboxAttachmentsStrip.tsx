@@ -85,15 +85,8 @@ export function BulkInboxAttachmentsStrip({
   if (!attachments.length) {
     return (
       <div
-        className="bulk-action-card-attachments-loading"
+        className="bulk-message-attachments-strip bulk-message-attachments-strip--loading"
         data-subfocus="attachment"
-        style={{
-          marginTop: 8,
-          paddingTop: 6,
-          borderTop: '1px solid rgba(0,0,0,0.06)',
-          fontSize: 10,
-          color: '#94a3b8',
-        }}
       >
         Loading attachments…
       </div>
@@ -126,14 +119,8 @@ export function BulkInboxAttachmentsStrip({
         onOpenOriginalWarning={() => readerAtt && setOriginalAtt(readerAtt)}
       />
       <div
+        className="bulk-message-attachments-strip"
         data-subfocus="attachment"
-        style={{
-          marginTop: 8,
-          paddingTop: 6,
-          borderTop: '1px solid rgba(0,0,0,0.06)',
-          fontSize: '0.82em',
-          flexShrink: 0,
-        }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -144,34 +131,18 @@ export function BulkInboxAttachmentsStrip({
           const partial = att.text_extraction_status === 'partial'
           const showExtractionWarning = failed || partial
           return (
-            <div key={att.id} style={{ marginBottom: 6 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  flexWrap: 'wrap',
-                  color: '#334155',
-                }}
-              >
-                <span style={{ color: '#666' }}>
+            <div key={att.id} className="bulk-attachment-row">
+              <div className="bulk-attachment-row__line">
+                <span className="bulk-attachment-row__filename">
                   📎 {att.filename || 'Attachment'}
-                  <span style={{ color: '#999', marginLeft: 4 }}>({formatKb(att.size_bytes)})</span>
+                  <span className="bulk-attachment-row__size">({formatKb(att.size_bytes)})</span>
                 </span>
                 <button
                   type="button"
-                  className="bulk-attachment-btn"
+                  className={`bulk-attachment-btn${isSel ? ' bulk-attachment-btn--selected' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation()
                     handleSelectChat(att)
-                  }}
-                  style={{
-                    fontSize: '0.85em',
-                    padding: '2px 6px',
-                    border: '1px solid #ccc',
-                    borderRadius: 3,
-                    cursor: 'pointer',
-                    background: isSel ? 'rgba(139,92,246,0.15)' : '#fff',
                   }}
                 >
                   Chat
@@ -184,14 +155,6 @@ export function BulkInboxAttachmentsStrip({
                       e.stopPropagation()
                       setReaderAtt(att)
                     }}
-                    style={{
-                      fontSize: '0.85em',
-                      padding: '2px 6px',
-                      border: '1px solid #ccc',
-                      borderRadius: 3,
-                      cursor: 'pointer',
-                      background: '#fff',
-                    }}
                   >
                     Read
                   </button>
@@ -203,47 +166,28 @@ export function BulkInboxAttachmentsStrip({
                     e.stopPropagation()
                     setOriginalAtt(att)
                   }}
-                  style={{
-                    fontSize: '0.85em',
-                    padding: '2px 6px',
-                    border: '1px solid #ccc',
-                    borderRadius: 3,
-                    cursor: 'pointer',
-                    background: '#fff',
-                  }}
                 >
                   Original
                 </button>
               </div>
               {showExtractionWarning ? (
-                <div
-                  style={{
-                    fontSize: '0.82em',
-                    color: '#c44',
-                    marginTop: 4,
-                    padding: '4px 8px',
-                    background: '#fff3f3',
-                    borderRadius: 4,
-                  }}
-                >
+                <div className="bulk-attachment-row__warning">
                   ⚠️{' '}
                   {failed
                     ? 'Text could not be extracted from this PDF.'
                     : 'Text extraction is incomplete — some pages may be empty.'}
                   {att.text_extraction_error ? (
-                    <div style={{ color: '#888', marginTop: 4, fontSize: '0.95em', wordBreak: 'break-word' }}>
-                      {att.text_extraction_error}
-                    </div>
+                    <div className="bulk-attachment-row__warning-detail">{att.text_extraction_error}</div>
                   ) : null}
-                  <div style={{ color: '#888', marginTop: 4 }}>
+                  <div className="bulk-attachment-row__warning-footer">
                     You can still view the original document securely.{' '}
                     <button
                       type="button"
+                      className="bulk-attachment-row__warning-link"
                       onClick={(e) => {
                         e.stopPropagation()
                         setOriginalAtt(att)
                       }}
-                      style={{ marginLeft: 4, fontSize: 'inherit', cursor: 'pointer', textDecoration: 'underline', border: 'none', background: 'none', padding: 0, color: '#6d28d9' }}
                     >
                       Open original
                     </button>

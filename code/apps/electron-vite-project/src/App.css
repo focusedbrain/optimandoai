@@ -829,6 +829,13 @@ body {
   color: #0f172a;
 }
 
+/* Attachments block — light separation from body without restructuring layout */
+.inbox-detail-attachments-block {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
 /* FIX-H6: Draft editing indicator on message detail */
 .inbox-detail-message-inner--editing-draft {
   border-left: 3px solid #7c3aed;
@@ -854,14 +861,26 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
   border-radius: 0 10px 10px 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .inbox-detail-ai[data-collapsed="true"] {
   min-width: 72px;
   width: 72px;
   overflow: hidden;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner {
+  margin: 0;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: #ffffff;
 }
 
 .inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-advisory-banner {
@@ -899,12 +918,19 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  margin: 8px 10px 10px 8px;
   padding: 16px;
   overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .inbox-detail-ai-premium {
-  background: #ffffff;
+  background: transparent;
   color: #334155;
 }
 
@@ -916,7 +942,7 @@ body {
   margin: -16px -16px 12px -16px;
   background: rgba(124, 58, 237, 0.06);
   border-bottom: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 0 10px 0 0;
+  border-radius: 10px 10px 0 0;
 }
 
 .inbox-detail-ai-scroll {
@@ -1507,7 +1533,12 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .inbox-detail-ai-actions button {
@@ -1705,8 +1736,8 @@ body {
 }
 
 .bulk-view--compact .bulk-view-row {
-  height: 192px;
-  max-height: 192px;
+  height: 184px;
+  max-height: 184px;
   border-radius: 8px;
 }
 
@@ -1751,7 +1782,23 @@ body {
 }
 
 .bulk-view--compact .bulk-view-ai {
+  padding: 5px 8px 0;
+}
+
+.bulk-view--compact .bulk-view-ai > .action-card-badges {
   padding: 6px 8px;
+}
+
+.bulk-view--compact .bulk-message-attachments-strip,
+.bulk-view--compact .bulk-message-attachments-strip--loading {
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.bulk-view--compact .bulk-attachment-btn {
+  padding: 3px 6px;
+  font-size: 9px;
 }
 
 /* Compact mode: ensure focus ring remains visible */
@@ -1761,7 +1808,7 @@ body {
 
 .bulk-view--compact .bulk-action-card {
   gap: 3px;
-  padding-left: 5px;
+  padding: 2px 6px 6px 8px;
 }
 
 .bulk-view--compact .bulk-action-card-panel--recommended {
@@ -1914,9 +1961,9 @@ body {
 }
 
 .bulk-view--compact .bulk-card-expand-toggle {
-  padding: 2px 6px;
+  padding: 4px 8px;
   font-size: 9px;
-  height: 20px;
+  min-height: 22px;
 }
 
 .bulk-view-compact-hint {
@@ -2674,11 +2721,6 @@ body {
   background: rgba(124, 58, 237, 0.25);
 }
 
-/* AI panel tint when row focused — unified focus state */
-.bulk-view-row--focused .bulk-view-ai {
-  background: rgba(124, 58, 237, 0.03);
-}
-
 /* Status badges — moved from message body to action card (above buttons) */
 .bulk-action-card-status {
   display: flex;
@@ -2817,8 +2859,15 @@ body {
   background: transparent;
 }
 
-.bulk-view-ai .action-card-badges + .bulk-action-card,
-.bulk-view-ai .action-card-badges + [class*="bulk-action-card"] {
+/* Flex chain: badges + inner shell + action card fill the AI column */
+.bulk-view-ai .action-card-badges + .bulk-view-ai-inner {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bulk-view-ai-inner > .bulk-action-card,
+.bulk-view-ai-inner > [class*="bulk-action-card"] {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -2863,22 +2912,25 @@ body {
   font-size: 9px;
 }
 
+/* Full-row expand/collapse — reads as footer rail, not a thin sliver */
 .bulk-card-expand-toggle {
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: 24px;
+  min-height: 28px;
+  padding: 6px 12px;
   flex-shrink: 0;
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.2s, background 0.2s;
+  transition: background 0.2s ease, color 0.15s ease, box-shadow 0.2s ease;
   font-size: 11px;
   font-weight: 600;
-  color: var(--purple-accent, #7c3aed);
+  letter-spacing: 0.02em;
+  color: #5b4a8f;
   user-select: none;
-  background: rgba(124, 58, 237, 0.03);
-  border-top: 1px solid rgba(124, 58, 237, 0.15);
+  background: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
+  border-top: 1px solid #e2e8f0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   /* Span both grid columns — makes toggle a true full-row control */
   grid-column: 1 / -1;
   grid-row: 2;
@@ -2888,14 +2940,19 @@ body {
 .bulk-card-expand-toggle--left {}
 
 .bulk-card-expand-toggle:hover {
-  opacity: 0.85;
-  background: rgba(124, 58, 237, 0.08);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  color: #6d28d9;
 }
 
+.bulk-view-row--focused .bulk-card-expand-toggle {
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.08) 0%, #f1f5f9 100%);
+  border-top-color: rgba(124, 58, 237, 0.2);
+}
+
+/* AI column — outer shell (neutral deck) vs inner white control stack */
 .bulk-view-ai {
   grid-row: 1;
-  padding: 18px 20px;
-  background: #fafafa;
+  padding: 12px 10px 0;
   border: none;
   border-radius: 0;
   display: flex;
@@ -2905,6 +2962,163 @@ body {
   height: 100%;
   overflow: hidden;
   cursor: pointer;
+  background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.bulk-view-row--focused .bulk-view-ai {
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.09) 0%, rgba(248, 250, 252, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.bulk-view-ai > .action-card-badges {
+  flex-shrink: 0;
+  margin: 0;
+  border: 1px solid #d1d9e6;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, #fafbfc 0%, #f4f6f9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.bulk-view-ai-inner {
+  background: #ffffff;
+  border: 1px solid #d1d9e6;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bulk-view-ai-inner .bulk-action-card {
+  border-radius: 0 0 9px 9px;
+}
+
+/* Draft footer — same visual family as primary action row */
+.bulk-draft-actions-toolbar-wrap {
+  box-sizing: border-box;
+}
+
+.bulk-draft-actions-toolbar {
+  border-top: 1px solid #e8edf3;
+  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
+}
+
+/* Left column — attachment zone aligned with control-pane language */
+.bulk-message-attachments-strip {
+  margin-top: 8px;
+  padding: 8px 10px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #334155;
+  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
+  border: 1px solid #d1d9e6;
+  border-radius: 8px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.bulk-message-attachments-strip--loading {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 10px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.bulk-attachment-row {
+  margin-bottom: 6px;
+}
+
+.bulk-attachment-row:last-child {
+  margin-bottom: 0;
+}
+
+.bulk-attachment-row__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bulk-attachment-row__filename {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.bulk-attachment-row__size {
+  color: #94a3b8;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+.bulk-attachment-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.bulk-attachment-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+.bulk-attachment-btn--selected {
+  border-color: rgba(124, 58, 237, 0.45);
+  background: rgba(124, 58, 237, 0.08);
+  color: #5b21b6;
+}
+
+.bulk-attachment-row__warning {
+  font-size: 11px;
+  color: #b91c1c;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+}
+
+.bulk-attachment-row__warning-detail {
+  color: #64748b;
+  margin-top: 4px;
+  font-size: 10px;
+  word-break: break-word;
+}
+
+.bulk-attachment-row__warning-footer {
+  color: #64748b;
+  margin-top: 6px;
+  font-size: 10px;
+}
+
+.bulk-attachment-row__warning-link {
+  margin-left: 4px;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: #6d28d9;
+}
+
+.bulk-attachment-row__warning-link:hover {
+  color: #5b21b6;
 }
 
 .bulk-view-ai-actions {
@@ -3019,7 +3233,8 @@ body {
   gap: 6px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #eef1f6;
+  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
   flex-shrink: 0;
 }
 
@@ -3064,9 +3279,10 @@ body {
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 2px 0;
+  padding: 4px 10px 8px 10px;
+  box-sizing: border-box;
   border-left: 3px solid transparent;
-  padding-left: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
 .bulk-action-card--expanded {
@@ -3992,6 +4208,10 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   flex-shrink: 0;
+  margin-top: 2px;
+  padding: 10px 0 0;
+  border-top: 1px solid #eef1f6;
+  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
 }
 
 /* Expanded bulk row: shared button height + alignment (failure / fallback / structured — all under .bulk-view-row--expanded) */

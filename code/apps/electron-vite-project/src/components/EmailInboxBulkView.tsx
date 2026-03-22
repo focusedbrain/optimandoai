@@ -1347,7 +1347,6 @@ function BulkActionCardStructured({
                   overflowX: 'auto',
                   alignItems: 'center',
                   gap: isExpanded ? 8 : 4,
-                  borderTop: '1px solid #e2e8f0',
                   paddingTop: isExpanded ? 12 : 6,
                   paddingBottom: isExpanded ? 0 : 2,
                 }}
@@ -5159,7 +5158,10 @@ export default function EmailInboxBulkView({
                         </span>
                       )}
                     </div>
-                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div
+                      className="bulk-view-ai-inner"
+                      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                    >
                       {renderActionCard(msg, output, isCardExpanded)}
                     </div>
                   </div>
