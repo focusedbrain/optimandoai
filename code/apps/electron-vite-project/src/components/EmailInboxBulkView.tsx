@@ -4943,7 +4943,7 @@ export default function EmailInboxBulkView({
                     }}
                     className={`bulk-view-message ${isMultiSelected ? 'bulk-view-message--multi' : ''} ${isFocused ? 'bulk-view-message--focused' : ''} ${editingDraftForMessageId === msg.id ? 'bulk-view-message--editing-draft' : ''}`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <div className="bulk-view-message-layout" style={{ display: 'flex', alignItems: 'stretch', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
                       <input
                         type="checkbox"
                         checked={isMultiSelected}
@@ -4965,6 +4965,7 @@ export default function EmailInboxBulkView({
                       )}
                       <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                         <div
+                          className="bulk-view-message-meta"
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -5043,11 +5044,11 @@ export default function EmailInboxBulkView({
                             🗑 Delete
                           </button>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, flexShrink: 0 }}>
+                        <div className="bulk-view-message-subject" style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, flexShrink: 0 }}>
                           {msg.subject || '(No subject)'}
                         </div>
                         {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim() && (
-                          <div style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
+                          <div className="bulk-view-message-preview-line" style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().slice(0, 120)}
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().length > 120 ? '…' : ''}
                           </div>

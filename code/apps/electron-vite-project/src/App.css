@@ -1758,12 +1758,42 @@ body {
 }
 
 .bulk-view--compact .bulk-view-message {
-  padding: 8px 10px;
+  padding: 5px 5px 5px 6px;
+}
+
+.bulk-view--compact .bulk-view-message-inner {
+  padding: 5px 7px 6px;
+  gap: 0;
+  border-radius: 8px;
+}
+
+.bulk-view--compact .bulk-view-message-layout {
+  gap: 6px;
+}
+
+.bulk-view--compact .bulk-view-message-meta {
+  margin-bottom: 3px !important;
+  gap: 4px !important;
+}
+
+.bulk-view--compact .bulk-view-message-subject {
+  margin-bottom: 2px !important;
+  font-size: 11px !important;
+  line-height: 1.25;
+}
+
+.bulk-view--compact .bulk-view-message-preview-line {
+  margin-bottom: 4px !important;
+  font-size: 9px !important;
+  line-height: 1.3;
 }
 
 .bulk-view--compact .bulk-view-message-body {
   font-size: 10px !important;
   line-height: 1.35;
+  flex: 0 1 auto;
+  max-height: 40px;
+  overflow: hidden;
 }
 
 .bulk-view--compact .bulk-view-toolbar {
@@ -1791,9 +1821,13 @@ body {
 
 .bulk-view--compact .bulk-message-attachments-strip,
 .bulk-view--compact .bulk-message-attachments-strip--loading {
-  margin-top: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
+  margin-top: 4px;
+  margin-left: -7px;
+  margin-right: -7px;
+  margin-bottom: -6px;
+  padding: 5px 7px 6px;
+  font-size: 10px;
+  border-radius: 0 0 6px 6px;
 }
 
 .bulk-view--compact .bulk-attachment-btn {
@@ -2652,28 +2686,58 @@ body {
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.3);
 }
 
+/* Left message pane — outer “deck” matches AI column shell; inner white card contains content */
 .bulk-view-message {
   grid-row: 1;
-  padding: 18px 20px;
-  background: #ffffff;
+  padding: 10px 8px 10px 10px;
+  background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
   border-right: 1px solid #e2e8f0;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
-/* Message area scrolls as one unit (header + subject + sort_reason + body + footer) */
+.bulk-view-row--focused .bulk-view-message {
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.08) 0%, rgba(248, 250, 252, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* Message area scrolls as one unit (header + subject + sort_reason + body + attachments) */
 .bulk-view-message-inner {
   min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #d1d9e6;
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
+.bulk-view-message.bulk-view-message--focused .bulk-view-message-inner {
+  border-color: rgba(124, 58, 237, 0.28);
+  box-shadow:
+    0 1px 3px rgba(124, 58, 237, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.bulk-view-message.bulk-view-message--multi .bulk-view-message-inner {
+  border-color: #ddd6fe;
+}
+
+/* Body only grows with content — avoids large empty flex gap above attachments */
 .bulk-view-message-body {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
@@ -2689,17 +2753,16 @@ body {
 }
 
 .bulk-view-message:hover {
-  background: #f8fafc;
+  background: linear-gradient(180deg, #e8edf4 0%, #f1f5f9 100%);
 }
 
 .bulk-view-message.bulk-view-message--multi {
   border-color: #ddd6fe;
-  background: rgba(147, 51, 234, 0.03);
+  background: linear-gradient(180deg, rgba(147, 51, 234, 0.06) 0%, rgba(248, 250, 252, 0.98) 100%);
 }
 
 .bulk-view-message.bulk-view-message--focused {
   border-color: #a78bfa;
-  background: rgba(124, 58, 237, 0.06);
 }
 
 /* FIX-H6: Draft editing indicator — left border + clickable badge */
@@ -3005,29 +3068,39 @@ body {
   background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
 }
 
-/* Left column — attachment zone aligned with control-pane language */
+/* Left column — attachment zone as lower section of inner card (not a floating box) */
 .bulk-message-attachments-strip {
-  margin-top: 8px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  padding: 8px 10px 9px;
   flex-shrink: 0;
   font-size: 12px;
   color: #334155;
-  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
-  border: 1px solid #d1d9e6;
-  border-radius: 8px;
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  border-top: 1px solid #e8edf3;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  /* Bleed to inner card edges */
+  margin-left: -12px;
+  margin-right: -12px;
+  margin-bottom: -10px;
+  padding-left: 12px;
+  padding-right: 12px;
+  padding-bottom: 10px;
 }
 
 .bulk-message-attachments-strip--loading {
-  margin-top: 8px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  padding: 7px 10px 8px;
   font-size: 10px;
   color: #64748b;
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fafc 0%, #fafbfc 100%);
   border: 1px dashed #cbd5e1;
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
+  margin-left: -12px;
+  margin-right: -12px;
+  margin-bottom: -10px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .bulk-attachment-row {
