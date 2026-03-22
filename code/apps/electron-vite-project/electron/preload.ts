@@ -579,6 +579,13 @@ contextBridge.exposeInMainWorld('email', {
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+  getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
+  testConnection: (accountId: string) => ipcRenderer.invoke('email:testConnection', accountId),
+  getImapReconnectHints: (accountId: string) => ipcRenderer.invoke('email:getImapReconnectHints', accountId),
+  updateImapCredentials: (
+    accountId: string,
+    creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+  ) => ipcRenderer.invoke('email:updateImapCredentials', accountId, creds),
   sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),

@@ -19,7 +19,7 @@ function rmDir(p) {
   }
 }
 
-/** Basename of extension Vite outDir (e.g. build802) — never delete this folder here. */
+/** Basename of extension Vite outDir (e.g. build82) — never delete this folder here. */
 function getActiveExtensionOutDir(extensionRoot) {
   try {
     const viteCfg = fs.readFileSync(path.join(extensionRoot, 'vite.config.ts'), 'utf8')
@@ -47,6 +47,7 @@ function clearBuildCaches() {
     'build772',
     'build752',
     'build702',
+    'build802',
     'build7972',
   ]
   for (const name of staleExtensionOutDirs) {

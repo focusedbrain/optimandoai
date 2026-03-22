@@ -95,6 +95,14 @@ declare global {
         | { ok: true; result: { ok: boolean; entries: Array<{ role: string; mailbox: string; exists: boolean; created?: boolean; error?: string }> } }
         | { ok: false; error: string }
       >
+      getAccount?: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+      testConnection?: (accountId: string) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
+      getImapReconnectHints?: (accountId: string) => Promise<{ ok: boolean; data?: Record<string, unknown> | null; error?: string }>
+      updateImapCredentials?: (
+        accountId: string,
+        creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+      ) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
+      deleteAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void

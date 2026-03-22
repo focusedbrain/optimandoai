@@ -20,6 +20,7 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { ImapConnectionNotice } from '@ext/shared/email/ImapConnectionNotice'
+import { SyncFailureBanner } from './SyncFailureBanner'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -1854,7 +1855,16 @@ export default function EmailInboxBulkView({
   }, [])
 
 
-  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [providerAccounts, setProviderAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
+      lastError?: string
+    }>
+  >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
 
@@ -3019,14 +3029,35 @@ export default function EmailInboxBulkView({
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
         const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
-        setProviderAccounts(data.map((a) => ({
-          id: a.id,
-          displayName: a.displayName ?? a.email,
-          email: a.email,
-          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
-          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
-          lastError: a.lastError,
-        })))
+        setProviderAccounts(
+          data.map((a) => {
+            const p = a.provider
+            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+              p === 'gmail'
+                ? 'gmail'
+                : p === 'microsoft365'
+                  ? 'microsoft365'
+                  : p === 'zoho'
+                    ? 'zoho'
+                    : 'imap'
+            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+              a.status === 'active'
+                ? 'active'
+                : a.status === 'auth_error'
+                  ? 'auth_error'
+                  : a.status === 'error'
+                    ? 'error'
+                    : 'disabled'
+            return {
+              id: a.id,
+              displayName: a.displayName ?? a.email,
+              email: a.email,
+              provider,
+              status,
+              lastError: a.lastError,
+            }
+          }),
+        )
         setSelectedProviderAccountId((prev) => {
           if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
           const pick = pickDefaultEmailAccountRowId(
@@ -3062,6 +3093,40 @@ export default function EmailInboxBulkView({
     () => openConnectEmail(ConnectEmailLaunchSource.BulkInbox),
     [openConnectEmail],
   )
+
+  const handleUpdateImapCredentials = useCallback(
+    (accountId: string) => {
+      openConnectEmail(ConnectEmailLaunchSource.BulkInbox, { reconnectAccountId: accountId })
+    },
+    [openConnectEmail],
+  )
+
+  /** One-time IMAP connection probe after accounts load (password / app-password drift). */
+  const imapProbeDoneRef = useRef(false)
+  useEffect(() => {
+    if (isLoadingProviderAccounts || imapProbeDoneRef.current) return
+    if (!providerAccounts.some((a) => a.provider === 'imap')) return
+    imapProbeDoneRef.current = true
+    let cancelled = false
+    ;(async () => {
+      for (const acc of providerAccounts) {
+        if (acc.provider !== 'imap') continue
+        try {
+          const r = await window.emailAccounts?.testConnection?.(acc.id)
+          if (cancelled) return
+          if (r?.ok && r.data && !r.data.success) {
+            await loadProviderAccounts()
+            break
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoadingProviderAccounts, providerAccounts, loadProviderAccounts])
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
@@ -4678,24 +4743,14 @@ export default function EmailInboxBulkView({
         </div>
       ) : null}
 
-      {lastSyncWarnings && lastSyncWarnings.length > 0 && (
-        <div
-          role="status"
-          style={{
-            padding: '8px 12px',
-            fontSize: 11,
-            color: '#fbbf24',
-            background: 'rgba(251,191,36,0.08)',
-            borderBottom: '1px solid rgba(251,191,36,0.25)',
-          }}
-        >
-          {lastSyncWarnings.length === 1
-            ? lastSyncWarnings[0]
-            : `${lastSyncWarnings.length} sync issues: ${lastSyncWarnings.slice(0, 3).join(' · ')}${
-                lastSyncWarnings.length > 3 ? '…' : ''
-              }`}
-        </div>
-      )}
+      {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
+        <SyncFailureBanner
+          warnings={lastSyncWarnings}
+          accounts={providerAccounts.map((a) => ({ id: a.id, email: a.email, provider: a.provider }))}
+          onUpdateCredentials={handleUpdateImapCredentials}
+          onRemoveAccount={handleDisconnectEmail}
+        />
+      ) : null}
 
       {/* Collapsible provider/account section */}
       <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>

@@ -60,7 +60,7 @@ export interface EmailAccount {
   displayName: string
   email: string
   provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
-  status: 'active' | 'error' | 'disabled'
+  status: 'active' | 'auth_error' | 'error' | 'disabled'
   lastError?: string
 }
 
@@ -153,7 +153,9 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
       ) : (
         /* Account List */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {emailAccounts.map((account) => (
+          {emailAccounts.map((account) => {
+            const badge = accountConnectionBadge(account)
+            return (
             <div
               key={account.id}
               style={{
@@ -168,9 +170,13 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       ? isLightTheme
                         ? '1px solid rgba(34,197,94,0.3)'
                         : '1px solid rgba(34,197,94,0.4)'
-                      : isLightTheme
-                        ? '1px solid rgba(239,68,68,0.3)'
-                        : '1px solid rgba(239,68,68,0.4)',
+                      : account.status === 'error'
+                        ? isLightTheme
+                          ? '1px solid rgba(234,179,8,0.45)'
+                          : '1px solid rgba(234,179,8,0.5)'
+                        : isLightTheme
+                          ? '1px solid rgba(239,68,68,0.3)'
+                          : '1px solid rgba(239,68,68,0.4)',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -215,19 +221,10 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          background: account.status === 'active' ? '#22c55e' : '#ef4444',
+                          background: badge.dot,
                         }}
                       />
-                      <span style={{ color: mutedColor }}>
-                        {account.status === 'active'
-                          ? 'Connected'
-                          : account.lastError &&
-                              /not authenticated|reconnect|session expired|re-auth|needs?\s*auth/i.test(
-                                account.lastError,
-                              )
-                            ? `Needs re-authentication — ${account.lastError}`
-                            : account.lastError || 'Error'}
-                      </span>
+                      <span style={{ color: mutedColor }}>{badge.label}</span>
                     </div>
                     <div
                       style={{
@@ -258,7 +255,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                   ✕
                 </button>
               </div>
-          ))}
+            )
+          })}
         </div>
       )}
       

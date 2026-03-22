@@ -22,6 +22,8 @@ export interface EmailConnectWizardProps {
   theme?: 'professional' | 'default'
   /** Optional UI shell context (which surface opened the wizard). */
   launchSource?: ConnectEmailLaunchSource
+  /** When set (Electron), skip provider picker and open Custom IMAP pre-filled for password update. */
+  reconnectAccountId?: string | null
 }
 
 type Step = 'provider' | 'credentials' | 'connecting' | 'result'
@@ -58,6 +60,11 @@ declare global {
       checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
       listAccounts?: () => Promise<{ ok: boolean; data?: unknown[] }>
       connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      getImapReconnectHints?: (accountId: string) => Promise<{ ok: boolean; data?: Record<string, unknown> | null; error?: string }>
+      updateImapCredentials?: (
+        accountId: string,
+        creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+      ) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
     }
   }
 }
@@ -92,6 +99,7 @@ export function EmailConnectWizard({
   onConnected,
   theme = 'default',
   launchSource,
+  reconnectAccountId = null,
 }: EmailConnectWizardProps) {
   const [step, setStep] = useState<Step>('provider')
   const [provider, setProvider] = useState<Provider | null>(null)
@@ -153,6 +161,43 @@ export function EmailConnectWizard({
   useEffect(() => {
     if (!isOpen) reset()
   }, [isOpen, reset])
+
+  /** Pre-fill Custom IMAP form when updating credentials for an existing account (Electron). */
+  useEffect(() => {
+    if (!isOpen || !reconnectAccountId || !isElectron()) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        const r = await window.emailAccounts?.getImapReconnectHints?.(reconnectAccountId)
+        if (cancelled || !r?.ok || !r.data) return
+        const h = r.data as Record<string, unknown>
+        setProvider('custom')
+        setStep('credentials')
+        setCredError(null)
+        setCustomForm({
+          email: String(h.email ?? ''),
+          displayName: String(h.displayName ?? h.email ?? ''),
+          imapHost: String(h.imapHost ?? ''),
+          imapPort: String(h.imapPort ?? '993'),
+          imapSecurity: (h.imapSecurity as SecurityModeUi) ?? 'ssl',
+          imapUsername: String(h.imapUsername ?? ''),
+          imapPassword: '',
+          smtpHost: String(h.smtpHost ?? ''),
+          smtpPort: String(h.smtpPort ?? '587'),
+          smtpSecurity: (h.smtpSecurity as SecurityModeUi) ?? 'starttls',
+          smtpUseSameCredentials: h.smtpUseSameCredentials !== false,
+          smtpUsername: String(h.smtpUsername ?? ''),
+          smtpPassword: '',
+        })
+      } catch (e) {
+        console.warn('[EmailConnectWizard] reconnect hints failed:', e)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, reconnectAccountId])
 
   // Fetch vault status when on credentials step (platform-aware)
   useEffect(() => {
@@ -670,24 +715,39 @@ export function EmailConnectWizard({
           res = await connectZoho(connectSyncWindowDays)
         } else {
           const cf = customForm
-          const imapPort = parseInt(cf.imapPort, 10)
-          const smtpPort = parseInt(cf.smtpPort, 10)
-          res = await connectCustomMailbox({
-            displayName: cf.displayName.trim() || undefined,
-            email: cf.email.trim(),
-            imapHost: cf.imapHost.trim(),
-            imapPort,
-            imapSecurity: cf.imapSecurity,
-            imapUsername: cf.imapUsername.trim() || undefined,
-            imapPassword: cf.imapPassword,
-            smtpHost: cf.smtpHost.trim(),
-            smtpPort,
-            smtpSecurity: cf.smtpSecurity,
-            smtpUseSameCredentials: cf.smtpUseSameCredentials,
-            smtpUsername: cf.smtpUseSameCredentials ? undefined : cf.smtpUsername.trim() || undefined,
-            smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
-            syncWindowDays: connectSyncWindowDays,
-          })
+          if (reconnectAccountId && isElectron() && window.emailAccounts?.updateImapCredentials) {
+            const raw = await window.emailAccounts.updateImapCredentials(reconnectAccountId, {
+              imapPassword: cf.imapPassword,
+              smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
+              smtpUseSameCredentials: cf.smtpUseSameCredentials,
+            })
+            const inner = raw?.data as { success?: boolean; error?: string } | undefined
+            const ok = !!(raw?.ok && inner?.success)
+            res = {
+              ok,
+              email: cf.email.trim(),
+              error: ok ? undefined : inner?.error || (raw as { error?: string })?.error || 'Could not update credentials',
+            }
+          } else {
+            const imapPort = parseInt(cf.imapPort, 10)
+            const smtpPort = parseInt(cf.smtpPort, 10)
+            res = await connectCustomMailbox({
+              displayName: cf.displayName.trim() || undefined,
+              email: cf.email.trim(),
+              imapHost: cf.imapHost.trim(),
+              imapPort,
+              imapSecurity: cf.imapSecurity,
+              imapUsername: cf.imapUsername.trim() || undefined,
+              imapPassword: cf.imapPassword,
+              smtpHost: cf.smtpHost.trim(),
+              smtpPort,
+              smtpSecurity: cf.smtpSecurity,
+              smtpUseSameCredentials: cf.smtpUseSameCredentials,
+              smtpUsername: cf.smtpUseSameCredentials ? undefined : cf.smtpUsername.trim() || undefined,
+              smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
+              syncWindowDays: connectSyncWindowDays,
+            })
+          }
         }
         setConnecting(false)
         setStep('result')
@@ -722,6 +782,7 @@ export function EmailConnectWizard({
     connectCustomMailbox,
     customForm,
     connectSyncWindowDays,
+    reconnectAccountId,
     onConnected,
     onClose,
   ])

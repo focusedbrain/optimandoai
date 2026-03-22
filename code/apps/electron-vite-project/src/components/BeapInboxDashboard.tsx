@@ -95,7 +95,16 @@ export default function BeapInboxDashboard({
   }, [])
 
   // Connected Email Accounts (for center panel empty state)
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [emailAccounts, setEmailAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
+      lastError?: string
+    }>
+  >([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)

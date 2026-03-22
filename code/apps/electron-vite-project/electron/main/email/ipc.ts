@@ -145,6 +145,7 @@ import {
   type CustomImapSmtpConnectPayload
 } from './types'
 import { syncAccountEmails, startAutoSync, updateSyncState } from './syncOrchestrator'
+import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { bulkQueueDeletion, cancelRemoteDeletion } from './remoteDeletion'
 import {
   enqueueOrchestratorRemoteMutations,
@@ -351,6 +352,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   
   const channels = [
     'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
+    'email:getImapReconnectHints', 'email:updateImapCredentials',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
     'email:checkGmailCredentials', 'email:checkOutlookCredentials', 'email:checkZohoCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
@@ -418,7 +420,38 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: false, error: error.message }
     }
   })
-  
+
+  ipcMain.handle('email:getImapReconnectHints', async (_e, accountId: string) => {
+    try {
+      const id = String(accountId ?? '').trim()
+      if (!id) return { ok: false, error: 'accountId required' }
+      const hints = await emailGateway.getImapReconnectHints(id)
+      return { ok: true, data: hints }
+    } catch (error: any) {
+      console.error('[Email IPC] getImapReconnectHints error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle(
+    'email:updateImapCredentials',
+    async (
+      _e,
+      accountId: string,
+      creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+    ) => {
+      try {
+        const id = String(accountId ?? '').trim()
+        if (!id) return { ok: false, error: 'accountId required' }
+        const result = await emailGateway.updateImapCredentials(id, creds ?? { imapPassword: '' })
+        return { ok: true, data: result }
+      } catch (error: any) {
+        console.error('[Email IPC] updateImapCredentials error:', error)
+        return { ok: false, error: error.message }
+      }
+    },
+  )
+
   // =================================================================
   // OAuth/Setup Flows
   // =================================================================
@@ -1920,6 +1953,17 @@ export function registerInboxHandlers(
     } catch (syncErr: any) {
       console.error('[Inbox] syncAccountEmails threw:', syncErr)
       const msg = syncErr?.message ?? 'Sync failed'
+      try {
+        const acc = await emailGateway.getAccount(accountId)
+        if (acc?.provider === 'imap' && isLikelyEmailAuthError(msg)) {
+          await emailGateway.updateAccount(accountId, {
+            status: 'auth_error',
+            lastError: 'Authentication failed — check credentials',
+          })
+        }
+      } catch {
+        /* ignore */
+      }
       return {
         ok: false,
         error: msg,

@@ -2450,6 +2450,31 @@ body {
   color: #94a3b8;
 }
 
+.sync-failure-banner-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.sync-failure-banner-btn:hover {
+  background: #f8fafc;
+}
+
+.sync-failure-banner-btn--primary {
+  border-color: #c4b5fd;
+  background: rgba(124, 58, 237, 0.1);
+  color: #5b21b6;
+}
+
+.sync-failure-banner-btn--primary:hover {
+  background: rgba(124, 58, 237, 0.16);
+}
+
 .bulk-view-grid {
   display: flex;
   flex-direction: column;

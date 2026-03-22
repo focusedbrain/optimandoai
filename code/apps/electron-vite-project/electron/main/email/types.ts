@@ -366,8 +366,8 @@ export interface EmailAccountConfig {
     batchSize: number
   }
   
-  /** Account status */
-  status: 'active' | 'error' | 'disabled'
+  /** Account status — `auth_error` = credentials rejected (IMAP / password); reconnect required */
+  status: 'active' | 'error' | 'disabled' | 'auth_error'
   
   /** Last error message if status is 'error' */
   lastError?: string
@@ -399,7 +399,7 @@ export interface EmailAccountInfo {
   displayName: string
   email: string
   provider: EmailProvider
-  status: 'active' | 'error' | 'disabled'
+  status: 'active' | 'error' | 'disabled' | 'auth_error'
   lastError?: string
   lastSyncAt?: number
   folders: {
@@ -419,6 +419,21 @@ export interface EmailAccountInfo {
     syncWindowDays?: number
     maxMessagesPerPull?: number
   }
+}
+
+/** Non-secret fields to prefill “Update credentials” for IMAP (passwords never included). */
+export interface ImapReconnectHints {
+  email: string
+  displayName: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: SecurityMode
+  imapUsername: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: SecurityMode
+  smtpUseSameCredentials: boolean
+  smtpUsername: string
 }
 
 // =============================================================================
@@ -755,6 +770,11 @@ export interface IEmailGateway {
   ): Promise<EmailAccountInfo>
   deleteAccount(id: string): Promise<void>
   testConnection(id: string): Promise<{ success: boolean; error?: string }>
+  getImapReconnectHints(id: string): Promise<ImapReconnectHints | null>
+  updateImapCredentials(
+    id: string,
+    creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+  ): Promise<{ success: boolean; error?: string }>
   
   // Message operations
   listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]>

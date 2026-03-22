@@ -30,8 +30,10 @@ import {
   SendResult,
   SyncStatus,
   CustomImapSmtpConnectPayload,
-  type ImapLifecycleValidationResult
+  type ImapLifecycleValidationResult,
+  type ImapReconnectHints,
 } from './types'
+import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
@@ -371,19 +373,94 @@ class EmailGateway implements IEmailGateway {
     try {
       const provider = await this.getProvider(account)
       const result = await provider.testConnection(account)
-      
-      // Update account status
-      account.status = result.success ? 'active' : 'error'
-      account.lastError = result.error
+
+      // Update account status — distinguish IMAP credential failures from generic errors
+      if (result.success) {
+        account.status = 'active'
+        account.lastError = undefined
+      } else {
+        const authFail =
+          account.provider === 'imap' && result.error && isLikelyEmailAuthError(result.error)
+        account.status = authFail ? 'auth_error' : 'error'
+        account.lastError = authFail
+          ? 'Authentication failed — check credentials'
+          : result.error
+      }
       account.updatedAt = Date.now()
       saveAccounts(this.accounts)
-      
+
       return result
     } catch (err: any) {
-      return { success: false, error: err.message }
+      const msg = err?.message ?? String(err)
+      if (account.provider === 'imap' && isLikelyEmailAuthError(msg)) {
+        account.status = 'auth_error'
+        account.lastError = 'Authentication failed — check credentials'
+        account.updatedAt = Date.now()
+        saveAccounts(this.accounts)
+      }
+      return { success: false, error: msg }
     }
   }
-  
+
+  async getImapReconnectHints(accountId: string): Promise<ImapReconnectHints | null> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account || account.provider !== 'imap' || !account.imap || !account.smtp) {
+      return null
+    }
+    const imap = account.imap
+    const smtp = account.smtp
+    /** Passwords may be encrypted on disk — infer “same credentials” from usernames only. */
+    const smtpUseSame = imap.username === smtp.username
+    return {
+      email: account.email,
+      displayName: account.displayName,
+      imapHost: imap.host,
+      imapPort: imap.port,
+      imapSecurity: imap.security,
+      imapUsername: imap.username,
+      smtpHost: smtp.host,
+      smtpPort: smtp.port,
+      smtpSecurity: smtp.security,
+      smtpUseSameCredentials: smtpUseSame,
+      smtpUsername: smtp.username,
+    }
+  }
+
+  async updateImapCredentials(
+    accountId: string,
+    creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+  ): Promise<{ success: boolean; error?: string }> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      return { success: false, error: 'Account not found' }
+    }
+    if (account.provider !== 'imap' || !account.imap || !account.smtp) {
+      return { success: false, error: 'Not a custom IMAP+SMTP account' }
+    }
+    const imapPw = creds.imapPassword?.trim() ?? ''
+    if (!imapPw) {
+      return { success: false, error: 'Password required' }
+    }
+    const useSame = creds.smtpUseSameCredentials !== false
+    const smtpPw = useSame ? imapPw : (creds.smtpPassword?.trim() ?? '')
+    if (!useSame && !smtpPw) {
+      return { success: false, error: 'SMTP password required' }
+    }
+    const nextImap = { ...account.imap, password: imapPw }
+    const nextSmtp = {
+      ...account.smtp,
+      password: useSame ? imapPw : smtpPw,
+    }
+    await this.updateAccount(accountId, {
+      imap: nextImap,
+      smtp: nextSmtp,
+      status: 'active',
+      lastError: undefined,
+    })
+    const test = await this.testConnection(accountId)
+    return test.success ? { success: true } : { success: false, error: test.error ?? 'Connection test failed' }
+  }
+
   // =================================================================
   // Message Operations
   // =================================================================

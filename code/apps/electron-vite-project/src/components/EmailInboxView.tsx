@@ -12,6 +12,7 @@ import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { SyncFailureBanner } from './SyncFailureBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -910,7 +911,7 @@ export default function EmailInboxView({
       displayName: string
       email: string
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
-      status: 'active' | 'error' | 'disabled'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
       lastError?: string
     }>
   >([])
@@ -943,15 +944,20 @@ export default function EmailInboxView({
                   : p === 'zoho'
                     ? 'zoho'
                     : 'imap'
+            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+              a.status === 'active'
+                ? 'active'
+                : a.status === 'auth_error'
+                  ? 'auth_error'
+                  : a.status === 'error'
+                    ? 'error'
+                    : 'disabled'
             return {
               id: a.id,
               displayName: a.displayName ?? a.email,
               email: a.email,
               provider,
-              status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as
-                | 'active'
-                | 'error'
-                | 'disabled',
+              status,
               lastError: a.lastError,
             }
           }),
@@ -991,6 +997,39 @@ export default function EmailInboxView({
     () => openConnectEmail(ConnectEmailLaunchSource.Inbox),
     [openConnectEmail],
   )
+
+  const handleUpdateImapCredentials = useCallback(
+    (accountId: string) => {
+      openConnectEmail(ConnectEmailLaunchSource.Inbox, { reconnectAccountId: accountId })
+    },
+    [openConnectEmail],
+  )
+
+  const imapProbeDoneRef = useRef(false)
+  useEffect(() => {
+    if (isLoadingProviderAccounts || imapProbeDoneRef.current) return
+    if (!providerAccounts.some((a) => a.provider === 'imap')) return
+    imapProbeDoneRef.current = true
+    let cancelled = false
+    ;(async () => {
+      for (const acc of providerAccounts) {
+        if (acc.provider !== 'imap') continue
+        try {
+          const r = await window.emailAccounts?.testConnection?.(acc.id)
+          if (cancelled) return
+          if (r?.ok && r.data && !r.data.success) {
+            await loadProviderAccounts()
+            break
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoadingProviderAccounts, providerAccounts, loadProviderAccounts])
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
@@ -1382,24 +1421,14 @@ export default function EmailInboxView({
           }
         />
 
-        {lastSyncWarnings && lastSyncWarnings.length > 0 && (
-          <div
-            role="status"
-            style={{
-              padding: '8px 12px',
-              fontSize: 11,
-              color: '#fbbf24',
-              background: 'rgba(251,191,36,0.08)',
-              borderBottom: '1px solid rgba(251,191,36,0.25)',
-            }}
-          >
-            {lastSyncWarnings.length === 1
-              ? lastSyncWarnings[0]
-              : `${lastSyncWarnings.length} sync issues: ${lastSyncWarnings.slice(0, 3).join(' · ')}${
-                  lastSyncWarnings.length > 3 ? '…' : ''
-                }`}
-          </div>
-        )}
+        {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
+          <SyncFailureBanner
+            warnings={lastSyncWarnings}
+            accounts={providerAccounts.map((a) => ({ id: a.id, email: a.email, provider: a.provider }))}
+            onUpdateCredentials={handleUpdateImapCredentials}
+            onRemoveAccount={handleDisconnectEmail}
+          />
+        ) : null}
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {loading ? (

@@ -28,15 +28,7 @@ import { ImapProvider } from './providers/imap'
 import { resolveImapPullFolders } from './domain/imapPullFolders'
 import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'
 import { getEffectiveSyncWindowDays, getMaxMessagesPerPull } from './domain/smartSyncPrefs'
-
-function isLikelyEmailAuthError(message: string): boolean {
-  const m = (message || '').toLowerCase()
-  return (
-    /not authenticated|authentication failed|unauthorized|invalid_grant|invalid credentials|login failed|auth(?:orization)? failed|401|403/.test(
-      m,
-    ) || m.includes('eauthentication')
-  )
-}
+import { isLikelyEmailAuthError } from './emailAuthErrors'
 
 // ── Types ──
 
@@ -494,13 +486,42 @@ async function syncAccountEmailsImpl(
     })
     if (isLikelyEmailAuthError(errMsg)) {
       try {
+        const accountCfg = emailGateway.getAccountConfig(accountId)
+        const isImap = accountCfg?.provider === 'imap'
         await emailGateway.updateAccount(accountId, {
-          status: 'error',
-          lastError: 'Not authenticated or session expired. Reconnect this account in Email settings.',
+          status: isImap ? 'auth_error' : 'error',
+          lastError: isImap
+            ? 'Authentication failed — check credentials'
+            : 'Not authenticated or session expired. Reconnect this account in Email settings.',
         })
       } catch (persistErr: any) {
         console.warn('[SyncOrchestrator] Could not persist account auth state:', persistErr?.message)
       }
+    }
+  }
+
+  const anyAuthErr = result.errors.some((e) => isLikelyEmailAuthError(e))
+  if (anyAuthErr) {
+    try {
+      const accountCfg = emailGateway.getAccountConfig(accountId)
+      const isImap = accountCfg?.provider === 'imap'
+      await emailGateway.updateAccount(accountId, {
+        status: isImap ? 'auth_error' : 'error',
+        lastError: isImap
+          ? 'Authentication failed — check credentials'
+          : 'Not authenticated or session expired. Reconnect this account in Email settings.',
+      })
+    } catch (persistErr: any) {
+      console.warn('[SyncOrchestrator] Could not persist account auth state (partial errors):', persistErr?.message)
+    }
+  } else if (result.ok) {
+    try {
+      const cfg = emailGateway.getAccountConfig(accountId)
+      if (cfg?.status === 'auth_error') {
+        await emailGateway.updateAccount(accountId, { status: 'active', lastError: undefined })
+      }
+    } catch {
+      /* ignore */
     }
   }
 
