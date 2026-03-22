@@ -1136,7 +1136,10 @@ function BulkActionCardStructured({
               boxSizing: 'border-box',
             }}
           >
-            <div className="flex min-h-0 flex-1 flex-col" style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div
+              className="bulk-draft-pane-scroll-region flex min-h-0 flex-1 flex-col"
+              style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}
+            >
               <div
                 ref={draftRef}
                 data-subfocus="draft"
@@ -1261,7 +1264,7 @@ function BulkActionCardStructured({
                     }}
                   >
                     <textarea
-                      className="h-full min-h-[260px] w-full resize-none overflow-y-auto bulk-draft-editor-textarea"
+                      className={`h-full w-full resize-none overflow-y-auto bulk-draft-editor-textarea ${isExpanded ? 'min-h-[260px]' : 'min-h-0'}`}
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {

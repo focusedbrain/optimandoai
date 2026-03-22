@@ -1973,10 +1973,6 @@ body {
   padding: 6px 8px;
 }
 
-.bulk-view--compact .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
-  max-height: min(30vh, 200px);
-}
-
 .bulk-view--compact .bulk-action-card-state-label {
   font-size: 10px;
 }
@@ -3538,13 +3534,14 @@ body {
   flex: 1 1 0%;
   min-height: 0;
 }
-.bulk-action-card--structured.bulk-action-card--draft-compose-focus .bulk-draft-pane-with-toolbar {
-  flex: 1 1 0%;
-  min-height: 0;
+/* Same flex shell whenever a draft exists — not only draft-compose-focus — so toolbar stays pinned */
+.bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-draft-pane-with-toolbar {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
 }
-
 .bulk-draft-show-analysis-btn {
   flex-shrink: 0;
   margin: 0;
@@ -3581,6 +3578,16 @@ body {
   padding-bottom: 2px;
 }
 
+/* Compact + collapsed: stricter than generic .bulk-action-card-sections--has-draft > .row (36vh/280px)
+   so summary + recommended do not steal the draft footer strip */
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  max-height: min(11vh, 64px);
+  min-height: 0;
+}
+.bulk-view--compact .bulk-view-row--expanded .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  max-height: min(30vh, 180px);
+}
+
 .bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections {
   gap: 4px;
 }
@@ -3614,6 +3621,24 @@ body {
 
 .bulk-draft-pane-with-toolbar {
   min-height: 0;
+}
+
+/* Scrolls the draft card body; sibling .bulk-draft-actions-toolbar-wrap stays fixed at bottom of pane */
+.bulk-draft-pane-scroll-region {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-sections--has-draft .bulk-action-card-main-summary {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(24vh, 88px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin-bottom: 4px;
 }
 
 /* Draft footer: smaller buttons when row is collapsed (matches isExpanded === false in TSX) */
