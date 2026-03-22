@@ -5249,7 +5249,7 @@ body {
 .session-history-btn {
   width: 28px;
   height: 28px;
-  margin-left: 4px;
+  margin: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;

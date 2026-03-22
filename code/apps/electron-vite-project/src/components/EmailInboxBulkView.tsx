@@ -4028,14 +4028,6 @@ export default function EmailInboxBulkView({
           <div className="bulk-view-toolbar-tabs">
             <button
               type="button"
-              onClick={() => setFilter({ filter: 'all' })}
-              className="bulk-view-toolbar-filter-btn"
-              data-active={filter.filter === 'all'}
-            >
-              All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
-            </button>
-            <button
-              type="button"
               className="session-history-btn"
               title="AutoSort History"
               onClick={() => setShowSessionHistory(true)}
@@ -4044,6 +4036,14 @@ export default function EmailInboxBulkView({
                 <circle cx="8" cy="8" r="6.5" />
                 <polyline points="8,4.5 8,8 10.5,9.5" />
               </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'all' })}
+              className="bulk-view-toolbar-filter-btn"
+              data-active={filter.filter === 'all'}
+            >
+              All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
             </button>
             <button
               type="button"
