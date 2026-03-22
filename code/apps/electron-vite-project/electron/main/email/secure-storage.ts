@@ -34,18 +34,19 @@ export function isSecureStorageAvailable(): boolean {
  * Encrypt a string value using the OS keychain
  * Returns base64-encoded encrypted data
  */
-export function encryptValue(plaintext: string): string {
+export function encryptValue(plaintext: string | undefined | null): string {
+  const p = plaintext ?? ''
   if (!isSecureStorageAvailable()) {
     console.warn('[SecureStorage] Encryption not available, storing unencrypted')
-    return plaintext
+    return p
   }
-  
+
   try {
-    const encrypted = safeStorage.encryptString(plaintext)
+    const encrypted = safeStorage.encryptString(p)
     return encrypted.toString('base64')
   } catch (err) {
     console.error('[SecureStorage] Encryption failed:', err)
-    return plaintext
+    return p
   }
 }
 
@@ -69,12 +70,15 @@ function isUnencryptedToken(value: string): boolean {
 /**
  * Decrypt a base64-encoded encrypted value
  */
-export function decryptValue(encrypted: string): string {
+export function decryptValue(encrypted: string | undefined | null): string {
+  if (encrypted == null || encrypted === '') {
+    return ''
+  }
   if (!isSecureStorageAvailable()) {
     // If encryption wasn't available during save, data is unencrypted
     return encrypted
   }
-  
+
   // First, check if this looks like unencrypted token data (legacy)
   if (isUnencryptedToken(encrypted)) {
     console.log('[SecureStorage] Found unencrypted legacy token, returning as-is')

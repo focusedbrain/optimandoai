@@ -126,6 +126,8 @@ export function EmailConnectWizard({
   const [storeInVault, setStoreInVault] = useState(true)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [customForm, setCustomForm] = useState(emptyCustomForm)
+  /** Electron reconnect: main process reports whether a password is already saved (value never sent here). */
+  const [reconnectHasStoredImapPassword, setReconnectHasStoredImapPassword] = useState(false)
   /** Initial inbox sync window for the account being connected (7 / 30 / 90 / 0 = all). */
   const [connectSyncWindowDays, setConnectSyncWindowDays] = useState(30)
 
@@ -155,6 +157,7 @@ export function EmailConnectWizard({
     setStoreInVault(true)
     setSaveFeedback(null)
     setCustomForm(emptyCustomForm())
+    setReconnectHasStoredImapPassword(false)
     setConnectSyncWindowDays(30)
   }, [])
 
@@ -174,6 +177,7 @@ export function EmailConnectWizard({
         setProvider('custom')
         setStep('credentials')
         setCredError(null)
+        setReconnectHasStoredImapPassword(h.hasImapPassword === true)
         setCustomForm({
           email: String(h.email ?? ''),
           displayName: String(h.displayName ?? h.email ?? ''),
@@ -2020,10 +2024,15 @@ export function EmailConnectWizard({
                       type="password"
                       value={customForm.imapPassword}
                       onChange={(e) => setCustomForm((p) => ({ ...p, imapPassword: e.target.value }))}
-                      placeholder="••••••••"
+                      placeholder={reconnectAccountId && reconnectHasStoredImapPassword ? 'Enter new password' : '••••••••'}
                       autoComplete="new-password"
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     />
+                    {reconnectAccountId && reconnectHasStoredImapPassword && (
+                      <div style={{ fontSize: '11px', color: mutedColor, marginTop: '6px', lineHeight: 1.4 }}>
+                        A password is already saved for this account. Enter your current or new password above to verify and update — the field stays empty for security until you type.
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginTop: '12px' }}>SMTP (sending)</div>

@@ -92,12 +92,18 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
   let next: EmailAccountConfig = { ...account }
   if (next.imap && next.imap._encrypted === true) {
     try {
+      const plain = decryptValue(next.imap.password)
       next = {
         ...next,
         imap: {
-          ...next.imap,
-          password: decryptValue(next.imap.password)
-        }
+          host: next.imap.host,
+          port: next.imap.port,
+          security: next.imap.security,
+          username: next.imap.username,
+          password: plain,
+          /** In-memory value is always plaintext; disk uses `_encrypted` + ciphertext. */
+          _encrypted: false,
+        },
       }
     } catch (err) {
       console.error('[EmailGateway] Failed to decrypt IMAP password for account:', account.id, err)
@@ -105,18 +111,23 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
         ...next,
         status: 'error',
         lastError: 'Failed to decrypt stored IMAP credentials. Please remove the account and connect again.',
-        imap: next.imap ? { ...next.imap, password: '' } : undefined
+        imap: next.imap ? { ...next.imap, password: '', _encrypted: false } : undefined,
       }
     }
   }
   if (next.smtp && next.smtp._encrypted === true) {
     try {
+      const plain = decryptValue(next.smtp.password)
       next = {
         ...next,
         smtp: {
-          ...next.smtp,
-          password: decryptValue(next.smtp.password)
-        }
+          host: next.smtp.host,
+          port: next.smtp.port,
+          security: next.smtp.security,
+          username: next.smtp.username,
+          password: plain,
+          _encrypted: false,
+        },
       }
     } catch (err) {
       console.error('[EmailGateway] Failed to decrypt SMTP password for account:', account.id, err)
@@ -124,7 +135,7 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
         ...next,
         status: 'error',
         lastError: 'Failed to decrypt stored SMTP credentials. Please remove the account and connect again.',
-        smtp: next.smtp ? { ...next.smtp, password: '' } : undefined
+        smtp: next.smtp ? { ...next.smtp, password: '', _encrypted: false } : undefined,
       }
     }
   }
@@ -134,16 +145,24 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
 function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap' || !account.imap) return account
   const encAvail = isSecureStorageAvailable()
+  /** Never persist `undefined` — JSON.stringify omits it and the password would be lost on reload. */
+  const imapPlain = String(account.imap.password ?? '')
   const imap = {
-    ...account.imap,
-    password: encryptValue(account.imap.password),
-    _encrypted: encAvail
+    host: account.imap.host,
+    port: account.imap.port,
+    security: account.imap.security,
+    username: account.imap.username,
+    password: encryptValue(imapPlain),
+    _encrypted: encAvail,
   }
   const smtp = account.smtp
     ? {
-        ...account.smtp,
-        password: encryptValue(account.smtp.password),
-        _encrypted: encAvail
+        host: account.smtp.host,
+        port: account.smtp.port,
+        security: account.smtp.security,
+        username: account.smtp.username,
+        password: encryptValue(String(account.smtp.password ?? '')),
+        _encrypted: encAvail,
       }
     : undefined
   return { ...account, imap, smtp }
@@ -411,6 +430,8 @@ class EmailGateway implements IEmailGateway {
     const smtp = account.smtp
     /** Passwords may be encrypted on disk — infer “same credentials” from usernames only. */
     const smtpUseSame = imap.username === smtp.username
+    const hasImapPassword = typeof imap.password === 'string' && imap.password.length > 0
+    const hasSmtpPassword = typeof smtp.password === 'string' && smtp.password.length > 0
     return {
       email: account.email,
       displayName: account.displayName,
@@ -423,6 +444,9 @@ class EmailGateway implements IEmailGateway {
       smtpSecurity: smtp.security,
       smtpUseSameCredentials: smtpUseSame,
       smtpUsername: smtp.username,
+      /** True when a non-empty password is in memory (passwords are never sent to the renderer). */
+      hasImapPassword,
+      hasSmtpPassword,
     }
   }
 
@@ -446,9 +470,22 @@ class EmailGateway implements IEmailGateway {
     if (!useSame && !smtpPw) {
       return { success: false, error: 'SMTP password required' }
     }
-    const nextImap = { ...account.imap, password: imapPw }
+    /**
+     * Build explicit IMAP/SMTP objects (no spread of old `imap` / `smtp`).
+     * Spreading could keep stale `_encrypted: true` alongside a new plaintext password and confuse save/load.
+     */
+    const nextImap = {
+      host: account.imap.host,
+      port: account.imap.port,
+      security: account.imap.security,
+      username: account.imap.username,
+      password: imapPw,
+    }
     const nextSmtp = {
-      ...account.smtp,
+      host: account.smtp.host,
+      port: account.smtp.port,
+      security: account.smtp.security,
+      username: account.smtp.username,
       password: useSame ? imapPw : smtpPw,
     }
     await this.updateAccount(accountId, {
@@ -458,7 +495,15 @@ class EmailGateway implements IEmailGateway {
       lastError: undefined,
     })
     const test = await this.testConnection(accountId)
-    return test.success ? { success: true } : { success: false, error: test.error ?? 'Connection test failed' }
+    if (!test.success) {
+      return { success: false, error: test.error ?? 'Connection test failed' }
+    }
+    try {
+      await this.forceReconnect(accountId)
+    } catch (e: any) {
+      console.warn('[EmailGateway] updateImapCredentials: forceReconnect after successful test:', e?.message || e)
+    }
+    return { success: true }
   }
 
   // =================================================================

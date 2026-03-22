@@ -1,3 +1,6 @@
+# Vite ephemeral config (sometimes dropped next to vite.config.ts)
+**/vite.config.ts.timestamp-*.mjs
+
 # Node and build artifacts
 node_modules/
 dist/
@@ -45,7 +48,7 @@ apps/extension-chromium/build74172/
 apps/extension-chromium/build7972/
 apps/extension-chromium/build702/
 apps/extension-chromium/build802/
-apps/extension-chromium/build812/
+apps/extension-chromium/build712/
 apps/extension-chromium/build379/
 apps/extension-chromium/build449/
 apps/extension-chromium/build779/

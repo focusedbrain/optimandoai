@@ -434,6 +434,10 @@ export interface ImapReconnectHints {
   smtpSecurity: SecurityMode
   smtpUseSameCredentials: boolean
   smtpUsername: string
+  /** True when a non-empty IMAP password exists in main-process memory (never sent to renderer). */
+  hasImapPassword?: boolean
+  /** True when a non-empty SMTP password exists in main-process memory. */
+  hasSmtpPassword?: boolean
 }
 
 // =============================================================================
