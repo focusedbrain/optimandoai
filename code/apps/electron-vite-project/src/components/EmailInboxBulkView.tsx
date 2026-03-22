@@ -4926,7 +4926,6 @@ export default function EmailInboxBulkView({
                     tabIndex={0}
                     onClick={(e) => {
                       if (
-                        (e.target as HTMLElement).closest('input[type="checkbox"]') ||
                         (e.target as HTMLElement).closest('.bulk-view-expand-btn') ||
                         (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
                         (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
@@ -4946,32 +4945,15 @@ export default function EmailInboxBulkView({
                     <div className="bulk-view-message-inner">
                       <div className="bulk-view-message-header">
                         <div className="bulk-view-message-meta">
-                          <div
-                            className="bulk-view-message-utilities"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              className="bulk-view-message-checkbox"
-                              checked={isMultiSelected}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                toggleMultiSelect(msg.id)
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              aria-label={isMultiSelected ? 'Deselect message' : 'Select message'}
-                            />
-                            {isFocused ? (
-                              <span
-                                className="bulk-view-message-focus-cue"
-                                title="Focused — chat/search scoped to this message"
-                                aria-hidden
-                              >
-                                👉
-                              </span>
-                            ) : null}
-                          </div>
+                          {isFocused ? (
+                            <span
+                              className="bulk-view-message-focus-cue"
+                              title="Focused — chat/search scoped to this message"
+                              aria-hidden
+                            >
+                              👉
+                            </span>
+                          ) : null}
                           <RemoteSyncStatusDot msg={msg} />
                           <div className="msg-sender" style={{ minWidth: 0 }}>
                             <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
@@ -5081,7 +5063,7 @@ export default function EmailInboxBulkView({
                         </div>
                       </div>
                       {hasAttachments ? (
-                        <div className="bulk-view-message-attachments-footer">
+                        <div className="bulk-view-message-attachments-footer bulk-message-footer">
                           <BulkInboxAttachmentsStrip
                             msg={msg}
                             selectedAttachmentId={selectedAttachmentId ?? null}

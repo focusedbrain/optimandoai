@@ -85,7 +85,7 @@ export function BulkInboxAttachmentsStrip({
   if (!attachments.length) {
     return (
       <div
-        className="bulk-message-attachments-strip bulk-message-attachments-strip--loading"
+        className="bulk-message-attachments-strip bulk-message-attachments-strip--loading bulk-message-footer-inner bulk-view-attachments-strip"
         data-subfocus="attachment"
       >
         Loading attachments…
@@ -119,7 +119,7 @@ export function BulkInboxAttachmentsStrip({
         onOpenOriginalWarning={() => readerAtt && setOriginalAtt(readerAtt)}
       />
       <div
-        className="bulk-message-attachments-strip"
+        className="bulk-message-attachments-strip bulk-message-footer-inner bulk-view-attachments-strip bulk-view-attachments-actions"
         data-subfocus="attachment"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
