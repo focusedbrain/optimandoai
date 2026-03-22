@@ -144,7 +144,13 @@ export function BulkInboxAttachmentsStrip({
                     e.stopPropagation()
                     handleSelectChat(att)
                   }}
+                  title={isSel ? 'Selected for chat — click to clear' : 'Chat using this attachment'}
                 >
+                  {isSel ? (
+                    <span className="bulk-attachment-btn__finger" aria-hidden>
+                      👉
+                    </span>
+                  ) : null}
                   Chat
                 </button>
                 {isPdf && !failed ? (

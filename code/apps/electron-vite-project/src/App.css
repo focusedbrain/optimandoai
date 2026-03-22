@@ -1850,6 +1850,11 @@ body {
 .bulk-view--compact .bulk-attachment-btn {
   padding: 3px 6px;
   font-size: 9px;
+  gap: 2px;
+}
+
+.bulk-view--compact .bulk-attachment-btn__finger {
+  font-size: 8px;
 }
 
 /* Compact mode: ensure focus ring remains visible */
@@ -3222,6 +3227,9 @@ body {
 }
 
 .bulk-attachment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 10px;
   font-weight: 600;
   padding: 4px 8px;
@@ -3232,6 +3240,13 @@ body {
   color: #475569;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.bulk-attachment-btn__finger {
+  font-size: 9px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.95;
 }
 
 .bulk-attachment-btn:hover {
