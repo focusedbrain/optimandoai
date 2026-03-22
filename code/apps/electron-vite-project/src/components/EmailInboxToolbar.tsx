@@ -1,5 +1,5 @@
 /**
- * EmailInboxToolbar — Filter tabs, source type, auto-sync, pull, bulk actions.
+ * EmailInboxToolbar — Filter tabs, source type, auto-sync, pull, sync window; bulk row actions when items selected.
  */
 
 import React from 'react'
@@ -109,14 +109,14 @@ export default function EmailInboxToolbar({
   autoSyncEnabled,
   syncing,
   onSync,
-  onPullMore,
+  onPullMore: _onPullMore,
   accountSyncWindowDays = 30,
   onSyncWindowChange,
-  onRemoteLifecycleSync,
-  remoteLifecycleSyncing = false,
+  onRemoteLifecycleSync: _onRemoteLifecycleSync,
+  remoteLifecycleSyncing: _remoteLifecycleSyncing = false,
   onToggleAutoSync,
-  bulkMode,
-  onBulkModeChange,
+  bulkMode: _bulkMode,
+  onBulkModeChange: _onBulkModeChange,
   selectedCount,
   onBulkDelete,
   onBulkArchive,
@@ -217,71 +217,6 @@ export default function EmailInboxToolbar({
         >
           {syncing ? '↻ Syncing…' : '↻ Pull'}
         </button>
-
-        {primaryAccountId && (
-          <button
-            type="button"
-            onClick={() => onPullMore?.()}
-            disabled={syncing || !onPullMore}
-            title={
-              !onPullMore
-                ? 'Pull More requires an updated WR Desk build'
-                : 'Fetch the next ~500 older messages than your oldest local message'
-            }
-            style={{
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
-              background: 'var(--color-surface, rgba(255,255,255,0.06))',
-              color: 'var(--color-text, #e2e8f0)',
-              cursor: syncing || !onPullMore ? 'not-allowed' : 'pointer',
-              opacity: syncing || !onPullMore ? 0.55 : 1,
-            }}
-          >
-            ↻ Pull More
-          </button>
-        )}
-
-        {onRemoteLifecycleSync && (
-          <button
-            type="button"
-            onClick={onRemoteLifecycleSync}
-            disabled={remoteLifecycleSyncing || !accounts.length}
-            title="Enqueue full remote folder reconcile for all accounts (background)"
-            style={{
-              padding: '6px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: '1px solid rgba(56, 189, 248, 0.5)',
-              background: 'rgba(56, 189, 248, 0.12)',
-              color: '#38bdf8',
-              cursor: remoteLifecycleSyncing || !accounts.length ? 'not-allowed' : 'pointer',
-              opacity: remoteLifecycleSyncing || !accounts.length ? 0.65 : 1,
-            }}
-          >
-            {remoteLifecycleSyncing ? '☁ …' : '☁ Sync Remote'}
-          </button>
-        )}
-
-        {/* Bulk mode toggle */}
-        <button
-          onClick={() => onBulkModeChange(!bulkMode)}
-          style={{
-            padding: '6px 12px',
-            fontSize: 11,
-            fontWeight: 600,
-            borderRadius: 6,
-            border: `1px solid ${bulkMode ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-            background: bulkMode ? 'var(--purple-accent-muted, rgba(147,51,234,0.2))' : 'transparent',
-            color: bulkMode ? 'var(--purple-accent, #9333ea)' : 'var(--color-text-muted, #94a3b8)',
-            cursor: 'pointer',
-          }}
-        >
-          Bulk
-        </button>
       </div>
 
       {primaryAccountId && onSyncWindowChange && (
@@ -319,7 +254,7 @@ export default function EmailInboxToolbar({
             </select>
           </label>
           <span style={{ lineHeight: 1.35, maxWidth: 420 }}>
-            After the first sync, only new mail syncs automatically. Use Pull More for older messages.
+            After the first sync, only new mail syncs automatically. Expand the sync window above to include older mail.
             {accountSyncWindowDays === 0 ? (
               <span style={{ color: '#fbbf24', display: 'block', marginTop: 4 }}>
                 Large mailboxes may take a long time when syncing all mail.

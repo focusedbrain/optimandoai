@@ -1563,7 +1563,7 @@ export default function EmailInboxView({
                     </select>
                   </label>
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
-                    Editable after connecting. Only recent mail syncs initially; use Pull More for older messages.
+                    Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.
                     {accountSyncWindowDays === 0 ? (
                       <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
                         Warning: syncing all mail may take a long time.
