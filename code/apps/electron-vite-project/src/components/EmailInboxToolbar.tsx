@@ -1,11 +1,12 @@
 /**
- * EmailInboxToolbar — Filter tabs, source type, sync controls (shared with Bulk Inbox), bulk row actions when items selected.
+ * EmailInboxToolbar — Filter tabs, message type (Handshake / Depackaged), sync controls, bulk row actions when items selected.
  */
 
 import React from 'react'
 import type { InboxFilter } from '../stores/useEmailInboxStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
+import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 
 // ── Types ──
 
@@ -45,15 +46,6 @@ const FILTER_LABELS: Record<string, string> = {
   pending_review: '⏳ Pending Review',
   deleted: 'Deleted',
 }
-
-// ── Source type tabs ──
-
-const SOURCE_TABS = [
-  { value: 'all' as const, label: 'All' },
-  { value: 'email_beap' as const, label: 'BEAP' },
-  { value: 'email_plain' as const, label: 'Plain' },
-  { value: 'direct_beap' as const, label: 'Direct' },
-]
 
 // ── Main component ──
 
@@ -116,29 +108,13 @@ export default function EmailInboxToolbar({
         })}
       </div>
 
-      {/* Source type filter row + sync (Bulk Inbox controls) */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {SOURCE_TABS.map(({ value, label }) => {
-          const active = filter.sourceType === value
-          return (
-            <button
-              key={value}
-              onClick={() => onFilterChange({ sourceType: value })}
-              style={{
-                padding: '4px 10px',
-                fontSize: 10,
-                fontWeight: 600,
-                borderRadius: 6,
-                border: `1px solid ${active ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-                background: active ? 'var(--purple-accent-muted, rgba(147,51,234,0.2))' : 'transparent',
-                color: active ? 'var(--purple-accent, #9333ea)' : 'var(--color-text-muted, #94a3b8)',
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          )
-        })}
+      {/* Message type (secondary) + sync */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+        <InboxMessageKindSelect
+          id="inbox-message-kind-normal"
+          value={filter.messageKind}
+          onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
+        />
 
         <div style={{ flex: 1, minWidth: 8 }} />
 

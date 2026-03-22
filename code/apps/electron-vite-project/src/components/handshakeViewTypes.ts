@@ -181,6 +181,7 @@ export interface EmailInboxBridge {
   listMessages: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -190,6 +191,7 @@ export interface EmailInboxBridge {
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number

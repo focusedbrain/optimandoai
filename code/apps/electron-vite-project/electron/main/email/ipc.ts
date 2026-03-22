@@ -968,6 +968,8 @@ export type GetAnthropicApiKey = () => Promise<string | null>
 type InboxListFilterOptions = {
   filter?: string
   sourceType?: string
+  /** Product-facing kind — aligned with `deriveInboxMessageKind` in renderer (`src/lib/inboxMessageKind.ts`). */
+  messageKind?: 'handshake' | 'depackaged'
   handshakeId?: string
   category?: string
   search?: string
@@ -977,7 +979,7 @@ type InboxListFilterOptions = {
  * Build WHERE + bind params for inbox message lists. Must stay aligned across list handlers.
  */
 function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { where: string; params: unknown[] } {
-  const { filter, sourceType, handshakeId, category, search } = options
+  const { filter, sourceType, messageKind, handshakeId, category, search } = options
   const conditions: string[] = []
   const params: unknown[] = []
 
@@ -1033,6 +1035,17 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
   if (sourceType) {
     conditions.push('source_type = ?')
     params.push(sourceType)
+  }
+  if (messageKind === 'handshake') {
+    conditions.push(
+      '((handshake_id IS NOT NULL AND trim(handshake_id) != ?) OR source_type = ?)',
+    )
+    params.push('', 'direct_beap')
+  } else if (messageKind === 'depackaged') {
+    conditions.push(
+      '((handshake_id IS NULL OR trim(handshake_id) = ?) AND (source_type IS NULL OR source_type != ?))',
+    )
+    params.push('', 'direct_beap')
   }
   if (handshakeId) {
     conditions.push('handshake_id = ?')

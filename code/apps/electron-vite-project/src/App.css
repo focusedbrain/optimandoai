@@ -1832,6 +1832,23 @@ body {
   gap: 6px;
 }
 
+.bulk-view--compact .bulk-view-toolbar-row--message-kind {
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bulk-view--compact .bulk-view-toolbar-row--message-kind .inbox-message-kind-toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bulk-view--compact .inbox-message-kind-select--bulk {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 140px;
+}
+
 .bulk-view--compact .bulk-view-ai {
   padding: var(--bulk-shell-inset-t) var(--bulk-shell-inset-outer-x) var(--bulk-shell-inset-b)
     var(--bulk-shell-inset-gutter-x);
@@ -2150,11 +2167,79 @@ body {
   justify-content: center;
 }
 
+.bulk-view-toolbar-row--message-kind {
+  justify-content: flex-start;
+  padding-left: 2px;
+}
+
 .bulk-view-toolbar-row--main {
   justify-content: space-between;
   flex-wrap: wrap;
   width: 100%;
   gap: 10px;
+}
+
+/* Shared Normal + Bulk inbox — product-facing type filter (Handshake / Depackaged) */
+.inbox-message-kind-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-message-kind-toolbar__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  white-space: nowrap;
+}
+
+.bulk-view-toolbar--stacked .inbox-message-kind-toolbar__label {
+  color: #64748b;
+}
+
+.inbox-message-kind-toolbar__select {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.2));
+  background: var(--color-surface, rgba(255, 255, 255, 0.06));
+  color: var(--color-text, #e2e8f0);
+  cursor: pointer;
+  min-width: 158px;
+}
+
+.inbox-message-kind-select--bulk {
+  min-width: 158px;
+}
+
+/* Inbox row/card — navigate to Handshakes (subtle, not a loud badge) */
+.inbox-handshake-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.72;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.inbox-handshake-nav-btn:hover {
+  opacity: 1;
+  background: rgba(147, 51, 234, 0.08);
+}
+
+.bulk-action-card-header-handshake {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 
 .bulk-view-toolbar-row--dev {

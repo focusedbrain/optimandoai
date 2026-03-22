@@ -21,6 +21,7 @@ import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { SyncFailureBanner } from './SyncFailureBanner'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
+import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -39,6 +40,7 @@ import { reconcileInboxClassification } from '../lib/inboxClassificationReconcil
 import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
 import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
+import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -741,6 +743,7 @@ function BulkActionCardStructured({
   draftAttachments = [],
   onAddDraftAttachment,
   onRemoveDraftAttachment,
+  onNavigateToHandshake,
 }: {
   msg: InboxMessage
   output: BulkAiResultEntry
@@ -768,6 +771,7 @@ function BulkActionCardStructured({
   draftAttachments?: Array<{ name: string; path: string; size: number }>
   onAddDraftAttachment?: () => void
   onRemoveDraftAttachment?: (index: number) => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
   const isDraftSubFocused = subFocus.kind === 'draft' && subFocus.messageId === msg.id
@@ -904,6 +908,15 @@ function BulkActionCardStructured({
         <div className="bulk-action-card-header-urgency-slot">
           <InboxUrgencyMeter score={urgency} variant="compact" />
         </div>
+        {onNavigateToHandshake ? (
+          <div
+            className="bulk-action-card-header-handshake"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <InboxHandshakeNavIconButton message={msg} onNavigateToHandshake={onNavigateToHandshake} />
+          </div>
+        ) : null}
         <div ref={analysisButtonRef} style={{ position: 'relative', marginLeft: 'auto' }}>
           <button
             type="button"
@@ -1390,7 +1403,7 @@ function BulkActionCardStructured({
                   className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
                   onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
                 >
-                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
+                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via Handshake'}
                 </button>
                 {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
                   <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
@@ -1554,6 +1567,8 @@ export interface EmailInboxBulkViewProps {
   selectedAttachmentId?: string | null
   /** Toggle attachment focus */
   onSelectAttachment?: (attachmentId: string | null) => void
+  /** Open Handshakes view and select this relationship */
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxBulkView({
@@ -1562,6 +1577,7 @@ export default function EmailInboxBulkView({
   onSelectMessage,
   selectedAttachmentId,
   onSelectAttachment,
+  onNavigateToHandshake,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -3700,9 +3716,10 @@ export default function EmailInboxBulkView({
             handleUndoArchived={handleUndoArchived}
             focusedMessageId={focusedMessageId ?? null}
             editingDraftForMessageId={editingDraftForMessageId ?? null}
-  subFocus={subFocus}
-  setSubFocus={setSubFocus}
-  onSelectMessage={onSelectMessage}
+            subFocus={subFocus}
+            setSubFocus={setSubFocus}
+            onSelectMessage={onSelectMessage}
+            onNavigateToHandshake={onNavigateToHandshake}
           />
         )
       }
@@ -3881,6 +3898,7 @@ export default function EmailInboxBulkView({
       runAiCategorizeForIds,
       handleBulkAnalyzeOne,
       draftRefineConnect,
+      onNavigateToHandshake,
     ]
   )
 
@@ -4022,7 +4040,7 @@ export default function EmailInboxBulkView({
 
   return (
     <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar — row 1: filter tabs; row 2: selection + AI (left) / sync prefs + Sync + debug (right) */}
+      {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
           <div className="bulk-view-toolbar-tabs">
@@ -4078,6 +4096,15 @@ export default function EmailInboxBulkView({
               Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
             </button>
           </div>
+        </div>
+
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
+          <InboxMessageKindSelect
+            id="inbox-message-kind-bulk"
+            variant="bulk"
+            value={filter.messageKind}
+            onChange={(messageKind) => setFilter({ messageKind, sourceType: 'all' })}
+          />
         </div>
 
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--main">
@@ -5030,6 +5057,7 @@ export default function EmailInboxBulkView({
                       if (
                         (e.target as HTMLElement).closest('.bulk-view-expand-btn') ||
                         (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
+                        (e.target as HTMLElement).closest('.inbox-handshake-nav-btn') ||
                         (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
                       ) {
                         return
@@ -5057,6 +5085,9 @@ export default function EmailInboxBulkView({
                             </span>
                           ) : null}
                           <RemoteSyncStatusDot msg={msg} />
+                          {onNavigateToHandshake ? (
+                            <InboxHandshakeNavIconButton message={msg} onNavigateToHandshake={onNavigateToHandshake} />
+                          ) : null}
                           <div className="msg-sender" style={{ minWidth: 0 }}>
                             <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
                               {msg.from_name || msg.from_address || '—'}

@@ -21,8 +21,10 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
+import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
+import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 
 // ── Relative date ──
 
@@ -645,7 +647,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
                   {message && onSendDraft && !draftError && (
                     <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
-                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via Handshake'}
                     </button>
                   )}
                 </div>
@@ -670,6 +672,7 @@ interface InboxMessageRowProps {
   onSelect: () => void
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 function InboxMessageRow({
@@ -680,8 +683,9 @@ function InboxMessageRow({
   onSelect,
   onToggleMultiSelect,
   onMouseEnter,
+  onNavigateToHandshake,
 }: InboxMessageRowProps) {
-  const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
+  const isHandshakeKind = deriveInboxMessageKind(message) === 'handshake'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -728,15 +732,16 @@ function InboxMessageRow({
             lineHeight: 1,
             color: 'var(--purple-accent, #a78bfa)',
           }}
-          title="Focused message — chat/search scoped to this BEAP message"
+          title="Focused — chat/search scoped to this message"
           aria-hidden
         >
           👉
         </span>
       )}
 
-      {/* Source badge */}
+      {/* Kind badge (aligned with Type filter: Handshake vs Depackaged) */}
       <div
+        title={isHandshakeKind ? 'Handshake' : 'Depackaged'}
         style={{
           flexShrink: 0,
           width: 24,
@@ -747,11 +752,11 @@ function InboxMessageRow({
           justifyContent: 'center',
           fontSize: 12,
           fontWeight: 700,
-          background: isBeap ? 'var(--purple-accent, #9333ea)' : 'rgba(107,114,128,0.5)',
+          background: isHandshakeKind ? 'var(--purple-accent, #9333ea)' : 'rgba(107,114,128,0.5)',
           color: '#fff',
         }}
       >
-        {isBeap ? 'B' : '✉'}
+        {isHandshakeKind ? 'B' : '✉'}
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -832,19 +837,9 @@ function InboxMessageRow({
               {message.sort_category}
             </span>
           )}
-          {message.handshake_id && (
-            <span
-              style={{
-                fontSize: 9,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-                color: 'var(--purple-accent, #9333ea)',
-              }}
-            >
-              🤝
-            </span>
-          )}
+          {onNavigateToHandshake ? (
+            <InboxHandshakeNavIconButton message={message} onNavigateToHandshake={onNavigateToHandshake} />
+          ) : null}
         </div>
       </div>
     </div>
@@ -859,6 +854,8 @@ export interface EmailInboxViewProps {
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
   onSelectAttachment?: (attachmentId: string | null) => void
+  /** Open Handshakes view and select this relationship (when message has navigable handshake id). */
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxView({
@@ -867,6 +864,7 @@ export default function EmailInboxView({
   onSelectMessage,
   selectedAttachmentId: selectedAttachmentIdProp,
   onSelectAttachment,
+  onNavigateToHandshake,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -1514,6 +1512,7 @@ export default function EmailInboxView({
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
+                onNavigateToHandshake={onNavigateToHandshake}
               />
             ))
           )}

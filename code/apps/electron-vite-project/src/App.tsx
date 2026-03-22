@@ -126,6 +126,16 @@ function App() {
     return () => unsub?.()
   }, [])
 
+  /** Inbox → Handshakes: reuse app-level handshake selection (same as picking a row in HandshakeView). */
+  const handleNavigateToHandshakeFromInbox = useCallback((handshakeId: string) => {
+    setActiveView('handshakes')
+    setSelectedHandshakeId(handshakeId)
+    setSelectedHandshakeEmail(null)
+    setSelectedDocumentId(null)
+    setSelectedMessageId(null)
+    setSelectedAttachmentId(null)
+  }, [])
+
   return (
     <div className="app-root">
       <header className="app-header">
@@ -212,6 +222,7 @@ function App() {
               }}
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
+              onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
             />
           ) : (
             <EmailInboxView
@@ -223,6 +234,7 @@ function App() {
               }}
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
+              onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
             />
           )
         ) : activeView === 'settings' ? (

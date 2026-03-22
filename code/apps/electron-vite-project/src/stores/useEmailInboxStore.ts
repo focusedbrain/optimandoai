@@ -10,6 +10,10 @@
 import { create } from 'zustand'
 import type { AiOutputs, NormalInboxAiResult } from '../types/inboxAi'
 import '../components/handshakeViewTypes'
+import { messageMatchesKindFilter, type InboxMessageKindFilter } from '../lib/inboxMessageKind'
+
+export type { InboxMessageKindFilter }
+export { deriveInboxMessageKind, messageMatchesKindFilter } from '../lib/inboxMessageKind'
 
 // =============================================================================
 // Types
@@ -78,6 +82,8 @@ export interface InboxMessage {
 export interface InboxFilter {
   filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   sourceType: InboxSourceType | 'all'
+  /** Product-facing BEAP kind filter — independent of raw `sourceType` labels. */
+  messageKind: InboxMessageKindFilter
   handshakeId?: string
   category?: string
   search?: string
@@ -251,6 +257,7 @@ const BULK_UI_PAGE_SIZE = 50
 function listBridgeOptionsFromFilter(filter: InboxFilter): {
   filter: string
   sourceType?: string
+  messageKind?: InboxMessageKindFilter
   handshakeId?: string
   category?: string
   search?: string
@@ -258,6 +265,7 @@ function listBridgeOptionsFromFilter(filter: InboxFilter): {
   return {
     filter: filter.filter,
     sourceType: filter.sourceType === 'all' ? undefined : filter.sourceType,
+    messageKind: filter.messageKind === 'all' ? undefined : filter.messageKind,
     handshakeId: filter.handshakeId,
     category: filter.category,
     search: filter.search,
@@ -267,11 +275,12 @@ function listBridgeOptionsFromFilter(filter: InboxFilter): {
 const DEFAULT_FILTER: InboxFilter = {
   filter: 'all',
   sourceType: 'all',
+  messageKind: 'all',
 }
 
 /**
  * Client-side filter — must stay aligned with `buildInboxMessagesWhereClause` in electron `ipc.ts`
- * (same tab + sourceType / handshakeId / category / search semantics).
+ * (same tab + sourceType / messageKind / handshakeId / category / search semantics).
  */
 function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter): InboxMessage[] {
   const fk = inboxFilter.filter
@@ -280,6 +289,7 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
 
   return messages.filter((m) => {
     if (inboxFilter.sourceType !== 'all' && m.source_type !== inboxFilter.sourceType) return false
+    if (!messageMatchesKindFilter(m, inboxFilter.messageKind)) return false
     if (inboxFilter.handshakeId && m.handshake_id !== inboxFilter.handshakeId) return false
     if (inboxFilter.category && m.sort_category !== inboxFilter.category) return false
 
@@ -782,6 +792,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const listScopeChanged =
       (partial.search !== undefined && partial.search !== prev.search) ||
       (partial.sourceType !== undefined && partial.sourceType !== prev.sourceType) ||
+      (partial.messageKind !== undefined && partial.messageKind !== prev.messageKind) ||
       (partial.handshakeId !== undefined && partial.handshakeId !== prev.handshakeId) ||
       (partial.category !== undefined && partial.category !== prev.category)
 
