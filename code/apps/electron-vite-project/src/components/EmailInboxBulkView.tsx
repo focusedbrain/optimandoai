@@ -370,6 +370,23 @@ function formatDate(isoString: string | null): string {
   }
 }
 
+/** Same as `EmailInboxView` InboxMessageRow — compact received time in list cards. */
+function formatRelativeDate(isoString: string): string {
+  if (!isoString) return '—'
+  const d = new Date(isoString)
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const diffM = Math.floor(diffMs / 60000)
+  const diffH = Math.floor(diffMs / 3600000)
+  const diffD = Math.floor(diffMs / 86400000)
+
+  if (diffM < 1) return 'now'
+  if (diffM < 60) return `${diffM}m`
+  if (diffH < 24) return `${diffH}h`
+  if (diffD < 7) return `${diffD}d`
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
+}
+
 /** Map persisted sort_category / stored category → classifier labels used by reconcile. */
 function sortCategoryToClassifier(cat: string): string {
   const c = (cat || 'normal').toLowerCase()
@@ -4940,7 +4957,17 @@ export default function EmailInboxBulkView({
                         </span>
                       )}
                       <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginBottom: 6,
+                            flexShrink: 0,
+                            width: '100%',
+                            minWidth: 0,
+                          }}
+                        >
                           <RemoteSyncStatusDot msg={msg} />
                           <span
                             style={{
@@ -4970,6 +4997,18 @@ export default function EmailInboxBulkView({
                               Editing draft
                             </span>
                           )}
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: MUTED,
+                            }}
+                            title={msg.received_at ? `Received: ${formatDate(msg.received_at)}` : 'No received date'}
+                          >
+                            {formatRelativeDate(msg.received_at)}
+                          </span>
                           <button
                             type="button"
                             className="bulk-view-expand-btn"
