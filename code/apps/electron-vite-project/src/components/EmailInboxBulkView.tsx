@@ -10,7 +10,6 @@ import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } fro
 import {
   useEmailInboxStore,
   activeEmailAccountIdsForSync,
-  deriveTabCounts,
   type InboxMessage,
   type SubFocus,
 } from '../stores/useEmailInboxStore'
@@ -1557,7 +1556,6 @@ export default function EmailInboxBulkView({
     bulkBackgroundRefresh,
     error,
     lastSyncWarnings,
-    bulkPage,
     bulkBatchSize,
     bulkCompactMode,
     bulkAiOutputs,
@@ -1565,13 +1563,15 @@ export default function EmailInboxBulkView({
     selectedMessage,
     selectedMessageId,
     filter,
-    allMessages,
+    tabCounts: storeTabCounts,
+    bulkHasMore,
+    bulkLoadingMore,
     fetchMessages,
     fetchAllMessages,
+    loadMoreBulkMessages,
     selectAllMatchingCurrentFilter,
     refreshMessages,
     setBulkMode,
-    setBulkPage,
     setBulkBatchSize,
     setBulkCompactMode,
     syncBulkBatchSizeFromSettings,
@@ -1612,7 +1612,6 @@ export default function EmailInboxBulkView({
       bulkBackgroundRefresh: s.bulkBackgroundRefresh,
       error: s.error,
       lastSyncWarnings: s.lastSyncWarnings,
-      bulkPage: s.bulkPage,
       bulkBatchSize: s.bulkBatchSize,
       bulkCompactMode: s.bulkCompactMode,
       bulkAiOutputs: s.bulkAiOutputs,
@@ -1620,13 +1619,15 @@ export default function EmailInboxBulkView({
       selectedMessage: s.selectedMessage,
       selectedMessageId: s.selectedMessageId,
       filter: s.filter,
-      allMessages: s.allMessages,
+      tabCounts: s.tabCounts,
+      bulkHasMore: s.bulkHasMore,
+      bulkLoadingMore: s.bulkLoadingMore,
       fetchMessages: s.fetchMessages,
       fetchAllMessages: s.fetchAllMessages,
+      loadMoreBulkMessages: s.loadMoreBulkMessages,
       selectAllMatchingCurrentFilter: s.selectAllMatchingCurrentFilter,
       refreshMessages: s.refreshMessages,
       setBulkMode: s.setBulkMode,
-      setBulkPage: s.setBulkPage,
       setBulkBatchSize: s.setBulkBatchSize,
       setBulkCompactMode: s.setBulkCompactMode,
       syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
@@ -1665,7 +1666,16 @@ export default function EmailInboxBulkView({
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
-  const tabCounts = useMemo(() => deriveTabCounts(allMessages, filter), [allMessages, filter])
+  const tabCounts = useMemo(() => {
+    const t = storeTabCounts ?? {}
+    return {
+      all: typeof t.all === 'number' ? t.all : 0,
+      urgent: typeof t.urgent === 'number' ? t.urgent : 0,
+      pending_delete: typeof t.pending_delete === 'number' ? t.pending_delete : 0,
+      pending_review: typeof t.pending_review === 'number' ? t.pending_review : 0,
+      archived: typeof t.archived === 'number' ? t.archived : 0,
+    }
+  }, [storeTabCounts])
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
@@ -2231,11 +2241,6 @@ export default function EmailInboxBulkView({
     }
   }, [someInBatchSelected, allInBatchSelected])
 
-  const totalPages =
-    bulkBatchSize === 'all' ? 1 : Math.max(1, Math.ceil(total / bulkBatchSize))
-  const canPrev = bulkPage > 0
-  const canNext = bulkPage < totalPages - 1
-
   useEffect(() => {
     setBulkMode(true)
     return () => setBulkMode(false)
@@ -2275,14 +2280,10 @@ export default function EmailInboxBulkView({
     syncBulkBatchSizeFromSettings()
   }, [syncBulkBatchSizeFromSettings])
 
-  /** On mount and page 0: fetch all tabs for instant switching. On page change: fetch current page. */
+  /** Initial load + filter changes handled in store setFilter; mount: first page + tab counts. */
   useEffect(() => {
-    if (bulkPage === 0) {
-      fetchAllMessages()
-    } else {
-      fetchMessages()
-    }
-  }, [fetchAllMessages, fetchMessages, bulkPage])
+    void fetchAllMessages()
+  }, [fetchAllMessages])
 
   /** When user selects batch size “All”, select every ID for the active tab (DB drain), not just the rendered slice. */
   useEffect(() => {
@@ -4734,54 +4735,24 @@ export default function EmailInboxBulkView({
                   aria-busy="true"
                 />
               ) : null}
-              {totalPages > 1 && (
-                <div className="bulk-view-pagination-bar">
-                  <span style={{ fontSize: 11, color: MUTED }}>
-                    {total} message{total !== 1 ? 's' : ''}
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
-                      disabled={!canPrev}
-                      title="Previous page"
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: '#f1f5f9',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 6,
-                        color: canPrev ? '#334155' : MUTED,
-                        cursor: canPrev ? 'pointer' : 'not-allowed',
-                      }}
-                    >
-                      ‹ Prev
-                    </button>
-                    <span style={{ fontSize: 11, color: MUTED }}>
-                      Page {bulkPage + 1} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
-                      disabled={!canNext}
-                      title="Next page"
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: '#f1f5f9',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 6,
-                        color: canNext ? '#334155' : MUTED,
-                        cursor: canNext ? 'pointer' : 'not-allowed',
-                      }}
-                    >
-                      Next ›
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="bulk-view-pagination-bar">
+                <span style={{ fontSize: 11, color: MUTED }}>
+                  {total} message{total !== 1 ? 's' : ''} in this tab
+                </span>
+                {bulkHasMore || bulkLoadingMore ? (
+                  <button
+                    type="button"
+                    className="bulk-view-load-more-btn"
+                    onClick={() => void loadMoreBulkMessages()}
+                    disabled={bulkLoadingMore}
+                    title="Load next page from the server"
+                  >
+                    {bulkLoadingMore
+                      ? 'Loading…'
+                      : `Load more (${messages.length} of ${total})`}
+                  </button>
+                ) : null}
+              </div>
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
                   {aiSortProgress ? (

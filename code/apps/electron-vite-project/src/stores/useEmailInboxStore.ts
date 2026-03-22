@@ -92,13 +92,20 @@ export type SubFocus =
 // =============================================================================
 
 interface EmailInboxState {
-  /** Single source of truth: all messages from all filters. Bulk view derives display from this. */
+  /**
+   * Legacy union cache (multi-tab drain). In bulk mode we now paginate from the server and keep this empty.
+   * Kept for mutation helpers that still reference the field name.
+   */
   allMessages: InboxMessage[]
-  /** Tab counts for filter labels. Derived from allMessages. */
+  /** Per-tab totals from fast COUNT via `inbox:listMessages` (limit 1) — not derived from loaded rows. */
   tabCounts: Record<string, number>
   messages: InboxMessage[]
   total: number
   loading: boolean
+  /** Bulk inbox: more rows available for the active tab (offset pagination). */
+  bulkHasMore: boolean
+  /** Bulk inbox: fetching the next page for Load More. */
+  bulkLoadingMore: boolean
   /** Bulk-only: true during fetchAllMessages({ soft }) — keep grid mounted, show thin refresh strip. */
   bulkBackgroundRefresh: boolean
   error: string | null
@@ -143,8 +150,10 @@ interface EmailInboxState {
   clearBulkDraftManualComposeForIds: (ids: string[]) => void
 
   fetchMessages: () => Promise<void>
-  /** Load inbox rows for all WR Desk bulk tabs (all / urgent / pending_delete / pending_review / archived) with paginated drain — no row cap. */
+  /** Bulk: first page (50) + tab counts. Soft refresh keeps grid mounted. */
   fetchAllMessages: (options?: { soft?: boolean }) => Promise<void>
+  /** Bulk: append next page (50) for the active tab. */
+  loadMoreBulkMessages: () => Promise<void>
   /** All IDs matching the active filter (paginated drain). Same semantics as inbox tabs; ignores batch/page UI. */
   fetchMatchingIdsForCurrentFilter: () => Promise<string[]>
   /** Set multiSelectIds to every ID matching the current filter (for toolbar “select all” in batch mode “All”). */
@@ -230,6 +239,9 @@ export function activeEmailAccountIdsForSync(
  */
 const INBOX_LIST_PAGE_SIZE = 500
 
+/** Bulk inbox UI: rows per page (server LIMIT). */
+const BULK_UI_PAGE_SIZE = 50
+
 function listBridgeOptionsFromFilter(filter: InboxFilter): {
   filter: string
   sourceType?: string
@@ -299,21 +311,6 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
   })
 }
 
-/** Derive messages and total from allMessages + filter + pagination. */
-function deriveDisplayFromAll(
-  allMessages: InboxMessage[],
-  inboxFilter: InboxFilter,
-  bulkPage: number,
-  bulkBatchSize: number | 'all'
-): { messages: InboxMessage[]; total: number } {
-  const filtered = filterByInboxFilter(allMessages, inboxFilter)
-  const total = filtered.length
-  const limit = bulkBatchSize === 'all' ? filtered.length : bulkBatchSize
-  const offset = bulkBatchSize === 'all' ? 0 : bulkPage * limit
-  const messages = filtered.slice(offset, offset + limit)
-  return { messages, total }
-}
-
 /** Derive tab counts for bulk toolbar labels (same list scope as `inboxFilter`). */
 export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFilter): Record<string, number> {
   const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
@@ -330,17 +327,10 @@ export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFi
   return out
 }
 
-/** Bulk inbox: union of all tab scopes (paginated drain per tab). No React state updates. */
-async function loadBulkInboxSnapshot(get: () => EmailInboxState): Promise<{
-  allMessages: InboxMessage[]
-  tabCounts: Record<string, number>
-  messages: InboxMessage[]
-  total: number
-  bulkAiOutputs: AiOutputs
-  analysisCache: Record<string, NormalInboxAiResult>
-} | null> {
+/** Fast per-tab totals: one `listMessages` call per tab with limit 1 (uses SQL COUNT). */
+async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<Record<string, number>> {
   const bridge = getBridge()
-  if (!bridge?.listMessages) return null
+  if (!bridge?.listMessages) return {}
   const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
     'all',
     'urgent',
@@ -348,29 +338,51 @@ async function loadBulkInboxSnapshot(get: () => EmailInboxState): Promise<{
     'pending_review',
     'archived',
   ]
+  const out: Record<string, number> = {}
   try {
-    const snapshot = get().filter
-    const byId = new Map<string, InboxMessage>()
     for (const f of filters) {
-      const listOpts = listBridgeOptionsFromFilter({ ...snapshot, filter: f })
-      let offset = 0
-      for (;;) {
-        const res = await bridge.listMessages({
-          ...listOpts,
-          limit: INBOX_LIST_PAGE_SIZE,
-          offset,
-        })
-        if (!res?.ok || !res?.data) break
-        const list = (res.data.messages ?? []) as InboxMessage[]
-        for (const m of list) byId.set(m.id, m)
-        if (list.length < INBOX_LIST_PAGE_SIZE) break
-        offset += INBOX_LIST_PAGE_SIZE
+      const res = await bridge.listMessages({
+        ...listBridgeOptionsFromFilter({ ...baseFilter, filter: f }),
+        limit: 1,
+        offset: 0,
+      })
+      if (!res?.ok || !res?.data) {
+        out[f] = 0
+        continue
       }
+      out[f] = typeof res.data.total === 'number' ? res.data.total : 0
     }
-    const allMessages = Array.from(byId.values())
-    const { filter, bulkPage, bulkBatchSize } = get()
-    const { messages, total } = deriveDisplayFromAll(allMessages, filter, bulkPage, bulkBatchSize)
-    const currentIds = new Set(allMessages.map((m) => m.id))
+  } catch {
+    return out
+  }
+  return out
+}
+
+/** Bulk inbox: first page only + tab counts (no full-tab drain). */
+async function loadBulkInboxSnapshotPaginated(get: () => EmailInboxState): Promise<{
+  allMessages: InboxMessage[]
+  tabCounts: Record<string, number>
+  messages: InboxMessage[]
+  total: number
+  bulkAiOutputs: AiOutputs
+  analysisCache: Record<string, NormalInboxAiResult>
+  bulkHasMore: boolean
+} | null> {
+  const bridge = getBridge()
+  if (!bridge?.listMessages) return null
+  try {
+    const filter = get().filter
+    const tabCounts = await fetchBulkTabCountsServer(filter)
+    const res = await bridge.listMessages({
+      ...listBridgeOptionsFromFilter(filter),
+      limit: BULK_UI_PAGE_SIZE,
+      offset: 0,
+    })
+    if (!res?.ok || !res?.data) return null
+    const list = (res.data.messages ?? []) as InboxMessage[]
+    const total = typeof res.data.total === 'number' ? res.data.total : list.length
+    const bulkHasMore = list.length < total
+    const currentIds = new Set(list.map((m) => m.id))
     const state = get()
     const nextBulk: AiOutputs = {}
     for (const [id, entry] of Object.entries(state.bulkAiOutputs)) {
@@ -380,19 +392,20 @@ async function loadBulkInboxSnapshot(get: () => EmailInboxState): Promise<{
       Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id)),
     )
     return {
-      allMessages,
-      tabCounts: deriveTabCounts(allMessages, filter),
-      messages,
+      allMessages: [],
+      tabCounts,
+      messages: list,
       total,
       bulkAiOutputs: nextBulk,
       analysisCache,
+      bulkHasMore,
     }
   } catch {
     return null
   }
 }
 
-/** Standard / bulk paged list: single listMessages call. No React state updates. */
+/** Non-bulk inbox: first page only (50 rows). Bulk mode uses {@link loadBulkInboxSnapshotPaginated}. */
 async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
   messages: InboxMessage[]
   total: number
@@ -401,19 +414,13 @@ async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
   const bridge = getBridge()
   if (!bridge?.listMessages) return null
   try {
-    const { filter, bulkMode, bulkPage, bulkBatchSize } = get()
-    if (bulkMode && bulkBatchSize === 'all') return null
-    const options: Parameters<typeof bridge.listMessages>[0] = {
+    if (get().bulkMode) return null
+    const { filter } = get()
+    const res = await bridge.listMessages({
       ...listBridgeOptionsFromFilter(filter),
-    }
-    if (bulkMode) {
-      options.limit = bulkBatchSize as number
-      options.offset = bulkPage * (bulkBatchSize as number)
-    } else {
-      options.limit = 50
-      options.offset = 0
-    }
-    const res = await bridge.listMessages(options)
+      limit: BULK_UI_PAGE_SIZE,
+      offset: 0,
+    })
     if (!res.ok || !res.data) return null
     const newMessages = (res.data.messages ?? []) as InboxMessage[]
     const currentIds = new Set(newMessages.map((m) => m.id))
@@ -441,6 +448,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   messages: [],
   total: 0,
   loading: false,
+  bulkHasMore: false,
+  bulkLoadingMore: false,
   bulkBackgroundRefresh: false,
   error: null,
   selectedMessageId: null,
@@ -545,13 +554,12 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       set({ error: 'Email inbox bridge not available' })
       return
     }
+    if (get().bulkMode) {
+      await get().fetchAllMessages()
+      return
+    }
     set({ loading: true, error: null })
     try {
-      const { bulkMode, bulkBatchSize } = get()
-      if (bulkMode && bulkBatchSize === 'all') {
-        await get().fetchAllMessages({ soft: true })
-        return
-      }
       const snapshot = await loadPagedListSnapshot(get)
       if (snapshot) {
         set({
@@ -576,6 +584,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   fetchAllMessages: async (options?: { soft?: boolean }) => {
+    if (!get().bulkMode) return
     const soft = options?.soft === true
     const bridge = getBridge()
     if (!bridge?.listMessages) {
@@ -585,21 +594,24 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     if (soft) {
       set({ bulkBackgroundRefresh: true, error: null })
     } else {
-      set({ loading: true, error: null })
+      set({ loading: true, error: null, bulkLoadingMore: false })
     }
     try {
-      const snapshot = await loadBulkInboxSnapshot(get)
+      const snapshot = await loadBulkInboxSnapshotPaginated(get)
       if (snapshot) {
         set({
           ...snapshot,
+          bulkPage: 0,
           loading: false,
           bulkBackgroundRefresh: false,
+          bulkLoadingMore: false,
           error: null,
         })
       } else {
         set({
           loading: false,
           bulkBackgroundRefresh: false,
+          bulkLoadingMore: false,
           error: 'Failed to fetch messages',
         })
       }
@@ -607,8 +619,55 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       set({
         loading: false,
         bulkBackgroundRefresh: false,
+        bulkLoadingMore: false,
         error: err instanceof Error ? err.message : 'Failed to fetch messages',
       })
+    }
+  },
+
+  loadMoreBulkMessages: async () => {
+    const bridge = getBridge()
+    if (!bridge?.listMessages) return
+    const { bulkMode, filter, messages, bulkLoadingMore, total } = get()
+    if (!bulkMode || bulkLoadingMore) return
+    if (messages.length >= total) return
+    set({ bulkLoadingMore: true, error: null })
+    try {
+      const offset = messages.length
+      const res = await bridge.listMessages({
+        ...listBridgeOptionsFromFilter(filter),
+        limit: BULK_UI_PAGE_SIZE,
+        offset,
+      })
+      if (!res?.ok || !res?.data) {
+        set({ bulkLoadingMore: false })
+        return
+      }
+      const chunk = (res.data.messages ?? []) as InboxMessage[]
+      const serverTotal = typeof res.data.total === 'number' ? res.data.total : total
+      const seen = new Set(messages.map((m) => m.id))
+      const appended = chunk.filter((m) => !seen.has(m.id))
+      const nextMessages = [...messages, ...appended]
+      const nextIds = new Set(nextMessages.map((m) => m.id))
+      set((s) => {
+        const nextBulk: AiOutputs = { ...s.bulkAiOutputs }
+        for (const id of Object.keys(nextBulk)) {
+          if (!nextIds.has(id)) delete nextBulk[id]
+        }
+        const analysisCache = Object.fromEntries(
+          Object.entries(s.analysisCache).filter(([id]) => nextIds.has(id)),
+        )
+        return {
+          messages: nextMessages,
+          total: serverTotal,
+          bulkHasMore: nextMessages.length < serverTotal && chunk.length === BULK_UI_PAGE_SIZE,
+          bulkLoadingMore: false,
+          bulkAiOutputs: nextBulk,
+          analysisCache,
+        }
+      })
+    } catch {
+      set({ bulkLoadingMore: false })
     }
   },
 
@@ -669,18 +728,6 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         set((state) => {
           const idx = state.messages.findIndex((m) => m.id === id)
           if (idx < 0 || state.messages[idx].read_status === 1) return {}
-          if (state.bulkMode && state.allMessages.length > 0) {
-            const nextAll = state.allMessages.map((m) =>
-              m.id === id ? { ...m, read_status: 1 } : m
-            )
-            const { messages, total } = deriveDisplayFromAll(nextAll, state.filter, state.bulkPage, state.bulkBatchSize)
-            return {
-              allMessages: nextAll,
-              tabCounts: deriveTabCounts(nextAll, state.filter),
-              messages,
-              total,
-            }
-          }
           const next = [...state.messages]
           next[idx] = { ...next[idx], read_status: 1 }
           return { messages: next }
@@ -723,32 +770,17 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       (partial.handshakeId !== undefined && partial.handshakeId !== prev.handshakeId) ||
       (partial.category !== undefined && partial.category !== prev.category)
 
-    set((state) => {
-      if (state.bulkMode && state.allMessages.length > 0 && !listScopeChanged) {
-        const { messages, total } = deriveDisplayFromAll(
-          state.allMessages,
-          newFilter,
-          state.bulkPage,
-          state.bulkBatchSize
-        )
-        return {
-          filter: newFilter,
-          messages,
-          total,
-          tabCounts: deriveTabCounts(state.allMessages, newFilter),
-        }
-      }
-      return { filter: newFilter }
+    set({
+      filter: newFilter,
+      bulkPage: 0,
+      multiSelectIds: new Set(),
     })
-
-    const s = get()
-    if (!s.bulkMode) {
-      get().fetchMessages()
+    if (!get().bulkMode) {
+      void get().fetchMessages()
       return
     }
-    if (s.allMessages.length === 0 || listScopeChanged) {
-      void get().fetchAllMessages({ soft: true })
-    }
+    /** Tab / scope change: reset to first page (server-paginated). */
+    void get().fetchAllMessages({ soft: listScopeChanged || partial.filter !== undefined })
   },
 
   setBulkMode: (enabled) => {
@@ -760,15 +792,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   setBulkPage: (page) => {
-    const { bulkMode, allMessages, filter, bulkBatchSize } = get()
-    if (bulkMode && allMessages.length > 0) {
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter, page, bulkBatchSize)
-      set({ bulkPage: page, messages, total })
-    } else {
+    const { bulkMode } = get()
+    if (bulkMode) {
       set({ bulkPage: page })
-      if (page === 0) get().refreshMessages()
-      else get().fetchMessages()
+      return
     }
+    set({ bulkPage: page })
+    if (page === 0) void get().refreshMessages()
+    else void get().fetchMessages()
   },
 
   setBulkBatchSize: (size) => {
@@ -782,19 +813,19 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     } catch {
       /* ignore */
     }
-    const { bulkMode, allMessages, filter } = get()
+    const { bulkMode } = get()
     if (bulkMode && size === 'all') {
       set({ bulkBatchSize: 'all', bulkPage: 0 })
       void get().fetchAllMessages()
       return
     }
-    if (bulkMode && allMessages.length > 0) {
-      const { messages, total } = deriveDisplayFromAll(allMessages, filter, 0, size)
-      set({ bulkBatchSize: size, bulkPage: 0, messages, total })
-    } else {
+    if (bulkMode) {
       set({ bulkBatchSize: size, bulkPage: 0 })
-      get().refreshMessages()
+      void get().fetchAllMessages()
+      return
     }
+    set({ bulkBatchSize: size, bulkPage: 0 })
+    get().refreshMessages()
   },
 
   setBulkCompactMode: (enabled) => {
@@ -837,20 +868,22 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         idSet.has(m.id)
           ? { ...m, pending_delete: 0, pending_delete_at: null, sort_category: null, sort_reason: null, ai_analysis_json: null }
           : m
-      const nextAll = state.allMessages.map(resetMsg)
-      const { messages, total } = state.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, state.filter, state.bulkPage, state.bulkBatchSize)
-        : { messages: state.messages.map(resetMsg), total: state.total }
+      const messages = state.messages.map(resetMsg)
+      if (state.bulkMode) {
+        void fetchBulkTabCountsServer(state.filter).then((tc) => {
+          const fk = state.filter.filter as keyof typeof tc
+          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+        })
+      }
       const nextSelected =
         state.selectedMessage && idSet.has(state.selectedMessage.id)
           ? resetMsg(state.selectedMessage)
           : state.selectedMessage
       return {
-        allMessages: nextAll,
-        tabCounts: state.bulkMode ? deriveTabCounts(nextAll, state.filter) : state.tabCounts,
+        allMessages: [],
         bulkAiOutputs: nextOutputs,
         messages,
-        total,
+        total: state.total,
         selectedMessage: nextSelected,
       }
     })
@@ -922,17 +955,17 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     /** Keep bulkAiOutputs through this tick so Auto-Sort can show classification before row leaves; refresh reconciles. */
     const idSet = new Set(ids)
     set((s) => {
-      const nextAll = s.allMessages.map((m) =>
-        idSet.has(m.id) ? { ...m, archived: 1 } : m
-      )
-      const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
-        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      const removedInView = s.messages.filter((m) => idSet.has(m.id)).length
+      if (s.bulkMode) {
+        void fetchBulkTabCountsServer(s.filter).then((tc) => {
+          const fk = s.filter.filter as keyof typeof tc
+          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+        })
+      }
       return {
-        allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
-        messages,
-        total,
+        allMessages: [],
+        messages: s.messages.filter((m) => !idSet.has(m.id)),
+        total: s.bulkMode ? Math.max(0, s.total - removedInView) : Math.max(0, s.total - ids.length),
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
         selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
@@ -952,19 +985,28 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       set((s) => {
         const updatedMsg = (m: InboxMessage) =>
           idSet.has(m.id) ? { ...m, deleted: 1, deleted_at: now, purge_after: null } : m
-        const nextAll = s.allMessages.map(updatedMsg)
-        const { messages, total } = s.bulkMode && nextAll.length > 0
-          ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
-          : { messages: s.messages.map(updatedMsg), total: s.total }
         const selectedWasDeleted = s.selectedMessage && ids.includes(s.selectedMessage.id)
+        if (s.bulkMode) {
+          const removedInView = s.messages.filter((m) => idSet.has(m.id)).length
+          void fetchBulkTabCountsServer(s.filter).then((tc) => {
+            const fk = s.filter.filter as keyof typeof tc
+            set({ tabCounts: tc, total: tc[fk] ?? 0 })
+          })
+          return {
+            allMessages: [],
+            messages: s.messages.filter((m) => !idSet.has(m.id)),
+            total: Math.max(0, s.total - removedInView),
+            multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+            selectedMessageId: s.selectedMessageId,
+            selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage!) : s.selectedMessage,
+          }
+        }
         return {
-          allMessages: nextAll,
-          tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
-          messages,
-          total,
+          messages: s.messages.map(updatedMsg),
+          total: s.total,
           multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
           selectedMessageId: s.selectedMessageId,
-          selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage) : s.selectedMessage,
+          selectedMessage: selectedWasDeleted ? updatedMsg(s.selectedMessage!) : s.selectedMessage,
         }
       })
     }
@@ -979,17 +1021,27 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const now = new Date().toISOString()
     const idSet = new Set(ids)
     set((s) => {
-      const nextAll = s.allMessages.map((m) =>
-        idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m
-      )
-      const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
-        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      if (s.bulkMode) {
+        void fetchBulkTabCountsServer(s.filter).then((tc) => {
+          const fk = s.filter.filter as keyof typeof tc
+          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+        })
+        const messages = s.messages
+          .map((m) => (idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m))
+          .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
+        const removedInView = s.messages.length - messages.length
+        return {
+          allMessages: [],
+          messages,
+          total: Math.max(0, s.total - removedInView),
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        }
+      }
       return {
-        allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
-        messages,
-        total,
+        messages: s.messages.filter((m) => !idSet.has(m.id)),
+        total: Math.max(0, s.total - ids.length),
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
         selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
@@ -1006,17 +1058,27 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     /** Keep per-row bulk output for live Auto-Sort feedback until refresh. */
     const idSet = new Set(ids)
     set((s) => {
-      const nextAll = s.allMessages.map((m) =>
-        idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m
-      )
-      const { messages, total } = s.bulkMode && nextAll.length > 0
-        ? deriveDisplayFromAll(nextAll, s.filter, s.bulkPage, s.bulkBatchSize)
-        : { messages: s.messages.filter((m) => !idSet.has(m.id)), total: Math.max(0, s.total - ids.length) }
+      if (s.bulkMode) {
+        void fetchBulkTabCountsServer(s.filter).then((tc) => {
+          const fk = s.filter.filter as keyof typeof tc
+          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+        })
+        const messages = s.messages
+          .map((m) => (idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m))
+          .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
+        const removedInView = s.messages.length - messages.length
+        return {
+          allMessages: [],
+          messages,
+          total: Math.max(0, s.total - removedInView),
+          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+        }
+      }
       return {
-        allMessages: nextAll,
-        tabCounts: s.bulkMode ? deriveTabCounts(nextAll, s.filter) : s.tabCounts,
-        messages,
-        total,
+        messages: s.messages.filter((m) => !idSet.has(m.id)),
+        total: Math.max(0, s.total - ids.length),
         multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
         selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
         selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
@@ -1106,14 +1168,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
       const bulkMode = get().bulkMode
       if (bulkMode) {
-        const snapshot = await loadBulkInboxSnapshot(get)
+        const snapshot = await loadBulkInboxSnapshotPaginated(get)
         if (snapshot) {
           set({
             ...snapshot,
+            bulkPage: 0,
             syncing: false,
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: null,
             lastSyncWarnings: warnList,
           })
@@ -1123,6 +1187,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: 'Failed to refresh inbox after sync',
             lastSyncWarnings: warnList,
           })
@@ -1157,6 +1222,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         syncing: false,
         bulkBackgroundRefresh: false,
         loading: false,
+        bulkLoadingMore: false,
         error: err instanceof Error ? err.message : 'Sync failed',
         lastSyncWarnings: null,
       })
@@ -1207,14 +1273,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
 
       const bulkMode = get().bulkMode
       if (bulkMode) {
-        const snapshot = await loadBulkInboxSnapshot(get)
+        const snapshot = await loadBulkInboxSnapshotPaginated(get)
         if (snapshot) {
           set({
             ...snapshot,
+            bulkPage: 0,
             syncing: false,
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: null,
             lastSyncWarnings: warnList,
           })
@@ -1224,6 +1292,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: 'Failed to refresh inbox after Pull More',
             lastSyncWarnings: warnList,
           })
@@ -1258,6 +1327,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         syncing: false,
         bulkBackgroundRefresh: false,
         loading: false,
+        bulkLoadingMore: false,
         error: err instanceof Error ? err.message : 'Pull More failed',
         lastSyncWarnings: null,
       })
@@ -1353,14 +1423,16 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       }
 
       if (bulkMode) {
-        const snapshot = await loadBulkInboxSnapshot(get)
+        const snapshot = await loadBulkInboxSnapshotPaginated(get)
         if (snapshot) {
           set({
             ...snapshot,
+            bulkPage: 0,
             syncing: false,
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: null,
             lastSyncWarnings: warnList,
           })
@@ -1370,6 +1442,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
             lastSyncAt,
             bulkBackgroundRefresh: false,
             loading: false,
+            bulkLoadingMore: false,
             error: 'Failed to refresh inbox after sync',
             lastSyncWarnings: warnList,
           })
@@ -1404,6 +1477,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         syncing: false,
         bulkBackgroundRefresh: false,
         loading: false,
+        bulkLoadingMore: false,
         error: err instanceof Error ? err.message : 'Sync failed',
         lastSyncWarnings: null,
       })
