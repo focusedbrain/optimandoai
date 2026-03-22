@@ -1,13 +1,13 @@
 /**
  * InboxAttachmentRow — Attachment row for email message view.
- * PDFs: handshake-style Document Reader (HsContextDocumentReader) + extraction failure UI.
+ * PDFs: handshake-style Document Reader (modal) + extraction failure UI.
  * Non-PDF: metadata + Open original only (no text reader).
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import type { InboxAttachment } from '../stores/useEmailInboxStore'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
-import { HsContextDocumentReader } from './HsContextDocumentReader'
+import { InboxDocumentReaderModal } from './InboxDocumentReaderModal'
 import '../components/handshakeViewTypes'
 
 const MUTED = 'var(--color-text-muted, #94a3b8)'
@@ -53,38 +53,15 @@ export default function InboxAttachmentRow({
   onSelectAttachment,
 }: InboxAttachmentRowProps) {
   const [readerOpen, setReaderOpen] = useState(false)
-  /** Fetched full text for Document Reader; `undefined` = not loaded yet. */
-  const [readerText, setReaderText] = useState<string | undefined>(undefined)
-  const [readerLoading, setReaderLoading] = useState(false)
   const [showOriginalWarning, setShowOriginalWarning] = useState(false)
 
   const isSelected = selectedAttachmentId === attachment.id
   const icon = getFileIcon(attachment.content_type, attachment.filename)
   const typeLabel = getTypeLabel(attachment.content_type, attachment.filename)
   const isPdf = isPdfAttachment(attachment.content_type, attachment.filename)
-  const mimeForReader =
-    attachment.content_type?.trim() || (isPdf ? 'application/pdf' : 'application/octet-stream')
 
   const extractionFailed = attachment.text_extraction_status === 'failed'
   const extractionError = attachment.text_extraction_error?.trim() || null
-
-  // Load extracted text when PDF reader opens
-  useEffect(() => {
-    if (!readerOpen || !isPdf || !attachment.id || extractionFailed) return
-    setReaderLoading(true)
-    setReaderText(undefined)
-    window.emailInbox
-      ?.getAttachmentText(attachment.id)
-      .then((res) => {
-        if (res.ok && res.data) {
-          setReaderText(res.data.text ?? '')
-        } else {
-          setReaderText('')
-        }
-      })
-      .catch(() => setReaderText(''))
-      .finally(() => setReaderLoading(false))
-  }, [readerOpen, isPdf, attachment.id, extractionFailed])
 
   const handleOpenOriginalClick = useCallback(() => {
     setShowOriginalWarning(true)
@@ -102,6 +79,8 @@ export default function InboxAttachmentRow({
   const handleViewOriginalFromReader = useCallback(() => {
     setShowOriginalWarning(true)
   }, [])
+
+  const closeReader = useCallback(() => setReaderOpen(false), [])
 
   // ── Non-PDF: metadata + select + open original only ──
   if (!isPdf) {
@@ -182,6 +161,21 @@ export default function InboxAttachmentRow({
         onClose={handleOriginalCancel}
         onAcknowledge={handleOriginalAcknowledge}
       />
+      <InboxDocumentReaderModal
+        open={readerOpen && !extractionFailed}
+        onClose={closeReader}
+        attachment={
+          readerOpen && !extractionFailed
+            ? {
+                id: attachment.id,
+                filename: attachment.filename || 'document.pdf',
+                content_type: attachment.content_type,
+                text_extraction_status: attachment.text_extraction_status,
+              }
+            : null
+        }
+        onOpenOriginalWarning={handleViewOriginalFromReader}
+      />
       <div
         style={{
           padding: '12px',
@@ -218,7 +212,7 @@ export default function InboxAttachmentRow({
             {!extractionFailed && (
               <button
                 type="button"
-                onClick={() => setReaderOpen((o) => !o)}
+                onClick={() => setReaderOpen(true)}
                 style={{
                   fontSize: '10px',
                   padding: '4px 8px',
@@ -273,37 +267,6 @@ export default function InboxAttachmentRow({
                 {extractionError}
               </div>
             ) : null}
-          </div>
-        )}
-
-        {readerOpen && !extractionFailed && (
-          <div style={{ marginTop: 12 }}>
-            {readerLoading || readerText === undefined ? (
-              <div
-                style={{
-                  padding: 24,
-                  color: MUTED,
-                  fontSize: 13,
-                  background: 'var(--color-bg, #0f172a)',
-                  borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.08)',
-                }}
-              >
-                Extracting text…
-              </div>
-            ) : (
-              <HsContextDocumentReader
-                documentId={attachment.id}
-                filename={attachment.filename || 'document.pdf'}
-                mimeType={mimeForReader}
-                api={null}
-                fullText={readerText}
-                hideSyntheticPageBanner
-                canViewOriginal
-                onViewOriginal={handleViewOriginalFromReader}
-                onClose={() => setReaderOpen(false)}
-              />
-            )}
           </div>
         )}
       </div>

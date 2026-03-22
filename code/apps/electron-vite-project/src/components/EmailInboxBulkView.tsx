@@ -36,6 +36,7 @@ import { tryParseAnalysis, tryParsePartialAnalysis } from '../utils/parseInboxAi
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
+import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
@@ -4972,22 +4973,14 @@ export default function EmailInboxBulkView({
                           <div className="msg-sender" style={{ minWidth: 0 }}>
                             <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
                               {msg.from_name || msg.from_address || '—'}
+                              {msg.from_address &&
+                                msg.from_name &&
+                                msg.from_name.trim() !== msg.from_address.trim() && (
+                                  <span style={{ color: '#888', marginLeft: 6, fontSize: '0.9em' }}>
+                                    {msg.from_address}
+                                  </span>
+                                )}
                             </span>
-                            {msg.from_address &&
-                              msg.from_name &&
-                              msg.from_name.trim() !== msg.from_address.trim() && (
-                                <span
-                                  className="msg-sender-email"
-                                  style={{
-                                    display: 'block',
-                                    fontSize: '0.8em',
-                                    color: '#888',
-                                    marginTop: 1,
-                                  }}
-                                >
-                                  {msg.from_address}
-                                </span>
-                              )}
                           </div>
                           {editingDraftForMessageId === msg.id && (
                             <span
@@ -5151,7 +5144,17 @@ export default function EmailInboxBulkView({
                         </span>
                       )}
                     </div>
-                    {renderActionCard(msg, output, isCardExpanded)}
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      {renderActionCard(msg, output, isCardExpanded)}
+                    </div>
+                    {hasAttachments ? (
+                      <BulkInboxAttachmentsStrip
+                        msg={msg}
+                        selectedAttachmentId={selectedAttachmentId ?? null}
+                        selectAttachment={selectAttachment}
+                        onSelectAttachment={onSelectAttachment}
+                      />
+                    ) : null}
                   </div>
                   {/* Full-row expand toggle — CSS gives this grid-column: 1/-1 so it spans both panes */}
                   <div

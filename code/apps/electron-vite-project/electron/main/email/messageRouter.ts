@@ -322,7 +322,7 @@ export async function detectAndRouteMessage(
   `)
   const updatePdfExtracted = db.prepare(`
     UPDATE inbox_attachments
-    SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?, extracted_text_sha256 = ?
+    SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?, extracted_text_sha256 = ?, page_count = ?
     WHERE id = ?
   `)
   const updatePdfFailed = db.prepare(`
@@ -404,7 +404,8 @@ export async function detectAndRouteMessage(
           : (result?.error ??
               (result?.warnings?.length ? result.warnings.join('; ') : null) ??
               'No text extracted')
-        updatePdfExtracted.run(text, status, errMsg, textHash, attId)
+        const pc = typeof result?.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
+        updatePdfExtracted.run(text, status, errMsg, textHash, pc, attId)
         extractedText = text
         extractionStatus = status
         extractionError = errMsg

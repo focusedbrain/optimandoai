@@ -839,6 +839,11 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_attachments ADD COLUMN storage_encrypted INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 46,
+    description: 'Schema v46: inbox_attachments.page_count for PDF page count (pdfjs extraction)',
+    sql: [`ALTER TABLE inbox_attachments ADD COLUMN page_count INTEGER DEFAULT NULL`],
+  },
 ]
 
 /**
@@ -921,6 +926,7 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_attachments', column: 'storage_encrypted', ddl: 'INTEGER NOT NULL DEFAULT 0' },
   { table: 'inbox_attachments', column: 'raster_path', ddl: 'TEXT' },
   { table: 'inbox_attachments', column: 'embedding_status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'inbox_attachments', column: 'page_count', ddl: 'INTEGER DEFAULT NULL' },
   { table: 'inbox_attachments', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
   // ── email_sync_state (syncOrchestrator, ipc) ──
   { table: 'email_sync_state', column: 'last_sync_at', ddl: 'TEXT' },

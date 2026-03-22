@@ -194,7 +194,15 @@ export interface EmailInboxBridge {
   getAttachment: (id: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   getAttachmentText: (id: string) => Promise<{
     ok: boolean
-    data?: { text: string; status: string; error?: string | null; content_sha256?: string | null; extracted_text_sha256?: string | null }
+    data?: {
+      text: string
+      /** Per-page text when available (pdfjs extraction or split from stored text). */
+      pages?: string[]
+      status: string
+      error?: string | null
+      content_sha256?: string | null
+      extracted_text_sha256?: string | null
+    }
     error?: string
   }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>

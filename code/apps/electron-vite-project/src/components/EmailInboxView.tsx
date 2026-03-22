@@ -770,25 +770,12 @@ function InboxMessageRow({
               }}
             >
               {message.from_name || message.from_address || '—'}
+              {message.from_address &&
+                message.from_name &&
+                message.from_name.trim() !== message.from_address.trim() && (
+                  <span style={{ color: '#888', marginLeft: 6, fontSize: '0.9em' }}>{message.from_address}</span>
+                )}
             </span>
-            {message.from_address &&
-              message.from_name &&
-              message.from_name.trim() !== message.from_address.trim() && (
-                <span
-                  className="msg-sender-email"
-                  style={{
-                    display: 'block',
-                    fontSize: '0.8em',
-                    color: '#94a3b8',
-                    marginTop: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {message.from_address}
-                </span>
-              )}
           </div>
           <span
             style={{

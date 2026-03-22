@@ -185,6 +185,15 @@ import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../s
 import { extractPdfText, isPdfFile } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 
+/** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
+function inboxPagesFromStoredExtractedText(text: string): string[] {
+  const t = typeof text === 'string' ? text : ''
+  const trimmed = t.trim()
+  if (!trimmed) return []
+  const parts = t.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
+  return parts.length > 0 ? parts : [trimmed]
+}
+
 // ── Inbox: active auto-sync loops ──
 
 const INBOX_LLM_TIMEOUT_MS = 45_000
@@ -2365,6 +2374,7 @@ export function registerInboxHandlers(
           ok: true,
           data: {
             text: row.extracted_text,
+            pages: inboxPagesFromStoredExtractedText(row.extracted_text),
             status: 'done',
             error: null,
             content_sha256: row.content_sha256 ?? null,
@@ -2377,6 +2387,7 @@ export function registerInboxHandlers(
           ok: true,
           data: {
             text: '',
+            pages: [],
             status: 'done',
             error: null,
             content_sha256: row.content_sha256 ?? null,
@@ -2389,6 +2400,7 @@ export function registerInboxHandlers(
           ok: true,
           data: {
             text: '',
+            pages: [],
             status: row.text_extraction_status,
             error: row.text_extraction_error ?? null,
             content_sha256: row.content_sha256 ?? null,
@@ -2416,11 +2428,13 @@ export function registerInboxHandlers(
         const contentSha256 = createHash('sha256').update(buf).digest('hex')
         const extractedTextSha256 = createHash('sha256').update(text, 'utf8').digest('hex')
 
+        const pageCount =
+          typeof result?.pageCount === 'number' && result.pageCount > 0 ? result.pageCount : null
         db.prepare(
           `UPDATE inbox_attachments SET extracted_text = ?, text_extraction_status = ?, text_extraction_error = ?,
-           content_sha256 = ?, extracted_text_sha256 = ?
+           content_sha256 = ?, extracted_text_sha256 = ?, page_count = ?
            WHERE id = ?`,
-        ).run(text, status, errMsg, contentSha256, extractedTextSha256, attachmentId)
+        ).run(text, status, errMsg, contentSha256, extractedTextSha256, pageCount, attachmentId)
 
         // Merge extracted text + status + hashes into depackaged_json (same shape as ingest-time depackaging)
         const messageId = row.message_id
@@ -2465,9 +2479,20 @@ export function registerInboxHandlers(
           }
         }
 
+        const pagesOut =
+          Array.isArray(result?.pages) && result.pages.length > 0
+            ? result.pages
+            : inboxPagesFromStoredExtractedText(text)
         return {
           ok: true,
-          data: { text, status, error: errMsg, content_sha256: contentSha256, extracted_text_sha256: extractedTextSha256 },
+          data: {
+            text,
+            pages: pagesOut,
+            status,
+            error: errMsg,
+            content_sha256: contentSha256,
+            extracted_text_sha256: extractedTextSha256,
+          },
         }
       }
       db.prepare('UPDATE inbox_attachments SET text_extraction_status = ? WHERE id = ?').run('skipped', attachmentId)
@@ -2475,6 +2500,7 @@ export function registerInboxHandlers(
         ok: true,
         data: {
           text: '',
+          pages: [],
           status: 'skipped',
           error: null,
           content_sha256: row.content_sha256 ?? null,

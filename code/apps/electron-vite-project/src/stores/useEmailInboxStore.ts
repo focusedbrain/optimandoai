@@ -166,6 +166,8 @@ interface EmailInboxState {
   refreshMessages: () => Promise<void>
   selectMessage: (id: string | null) => Promise<void>
   selectAttachment: (messageId: string, attachmentId: string | null) => void
+  /** Merge attachment rows into a list message (e.g. after lazy `getMessage` when list omitted `attachments`). */
+  mergeMessageAttachments: (messageId: string, attachments: InboxAttachment[]) => void
   toggleMultiSelect: (id: string) => void
   clearMultiSelect: () => void
   setFilter: (partial: Partial<InboxFilter>) => void
@@ -751,6 +753,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       return
     }
     set({ selectedAttachmentId: attachmentId, subFocus: { kind: 'attachment', messageId, attachmentId } })
+  },
+
+  mergeMessageAttachments: (messageId, attachments) => {
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === messageId ? { ...m, attachments } : m)),
+      selectedMessage:
+        s.selectedMessage?.id === messageId ? { ...s.selectedMessage, attachments } : s.selectedMessage,
+    }))
   },
 
   toggleMultiSelect: (id) => {
