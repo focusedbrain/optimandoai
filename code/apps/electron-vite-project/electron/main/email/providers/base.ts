@@ -49,6 +49,9 @@ export interface RawEmailMessage {
     inReplyTo?: string
     references?: string[]
   }
+  /** When set by the provider, used by gateway sanitization + sync attachment gate. */
+  hasAttachments?: boolean
+  attachmentCount?: number
 }
 
 /**

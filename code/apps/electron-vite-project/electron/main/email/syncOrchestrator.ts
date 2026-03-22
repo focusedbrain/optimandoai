@@ -411,8 +411,12 @@ async function syncAccountEmailsImpl(
           }
 
           const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
-          if (detail.hasAttachments && detail.attachmentCount) {
+          // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.
+          try {
             const attList = await emailGateway.listAttachments(accountId, msg.id)
+            console.log(
+              `[SyncOrchestrator] Attachments for ${msg.id}: ${attList.length} listed (detail flags hasAttachments=${detail.hasAttachments} count=${detail.attachmentCount})`,
+            )
             for (const att of attList) {
               let content: Buffer | undefined
               try {
@@ -430,6 +434,11 @@ async function syncAccountEmailsImpl(
                 content,
               })
             }
+          } catch (attListErr: any) {
+            console.warn(
+              `[SyncOrchestrator] listAttachments failed for ${msg.id}:`,
+              attListErr?.message ?? attListErr,
+            )
           }
 
           const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })

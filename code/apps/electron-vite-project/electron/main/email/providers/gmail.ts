@@ -818,7 +818,9 @@ export class GmailProvider extends BaseEmailProvider {
     }
     
     const labelIds = raw.labelIds || []
-    
+    const extractedAttMeta = this.extractAttachments(raw.payload)
+    const attN = extractedAttMeta.length
+
     return {
       id: raw.id,
       threadId: raw.threadId,
@@ -843,7 +845,9 @@ export class GmailProvider extends BaseEmailProvider {
         messageId: getHeader('Message-ID'),
         inReplyTo: getHeader('In-Reply-To'),
         references: getHeader('References')?.split(/\s+/).filter(Boolean)
-      }
+      },
+      hasAttachments: attN > 0,
+      attachmentCount: attN,
     }
   }
   

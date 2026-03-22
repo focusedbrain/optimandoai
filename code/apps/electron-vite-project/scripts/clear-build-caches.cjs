@@ -41,6 +41,7 @@ function clearBuildCaches() {
   const staleExtensionOutDirs = [
     'build1',
     'build1024',
+    'build2',
     'build24',
     'build74',
     'build74172',
@@ -53,6 +54,7 @@ function clearBuildCaches() {
     'build712',
     'build72',
     'build7972',
+    'build24977',
   ]
   for (const name of staleExtensionOutDirs) {
     if (keepExt && name === keepExt) {

@@ -340,6 +340,9 @@ export class ZohoProvider extends BaseEmailProvider {
       (typeof content?.html === 'string' && content.html) ||
       undefined
 
+    const attRaw = content?.attachments || content?.attachmentDetails || content?.attachmentInfo
+    const attN = Array.isArray(attRaw) ? attRaw.length : 0
+
     return {
       id,
       threadId: content?.threadId ? String(content.threadId) : undefined,
@@ -366,6 +369,8 @@ export class ZohoProvider extends BaseEmailProvider {
       headers: {
         messageId: content?.messageIdHeader ? String(content.messageIdHeader) : undefined,
       },
+      hasAttachments: attN > 0,
+      attachmentCount: attN,
     }
   }
 

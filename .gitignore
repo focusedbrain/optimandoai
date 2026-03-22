@@ -37,3 +37,6 @@ Thumbs.db
 # Ingestion-core compiled output
 code/packages/ingestion-core/src/*.d.ts
 code/packages/ingestion-core/src/*.js
+
+# Chromium extension Vite outDir (versioned per release, e.g. build55647)
+code/apps/extension-chromium/build*/

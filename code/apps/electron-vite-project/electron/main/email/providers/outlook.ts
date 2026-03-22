@@ -1087,9 +1087,12 @@ export class OutlookProvider extends BaseEmailProvider {
       }
     }
     
+    const graphHasAtt = Boolean(raw.hasAttachments)
     return {
       id: raw.id,
       threadId: raw.conversationId,
+      hasAttachments: graphHasAtt,
+      attachmentCount: graphHasAtt ? 1 : 0,
       subject: raw.subject || '',
       from: {
         email: from.address || '',

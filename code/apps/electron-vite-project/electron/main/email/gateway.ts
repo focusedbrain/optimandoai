@@ -1396,8 +1396,10 @@ class EmailGateway implements IEmailGateway {
         deleted: raw.flags.deleted,
         labels: raw.labels
       },
-      hasAttachments: false, // Will be updated when we have attachment info
-      attachmentCount: 0,
+      hasAttachments: Boolean(
+        raw.hasAttachments ?? ((raw.attachmentCount ?? 0) > 0),
+      ),
+      attachmentCount: Math.max(0, raw.attachmentCount ?? 0),
       folder: raw.folder
     }
   }

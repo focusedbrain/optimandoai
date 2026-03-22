@@ -4969,14 +4969,26 @@ export default function EmailInboxBulkView({
                           }}
                         >
                           <RemoteSyncStatusDot msg={msg} />
-                          <span
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {msg.from_name || msg.from_address || '—'}
-                          </span>
+                          <div className="msg-sender" style={{ minWidth: 0 }}>
+                            <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
+                              {msg.from_name || msg.from_address || '—'}
+                            </span>
+                            {msg.from_address &&
+                              msg.from_name &&
+                              msg.from_name.trim() !== msg.from_address.trim() && (
+                                <span
+                                  className="msg-sender-email"
+                                  style={{
+                                    display: 'block',
+                                    fontSize: '0.8em',
+                                    color: '#888',
+                                    marginTop: 1,
+                                  }}
+                                >
+                                  {msg.from_address}
+                                </span>
+                              )}
+                          </div>
                           {editingDraftForMessageId === msg.id && (
                             <span
                               role="button"

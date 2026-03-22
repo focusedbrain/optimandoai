@@ -755,19 +755,41 @@ function InboxMessageRow({
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: message.read_status === 0 ? 700 : 500,
-              color: 'var(--color-text, #e2e8f0)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {message.from_name || message.from_address || '—'}
-          </span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+          <div className="msg-sender" style={{ minWidth: 0, flex: 1 }}>
+            <span
+              className="msg-sender-name"
+              style={{
+                fontSize: 12,
+                fontWeight: message.read_status === 0 ? 700 : 500,
+                color: 'var(--color-text, #e2e8f0)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+            >
+              {message.from_name || message.from_address || '—'}
+            </span>
+            {message.from_address &&
+              message.from_name &&
+              message.from_name.trim() !== message.from_address.trim() && (
+                <span
+                  className="msg-sender-email"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.8em',
+                    color: '#94a3b8',
+                    marginTop: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {message.from_address}
+                </span>
+              )}
+          </div>
           <span
             style={{
               flexShrink: 0,
