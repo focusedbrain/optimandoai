@@ -199,48 +199,36 @@ export default function EmailInboxToolbar({
           />
         </div>
 
-        {/* Manual pull button */}
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          style={{
-            padding: '6px 12px',
-            fontSize: 11,
-            fontWeight: 600,
-            borderRadius: 6,
-            border: '1px solid var(--purple-accent, #9333ea)',
-            background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-            color: 'var(--purple-accent, #9333ea)',
-            cursor: syncing ? 'not-allowed' : 'pointer',
-            opacity: syncing ? 0.7 : 1,
-          }}
-        >
-          {syncing ? '↻ Syncing…' : '↻ Pull'}
-        </button>
-      </div>
-
-      {primaryAccountId && onSyncWindowChange && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: 10,
-            color: 'var(--color-text-muted, #94a3b8)',
-          }}
-        >
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ whiteSpace: 'nowrap' }}>Sync window</span>
+        {/* Pull + sync window (compact) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={onSync}
+            disabled={syncing}
+            style={{
+              padding: '6px 12px',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: '1px solid var(--purple-accent, #9333ea)',
+              background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
+              color: 'var(--purple-accent, #9333ea)',
+              cursor: syncing ? 'not-allowed' : 'pointer',
+              opacity: syncing ? 0.7 : 1,
+            }}
+          >
+            {syncing ? '↻ Syncing…' : '↻ Pull'}
+          </button>
+          {primaryAccountId && onSyncWindowChange && (
             <select
               value={accountSyncWindowDays}
               onChange={(e) => {
                 const v = parseInt(e.target.value, 10)
                 if (!Number.isNaN(v)) onSyncWindowChange(v)
               }}
+              aria-label="Sync time window"
               style={{
                 fontSize: 11,
-                padding: '4px 8px',
+                padding: '4px 6px',
                 borderRadius: 4,
                 border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
                 background: 'var(--color-surface, #1e293b)',
@@ -252,17 +240,9 @@ export default function EmailInboxToolbar({
               <option value={90}>Last 90 days</option>
               <option value={0}>All mail (warning)</option>
             </select>
-          </label>
-          <span style={{ lineHeight: 1.35, maxWidth: 420 }}>
-            After the first sync, only new mail syncs automatically. Expand the sync window above to include older mail.
-            {accountSyncWindowDays === 0 ? (
-              <span style={{ color: '#fbbf24', display: 'block', marginTop: 4 }}>
-                Large mailboxes may take a long time when syncing all mail.
-              </span>
-            ) : null}
-          </span>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Bulk actions (when selectedCount > 0) */}
       {selectedCount > 0 && (
