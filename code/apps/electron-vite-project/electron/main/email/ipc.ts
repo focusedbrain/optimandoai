@@ -1319,28 +1319,20 @@ export function registerInboxHandlers(
       `${i + 1}. [${m.sort_category}|urgency:${m.urgency_score}|reply:${m.needs_reply ? 'Y' : 'N'}] ${m.from_name || m.from_address}: ${m.subject}${m.sort_reason ? ' — ' + m.sort_reason : ''}`,
     ).join('\n')
 
-    const systemPrompt = `You are a concise email triage assistant. Analyze the AutoSort results and produce a JSON summary for a dashboard.
+    const systemPrompt = `You are a concise email triage assistant. Given the AutoSort results below, produce a brief JSON summary.
 
-RESPOND ONLY WITH VALID JSON. No markdown, no explanation, no fences.
+RESPOND ONLY WITH VALID JSON. No markdown, no explanation, no code fences.
 
 Schema:
 {
-  "headline": "<one sentence: what happened, e.g. '27 emails sorted — 3 need urgent attention'>",
-  "urgent_highlights": [
-    { "idx": <message number>, "from": "<sender>", "subject": "<subject>", "reason": "<why urgent, 1 sentence>", "action": "<recommended action, 1 sentence>" }
-  ],
-  "review_highlights": [
-    { "idx": <message number>, "from": "<sender>", "subject": "<subject>", "reason": "<why needs review, 1 sentence>", "action": "<recommended action, 1 sentence>" }
-  ],
-  "patterns_note": "<1-2 sentences: notable patterns>"
+  "headline": "<one sentence summary — MUST begin with the exact number of messages from the batch, e.g. '4 emails sorted — 1 has attachments needing review'>",
+  "patterns_note": "<1-2 sentences about notable patterns: recurring senders, bulk newsletters, time-sensitive items, attachment-heavy messages>"
 }
 
 Rules:
-- urgent_highlights: max 5, only urgency >= 7 or category = urgent
-- review_highlights: max 5, only pending_review or needs_reply = Y
-- If none qualify, return empty array
-- All text very concise — this is a quick-glance dashboard
-- headline must include total count and most important takeaway`
+- headline MUST start with the actual message count number provided in the batch
+- Keep all text very concise — this is a quick-glance dashboard summary
+- patterns_note should mention attachment patterns if any messages have attachments`
 
     const userPrompt = `AutoSort batch — ${messages.length} messages:\n\n${lines}`
 
@@ -1357,28 +1349,24 @@ Rules:
       const parsed = parseAiJson(rawStr)
       if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
 
-      const urgentList = Array.isArray(parsed.urgent_highlights) ? parsed.urgent_highlights : []
-      for (const h of urgentList) {
-        if (h && typeof h === 'object') {
-          const rec = h as Record<string, unknown>
-          const idx = typeof rec.idx === 'number' ? rec.idx : 0
-          const msg = messages[(idx || 0) - 1]
-          if (msg) rec.message_id = msg.id
-        }
+      const actualCount = messages.length
+      let headline =
+        typeof parsed.headline === 'string' && parsed.headline.trim()
+          ? parsed.headline.trim()
+          : `${actualCount} emails sorted`
+      headline = headline.replace(/^\d+/, String(actualCount))
+      if (!/^\d/.test(headline)) {
+        headline = `${actualCount} emails sorted — ${headline}`
       }
-      const reviewList = Array.isArray(parsed.review_highlights) ? parsed.review_highlights : []
-      for (const h of reviewList) {
-        if (h && typeof h === 'object') {
-          const rec = h as Record<string, unknown>
-          const idx = typeof rec.idx === 'number' ? rec.idx : 0
-          const msg = messages[(idx || 0) - 1]
-          if (msg) rec.message_id = msg.id
-        }
-      }
+      const patterns_note =
+        typeof parsed.patterns_note === 'string' && parsed.patterns_note.trim()
+          ? parsed.patterns_note.trim()
+          : ''
+      const summaryOut = { headline, patterns_note }
 
-      db.prepare('UPDATE autosort_sessions SET ai_summary_json = ? WHERE id = ?').run(JSON.stringify(parsed), sessionId)
+      db.prepare('UPDATE autosort_sessions SET ai_summary_json = ? WHERE id = ?').run(JSON.stringify(summaryOut), sessionId)
 
-      return parsed
+      return summaryOut
     } catch (err) {
       console.error('[AutoSort] Summary generation failed:', err)
       return null
@@ -3105,6 +3093,24 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       urgency = reco.urgency
       needsReply = reco.needsReply
       reason = reco.reason.slice(0, 500)
+
+      // ── Attachment guard: messages with attachments must be minimum pending_review ──
+      const hasAttachments =
+        row.has_attachments === 1 || (typeof row.attachment_count === 'number' && row.attachment_count > 0)
+      if (hasAttachments) {
+        const lowPriorityCategories = ['archive', 'pending_delete', 'spam', 'irrelevant', 'newsletter'] as const
+        if ((lowPriorityCategories as readonly string[]).includes(validCategory)) {
+          console.log(
+            `[AutoSort] Attachment guard: bumping "${validCategory}" → "pending_review" for message with attachments:`,
+            messageId,
+          )
+          validCategory = 'pending_review'
+          reason = ((reason || '') + ' [Bumped to review: has attachments]').slice(0, 500)
+          if (urgency < 5) {
+            urgency = 5
+          }
+        }
+      }
 
       const sortCategoryMap: Record<string, string> = {
         pending_delete: 'spam',

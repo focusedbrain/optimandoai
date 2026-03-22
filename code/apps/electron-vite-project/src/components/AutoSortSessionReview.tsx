@@ -1,5 +1,6 @@
 /**
- * Full-screen AutoSort session review with category/urgency charts and AI highlights.
+ * Full-screen AutoSort session review with category/urgency charts.
+ * Message lists come from DB rows; AI summary supplies headline and patterns_note only.
  */
 
 import { useEffect, useState, useMemo } from 'react'
@@ -67,6 +68,7 @@ type MessageRow = {
   id: string
   sort_category?: string | null
   urgency_score?: number | null
+  sort_reason?: string | null
   from_name?: string | null
   from_address?: string | null
   subject?: string | null
@@ -80,6 +82,7 @@ function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id:
   const subject = msg.subject || '(No subject)'
   const category = (msg.sort_category || 'unknown').replace(/_/g, ' ')
   const urgency = msg.urgency_score ?? 0
+  const reason = (msg.sort_reason || '').trim()
 
   return (
     <div
@@ -95,35 +98,32 @@ function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id:
       tabIndex={0}
     >
       <div className="session-msg-main">
-        <span className="session-msg-sender">{sender}</span>
-        <span className="session-msg-subject">{subject}</span>
+        <div className="session-msg-line1">
+          <span className="session-msg-sender">{sender}</span>
+          <span className="session-msg-subject">{subject}</span>
+        </div>
+        {reason ? <p className="session-msg-reason">{reason}</p> : null}
       </div>
       <div className="session-msg-meta">
         <span className={`session-msg-cat session-msg-cat--${msg.sort_category || 'unknown'}`}>{category}</span>
         {urgency >= 7 ? <span className="session-msg-urgency">⚡ {urgency}</span> : null}
       </div>
+      <button
+        type="button"
+        className="highlight-link session-msg-open"
+        onClick={(e) => {
+          e.stopPropagation()
+          onNavigate(msg.id)
+        }}
+      >
+        Open message
+      </button>
     </div>
   )
 }
 
 type AiSummaryParsed = {
   headline?: string
-  urgent_highlights?: Array<{
-    idx?: number
-    from?: string
-    subject?: string
-    reason?: string
-    action?: string
-    message_id?: string
-  }>
-  review_highlights?: Array<{
-    idx?: number
-    from?: string
-    subject?: string
-    reason?: string
-    action?: string
-    message_id?: string
-  }>
   patterns_note?: string
 }
 
@@ -296,9 +296,6 @@ export function AutoSortSessionReview({
     )
   }
 
-  const urgentHighlights = aiSummary?.urgent_highlights?.length ? aiSummary.urgent_highlights : []
-  const reviewHighlights = aiSummary?.review_highlights?.length ? aiSummary.review_highlights : []
-
   return (
     <div className="session-review-overlay" onClick={onClose} role="presentation">
       <div className="session-review-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -346,60 +343,6 @@ export function AutoSortSessionReview({
                 </div>
               ) : null}
             </div>
-
-            {urgentHighlights.length > 0 ? (
-              <section className="session-review-section session-review-section--urgent">
-                <h3 className="section-heading">Urgent — Action Required</h3>
-                <ul className="highlight-list">
-                  {urgentHighlights.map((h, i) => (
-                    <li key={`u-${i}`} className="highlight-card highlight-card--urgent">
-                      <div className="highlight-card-head">
-                        <strong>{h.from || 'Unknown'}</strong>
-                        <span className="highlight-subj">{h.subject || '(No subject)'}</span>
-                      </div>
-                      {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
-                      {h.action ? <p className="highlight-action">{h.action}</p> : null}
-                      {h.message_id ? (
-                        <button
-                          type="button"
-                          className="highlight-link"
-                          onClick={() => onNavigateToMessage(h.message_id!)}
-                        >
-                          Open message
-                        </button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            {reviewHighlights.length > 0 ? (
-              <section className="session-review-section session-review-section--review">
-                <h3 className="section-heading">Pending Review</h3>
-                <ul className="highlight-list">
-                  {reviewHighlights.map((h, i) => (
-                    <li key={`r-${i}`} className="highlight-card highlight-card--review">
-                      <div className="highlight-card-head">
-                        <strong>{h.from || 'Unknown'}</strong>
-                        <span className="highlight-subj">{h.subject || '(No subject)'}</span>
-                      </div>
-                      {h.reason ? <p className="highlight-reason">{h.reason}</p> : null}
-                      {h.action ? <p className="highlight-action">{h.action}</p> : null}
-                      {h.message_id ? (
-                        <button
-                          type="button"
-                          className="highlight-link"
-                          onClick={() => onNavigateToMessage(h.message_id!)}
-                        >
-                          Open message
-                        </button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
 
             {messageGroups.urgent.length > 0 ? (
               <section className="session-review-section">
