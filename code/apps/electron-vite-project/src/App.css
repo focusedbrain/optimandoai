@@ -2431,24 +2431,23 @@ body {
   border-bottom: 1px solid #e2e8f0;
 }
 
-.bulk-view-load-more-btn {
-  padding: 6px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid #c4b5fd;
-  background: rgba(124, 58, 237, 0.08);
-  color: #5b21b6;
-  cursor: pointer;
+/* Bulk inbox: infinite scroll sentinel (IntersectionObserver target) */
+.bulk-scroll-sentinel {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.bulk-view-load-more-btn:hover:not(:disabled) {
-  background: rgba(124, 58, 237, 0.14);
+.bulk-loading-inline {
+  color: #999;
+  font-size: 0.85em;
 }
 
-.bulk-view-load-more-btn:disabled {
-  opacity: 0.6;
-  cursor: wait;
+[data-ui-theme="dark"] .bulk-loading-inline,
+[data-ui-theme="pro"] .bulk-loading-inline {
+  color: #94a3b8;
 }
 
 .bulk-view-grid {

@@ -1,6 +1,6 @@
 /**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
- * Toolbar: Select all, bulk actions, pagination. Batch size “All” = entire current tab (drained fetch + id list), not one page.
+ * Toolbar: Select all, bulk actions, infinite scroll (next page). Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
  *
  * AI Auto-Sort: runs only on explicit toolbar / per-row actions (never from effects). Classify → immediate moves; no preview countdown.
@@ -1568,7 +1568,6 @@ export default function EmailInboxBulkView({
     bulkLoadingMore,
     fetchMessages,
     fetchAllMessages,
-    loadMoreBulkMessages,
     selectAllMatchingCurrentFilter,
     refreshMessages,
     setBulkMode,
@@ -1624,7 +1623,6 @@ export default function EmailInboxBulkView({
       bulkLoadingMore: s.bulkLoadingMore,
       fetchMessages: s.fetchMessages,
       fetchAllMessages: s.fetchAllMessages,
-      loadMoreBulkMessages: s.loadMoreBulkMessages,
       selectAllMatchingCurrentFilter: s.selectAllMatchingCurrentFilter,
       refreshMessages: s.refreshMessages,
       setBulkMode: s.setBulkMode,
@@ -2284,6 +2282,30 @@ export default function EmailInboxBulkView({
   useEffect(() => {
     void fetchAllMessages()
   }, [fetchAllMessages])
+
+  const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
+  const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
+
+  /** Infinite scroll: load next page when sentinel enters the list scroll area (IntersectionObserver; root = scroll container). */
+  useEffect(() => {
+    const root = bulkScrollContainerRef.current
+    const sentinel = bulkLoadSentinelRef.current
+    if (!root || !sentinel || !bulkHasMore) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (!entry?.isIntersecting) return
+        const s = useEmailInboxStore.getState()
+        if (!s.bulkMode || s.bulkLoadingMore || !s.bulkHasMore) return
+        if (s.messages.length >= s.total) return
+        void s.loadMoreBulkMessages()
+      },
+      { root, rootMargin: '0px 0px 120px 0px', threshold: 0.1 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [bulkHasMore, filter.filter, loading, messages.length])
 
   /** When user selects batch size “All”, select every ID for the active tab (DB drain), not just the rendered slice. */
   useEffect(() => {
@@ -4738,20 +4760,12 @@ export default function EmailInboxBulkView({
               <div className="bulk-view-pagination-bar">
                 <span style={{ fontSize: 11, color: MUTED }}>
                   {total} message{total !== 1 ? 's' : ''} in this tab
+                  {bulkHasMore ? (
+                    <span style={{ marginLeft: 8 }}>
+                      ({messages.length} loaded)
+                    </span>
+                  ) : null}
                 </span>
-                {bulkHasMore || bulkLoadingMore ? (
-                  <button
-                    type="button"
-                    className="bulk-view-load-more-btn"
-                    onClick={() => void loadMoreBulkMessages()}
-                    disabled={bulkLoadingMore}
-                    title="Load next page from the server"
-                  >
-                    {bulkLoadingMore
-                      ? 'Loading…'
-                      : `Load more (${messages.length} of ${total})`}
-                  </button>
-                ) : null}
               </div>
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
@@ -4808,7 +4822,7 @@ export default function EmailInboxBulkView({
                 </div>
               ) : null}
             </div>
-            <div className="bulk-view-grid-scroll">
+            <div className="bulk-view-grid-scroll" ref={bulkScrollContainerRef}>
           <div
             className={`bulk-view-grid ${isSortingActive ? 'bulk-view-grid--analyzing' : ''}`}
             title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, Space primary action"
@@ -5081,6 +5095,19 @@ export default function EmailInboxBulkView({
               )
             })}
           </div>
+            {bulkHasMore ? (
+              <div
+                ref={bulkLoadSentinelRef}
+                className="bulk-scroll-sentinel"
+                aria-hidden={!bulkLoadingMore}
+              >
+                {bulkLoadingMore ? (
+                  <span className="bulk-loading-inline" role="status">
+                    Loading…
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             </div>
           </div>
         )}
