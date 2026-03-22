@@ -64,6 +64,28 @@ export interface EmailAccount {
   lastError?: string
 }
 
+/** Status dot color + short label for the account row (IMAP auth / sync). */
+function accountConnectionBadge(account: EmailAccount): { dot: string; label: string } {
+  switch (account.status) {
+    case 'active':
+      return { dot: '#22c55e', label: 'Connected' }
+    case 'auth_error':
+      return {
+        dot: '#ef4444',
+        label: account.lastError?.trim() ? `Sign-in failed: ${account.lastError}` : 'Sign-in failed — update credentials',
+      }
+    case 'error':
+      return {
+        dot: '#eab308',
+        label: account.lastError?.trim() ? account.lastError : 'Connection error',
+      }
+    case 'disabled':
+      return { dot: '#64748b', label: 'Disabled' }
+    default:
+      return { dot: '#94a3b8', label: 'Unknown status' }
+  }
+}
+
 export interface EmailProvidersSectionProps {
   theme: 'default' | 'dark' | 'professional' | 'standard' | 'pro'
   // Shared email account state from sidepanel
