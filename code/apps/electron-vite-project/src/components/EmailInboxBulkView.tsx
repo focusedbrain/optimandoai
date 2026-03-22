@@ -3988,6 +3988,14 @@ export default function EmailInboxBulkView({
             </button>
             <button
               type="button"
+              className="bulk-view-wr-expert-btn"
+              onClick={() => setShowWrExpertModal(true)}
+              title="Edit AI inbox rules (WRExpert.md)"
+            >
+              WR Expert
+            </button>
+            <button
+              type="button"
               className="bulk-view-debug-icon-btn"
               onClick={openRemoteDebugPanel}
               title="Developer tools — remote queue & diagnostics"
@@ -4025,14 +4033,6 @@ export default function EmailInboxBulkView({
               <div style={{ fontSize: 10, fontWeight: 400, color: MUTED, marginTop: 2 }}>Queue diagnostics &amp; IMAP folder checks</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setShowWrExpertModal(true)}
-                title="Edit AI inbox rules (WRExpert.md)"
-                style={{ fontSize: 11, fontWeight: 600 }}
-              >
-                WR Expert
-              </button>
               <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
                 Refresh
               </button>
