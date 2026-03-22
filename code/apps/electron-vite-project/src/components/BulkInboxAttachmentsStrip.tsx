@@ -1,5 +1,5 @@
 /**
- * Compact bulk inbox — attachment list at bottom of LEFT column (message side), below body preview.
+ * Bulk inbox — attachment rows rendered inside `.bulk-view-message-attachments-footer` (anchored bottom bar of the left pane).
  */
 
 import { useEffect, useState, useCallback } from 'react'

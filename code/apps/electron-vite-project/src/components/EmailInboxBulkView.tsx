@@ -4943,39 +4943,35 @@ export default function EmailInboxBulkView({
                     }}
                     className={`bulk-view-message ${isMultiSelected ? 'bulk-view-message--multi' : ''} ${isFocused ? 'bulk-view-message--focused' : ''} ${editingDraftForMessageId === msg.id ? 'bulk-view-message--editing-draft' : ''}`}
                   >
-                    <div className="bulk-view-message-layout" style={{ display: 'flex', alignItems: 'stretch', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                      <input
-                        type="checkbox"
-                        checked={isMultiSelected}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleMultiSelect(msg.id)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ alignSelf: 'flex-start' }}
-                      />
-                      {isFocused && (
-                        <span
-                          style={{ flexShrink: 0, alignSelf: 'flex-start', fontSize: 14, color: 'var(--purple-accent, #7c3aed)', lineHeight: 1 }}
-                          title="Focused — chat/search scoped to this message"
-                          aria-hidden
-                        >
-                          👉
-                        </span>
-                      )}
-                      <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                        <div
-                          className="bulk-view-message-meta"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            marginBottom: 6,
-                            flexShrink: 0,
-                            width: '100%',
-                            minWidth: 0,
-                          }}
-                        >
+                    <div className="bulk-view-message-inner">
+                      <div className="bulk-view-message-header">
+                        <div className="bulk-view-message-meta">
+                          <div
+                            className="bulk-view-message-utilities"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              className="bulk-view-message-checkbox"
+                              checked={isMultiSelected}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                toggleMultiSelect(msg.id)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={isMultiSelected ? 'Deselect message' : 'Select message'}
+                            />
+                            {isFocused ? (
+                              <span
+                                className="bulk-view-message-focus-cue"
+                                title="Focused — chat/search scoped to this message"
+                                aria-hidden
+                              >
+                                👉
+                              </span>
+                            ) : null}
+                          </div>
                           <RemoteSyncStatusDot msg={msg} />
                           <div className="msg-sender" style={{ minWidth: 0 }}>
                             <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
@@ -5047,12 +5043,14 @@ export default function EmailInboxBulkView({
                         <div className="bulk-view-message-subject" style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, flexShrink: 0 }}>
                           {msg.subject || '(No subject)'}
                         </div>
-                        {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim() && (
+                        {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim() ? (
                           <div className="bulk-view-message-preview-line" style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().slice(0, 120)}
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().length > 120 ? '…' : ''}
                           </div>
-                        )}
+                        ) : null}
+                      </div>
+                      <div className="bulk-view-message-scroll">
                         <div
                           className="bulk-view-message-body"
                           style={{
@@ -5081,15 +5079,17 @@ export default function EmailInboxBulkView({
                             )
                           )}
                         </div>
-                        {hasAttachments ? (
+                      </div>
+                      {hasAttachments ? (
+                        <div className="bulk-view-message-attachments-footer">
                           <BulkInboxAttachmentsStrip
                             msg={msg}
                             selectedAttachmentId={selectedAttachmentId ?? null}
                             selectAttachment={selectAttachment}
                             onSelectAttachment={onSelectAttachment}
                           />
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
