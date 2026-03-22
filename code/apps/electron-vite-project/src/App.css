@@ -3142,6 +3142,13 @@ body {
 }
 
 .bulk-view-ai-inner {
+  /* Flex chain: fill AI column shell; min-height 0 lets analyzed content scroll instead of pushing the footer */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  align-self: stretch;
   background: #ffffff;
   border: 1px solid #d1d9e6;
   border-top: none;
@@ -3158,6 +3165,7 @@ body {
 /* Draft footer — same visual family as primary action row */
 .bulk-draft-actions-toolbar-wrap {
   box-sizing: border-box;
+  flex: 0 0 auto;
 }
 
 .bulk-draft-actions-toolbar {
@@ -3467,6 +3475,15 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
+/* Content stack (autosort + header + scrollable sections) — separate from footer button row so controls stay anchored */
+.bulk-action-card--structured .bulk-action-card-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .bulk-action-card--expanded {
   gap: 8px;
 }
@@ -3502,6 +3519,8 @@ body {
   min-height: 0;
   width: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   animation: bulk-action-card-reveal 0.18s ease-out;
 }
 .bulk-action-card--structured .bulk-action-card-sections--has-draft {
@@ -4389,7 +4408,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   margin-top: 0;
   /* Horizontal inset comes from .bulk-action-card padding — match left strip edge rhythm */
   padding: var(--bulk-footer-pad-y) 0;

@@ -877,6 +877,7 @@ function BulkActionCardStructured({
       className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
       style={{ borderLeftColor: effectiveBorderColor }}
     >
+      <div className="bulk-action-card-body">
       {output.autosortOutcome === 'retained' && output.autosortRetainExplanation ? (
         <div
           className="bulk-action-card-autosort-retained"
@@ -1423,6 +1424,7 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
+      </div>
       </div>
       {!(output.draftReply != null && output.draftReply !== '') && (
       <div className="bulk-action-card-buttons">
@@ -5141,10 +5143,7 @@ export default function EmailInboxBulkView({
                         </span>
                       )}
                     </div>
-                    <div
-                      className="bulk-view-ai-inner"
-                      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-                    >
+                    <div className="bulk-view-ai-inner">
                       {renderActionCard(msg, output, isCardExpanded)}
                     </div>
                   </div>
