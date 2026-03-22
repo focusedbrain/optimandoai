@@ -2018,6 +2018,48 @@ body {
   min-height: 22px;
 }
 
+/*
+ * Compact collapsed rows: one scrollable AI content stack above the footer.
+ * Scroll owner: .bulk-action-card-body (header + sections). Footer rows (.bulk-action-card-buttons,
+ * .bulk-draft-actions-toolbar-wrap) stay flex-shrink:0 siblings — not inside the scroll region.
+ * Sections use overflow:visible so nested max-height mini-scrollbars are not required.
+ */
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections--has-draft {
+  overflow: visible;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-main-summary-body {
+  max-height: none;
+  overflow: visible;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card:not(.bulk-action-card--structured) {
+  min-height: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--loading .bulk-action-card-state-content,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--failure .bulk-action-card-state-content,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--guidance .bulk-action-card-state-content,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--fallback .bulk-action-card-fallback-content {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .bulk-view-compact-hint {
   padding: 4px 10px;
   margin: 0 0 8px;
@@ -3578,10 +3620,10 @@ body {
   padding-bottom: 2px;
 }
 
-/* Compact + collapsed: stricter than generic .bulk-action-card-sections--has-draft > .row (36vh/280px)
-   so summary + recommended do not steal the draft footer strip */
+/* Compact + collapsed: unified scroll on .bulk-action-card-body — do not cap recommended row (avoids tiny nested scroll). */
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
-  max-height: min(11vh, 64px);
+  max-height: none;
+  overflow: visible;
   min-height: 0;
 }
 .bulk-view--compact .bulk-view-row--expanded .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
@@ -3635,9 +3677,8 @@ body {
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-sections--has-draft .bulk-action-card-main-summary {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(24vh, 88px);
-  overflow-x: hidden;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   margin-bottom: 4px;
 }
 
