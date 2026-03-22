@@ -7,6 +7,7 @@
 
 import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
+import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
 import BeapMessageImportZone from './BeapMessageImportZone'
@@ -888,7 +889,6 @@ export default function EmailInboxView({
     toggleAutoSync,
     loadSyncState,
     accountSyncWindowDays,
-    pullMoreAccount,
     patchAccountSyncPreferences,
   } = useEmailInboxStore()
 
@@ -1081,20 +1081,9 @@ export default function EmailInboxView({
   )
   const selectedCount = multiSelectIds.size
 
-  const handleSync = useCallback(() => {
-    const ids = activeEmailAccountIdsForSync(accounts)
-    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
-    if (toSync.length === 0) return
-    void syncAllAccounts(toSync)
-  }, [accounts, primaryAccountId, syncAllAccounts])
-
-  const handlePullMore = useCallback(() => {
-    if (primaryAccountId) void pullMoreAccount(primaryAccountId)
-  }, [primaryAccountId, pullMoreAccount])
-
   const handleSyncWindowChange = useCallback(
     async (days: number) => {
-      if (!primaryAccountId) return
+      if (!primaryAccountId || !window.emailInbox?.patchAccountSyncPreferences) return
       if (days === 0) {
         const ok = window.confirm('Syncing all messages may take a long time. Continue?')
         if (!ok) return
@@ -1104,48 +1093,77 @@ export default function EmailInboxView({
     [primaryAccountId, patchAccountSyncPreferences],
   )
 
-  const [remoteLifecycleSyncing, setRemoteLifecycleSyncing] = useState(false)
-  /** Show ☁ Sync Remote when there is no account list yet, or at least one OAuth provider. */
-  const remoteLifecycleSyncEnabled = useMemo(
-    () => providerAccounts.length === 0 || providerAccounts.some((a) => a.provider !== 'imap'),
-    [providerAccounts],
-  )
-  const handleRemoteLifecycleSyncAll = useCallback(() => {
-    console.log('[SYNC_REMOTE] Button clicked ipc=inbox:fullRemoteSyncAllAccounts')
+  const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
+
+  /** Same as Bulk Inbox: full remote reconcile after pull when any OAuth account exists. */
+  const enqueueFullRemoteSync = useCallback(async (): Promise<void> => {
     const fn = window.emailInbox?.fullRemoteSyncAllAccounts
     if (!fn) {
       console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      useEmailInboxStore.getState().addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
       return
     }
-    setRemoteLifecycleSyncing(true)
-    void fn()
-      .then((r) => {
-        if (r?.ok) {
-          console.log(
-            '[Inbox] Sync Remote enqueued:',
-            `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
-          )
-          useEmailInboxStore.getState().addRemoteSyncLog(
-            `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
-              (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
-                ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
-                : '') +
-              (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
-                ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
-                : '') +
-              ' — background drain until empty (see 🔧 Debug for pending)',
-          )
-        } else {
-          console.warn('[Inbox] Sync Remote:', r?.error)
-          useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
-        }
-      })
-      .catch((e) => {
-        console.warn('[Inbox] Sync Remote failed:', e)
-        useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
-      })
-      .finally(() => setRemoteLifecycleSyncing(false))
+    setRemoteSyncBusy(true)
+    try {
+      const r = await fn()
+      if (r?.ok) {
+        console.log(
+          '[Inbox] Sync Remote enqueued:',
+          `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+        )
+        useEmailInboxStore.getState().addRemoteSyncLog(
+          `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+            (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+              ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
+              : '') +
+            (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+              ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+              : '') +
+            ' — background drain until empty (see 🔧 Debug for pending)',
+        )
+      } else {
+        console.warn('[Inbox] Sync Remote:', r?.error)
+        useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Sync Remote failed:', e)
+      useEmailInboxStore.getState().addRemoteSyncLog(
+        `Sync Remote error: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    } finally {
+      setRemoteSyncBusy(false)
+    }
   }, [])
+
+  /** Matches Bulk Inbox toolbar: pull then enqueue remote when not IMAP-only. */
+  const handleUnifiedSync = useCallback(async () => {
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    await syncAllAccounts(toSync)
+    let shouldEnqueueRemote = true
+    if (typeof window.emailAccounts?.listAccounts === 'function') {
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res.data && res.data.length > 0) {
+          const allImap = res.data.every((a: { provider?: string }) => {
+            const p = a.provider
+            return p !== 'gmail' && p !== 'microsoft365' && p !== 'zoho'
+          })
+          if (allImap) shouldEnqueueRemote = false
+        }
+      } catch {
+        /* keep shouldEnqueueRemote true */
+      }
+    }
+    if (shouldEnqueueRemote) await enqueueFullRemoteSync()
+  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
+
+  /** True when every listed account is IMAP — unified Sync runs pull only (matches Bulk Inbox). */
+  const inboxToolbarPullOnly = useMemo(
+    () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
+    [providerAccounts],
+  )
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1404,20 +1422,12 @@ export default function EmailInboxView({
           accounts={accounts}
           autoSyncEnabled={autoSyncEnabled}
           syncing={syncing}
-          onSync={handleSync}
-          onPullMore={handlePullMore}
+          remoteSyncBusy={remoteSyncBusy}
+          onUnifiedSync={() => void handleUnifiedSync()}
           accountSyncWindowDays={accountSyncWindowDays}
-          onSyncWindowChange={
-            window.emailInbox?.patchAccountSyncPreferences ? handleSyncWindowChange : undefined
-          }
-          onRemoteLifecycleSync={
-            window.emailInbox?.fullRemoteSyncAllAccounts && remoteLifecycleSyncEnabled
-              ? handleRemoteLifecycleSyncAll
-              : undefined
-          }
-          remoteLifecycleSyncEnabled={remoteLifecycleSyncEnabled}
-          remoteLifecycleSyncing={remoteLifecycleSyncing}
+          onSyncWindowChange={handleSyncWindowChange}
           onToggleAutoSync={toggleAutoSync}
+          pullOnly={inboxToolbarPullOnly}
           bulkMode={bulkMode}
           onBulkModeChange={setBulkMode}
           selectedCount={selectedCount}
@@ -1558,24 +1568,20 @@ export default function EmailInboxView({
                   >
                     <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Sync window</span>
                     <select
-                      value={accountSyncWindowDays}
+                      className="bulk-view-toolbar-sync-select"
+                      aria-label="Initial sync window"
+                      value={emailInboxSyncWindowSelectValue(accountSyncWindowDays)}
                       onChange={(e) => {
                         const v = parseInt(e.target.value, 10)
                         if (!Number.isNaN(v)) void handleSyncWindowChange(v)
                       }}
-                      style={{
-                        fontSize: 12,
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        border: '1px solid rgba(15,23,42,0.15)',
-                        background: '#fff',
-                        color: '#0f172a',
-                      }}
+                      style={{ fontSize: 12, padding: '6px 10px' }}
+                      title="How far back the first inbox pull reaches (same as Bulk Inbox toolbar)"
                     >
-                      <option value={7}>Last 7 days</option>
-                      <option value={30}>Last 30 days</option>
-                      <option value={90}>Last 90 days</option>
-                      <option value={0}>All mail (warning)</option>
+                      <option value={7}>7d</option>
+                      <option value={30}>30d</option>
+                      <option value={90}>90d</option>
+                      <option value={365}>1y</option>
                     </select>
                   </label>
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>

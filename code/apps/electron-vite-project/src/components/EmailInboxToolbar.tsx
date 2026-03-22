@@ -1,10 +1,11 @@
 /**
- * EmailInboxToolbar — Filter tabs, source type, auto-sync, pull, sync window; bulk row actions when items selected.
+ * EmailInboxToolbar — Filter tabs, source type, sync controls (shared with Bulk Inbox), bulk row actions when items selected.
  */
 
 import React from 'react'
 import type { InboxFilter } from '../stores/useEmailInboxStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import EmailInboxSyncControls from './EmailInboxSyncControls'
 
 // ── Types ──
 
@@ -14,19 +15,15 @@ export interface EmailInboxToolbarProps {
   accounts: Array<{ id: string; email: string }>
   autoSyncEnabled: boolean
   syncing: boolean
-  onSync: () => void
-  /** Next 500 older messages (Smart Sync). */
-  onPullMore?: () => void
-  /** Current sync window in days (0 = all mail). */
+  remoteSyncBusy: boolean
+  /** Same behavior as Bulk Inbox: pull then optional remote reconcile. */
+  onUnifiedSync: () => void
+  /** Current sync window in days (0 = all mail in DB). */
   accountSyncWindowDays?: number
-  /** Persist sync window; parent should confirm when days === 0. */
-  onSyncWindowChange?: (days: number) => void
-  /** Optional: enqueue full remote reconcile for all accounts (background). Hidden when only IMAP accounts. */
-  onRemoteLifecycleSync?: () => void
-  remoteLifecycleSyncing?: boolean
-  /** When false, ☁ Sync Remote is not shown (e.g. all connected accounts are IMAP). Default true. */
-  remoteLifecycleSyncEnabled?: boolean
+  onSyncWindowChange: (days: number) => void | Promise<void>
   onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  /** When every account is IMAP, primary button shows Pull (matches Bulk). */
+  pullOnly: boolean
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
   selectedCount: number
@@ -58,50 +55,6 @@ const SOURCE_TABS = [
   { value: 'direct_beap' as const, label: 'Direct' },
 ]
 
-// ── Toggle switch ──
-
-function ToggleSwitch({
-  checked,
-  onChange,
-}: {
-  checked: boolean
-  onChange: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={onChange}
-      style={{
-        width: 36,
-        height: 20,
-        borderRadius: 10,
-        border: 'none',
-        background: checked ? 'var(--purple-accent, #9333ea)' : '#ccc',
-        cursor: 'pointer',
-        padding: 0,
-        position: 'relative',
-        transition: 'background 0.2s ease',
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: checked ? 18 : 2,
-          width: 16,
-          height: 16,
-          borderRadius: '50%',
-          background: '#fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-          transition: 'left 0.2s ease',
-        }}
-      />
-    </button>
-  )
-}
-
 // ── Main component ──
 
 export default function EmailInboxToolbar({
@@ -110,14 +63,12 @@ export default function EmailInboxToolbar({
   accounts,
   autoSyncEnabled,
   syncing,
-  onSync,
-  onPullMore: _onPullMore,
+  remoteSyncBusy,
+  onUnifiedSync,
   accountSyncWindowDays = 30,
   onSyncWindowChange,
-  onRemoteLifecycleSync,
-  remoteLifecycleSyncing = false,
-  remoteLifecycleSyncEnabled = true,
   onToggleAutoSync,
+  pullOnly,
   bulkMode: _bulkMode,
   onBulkModeChange: _onBulkModeChange,
   selectedCount,
@@ -165,7 +116,7 @@ export default function EmailInboxToolbar({
         })}
       </div>
 
-      {/* Source type filter row */}
+      {/* Source type filter row + sync (Bulk Inbox controls) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {SOURCE_TABS.map(({ value, label }) => {
           const active = filter.sourceType === value
@@ -191,81 +142,18 @@ export default function EmailInboxToolbar({
 
         <div style={{ flex: 1, minWidth: 8 }} />
 
-        {/* Auto-sync toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }}>
-            Auto-sync
-          </span>
-          <ToggleSwitch
-            checked={autoSyncEnabled}
-            onChange={() => primaryAccountId && onToggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+        <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+          <EmailInboxSyncControls
+            accountSyncWindowDays={accountSyncWindowDays}
+            onSyncWindowChange={onSyncWindowChange}
+            primaryAccountId={primaryAccountId}
+            autoSyncEnabled={autoSyncEnabled}
+            onToggleAutoSync={onToggleAutoSync}
+            onUnifiedSync={onUnifiedSync}
+            syncing={syncing}
+            remoteSyncBusy={remoteSyncBusy}
+            pullOnly={pullOnly}
           />
-        </div>
-
-        {/* Pull + sync window (compact) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button
-            onClick={onSync}
-            disabled={syncing}
-            style={{
-              padding: '6px 12px',
-              fontSize: 11,
-              fontWeight: 600,
-              borderRadius: 6,
-              border: '1px solid var(--purple-accent, #9333ea)',
-              background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-              color: 'var(--purple-accent, #9333ea)',
-              cursor: syncing ? 'not-allowed' : 'pointer',
-              opacity: syncing ? 0.7 : 1,
-            }}
-            title="Fetch new mail from the server (IMAP: pull only — no remote folder moves)"
-          >
-            {syncing ? '↻ Syncing…' : '↻ Pull'}
-          </button>
-          {remoteLifecycleSyncEnabled && onRemoteLifecycleSync && (
-            <button
-              type="button"
-              onClick={onRemoteLifecycleSync}
-              disabled={remoteLifecycleSyncing}
-              title="Reconcile remote folders for Gmail / Microsoft 365 / Zoho (not used for IMAP)"
-              style={{
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 6,
-                border: '1px solid rgba(59,130,246,0.45)',
-                background: 'rgba(59,130,246,0.12)',
-                color: '#93c5fd',
-                cursor: remoteLifecycleSyncing ? 'not-allowed' : 'pointer',
-                opacity: remoteLifecycleSyncing ? 0.7 : 1,
-              }}
-            >
-              {remoteLifecycleSyncing ? '☁ …' : '☁ Sync Remote'}
-            </button>
-          )}
-          {primaryAccountId && onSyncWindowChange && (
-            <select
-              value={accountSyncWindowDays}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10)
-                if (!Number.isNaN(v)) onSyncWindowChange(v)
-              }}
-              aria-label="Sync time window"
-              style={{
-                fontSize: 11,
-                padding: '4px 6px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
-                background: 'var(--color-surface, #1e293b)',
-                color: 'var(--color-text, #e2e8f0)',
-              }}
-            >
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={0}>All mail (warning)</option>
-            </select>
-          )}
         </div>
       </div>
 

@@ -20,6 +20,7 @@ import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSec
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { SyncFailureBanner } from './SyncFailureBanner'
+import EmailInboxSyncControls from './EmailInboxSyncControls'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -4044,45 +4045,17 @@ export default function EmailInboxBulkView({
           </div>
 
           <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
-            <select
-              className="bulk-view-toolbar-sync-select"
-              aria-label="Initial sync window"
-              value={accountSyncWindowDays === 0 ? 365 : accountSyncWindowDays}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10)
-                if (!Number.isNaN(v)) void handleSyncWindowChange(v)
-              }}
-              disabled={!primaryAccountId || !window.emailInbox?.patchAccountSyncPreferences}
-              title="How far back the first inbox pull reaches (expand and Sync for more history)"
-            >
-              <option value={7}>7d</option>
-              <option value={30}>30d</option>
-              <option value={90}>90d</option>
-              <option value={365}>1y</option>
-            </select>
-            <label className="bulk-view-sync-label bulk-view-sync-label--compact" title="Auto-sync every few minutes">
-              <input
-                type="checkbox"
-                checked={autoSyncEnabled}
-                onChange={() => {
-                  primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)
-                }}
-              />
-              Auto
-            </label>
-            <button
-              type="button"
-              className="bulk-view-pull-btn"
-              onClick={() => void handleUnifiedSync()}
-              disabled={syncing || remoteSyncBusy || !primaryAccountId}
-              title={
-                bulkToolbarPullOnly
-                  ? 'Fetch new mail from the server (IMAP: local classification only; no server folder moves)'
-                  : 'Pull new mail, then enqueue remote folder sync for Gmail / Microsoft 365 / Zoho'
-              }
-            >
-              {syncing || remoteSyncBusy ? '↻ Syncing…' : bulkToolbarPullOnly ? '↻ Pull' : '↻ Sync'}
-            </button>
+            <EmailInboxSyncControls
+              accountSyncWindowDays={accountSyncWindowDays}
+              onSyncWindowChange={handleSyncWindowChange}
+              primaryAccountId={primaryAccountId}
+              autoSyncEnabled={autoSyncEnabled}
+              onToggleAutoSync={toggleAutoSync}
+              onUnifiedSync={() => void handleUnifiedSync()}
+              syncing={syncing}
+              remoteSyncBusy={remoteSyncBusy}
+              pullOnly={bulkToolbarPullOnly}
+            />
             <button
               type="button"
               className="bulk-view-wr-expert-btn"
