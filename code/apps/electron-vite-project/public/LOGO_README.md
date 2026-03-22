@@ -1,13 +1,10 @@
-# WR Desk logo assets
+# WR Desk logo (`wrdesk-logo.png`)
 
-- **`wrdesk-logo.svg`** — Source vector (shield, WR / DESK, briefcase). Edit this, not random PNGs.
-- **`wrdesk-logo.png`** — Raster for Electron (tray, window icon, OAuth loopback HTML) and the Chromium extension (`<img>`). **Do not** replace this with a UI screenshot.
+Use the **official design asset only** (the PNG from branding / design exports).
 
-Regenerate PNG from SVG after editing:
+- **`apps/electron-vite-project/public/wrdesk-logo.png`**
+- **`apps/extension-chromium/public/wrdesk-logo.png`**
 
-```bash
-cd apps/electron-vite-project
-pnpm run logo:png
-```
+Both files must be **byte-identical** copies of the original. Do not replace with screenshots, UI captures, or recreated vector art.
 
-This updates both `apps/electron-vite-project/public/wrdesk-logo.png` and `apps/extension-chromium/public/wrdesk-logo.png`.
+After updating the PNG, rebuild the extension and Electron app so packaged builds pick up the asset.

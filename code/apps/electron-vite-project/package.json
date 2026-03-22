@@ -12,7 +12,6 @@
     "clean": "node scripts/clean.cjs",
     "clear-caches": "node scripts/clear-build-caches.cjs",
     "kill": "node scripts/kill-wr-desk.cjs",
-    "logo:png": "node scripts/rasterize-wrdesk-logo.cjs",
     "build:clean": "node scripts/clean.cjs && electron-rebuild -f -w better-sqlite3,keytar,canvas && vite build && electron-builder -c electron-builder.config.cjs",
     "build:portable": "vite build && electron-builder -c electron-builder.config.cjs --win portable",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",

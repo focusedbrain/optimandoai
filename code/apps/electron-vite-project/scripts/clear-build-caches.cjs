@@ -19,20 +19,42 @@ function rmDir(p) {
   }
 }
 
+/** Basename of extension Vite outDir (e.g. build772) — never delete this folder here. */
+function getActiveExtensionOutDir(extensionRoot) {
+  try {
+    const viteCfg = fs.readFileSync(path.join(extensionRoot, 'vite.config.ts'), 'utf8')
+    const m = viteCfg.match(/outDir:\s*['"]([^'"]+)['"]/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
 function clearBuildCaches() {
   const scriptsDir = __dirname
   const electronRoot = path.join(scriptsDir, '..')
   const codeRoot = path.join(electronRoot, '..', '..')
   const extensionRoot = path.join(electronRoot, '..', 'extension-chromium')
+  const keepExt = getActiveExtensionOutDir(extensionRoot)
 
-  /** Prior extension outDir(s) — remove stale unpacked builds when output dir changes */
-  rmDir(path.join(extensionRoot, 'build1'))
-  rmDir(path.join(extensionRoot, 'build1024'))
-  rmDir(path.join(extensionRoot, 'build24'))
-  rmDir(path.join(extensionRoot, 'build74'))
-  rmDir(path.join(extensionRoot, 'build74172'))
-  rmDir(path.join(extensionRoot, 'build772'))
-  rmDir(path.join(extensionRoot, 'build752'))
+  /** Prior extension outDir(s) — remove stale unpacked builds; skip active outDir from vite.config.ts */
+  const staleExtensionOutDirs = [
+    'build1',
+    'build1024',
+    'build24',
+    'build74',
+    'build74172',
+    'build772',
+    'build752',
+    'build702',
+  ]
+  for (const name of staleExtensionOutDirs) {
+    if (keepExt && name === keepExt) {
+      console.log('[clear-build-caches] Keeping active extension outDir:', path.join(extensionRoot, name))
+      continue
+    }
+    rmDir(path.join(extensionRoot, name))
+  }
 
   /** Vite / Rollup transform caches */
   const dirs = [
