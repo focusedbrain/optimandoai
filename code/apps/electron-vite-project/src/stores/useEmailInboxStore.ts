@@ -93,6 +93,30 @@ export interface InboxFilter {
   search?: string
 }
 
+/** Workflow buckets shown in normal + bulk inbox (not classic mailbox folders). */
+export const INBOX_WORKFLOW_FILTER_KEYS = [
+  'all',
+  'urgent',
+  'pending_delete',
+  'pending_review',
+  'archived',
+] as const
+
+/** Map legacy tabs (Unread / Starred / Deleted) to All so normal inbox stays workflow-only. */
+export function coerceInboxWorkflowFilter(f: unknown): InboxFilter['filter'] {
+  const s = String(f ?? '')
+  if (
+    s === 'all' ||
+    s === 'urgent' ||
+    s === 'pending_delete' ||
+    s === 'pending_review' ||
+    s === 'archived'
+  ) {
+    return s
+  }
+  return 'all'
+}
+
 /** Inner sub-focus within a focused message. Separate from bulk selection and outer message focus. */
 export type SubFocus =
   | { kind: 'none' }
@@ -426,22 +450,26 @@ async function loadBulkInboxSnapshotPaginated(get: () => EmailInboxState): Promi
   }
 }
 
-/** Non-bulk inbox: first page only (50 rows). Bulk mode uses {@link loadBulkInboxSnapshotPaginated}. */
+/** Non-bulk inbox: first page only (50 rows) + workflow tab counts (same as bulk). */
 async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
   messages: InboxMessage[]
   total: number
   analysisCache: Record<string, NormalInboxAiResult>
+  tabCounts: Record<string, number>
 } | null> {
   const bridge = getBridge()
   if (!bridge?.listMessages) return null
   try {
     if (get().bulkMode) return null
     const { filter } = get()
-    const res = await bridge.listMessages({
-      ...listBridgeOptionsFromFilter(filter),
-      limit: BULK_UI_PAGE_SIZE,
-      offset: 0,
-    })
+    const [tabCounts, res] = await Promise.all([
+      fetchBulkTabCountsServer(filter),
+      bridge.listMessages({
+        ...listBridgeOptionsFromFilter(filter),
+        limit: BULK_UI_PAGE_SIZE,
+        offset: 0,
+      }),
+    ])
     if (!res.ok || !res.data) return null
     const newMessages = (res.data.messages ?? []) as InboxMessage[]
     const currentIds = new Set(newMessages.map((m) => m.id))
@@ -453,6 +481,7 @@ async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
       messages: newMessages,
       total: res.data.total ?? 0,
       analysisCache,
+      tabCounts,
     }
   } catch {
     return null
@@ -587,6 +616,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         set({
           messages: snapshot.messages,
           total: snapshot.total,
+          tabCounts: snapshot.tabCounts,
           loading: false,
           error: null,
           analysisCache: snapshot.analysisCache,
@@ -794,6 +824,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   setFilter: (partial) => {
     const prev = get().filter
     const newFilter = { ...prev, ...partial }
+    newFilter.filter = coerceInboxWorkflowFilter(newFilter.filter)
     newFilter.messageKind = coerceInboxMessageKindFilter(newFilter.messageKind)
     const listScopeChanged =
       (partial.search !== undefined && partial.search !== prev.search) ||
