@@ -807,22 +807,6 @@ body {
   grid-template-columns: 1fr 72px;
 }
 
-/* Normal inbox: single detail column (no expert AI panel) */
-.inbox-detail-workspace--normal-only {
-  grid-template-columns: 1fr;
-  margin: 0;
-  border-radius: 0;
-  border: none;
-  box-shadow: none;
-  background: var(--color-bg, #0f172a);
-}
-
-.inbox-detail-message--solo {
-  border-right: none;
-  border-radius: 0;
-  background: var(--color-bg, #0f172a);
-}
-
 /* Normal inbox sidebar — dark shell; reuse bulk toolbar markup */
 .email-inbox-normal-sidebar {
   background: var(--color-bg, #0f172a);

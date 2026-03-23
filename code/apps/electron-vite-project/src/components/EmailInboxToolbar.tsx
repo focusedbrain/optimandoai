@@ -1,5 +1,5 @@
 /**
- * EmailInboxToolbar — Normal inbox: same workflow buckets + Type + sync as Bulk inbox (no batch/AI chrome).
+ * EmailInboxToolbar — Normal inbox: workflow buckets + type + sync (bulk-only batch/Auto-Sort UI lives in Bulk view).
  */
 
 import React from 'react'

@@ -1,6 +1,6 @@
 /**
- * EmailInboxView — Normal inbox: same workflow buckets + Type + sync as Bulk inbox; message detail without expert AI panel.
- * Left: toolbar + list. No selection: providers + import. Selection: full-width message detail.
+ * EmailInboxView — Normal inbox: workflow buckets + type filter + sync (no bulk-only tools).
+ * Left: toolbar + list. No selection: providers + import. Selection: message detail + per-message AI panel (50/50).
  */
 
 import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
@@ -17,6 +17,8 @@ import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } f
 import '../components/handshakeViewTypes'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
+import { InboxDetailAiPanel } from './InboxDetailAiPanel'
 
 // ── Relative date ──
 
@@ -42,10 +44,11 @@ interface InboxMessageRowProps {
   message: InboxMessage
   selected: boolean
   onSelect: () => void
+  onMouseEnter?: () => void
   onNavigateToHandshake?: (handshakeId: string) => void
 }
 
-function InboxMessageRow({ message, selected, onSelect, onNavigateToHandshake }: InboxMessageRowProps) {
+function InboxMessageRow({ message, selected, onSelect, onMouseEnter, onNavigateToHandshake }: InboxMessageRowProps) {
   const isHandshakeKind = deriveInboxMessageKind(message) === 'handshake'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
@@ -53,6 +56,7 @@ function InboxMessageRow({ message, selected, onSelect, onNavigateToHandshake }:
   return (
     <div
       onClick={onSelect}
+      onMouseEnter={onMouseEnter}
       className={`inbox-message-row ${selected ? 'inbox-message-row--selected' : ''}`}
       style={{
         display: 'flex',
@@ -217,12 +221,15 @@ export default function EmailInboxView({
     selectedMessage,
     selectedAttachmentId,
     filter,
+    analysisCache,
     autoSyncEnabled,
     syncing,
     fetchMessages,
     selectMessage,
     selectAttachment,
     setFilter,
+    archiveMessages,
+    deleteMessages,
     syncAllAccounts,
     toggleAutoSync,
     loadSyncState,
@@ -230,11 +237,18 @@ export default function EmailInboxView({
     patchAccountSyncPreferences,
   } = useEmailInboxStore()
 
+  const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
+
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   useEffect(() => {
     if (primaryAccountId) loadSyncState(primaryAccountId)
   }, [primaryAccountId, loadSyncState])
+
+  const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
+  useEffect(() => {
+    setAiPanelCollapsed(false)
+  }, [selectedMessageId])
 
   // Provider/account state for no-selection workspace
   const [providerAccounts, setProviderAccounts] = useState<
@@ -600,6 +614,69 @@ export default function EmailInboxView({
     }
   }, [])
 
+  const [sendEmailToast, setSendEmailToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  const handleSendDraft = useCallback(
+    async (draft: string, msg: InboxMessage, attachments?: DraftAttachment[]): Promise<boolean> => {
+      const isDepackaged = msg.source_type === 'email_plain'
+      if (!isDepackaged) {
+        navigator.clipboard?.writeText(draft).catch(() => {})
+        window.analysisDashboard?.openBeapDraft?.()
+        return false
+      }
+      const to = msg.from_address?.trim()
+      if (!to) {
+        setSendEmailToast({ type: 'error', message: 'No sender address' })
+        return false
+      }
+      if (typeof window.emailAccounts?.listAccounts !== 'function' || typeof window.emailAccounts?.sendEmail !== 'function') {
+        setSendEmailToast({ type: 'error', message: 'Email send not available' })
+        return false
+      }
+      const accountsRes = await window.emailAccounts.listAccounts()
+      if (!accountsRes?.ok || !accountsRes.data?.length) {
+        setSendEmailToast({ type: 'error', message: 'No email account connected' })
+        return false
+      }
+      const accountId = accountsRes.data[0].id
+      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
+      const fullBody = (draft || '').trim() + '\n\n—\nAutomate your inbox. Try wrdesk.com\nhttps://wrdesk.com'
+      const emailAttachments: { filename: string; mimeType: string; contentBase64: string }[] = []
+      if (window.emailInbox?.readFileForAttachment && attachments?.length) {
+        for (const pa of attachments) {
+          const res = await window.emailInbox.readFileForAttachment(pa.path)
+          if (res?.ok && res.data) {
+            emailAttachments.push({
+              filename: res.data.filename,
+              mimeType: res.data.mimeType,
+              contentBase64: res.data.contentBase64,
+            })
+          }
+        }
+      }
+      try {
+        const res = await window.emailAccounts.sendEmail(accountId, {
+          to: [to],
+          subject: subject.trim() || '(No subject)',
+          bodyText: fullBody,
+          attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
+        })
+        if (res.ok && res.data?.success) {
+          setSendEmailToast({ type: 'success', message: `Email sent to ${to}` })
+          setTimeout(() => setSendEmailToast(null), 3000)
+          fetchMessages()
+          return true
+        }
+        setSendEmailToast({ type: 'error', message: res.error || 'Failed to send' })
+        return false
+      } catch (err) {
+        setSendEmailToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to send' })
+        return false
+      }
+    },
+    [fetchMessages],
+  )
+
   const gridCols = selectedMessageId ? 'minmax(260px, 320px) 1fr' : 'minmax(260px, 320px) 1fr minmax(260px, 300px)'
 
   return (
@@ -613,6 +690,44 @@ export default function EmailInboxView({
         color: 'var(--color-text, #e2e8f0)',
       }}
     >
+      {sendEmailToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 300,
+            padding: '10px 16px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: sendEmailToast.type === 'success' ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
+            color: 'white',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          <span>{sendEmailToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setSendEmailToast(null)}
+            style={{
+              padding: '2px 8px',
+              fontSize: 11,
+              background: 'rgba(255,255,255,0.2)',
+              border: 'none',
+              borderRadius: 4,
+              color: 'white',
+              cursor: 'pointer',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Left panel: toolbar + message list */}
       <div
         className="email-inbox-normal-sidebar"
@@ -694,6 +809,7 @@ export default function EmailInboxView({
                 message={msg}
                 selected={selectedMessageId === msg.id}
                 onSelect={() => handleSelectMessage(msg.id)}
+                onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
               />
             ))
@@ -831,14 +947,24 @@ export default function EmailInboxView({
         </>
       )}
 
-      {/* Message detail (full width — no expert AI side panel) */}
+      {/* Message + per-message AI panel (50/50) */}
       {selectedMessageId && (
-        <div className="inbox-detail-workspace inbox-detail-workspace--normal-only">
-          <div className="inbox-detail-message inbox-detail-message--solo">
+        <div className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}>
+          <div className="inbox-detail-message">
             <EmailMessageDetail
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
+            />
+          </div>
+          <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
+            <InboxDetailAiPanel
+              messageId={selectedMessageId}
+              message={selectedMessage}
+              onSendDraft={handleSendDraft}
+              onArchive={archiveMessages}
+              onDelete={deleteMessages}
+              onCollapsedChange={setAiPanelCollapsed}
             />
           </div>
         </div>
