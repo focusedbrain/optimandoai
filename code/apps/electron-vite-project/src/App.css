@@ -1836,10 +1836,11 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+  justify-content: center;
 }
 
 .bulk-view--compact .bulk-view-toolbar-row--message-kind .inbox-message-kind-toolbar {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -2168,8 +2169,11 @@ body {
 }
 
 .bulk-view-toolbar-row--message-kind {
-  justify-content: flex-start;
-  padding-left: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding-left: 0;
 }
 
 .bulk-view-toolbar-row--main {
@@ -2179,7 +2183,7 @@ body {
   gap: 10px;
 }
 
-/* Shared Normal + Bulk inbox — product-facing type filter (Handshake / Depackaged) */
+/* Shared Normal + Bulk inbox — product-facing type filter (workflow labels) */
 .inbox-message-kind-toolbar {
   display: inline-flex;
   align-items: center;
@@ -2206,11 +2210,11 @@ body {
   background: var(--color-surface, rgba(255, 255, 255, 0.06));
   color: var(--color-text, #e2e8f0);
   cursor: pointer;
-  min-width: 158px;
+  min-width: 168px;
 }
 
 .inbox-message-kind-select--bulk {
-  min-width: 158px;
+  min-width: 168px;
 }
 
 /* Inbox row/card — navigate to Handshakes (subtle, not a loud badge) */

@@ -1,5 +1,5 @@
 /**
- * EmailInboxToolbar — Filter tabs, message type (Handshake / Depackaged), sync controls, bulk row actions when items selected.
+ * EmailInboxToolbar — Filter tabs, centered Type selector, sync controls, bulk row actions when items selected.
  */
 
 import React from 'react'
@@ -108,17 +108,28 @@ export default function EmailInboxToolbar({
         })}
       </div>
 
-      {/* Message type (secondary) + sync */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-        <InboxMessageKindSelect
-          id="inbox-message-kind-normal"
-          value={filter.messageKind}
-          onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
-        />
-
-        <div style={{ flex: 1, minWidth: 8 }} />
-
-        <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+      {/* Type centered on full toolbar width; sync flush right (balanced by left grid column). */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          gap: 10,
+          width: '100%',
+        }}
+      >
+        <div style={{ minWidth: 0 }} aria-hidden />
+        <div style={{ justifySelf: 'center' }}>
+          <InboxMessageKindSelect
+            id="inbox-message-kind-normal"
+            value={filter.messageKind}
+            onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
+          />
+        </div>
+        <div
+          style={{ justifySelf: 'end', minWidth: 0 }}
+          className="bulk-view-toolbar-right bulk-view-toolbar-right--compact"
+        >
           <EmailInboxSyncControls
             accountSyncWindowDays={accountSyncWindowDays}
             onSyncWindowChange={onSyncWindowChange}

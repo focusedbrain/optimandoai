@@ -1,6 +1,6 @@
 /**
- * Shared compact dropdown for product-facing inbox type (Handshake vs Depackaged).
- * Same options and wording in Normal + Bulk inbox.
+ * Shared compact dropdown for product-facing inbox type (workflow labels).
+ * Same options in Normal + Bulk inbox; internal `value`s stay stable for IPC/filters.
  */
 
 import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
@@ -16,8 +16,9 @@ export interface InboxMessageKindSelectProps {
 
 const OPTIONS: { value: InboxMessageKindFilter; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'handshake', label: 'Handshake only' },
-  { value: 'depackaged', label: 'Depackaged only' },
+  { value: 'depackaged', label: 'Manual Review' },
+  { value: 'auto_filed', label: 'Auto-filed' },
+  { value: 'handshake', label: 'Handshakes' },
 ]
 
 export function InboxMessageKindSelect({ value, onChange, id, variant = 'default' }: InboxMessageKindSelectProps) {
@@ -36,7 +37,7 @@ export function InboxMessageKindSelect({ value, onChange, id, variant = 'default
         className={selectClass}
         value={value}
         onChange={(e) => onChange(e.target.value as InboxMessageKindFilter)}
-        aria-label="Filter by message kind: All, Handshake only, or Depackaged only"
+        aria-label="Filter by type: All, Manual Review, Auto-filed, or Handshakes"
       >
         {OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>

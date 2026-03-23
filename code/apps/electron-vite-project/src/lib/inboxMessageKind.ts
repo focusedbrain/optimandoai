@@ -4,11 +4,12 @@
  *
  * Rules (renderer + main must stay aligned):
  * - `handshake`: non-empty `handshake_id` OR `source_type === 'direct_beap'`
- * - `depackaged`: everything else
+ * - `depackaged`: everything else (UI: Manual Review)
+ * - `auto_filed` filter: `archived === 1` (UI: Auto-filed)
  */
 
-/** Filter dimension: All, or restrict to one product-facing kind. */
-export type InboxMessageKindFilter = 'all' | 'handshake' | 'depackaged'
+/** Filter dimension: All, or restrict to one product-facing kind / workflow slice. */
+export type InboxMessageKindFilter = 'all' | 'handshake' | 'depackaged' | 'auto_filed'
 
 /** Derived kind for a single row (no `all`). */
 export type InboxMessageKindDerived = 'handshake' | 'depackaged'
@@ -26,8 +27,12 @@ export function deriveInboxMessageKind(m: InboxMessageKindFields): InboxMessageK
   return 'depackaged'
 }
 
-export function messageMatchesKindFilter(m: InboxMessageKindFields, kind: InboxMessageKindFilter): boolean {
+export function messageMatchesKindFilter(
+  m: InboxMessageKindFields & { archived?: number },
+  kind: InboxMessageKindFilter,
+): boolean {
   if (kind === 'all') return true
+  if (kind === 'auto_filed') return m.archived === 1
   return deriveInboxMessageKind(m) === kind
 }
 

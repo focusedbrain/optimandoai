@@ -284,12 +284,13 @@ const DEFAULT_FILTER: InboxFilter = {
  */
 function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter): InboxMessage[] {
   const fk = inboxFilter.filter
+  const mk = inboxFilter.messageKind
   const q = inboxFilter.search?.trim()
   const qLower = q ? q.toLowerCase() : null
 
   return messages.filter((m) => {
     if (inboxFilter.sourceType !== 'all' && m.source_type !== inboxFilter.sourceType) return false
-    if (!messageMatchesKindFilter(m, inboxFilter.messageKind)) return false
+    if (!messageMatchesKindFilter(m, mk)) return false
     if (inboxFilter.handshakeId && m.handshake_id !== inboxFilter.handshakeId) return false
     if (inboxFilter.category && m.sort_category !== inboxFilter.category) return false
 
@@ -298,15 +299,22 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
     } else if (fk === 'pending_delete') {
       if (m.deleted === 1 || m.pending_delete !== 1) return false
     } else if (fk === 'pending_review') {
-      if (m.deleted === 1 || m.archived === 1 || m.sort_category !== 'pending_review') return false
+      if (m.deleted === 1 || (mk !== 'auto_filed' && m.archived === 1) || m.sort_category !== 'pending_review')
+        return false
     } else if (fk === 'urgent') {
-      if (m.deleted === 1 || m.archived === 1 || m.pending_delete === 1 || m.sort_category !== 'urgent') return false
+      if (
+        m.deleted === 1 ||
+        (mk !== 'auto_filed' && m.archived === 1) ||
+        m.pending_delete === 1 ||
+        m.sort_category !== 'urgent'
+      )
+        return false
     } else if (fk === 'unread') {
-      if (m.deleted === 1 || m.archived === 1 || m.read_status !== 0) return false
+      if (m.deleted === 1 || (mk !== 'auto_filed' && m.archived === 1) || m.read_status !== 0) return false
       if (m.pending_delete === 1) return false
       if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     } else if (fk === 'starred') {
-      if (m.deleted === 1 || m.archived === 1 || m.starred !== 1) return false
+      if (m.deleted === 1 || (mk !== 'auto_filed' && m.archived === 1) || m.starred !== 1) return false
       if (m.pending_delete === 1) return false
       if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     } else if (fk === 'archived') {
@@ -314,7 +322,7 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
     } else {
       /* all — main inbox */
       if (m.deleted === 1) return false
-      if (m.archived === 1) return false
+      if (mk !== 'auto_filed' && m.archived === 1) return false
       if (m.pending_delete === 1) return false
       if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
     }
