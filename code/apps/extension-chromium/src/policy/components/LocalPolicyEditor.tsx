@@ -18,9 +18,16 @@
  */
 
 import { useState } from 'react'
-import type { CanonicalPolicy, TemplateName } from '../schema'
+import type { CanonicalPolicy, ConnectorType } from '../schema'
+import type { TemplateName } from '../templates'
+import type { AutomationSessionRestrictions } from '../schema/domains/session-restrictions'
 import { calculateRiskTier } from '../schema'
 import { RiskLabel } from './RiskLabel'
+import { getThemeTokens } from '../../shared/ui/lightboxTheme'
+
+type PolicyWithSessionRestrictions = CanonicalPolicy & {
+  sessionRestrictions?: Partial<AutomationSessionRestrictions>
+}
 
 interface LocalPolicyEditorProps {
   policy: CanonicalPolicy
@@ -38,13 +45,17 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
   const [newApi, setNewApi] = useState('')
   const [newWebhook, setNewWebhook] = useState('')
 
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'
-  const accentColor = '#8b5cf6'
-  const successColor = '#22c55e'
+  const policyExt = policy as PolicyWithSessionRestrictions
+  const onChangeExt = onChange as (updated: PolicyWithSessionRestrictions) => void
+
+  const t = getThemeTokens(theme)
+  const isDark = !t.isLight
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
+  const cardBg = t.cardBg
+  const accentColor = t.accentColor
+  const successColor = t.success
 
   const currentRiskTier = calculateRiskTier(policy)
 
@@ -106,10 +117,11 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
       setNewDomain('')
     } else if (type === 'apis') {
       const current = policy.execution?.allowedConnectors ?? []
-      if (!current.includes(value)) {
+      const connectorValue = value as ConnectorType
+      if (!current.includes(connectorValue)) {
         onChange({
           ...policy,
-          execution: { ...policy.execution!, allowedConnectors: [...current, value] },
+          execution: { ...policy.execution!, allowedConnectors: [...current, connectorValue] },
         })
       }
       setNewApi('')
@@ -401,13 +413,13 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
               top: '100%',
               right: 0,
               marginTop: '4px',
-              background: isDark ? '#1e293b' : 'white',
+              background: t.cardBg,
               border: `1px solid ${borderColor}`,
               borderRadius: '10px',
               padding: '6px',
               minWidth: '240px',
               zIndex: 10,
-              boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+              boxShadow: t.panelShadow,
             }}>
               <div style={{ padding: '8px 12px', fontSize: '11px', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Automation Presets
@@ -865,7 +877,7 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
                   { key: 'allowCapsuleUnpacking', icon: '📦', name: 'Allow Capsule Unpacking', desc: 'Unpack new packages while automation runs' },
                   { key: 'allowAgentImport', icon: '🤖', name: 'Allow Agent Import', desc: 'Import new agents/modules during session' },
                 ].map(item => {
-                  const sessionConfig = policy.sessionRestrictions ?? {}
+                  const sessionConfig = policyExt.sessionRestrictions ?? {}
                   const isEnabled = sessionConfig[item.key as keyof typeof sessionConfig] ?? (currentMode === 'permissive')
                   
                   return (
@@ -873,10 +885,10 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
                       key={item.key} 
                       style={toggleCardStyle(!!isEnabled)}
                       onClick={() => {
-                        onChange({
+                        onChangeExt({
                           ...policy,
                           sessionRestrictions: {
-                            ...policy.sessionRestrictions,
+                            ...policyExt.sessionRestrictions,
                             [item.key]: !isEnabled,
                           },
                         })
@@ -917,17 +929,17 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
                     { id: 'unrestricted', label: '✅ Normal', desc: 'Policy-bounded' },
                   ].map(opt => {
                     const defaultValue = currentMode === 'strict' || currentMode === 'restrictive' ? 'none' : 'allowlist_only'
-                    const currentValue = policy.sessionRestrictions?.egressDuringAutomation ?? defaultValue
+                    const currentValue = policyExt.sessionRestrictions?.egressDuringAutomation ?? defaultValue
                     const isSelected = opt.id === currentValue
                     
                     return (
                       <button
                         key={opt.id}
                         onClick={() => {
-                          onChange({
+                          onChangeExt({
                             ...policy,
                             sessionRestrictions: {
-                              ...policy.sessionRestrictions,
+                              ...policyExt.sessionRestrictions,
                               egressDuringAutomation: opt.id as 'none' | 'allowlist_only' | 'unrestricted',
                             },
                           })
@@ -964,7 +976,7 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
                   { key: 'allowMediaUpload', icon: '🖼️', name: 'Allow Media Upload', desc: 'Upload images/attachments during session', defaultStandard: false },
                   { key: 'allowConcurrentSessions', icon: '🔄', name: 'Allow Concurrent Sessions', desc: 'Run multiple automations simultaneously', defaultStandard: false },
                 ].map(item => {
-                  const sessionConfig = policy.sessionRestrictions ?? {}
+                  const sessionConfig = policyExt.sessionRestrictions ?? {}
                   const defaultValue = currentMode === 'permissive' || (currentMode === 'standard' && item.defaultStandard)
                   const isEnabled = sessionConfig[item.key as keyof typeof sessionConfig] ?? defaultValue
                   
@@ -973,10 +985,10 @@ export function LocalPolicyEditor({ policy, onChange, onApplyTemplate, theme = '
                       key={item.key} 
                       style={toggleCardStyle(!!isEnabled)}
                       onClick={() => {
-                        onChange({
+                        onChangeExt({
                           ...policy,
                           sessionRestrictions: {
-                            ...policy.sessionRestrictions,
+                            ...policyExt.sessionRestrictions,
                             [item.key]: !isEnabled,
                           },
                         })

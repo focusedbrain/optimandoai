@@ -21,63 +21,109 @@ export const HardwareWarningDialog: React.FC<HardwareWarningProps> = ({
   if (!show) return null
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0,0,0,0.7)',
+      backdropFilter: 'blur(6px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 2147483640,
+      padding: '20px',
+    }}>
+      <div style={{
+        background: 'linear-gradient(160deg, #1a0533 0%, #2d1052 40%, #1a0533 100%)',
+        border: '1px solid rgba(168,85,247,0.25)',
+        borderRadius: '16px',
+        boxShadow: '0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(168,85,247,0.2)',
+        maxWidth: '440px',
+        width: '100%',
+        padding: '32px 28px',
+        color: '#f5f3ff',
+        fontFamily: '-apple-system, "Segoe UI", Roboto, sans-serif',
+      }}>
         {/* Icon */}
-        <div className="flex justify-center mb-4">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-            <span className="text-3xl">🚀</span>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            background: 'linear-gradient(135deg, #3b82f6 0%, #a855f7 100%)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 8px 24px rgba(168,85,247,0.4)',
+          }}>
+            <span style={{ fontSize: '30px' }}>🚀</span>
           </div>
         </div>
-        
-        {/* Title */}
-        <h2 className="text-xl font-semibold text-center mb-3 text-gray-800">
+
+        <h2 style={{ margin: '0 0 12px 0', fontSize: '17px', fontWeight: 700, textAlign: 'center', color: '#f5f3ff', lineHeight: 1.3 }}>
           Local AI on this PC will be slow — that's a hardware limit.
         </h2>
-        
-        {/* Body */}
-        <div className="text-gray-600 text-sm space-y-3 mb-6">
-          <p>
+
+        <div style={{ fontSize: '13px', color: 'rgba(245,243,255,0.75)', lineHeight: 1.6, marginBottom: '20px' }}>
+          <p style={{ margin: '0 0 10px 0' }}>
             Your computer is missing modern CPU features (like AVX2), so on-device models run in a slow fallback mode.
           </p>
-          
-          <p>
-            <strong>Cloud/Turbo models are NOT affected and will run at full speed.</strong>
+          <p style={{ margin: 0 }}>
+            <strong style={{ color: '#f5f3ff' }}>Cloud/Turbo models are NOT affected and will run at full speed.</strong>
           </p>
-          
           {reasons.length > 0 && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+            <details style={{ marginTop: '12px' }}>
+              <summary style={{ cursor: 'pointer', fontSize: '11px', color: 'rgba(245,243,255,0.5)' }}>
                 Technical details
               </summary>
-              <ul className="mt-2 ml-4 text-xs text-gray-500 list-disc">
+              <ul style={{ margin: '8px 0 0 16px', padding: 0, fontSize: '11px', color: 'rgba(245,243,255,0.5)' }}>
                 {reasons.map((reason, i) => (
-                  <li key={i}>{reason}</li>
+                  <li key={i} style={{ marginBottom: '3px' }}>{reason}</li>
                 ))}
               </ul>
             </details>
           )}
         </div>
-        
-        {/* Buttons */}
-        <div className="flex flex-col gap-2">
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button
             onClick={onUseTurboMode}
-            className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all shadow-md hover:shadow-lg"
+            style={{
+              width: '100%',
+              padding: '13px 16px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #a855f7 100%)',
+              border: 'none',
+              borderRadius: '10px',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(168,85,247,0.35)',
+              transition: 'all 0.18s',
+            }}
           >
             Use Turbo Mode (recommended)
           </button>
-          
+
           <button
             onClick={onStayLocal}
-            className="w-full py-2 px-4 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors"
+            style={{
+              width: '100%',
+              padding: '11px 16px',
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(168,85,247,0.25)',
+              borderRadius: '10px',
+              color: 'rgba(245,243,255,0.75)',
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.18s',
+            }}
           >
             Run Locally anyway (slow)
           </button>
         </div>
-        
-        {/* Footer hint */}
-        <p className="text-xs text-gray-400 text-center mt-4">
+
+        <p style={{ margin: '16px 0 0 0', fontSize: '11px', color: 'rgba(245,243,255,0.4)', textAlign: 'center' }}>
           You can change this anytime in Settings
         </p>
       </div>

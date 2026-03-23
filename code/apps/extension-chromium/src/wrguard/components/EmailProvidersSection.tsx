@@ -9,6 +9,7 @@
  */
 
 import React from 'react'
+import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
 
 // Email account type matching sidepanel state
 export interface EmailAccount {
@@ -184,7 +185,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
             Default Account:
           </label>
           <select 
-            value={selectedEmailAccountId || emailAccounts[0]?.id || ''} 
+            value={selectedEmailAccountId || defaultEmailAccountRowId || ''} 
             onChange={(e) => onSelectEmailAccount(e.target.value)} 
             style={{ 
               width: '100%', 

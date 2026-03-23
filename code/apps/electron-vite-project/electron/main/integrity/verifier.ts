@@ -86,7 +86,7 @@ function getPublicKeyPath(): string {
 // §3  Verification Logic
 // ============================================================================
 
-function checkSelfHash(manifest: any, manifestRaw: string): IntegrityCheck {
+function checkSelfHash(manifest: any, _manifestRaw: string): IntegrityCheck {
   if (!manifest.selfHash) {
     return { name: 'self-hash', status: 'skip', detail: 'No selfHash field in manifest' }
   }

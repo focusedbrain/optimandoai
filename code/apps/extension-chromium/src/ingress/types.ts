@@ -20,7 +20,7 @@
 /**
  * Ingress source types
  */
-export type IngressSource = 'email' | 'messenger' | 'download'
+export type IngressSource = 'email' | 'messenger' | 'download' | 'p2p'
 
 /**
  * Identity hint for local-only identity handling

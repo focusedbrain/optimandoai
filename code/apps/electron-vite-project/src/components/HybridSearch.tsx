@@ -1,0 +1,1314 @@
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import './HybridSearch.css'
+import './handshakeViewTypes'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
+import { useEmailInboxStore } from '../stores/useEmailInboxStore'
+
+/** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
+export type UiFocusContext =
+  | { kind: 'message'; messageId: string }
+  | { kind: 'draft'; messageId: string }
+  | { kind: 'attachment'; messageId: string; attachmentId: string }
+  | { kind: 'none' }
+
+/** Stable reference for subFocus when not in beap-inbox — prevents React #185 (max update depth) from selector returning new object every render. */
+const SUBFOCUS_NONE = { kind: 'none' as const }
+
+// ── Types ──
+
+type SearchMode = 'chat' | 'search' | 'actions'
+type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'inbox-messages' | 'all'
+type DashboardView = string
+
+interface SearchResult {
+  id: string
+  title: string
+  snippet: string
+  scope: 'context-graph' | 'capsules' | 'attachments' | 'inbox-message'
+  timestamp?: string
+  /** Handshake attribution */
+  handshake_id?: string
+  source?: 'received' | 'sent'
+  score?: number
+  data_classification?: string
+  /** Governance policy summary (e.g. "Local AI only", "Cloud AI allowed") */
+  governance_summary?: string
+  /** Human-readable label for structured/context-graph matches */
+  matched_field_label?: string
+  /** True when result comes from structured lookup */
+  structured_result?: boolean
+  /** Text to copy when user clicks Copy result (Label: Value for structured, snippet for others) */
+  copyableText?: string
+}
+
+interface HybridSearchProps {
+  activeView: DashboardView
+  selectedHandshakeId?: string | null
+  selectedHandshakeEmail?: string | null
+  selectedDocumentId?: string | null
+  selectedMessageId?: string | null
+  selectedAttachmentId?: string | null
+  onClearMessageSelection?: () => void
+}
+
+// ── LLM Models (loaded from backend) ──
+
+interface AvailableModel {
+  id: string
+  name: string
+  provider: string
+  type: 'local' | 'cloud'
+}
+
+function getModelLabel(id: string, models: AvailableModel[]): string {
+  return models.find(m => m.id === id)?.name ?? id
+}
+
+function defaultScope(view: DashboardView): SearchScope {
+  if (view === 'handshakes') return 'context-graph'
+  if (view === 'beap') return 'capsules'
+  if (view === 'beap-inbox') return 'inbox-messages'
+  return 'all'
+}
+
+// ── Helpers ──
+
+function friendlyTypeName(type: string | undefined): string {
+  if (!type) return 'Data'
+  const map: Record<string, string> = {
+    text: 'Text', document: 'Document', url: 'Link', email: 'Email',
+    json: 'Structured Data', image: 'Image', file: 'File', note: 'Note',
+    profile: 'Profile', contact: 'Contact', vault_profile: 'Profile',
+  }
+  return map[type.toLowerCase()] ?? type.charAt(0).toUpperCase() + type.slice(1)
+}
+
+function truncate(s: string, max = 220): string {
+  if (!s) return ''
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
+
+/** Strip leading internal IDs (hsp_xxx, hs-xxx, long hex) from snippet so user-facing content shows first. */
+function sanitizeSnippet(s: string): string {
+  if (!s || typeof s !== 'string') return ''
+  const trimmed = s.trim()
+  const withoutLeadingId = trimmed.replace(/^(?:hsp_[a-zA-Z0-9]+|hs-[a-zA-Z0-9-]+|[a-f0-9]{24,})\s+/i, '')
+  return withoutLeadingId || trimmed
+}
+
+/** Recursively collect string values from JSON for full-text extraction (no truncation). */
+function collectStringsFromJson(val: unknown): string[] {
+  if (val == null) return []
+  if (typeof val === 'string') return [val]
+  if (typeof val === 'number' || typeof val === 'boolean') return [String(val)]
+  if (Array.isArray(val)) return val.flatMap((v) => collectStringsFromJson(v))
+  if (typeof val === 'object') return Object.values(val).flatMap((v) => collectStringsFromJson(v))
+  return []
+}
+
+/** Extract full readable text from payload (JSON or plain). No truncation. */
+function extractFullTextFromPayload(payload: string): string {
+  if (!payload || typeof payload !== 'string') return ''
+  const trimmed = payload.trim()
+  if (!trimmed) return ''
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (typeof parsed === 'string') return trimmed
+    if (parsed && typeof parsed === 'object') {
+      const parts = collectStringsFromJson(parsed).filter(Boolean)
+      return parts.join(' ').replace(/\s+/g, ' ').trim()
+    }
+  } catch { /* not JSON */ }
+  return trimmed
+}
+
+function shortId(id: string): string {
+  if (!id) return ''
+  return id.length > 16 ? `${id.slice(0, 3)}…${id.slice(-6)}` : id
+}
+
+const SPECIAL_RESULT_IDS = ['vault-locked', 'no-embeddings', 'embedding-unavailable', 'degraded-no-match'] as const
+function isSpecialResult(r: SearchResult): boolean {
+  return SPECIAL_RESULT_IDS.includes(r.id as typeof SPECIAL_RESULT_IDS[number])
+}
+
+// ── Search backend (semantic search + inbox) ──
+
+async function runInboxSearch(
+  query: string,
+  selectedHandshakeId: string | null
+): Promise<SearchResult[]> {
+  if (!window.emailInbox?.listMessages) return []
+  try {
+    const res = await window.emailInbox.listMessages({
+      search: query || undefined,
+      handshakeId: selectedHandshakeId ?? undefined,
+      filter: 'all',
+      limit: 20,
+    })
+    if (!res.ok || !res.data?.messages) return []
+    const messages = res.data.messages as Array<{
+      id: string
+      subject?: string | null
+      from_name?: string | null
+      from_address?: string | null
+      body_text?: string | null
+      received_at?: string
+    }>
+    return messages.map((m) => ({
+      id: m.id,
+      title: m.subject || m.from_address || '(No subject)',
+      snippet: truncate((m.body_text || '').replace(/\s+/g, ' ').trim(), 200),
+      scope: 'inbox-message' as const,
+      handshake_id: undefined,
+    }))
+  } catch {
+    return []
+  }
+}
+
+async function runSearch(
+  query: string,
+  scope: SearchScope | string,
+  selectedHandshakeId?: string | null
+): Promise<SearchResult[]> {
+  const includeInbox = scope === 'inbox-messages' || scope === 'all'
+  const includeSemantic = scope !== 'inbox-messages'
+
+  if (includeInbox && !includeSemantic) {
+    return runInboxSearch(query, selectedHandshakeId ?? null)
+  }
+
+  const [semanticResults, inboxResults] = await Promise.all([
+    includeSemantic ? runSearchSemantic(query, scope) : Promise.resolve([]),
+    includeInbox ? runInboxSearch(query, selectedHandshakeId ?? null) : Promise.resolve([]),
+  ])
+
+  if (scope === 'all') {
+    return [...semanticResults, ...inboxResults]
+  }
+  if (includeSemantic) {
+    return semanticResults
+  }
+  return inboxResults
+}
+
+async function runSearchSemantic(query: string, scope: SearchScope | string): Promise<SearchResult[]> {
+  try {
+    const result = await window.handshakeView?.semanticSearch?.(query, scope, 20)
+    if (!result?.success) {
+      if (result?.error === 'vault_locked') {
+        return [{
+          id: 'vault-locked',
+          title: '🔒 Vault Locked',
+          snippet: 'Unlock your vault to search handshake context data.',
+          scope: 'context-graph',
+        }]
+      }
+      if (result?.error === 'no_embeddings') {
+        return [{
+          id: 'no-embeddings',
+          title: 'Search index not ready',
+          snippet: 'Context blocks are still being indexed. Try again in a moment.',
+          scope: 'context-graph',
+        }]
+      }
+      if (result?.error === 'embedding_unavailable') {
+        return [{
+          id: 'embedding-unavailable',
+          title: 'Search requires Ollama',
+          snippet: 'Search requires Ollama with an embedding model. Check Backend Configuration.',
+          scope: 'context-graph',
+        }]
+      }
+      return []
+    }
+    // Degraded mode: embedding unavailable, keyword fallback ran but no matches
+    if (result.degraded === 'keyword_fallback' && (!result.results || result.results.length === 0)) {
+      return [{
+        id: 'degraded-no-match',
+        title: 'Semantic search unavailable',
+        snippet: 'No keyword matches found. Ollama with an embedding model enables full semantic search.',
+        scope: 'context-graph',
+      }]
+    }
+    // Legacy: embedding_unavailable with empty results (pre-keyword-fallback)
+    if (result.degraded === 'embedding_unavailable' && (!result.results || result.results.length === 0)) {
+      return [{
+        id: 'degraded-no-match',
+        title: 'Structured search only',
+        snippet: 'Ollama with an embedding model enables full semantic search. No structured data matched your query.',
+        scope: 'context-graph',
+      }]
+    }
+    const raw = result.results ?? []
+    return raw.map((r: Record<string, unknown>, i: number) => {
+      const matchedLabel = r.matched_field_label as string | undefined
+      const title = matchedLabel ?? friendlyTypeName(r.type as string | undefined)
+      const payloadRef = typeof r.payload_ref === 'string' ? r.payload_ref : ''
+      const snippet = (r.snippet as string) ?? ''
+      const isStructured = r.structured_result === true && matchedLabel
+      const bestFullText = (() => {
+        if (isStructured) return snippet || payloadRef
+        const fromPayload = payloadRef ? extractFullTextFromPayload(payloadRef) : ''
+        const fromSnippet = sanitizeSnippet(snippet)
+        return fromPayload || fromSnippet
+      })()
+      const sanitizedFull = sanitizeSnippet(bestFullText)
+      const displayText = isStructured
+        ? truncate(`${matchedLabel}: ${sanitizedFull}`, 200)
+        : truncate(sanitizedFull, 200)
+      const copyableText = isStructured
+        ? `${matchedLabel}: ${sanitizedFull}`.trim()
+        : sanitizedFull
+      return {
+        id: (r.block_id as string) ?? `result-${i}`,
+        title,
+        snippet: displayText,
+        scope: 'context-graph' as const,
+        timestamp: r.source === 'received' ? '↓ Received' : r.source === 'sent' ? '↑ Sent' : undefined,
+        handshake_id: r.handshake_id as string | undefined,
+        source: r.source as 'received' | 'sent' | undefined,
+        score: typeof r.score === 'number' ? r.score : undefined,
+        data_classification: r.data_classification as string | undefined,
+        governance_summary: r.governance_summary as string | undefined,
+        matched_field_label: matchedLabel,
+        structured_result: r.structured_result === true,
+        copyableText,
+      }
+    })
+  } catch (err) {
+    console.error('Search failed:', err)
+    return []
+  }
+}
+
+interface ChatSource {
+  handshake_id: string
+  capsule_id?: string
+  block_id: string
+  source: string
+  score: number
+}
+
+// ── Scope label helper ──
+
+const SCOPE_LABELS: Record<SearchScope, string> = {
+  'context-graph': 'Context Graph',
+  'capsules': 'Capsules',
+  'attachments': 'Attachments',
+  'inbox-messages': 'Inbox',
+  'all': 'All (Global)',
+}
+
+// ── Component ──
+
+export default function HybridSearch({
+  activeView,
+  selectedHandshakeId = null,
+  selectedHandshakeEmail = null,
+  selectedDocumentId = null,
+  selectedMessageId = null,
+  selectedAttachmentId = null,
+  onClearMessageSelection,
+}: HybridSearchProps) {
+  const [query, setQuery] = useState('')
+  const [mode, setMode] = useState<SearchMode>('chat')
+  const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
+  const [selectedModel, setSelectedModel] = useState('')
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [response, setResponse] = useState<string | null>(null)
+  const [contextBlocks, setContextBlocks] = useState<string[]>([])
+  const [chatSources, setChatSources] = useState<ChatSource[]>([])
+  const [chatGovernanceNote, setChatGovernanceNote] = useState<string | null>(null)
+  const [structuredResult, setStructuredResult] = useState<{ title: string; items: Array<{ id: string; title: string; snippet: string; handshake_id: string; block_id: string; source: string; score: number; type?: string }> } | null>(null)
+  const [resultType, setResultType] = useState<'document_card' | 'result_card' | 'context_answer' | null>(null)
+  const [lastMode, setLastMode] = useState<SearchMode | null>(null)
+  const [showPanel, setShowPanel] = useState(false)
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [infoPopupOpen, setInfoPopupOpen] = useState(false)
+  const [draftRefineHistory, setDraftRefineHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; showUseButton?: boolean; onUse?: () => void }>>([])
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const infoPopupRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+
+  const draftRefineConnected = useDraftRefineStore((s) => s.connected)
+  const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
+  const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : SUBFOCUS_NONE))
+
+  /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
+  const uiFocusContext: UiFocusContext = useMemo(() => {
+    if (!selectedMessageId) return { kind: 'none' }
+    const msgId = selectedMessageId
+    if (activeView === 'beap-inbox') {
+      if (inboxSubFocus.kind === 'draft' && inboxSubFocus.messageId === msgId) return { kind: 'draft', messageId: msgId }
+      if (inboxSubFocus.kind === 'attachment' && inboxSubFocus.messageId === msgId && selectedAttachmentId)
+        return { kind: 'attachment', messageId: msgId, attachmentId: selectedAttachmentId }
+    }
+    return { kind: 'message', messageId: msgId }
+  }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus])
+  const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
+  const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
+  const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
+  const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
+
+  useEffect(() => {
+    if (draftRefineConnected) setMode('chat')
+  }, [draftRefineConnected])
+
+  /* FIX-ISSUE-5: Focus chat input when entering draft refinement mode */
+  const prevDraftRefineConnected = useRef(false)
+  useEffect(() => {
+    if (draftRefineConnected && !prevDraftRefineConnected.current) {
+      prevDraftRefineConnected.current = true
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
+    if (!draftRefineConnected) prevDraftRefineConnected.current = false
+  }, [draftRefineConnected])
+
+  useEffect(() => {
+    if (!draftRefineConnected) setDraftRefineHistory([])
+  }, [draftRefineConnected])
+
+  const handleClearMessageSelection = useCallback(() => {
+    draftRefineDisconnect()
+    onClearMessageSelection?.()
+  }, [draftRefineDisconnect, onClearMessageSelection])
+
+  // Load available models from backend
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const result = await window.handshakeView?.getAvailableModels?.()
+        if (result?.success && Array.isArray(result.models)) {
+          setAvailableModels(result.models)
+          const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
+          setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
+        }
+      } catch (err) {
+        console.error('Failed to load models:', err)
+      } finally {
+        setModelsLoading(false)
+      }
+    }
+    loadModels()
+  }, [])
+
+  // Sync scope when activeView changes
+  useEffect(() => {
+    setScope(defaultScope(activeView))
+  }, [activeView])
+
+  // Close model menu on outside click
+  useEffect(() => {
+    if (!modelMenuOpen) return
+    function handleClick(e: MouseEvent) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [modelMenuOpen])
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!showPanel) return
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowPanel(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showPanel])
+
+  // Close info popup on outside click or Escape
+  useEffect(() => {
+    if (!infoPopupOpen) return
+    function handleClick(e: MouseEvent) {
+      if (infoPopupRef.current && !infoPopupRef.current.contains(e.target as Node)) {
+        setInfoPopupOpen(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setInfoPopupOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [infoPopupOpen])
+
+  const handleSubmit = useCallback(async () => {
+    const trimmed = query.trim()
+    if (!trimmed || isLoading) return
+
+    const previousAnswer = response
+    setLastMode(mode)
+    setIsLoading(true)
+    setShowPanel(true)
+    setResults([])
+    setResponse(null)
+    setContextBlocks([])
+    setChatSources([])
+    setStructuredResult(null)
+    setResultType(null)
+
+    try {
+      const effectiveScope = selectedHandshakeId ?? selectedMessageId ?? scope
+      if (mode === 'search') {
+        const r = await runSearch(trimmed, effectiveScope, selectedHandshakeId)
+        setResults(r)
+      } else if (mode === 'actions') {
+        setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
+      } else {
+        const modelInfo = availableModels.find(m => m.id === selectedModel)
+        const streamedRef = { current: '' }
+        const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
+          setContextBlocks(data.contextBlocks ?? [])
+          setChatSources(data.sources ?? [])
+          setIsLoading(false)
+        })
+        const unsubToken = window.handshakeView?.onChatStreamToken?.((data: { token: string }) => {
+          const tok = data.token ?? ''
+          streamedRef.current += tok
+          setResponse(prev => (prev ?? '') + tok)
+        })
+
+        const isDraftRefine = draftRefineConnected && draftRefineMessageId === selectedMessageId
+        const currentDraft = isDraftRefine ? (useDraftRefineStore.getState().draftText || draftRefineDraftText || '') : ''
+
+        if (isDraftRefine) {
+          setDraftRefineHistory(prev => [...prev, { role: 'user', content: trimmed }])
+        }
+
+        let chatQuery: string
+        if (isDraftRefine) {
+          chatQuery = currentDraft
+            ? `Here is a draft email reply:
+
+${currentDraft}
+
+The user wants you to refine it with this instruction: ${trimmed}
+
+Generate a refined version of the draft that incorporates the user's instruction. Output ONLY the refined email text, no explanation.`
+            : `The user has no draft yet. Create a draft email reply based on this instruction: ${trimmed}
+
+Output ONLY the complete draft email text, no explanation.`
+        } else {
+          let inboxContext = ''
+          if (selectedMessageId && window.emailInbox?.getMessage) {
+            try {
+              const msgRes = await window.emailInbox.getMessage(selectedMessageId)
+              if (msgRes.ok && msgRes.data) {
+                const msg = msgRes.data as { subject?: string; body_text?: string; body_html?: string }
+                inboxContext = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
+                if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
+                  const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
+                  if (attRes.ok && attRes.data?.text) {
+                    inboxContext += `[Selected Attachment]\n${attRes.data.text.slice(0, 4000)}\n`
+                  }
+                }
+                inboxContext += '\n'
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+        }
+
+        let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
+        try {
+          result = await window.handshakeView?.chatWithContextRag?.({
+            query: chatQuery,
+            scope: effectiveScope,
+            model: selectedModel || 'llama3',
+            provider: modelInfo?.provider || 'ollama',
+            stream: true,
+            conversationContext: previousAnswer?.trim() ? { lastAnswer: previousAnswer } : undefined,
+            selectedDocumentId: selectedDocumentId ?? undefined,
+            selectedAttachmentId: selectedAttachmentId ?? undefined,
+            selectedMessageId: selectedMessageId ?? undefined,
+          })
+        } finally {
+          unsubStart?.()
+          unsubToken?.()
+        }
+
+        if (!result?.success) {
+          if (result?.error === 'vault_locked') {
+            setResponse('🔒 Unlock your vault to search handshake data.')
+          } else if (result?.error === 'embedding_unavailable') {
+            setResponse('Search requires Ollama with an embedding model. Check Backend Configuration.')
+          } else if (result?.error === 'no_api_key') {
+            setResponse(`No API key configured for ${result.provider ?? 'cloud provider'}. Add it in Extension Settings.`)
+          } else if (result?.error === 'ollama_unavailable') {
+            setResponse('Ollama is not running. Start Ollama to use local models.')
+          } else if (result?.error === 'model_not_available') {
+            setResponse(result?.message ?? 'Configured Ollama model not found.')
+          } else if (result?.error === 'model_execution_failed') {
+            setResponse(result?.message ?? 'Model execution failed.')
+          } else if (result?.error === 'api_call_failed') {
+            setResponse(result?.message ?? 'API call failed. Check your API key and network.')
+          } else {
+            setResponse(result?.message ?? 'Chat is not available right now.')
+          }
+          setChatSources([])
+          setChatGovernanceNote(null)
+        } else {
+          const answerText = (result.answer ?? streamedRef.current) || ''
+          if (!result.streamed) {
+            setResponse(answerText)
+            setChatSources(result.sources ?? [])
+          } else if (result.answer) {
+            setResponse(prev => prev || answerText)
+          }
+          if (isDraftRefine && answerText.trim()) {
+            const refined = answerText.trim()
+            draftRefineDeliverResponse(refined)
+            setDraftRefineHistory(prev => [...prev, {
+              role: 'assistant',
+              content: refined,
+              showUseButton: true,
+              onUse: () => draftRefineAcceptRefinement(),
+            }])
+            setResponse(null)
+            setQuery('')
+          }
+          setChatGovernanceNote(result.governanceNote ?? null)
+          if (result.sources?.length && chatSources.length === 0) setChatSources(result.sources)
+          if (result.structuredResult) {
+            setStructuredResult(result.structuredResult)
+            setResultType((result.resultType as 'document_card' | 'result_card' | 'context_answer') ?? null)
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Chat failed:', err)
+      const msg = err?.message ?? 'Unknown error'
+      setResponse(msg)
+      setChatSources([])
+      setChatGovernanceNote(null)
+      setStructuredResult(null)
+      setResultType(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+
+  const showModelSelector = mode === 'chat' || mode === 'actions'
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    }
+    if (e.key === 'Escape') {
+      setShowPanel(false)
+      setModelMenuOpen(false)
+      setInfoPopupOpen(false)
+      inputRef.current?.blur()
+    }
+  }, [handleSubmit])
+
+  const handleViewHandshake = useCallback((handshakeId: string) => {
+    navigator.clipboard.writeText(handshakeId).then(() => {}).catch(() => {})
+  }, [])
+
+  const handleCopyResult = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(() => {}).catch(() => {})
+  }, [])
+
+  return (
+    <div className="hs-root" ref={containerRef}>
+      {selectedHandshakeId && selectedHandshakeEmail && (
+        <div style={{
+          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px',
+        }}>
+          Scope: Handshake → {selectedHandshakeEmail}
+        </div>
+      )}
+      {selectedMessageId && (
+        <div style={{
+          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
+          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
+        }}>
+          {uiFocusContext.kind === 'draft' ? (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
+              color: '#15803d',
+            }} title="Chat scoped to draft — refine with AI">
+              ✏️ Draft{draftRefineMessageSubject ? ` · ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}` : ''}
+              <button
+                type="button"
+                onClick={handleClearMessageSelection}
+                aria-label="Disconnect draft"
+                style={{
+                  marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                  cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ) : uiFocusContext.kind === 'attachment' ? (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+            }} title="Chat scoped to attachment">
+              📎 Attachment
+              {onClearMessageSelection && (
+                <button
+                  type="button"
+                  onClick={handleClearMessageSelection}
+                  aria-label="Clear selection"
+                  style={{
+                    marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                    cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          ) : (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              padding: '2px 8px', borderRadius: '6px',
+              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
+            }} title="Chat scoped to message">
+              📨 Message
+              {selectedAttachmentId && <span>→ Attachment</span>}
+              {onClearMessageSelection && (
+                <button
+                  type="button"
+                  onClick={handleClearMessageSelection}
+                  aria-label="Clear message selection"
+                  style={{
+                    marginLeft: '4px', padding: 0, background: 'none', border: 'none',
+                    cursor: 'pointer', color: 'inherit', fontSize: '12px', lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      <div
+        className="hs-bar"
+        data-draft-refine={draftRefineConnected && draftRefineMessageId === selectedMessageId ? 'true' : undefined}
+      >
+
+        {/* ── Left: mode toggle + scope ── */}
+        <div className="hs-bar-left">
+          <div className="hs-mode" role="group" aria-label="Input mode">
+            <button
+              className={`hs-mode-btn${mode === 'chat' ? ' hs-mode-btn--active' : ''}`}
+              onClick={() => setMode('chat')}
+              title="Chat — ask a question, get an AI answer"
+              aria-pressed={mode === 'chat'}
+            >
+              Chat
+            </button>
+            <button
+              className={`hs-mode-btn${mode === 'actions' ? ' hs-mode-btn--active hs-mode-btn--actions-active' : ''}`}
+              onClick={() => setMode('actions')}
+              title="Actions — draft, analyze, extract, or automate based on the selected handshake or message"
+              aria-pressed={mode === 'actions'}
+            >
+              Actions
+            </button>
+            <button
+              className={`hs-mode-btn${mode === 'search' ? ' hs-mode-btn--active hs-mode-btn--search-active' : ''}`}
+              onClick={() => setMode('search')}
+              title="Search — fulltext search across BEAP messages and context graph"
+              aria-pressed={mode === 'search'}
+            >
+              Search
+            </button>
+          </div>
+
+          {mode === 'search' && <div className="hs-bar-divider" />}
+
+          {mode === 'search' && (
+            <select
+              className="hs-scope"
+              value={scope}
+              onChange={e => setScope(e.target.value as SearchScope)}
+              aria-label="Search scope"
+              title="Scope: where to search"
+            >
+              <option value="context-graph">Context Graph</option>
+              <option value="capsules">Capsules</option>
+              <option value="attachments">Attachments</option>
+              <option value="inbox-messages">Inbox</option>
+              <option value="all">All (Global)</option>
+            </select>
+          )}
+          <div className="hs-info-wrap" ref={infoPopupRef}>
+            <button
+              type="button"
+              className="hs-info-btn"
+              onClick={() => setInfoPopupOpen(prev => !prev)}
+              aria-label="Mode help"
+              title="What do Chat, Search, and Actions do?"
+            >
+              i
+            </button>
+            {infoPopupOpen && (
+              <div className="hs-info-popup" role="dialog" aria-label="Mode help">
+                <div className="hs-info-popup-item"><strong>Chat:</strong> Chat with AI across the global BEAP Ecosystem when nothing is selected. When a handshake or BEAP Message is selected, the AI focuses on it while still using the related Context Graph and relationship context.</div>
+                <div className="hs-info-popup-item"><strong>Search:</strong> Search across the global BEAP Ecosystem, or narrow the search to the selected handshake or BEAP Message and its related context.</div>
+                <div className="hs-info-popup-item"><strong>Actions:</strong> Draft replies, analyze content, extract structured data into the Context Graph, or prepare automations based on the current selection.</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Centre: main input ── */}
+        {selectedHandshakeId && (
+          <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected handshake">👉</span>
+        )}
+        {selectedMessageId && !selectedHandshakeId && (
+          <span
+            style={{
+              marginRight: '6px', fontSize: '16px', lineHeight: 1, flexShrink: 0, cursor: 'default',
+              color: uiFocusContext.kind === 'draft' ? '#15803d' : 'var(--purple-accent, #a78bfa)',
+            }}
+            title={uiFocusContext.kind === 'draft' ? 'Chat scoped to draft' : uiFocusContext.kind === 'attachment' ? 'Chat scoped to attachment' : 'Chat scoped to message'}
+          >
+            {uiFocusContext.kind === 'draft' ? '✏️' : '👉'}
+          </span>
+        )}
+        <input
+          ref={inputRef}
+          className="hs-input"
+          type="text"
+          placeholder={
+            draftRefineConnected && draftRefineMessageId === selectedMessageId
+              ? "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
+              : mode === 'actions'
+                ? 'Describe an action to draft, analyze, or automate…'
+                : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
+          }
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => { if (results.length > 0 || response) setShowPanel(true) }}
+          aria-label={mode === 'chat' ? 'Ask a question' : mode === 'search' ? 'Search' : 'Actions input'}
+          autoComplete="off"
+          spellCheck={false}
+        />
+
+        {/* ── Right: action button ── */}
+        <div className="hs-send-group" ref={modelMenuRef}>
+          <button
+            className={`hs-send-btn hs-send-btn--${mode === 'actions' ? 'actions' : mode}`}
+            onClick={handleSubmit}
+            disabled={!query.trim() || isLoading}
+            title={
+              mode === 'chat'
+                ? `Send to ${getModelLabel(selectedModel, availableModels)} (Enter)`
+                : mode === 'search'
+                ? 'Run search (Enter)'
+                : `Run action with ${getModelLabel(selectedModel, availableModels)} (Enter)`
+            }
+          >
+            {isLoading ? (
+              <span className="hs-send-spinner" aria-label="Loading" />
+            ) : (
+              <span className="hs-send-label">
+                {mode === 'chat' ? 'Chat' : mode === 'search' ? 'Search' : 'Actions'}
+              </span>
+            )}
+          </button>
+
+          {/* Model picker — for Chat and Actions */}
+          {showModelSelector && (
+            <button
+              className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
+              onClick={async () => {
+                const next = !modelMenuOpen
+                setModelMenuOpen(next)
+                if (next) {
+                  try {
+                    const result = await window.handshakeView?.getAvailableModels?.()
+                    if (result?.success && Array.isArray(result.models)) {
+                      setAvailableModels(result.models)
+                      const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
+                      setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
+                    }
+                  } catch { /* ignore */ }
+                }
+              }}
+              aria-label="Select LLM model"
+              title="Choose model (click to open)"
+              tabIndex={0}
+            >
+              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
+              <span className="hs-model-caret">▾</span>
+            </button>
+          )}
+
+          {modelMenuOpen && showModelSelector && (
+            <div className="hs-model-menu" role="menu">
+              {modelsLoading ? (
+                <div className="hs-model-group-label">Loading models…</div>
+              ) : availableModels.length === 0 ? (
+                <div className="hs-model-group-label">No models configured — check Settings</div>
+              ) : (
+                <>
+                  {availableModels.some(m => m.type === 'local') && (
+                    <>
+                      <div className="hs-model-group-label">Local Models</div>
+                      {availableModels.filter(m => m.type === 'local').map(m => (
+                        <button
+                          key={m.id}
+                          role="menuitem"
+                          className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                        >
+                          {m.name}
+                          {selectedModel === m.id && <span className="hs-model-check">✓</span>}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {availableModels.some(m => m.type === 'cloud') && (
+                    <>
+                      <div className="hs-model-group-label">Cloud Models</div>
+                      {availableModels.filter(m => m.type === 'cloud').map(m => (
+                        <button
+                          key={m.id}
+                          role="menuitem"
+                          className={`hs-model-item${selectedModel === m.id ? ' hs-model-item--active' : ''}`}
+                          onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false) }}
+                        >
+                          {m.name}
+                          {selectedModel === m.id && <span className="hs-model-check">✓</span>}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Results / Response panel ── */}
+      {showPanel && (
+        <div className="hs-panel" role="region" aria-label="Results">
+          <div className="hs-panel-header">
+            <span className="hs-panel-meta">
+              {lastMode === 'search'
+                ? `Search · ${SCOPE_LABELS[scope]}`
+                : lastMode === 'actions'
+                ? `Actions · ${getModelLabel(selectedModel, availableModels)}`
+                : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
+            </span>
+            <button
+              className="hs-panel-close"
+              onClick={() => setShowPanel(false)}
+              aria-label="Close results"
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
+
+          {isLoading && !(lastMode === 'chat' && contextBlocks.length > 0) && (
+            <div className="hs-panel-loading">
+              <span className="hs-spinner" />
+              <span>{lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}</span>
+            </div>
+          )}
+
+          {/* Search results */}
+          {!isLoading && lastMode === 'search' && (
+            <>
+              {results.length === 0 ? (
+                <div className="hs-panel-empty">
+                  No matching context found. Try a different query or check that context blocks have been indexed.
+                </div>
+              ) : results.length === 1 && isSpecialResult(results[0]) ? (
+                <div className="hs-panel-empty">
+                  <strong>{results[0].title}</strong>
+                  <br />
+                  {results[0].snippet}
+                </div>
+              ) : (
+                <div className="hs-result-group">
+                  {results.filter(r => !isSpecialResult(r)).map(r => (
+                    <ResultRow
+                      key={r.id}
+                      result={r}
+                      selectedHandshakeId={selectedHandshakeId}
+                      onCopyResult={handleCopyResult}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Draft refine history (when connected to draft) */}
+          {draftRefineConnected && draftRefineMessageId === selectedMessageId && (draftRefineHistory.length > 0 || response) && (
+            <div className="hs-draft-refine-history" style={{ marginBottom: '16px' }}>
+              {draftRefineHistory.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`hs-draft-refine-msg hs-draft-refine-msg--${msg.role}`}
+                  style={{
+                    marginBottom: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: msg.role === 'user' ? 'rgba(147,51,234,0.08)' : 'rgba(147,51,234,0.04)',
+                    border: '1px solid rgba(147,51,234,0.2)',
+                    fontSize: '12px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    {msg.role === 'user' ? 'You' : 'Revised draft'}
+                  </div>
+                  <div className="hs-draft-refine-content">{msg.content}</div>
+                  {msg.showUseButton && msg.onUse && (
+                    <button
+                      type="button"
+                      className="chat-use-btn"
+                      onClick={msg.onUse}
+                      title="Apply this version to draft"
+                    >
+                      USE ↓
+                    </button>
+                  )}
+                </div>
+              ))}
+              {isLoading && response && (
+                <div
+                  className="hs-draft-refine-msg hs-draft-refine-msg--assistant"
+                  style={{
+                    marginBottom: '10px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'rgba(147,51,234,0.04)',
+                    border: '1px solid rgba(147,51,234,0.2)',
+                    fontSize: '12px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>Revising…</div>
+                  <div>{response}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions response */}
+          {lastMode === 'actions' && response && (
+            <div className="hs-response">
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Response:</div>
+              <div className="hs-response-text">{response}</div>
+            </div>
+          )}
+
+          {/* Chat response (skip when draft refine mode — we show draft history instead) */}
+          {lastMode === 'chat' && !(draftRefineConnected && draftRefineMessageId === selectedMessageId) && (response || contextBlocks.length > 0 || structuredResult) && (
+            <div className="hs-response">
+              {structuredResult && structuredResult.items.length > 0 && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    {structuredResult.title}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {structuredResult.items.map((item) => (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '12px',
+                          background: 'var(--purple-accent-muted, rgba(147,51,234,0.08))',
+                          border: '1px solid rgba(147,51,234,0.2)',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>{item.title}</div>
+                        <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item.snippet}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {structuredResult && structuredResult.items.length === 0 && (
+                <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  No relevant context found in indexed BEAP data.
+                </div>
+              )}
+              {(response != null || contextBlocks.length > 0) && !(structuredResult && structuredResult.items.length > 0) && (
+                <>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
+                  <div className="hs-response-text">
+                    {response ?? ''}
+                    {contextBlocks.length > 0 && response === '' && <span className="hs-stream-cursor" style={{ display: 'inline-block', width: '2px', height: '1em', background: 'var(--purple-accent)', marginLeft: '2px', animation: 'hs-blink 1s step-end infinite' }} />}
+                  </div>
+                </>
+              )}
+              {structuredResult && structuredResult.items.length === 0 && response && (
+                <>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
+                  <div className="hs-response-text">{response}</div>
+                </>
+              )}
+              <div className="hs-response-chips">
+                <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
+                <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
+              </div>
+              {chatGovernanceNote && (
+                <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {chatGovernanceNote}
+                </div>
+              )}
+              {/* Collapsible Sources & Details dropdown */}
+              {(chatSources.length > 0 || contextBlocks.length > 0 || (structuredResult?.items?.length ?? 0) > 0) && (
+                <details className="hs-response-details" style={{
+                  marginTop: '12px',
+                  borderTop: '1px solid var(--border-light, var(--border, #e0e0e0))',
+                  paddingTop: '8px',
+                }}>
+                  <summary style={{
+                    fontSize: '11px',
+                    color: 'var(--text-muted, #888)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    fontWeight: 500,
+                    letterSpacing: '0.03em',
+                    listStyle: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}>
+                    <span className="hs-details-arrow" style={{
+                      display: 'inline-block',
+                      transition: 'transform 0.2s',
+                      fontSize: '9px',
+                    }}>&#9654;</span>
+                    Sources &amp; Details
+                  </summary>
+                  <div style={{
+                    paddingTop: '8px',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary, #666)',
+                  }}>
+                    {contextBlocks.length > 0 && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted, #888)',
+                          marginBottom: '4px',
+                        }}>
+                          Context Retrieved
+                        </div>
+                        <div style={{
+                          fontFamily: 'monospace',
+                          fontSize: '11px',
+                          whiteSpace: 'pre-wrap',
+                          color: 'var(--text-secondary, #666)',
+                        }}>
+                          {contextBlocks.join('\n')}
+                        </div>
+                      </div>
+                    )}
+                    {(chatSources.length > 0 || (structuredResult?.items?.length ?? 0) > 0) && (
+                      <div>
+                        <div style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted, #888)',
+                          marginBottom: '4px',
+                        }}>
+                          Sources
+                        </div>
+                        {(chatSources.length > 0 ? chatSources : structuredResult?.items ?? []).map((s, i, arr) => {
+                          const handshakeId = (s as { handshake_id: string }).handshake_id
+                          const blockId = (s as { block_id: string }).block_id
+                          const displayLabel = selectedHandshakeId && handshakeId === selectedHandshakeId && selectedHandshakeEmail
+                            ? selectedHandshakeEmail
+                            : (handshakeId?.includes('@') ? handshakeId : shortId(handshakeId))
+                          return (
+                            <div key={`src-${handshakeId}-${blockId}-${i}`} style={{
+                              fontSize: '11px',
+                              padding: '4px 0',
+                              borderBottom: i < arr.length - 1 ? '1px solid var(--border-light, #eee)' : 'none',
+                            }}>
+                              <div style={{
+                                fontWeight: 600,
+                                fontSize: '12px',
+                                color: 'var(--text-primary, #333)',
+                                marginBottom: '2px',
+                              }}>
+                                {displayLabel}
+                              </div>
+                              <div style={{
+                                fontFamily: 'monospace',
+                                fontSize: '10px',
+                                color: 'var(--text-muted, #888)',
+                              }}>
+                                Block: {blockId}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Result row ──
+
+function ResultRow({
+  result,
+  selectedHandshakeId,
+  onCopyResult,
+}: {
+  result: SearchResult
+  selectedHandshakeId?: string | null
+  onCopyResult: (text: string) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const scorePct = result.score != null ? Math.round(Math.min(1, Math.max(0, result.score)) * 100) : null
+  const attribution =
+    result.handshake_id && result.source
+      ? result.source === 'received'
+        ? `Received from handshake ${shortId(result.handshake_id)}`
+        : `Sent by you · handshake ${shortId(result.handshake_id)}`
+      : result.timestamp ?? ''
+
+  const textToCopy = result.copyableText ?? result.snippet
+  const handleCopyResult = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (textToCopy) {
+      onCopyResult(textToCopy)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const ctaLabel = copied ? 'Copied!' : 'Copy result'
+
+  return (
+    <div
+      className="hs-result-row"
+      title={result.title}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <div className="hs-result-row__title">{result.title}</div>
+        {result.structured_result && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(34,197,94,0.12)', color: '#22c55e',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            Context
+          </span>
+        )}
+        {result.data_classification && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(107,114,128,0.15)', color: 'var(--text-muted)',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.data_classification}
+          </span>
+        )}
+        {result.governance_summary && (
+          <span className="hs-result-badge" style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: 'rgba(139,92,246,0.12)', color: '#a78bfa',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.governance_summary}
+          </span>
+        )}
+        {result.timestamp && (
+          <span style={{
+            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
+            background: result.timestamp.startsWith('↓') ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.1)',
+            color: result.timestamp.startsWith('↓') ? '#a78bfa' : '#22c55e',
+            fontWeight: 600, flexShrink: 0,
+          }}>
+            {result.timestamp}
+          </span>
+        )}
+      </div>
+      <div className="hs-result-row__snippet">{result.snippet}</div>
+      {(attribution || scorePct != null) && (
+        <div className="hs-result-row__meta" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+          {scorePct != null && (
+            <span className="hs-result-score" title={`Relevance: ${scorePct}%`} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--text-muted)',
+            }}>
+              <span style={{
+                width: '24px', height: '4px', background: 'rgba(107,114,128,0.2)', borderRadius: 2, overflow: 'hidden',
+              }}>
+                <span style={{
+                  width: `${scorePct}%`, height: '100%', background: 'var(--purple-accent)', borderRadius: 2,
+                }} />
+              </span>
+              {scorePct}%
+            </span>
+          )}
+          {attribution && <span>{attribution}</span>}
+          {textToCopy && (
+            <button
+              type="button"
+              className="hs-result-view-handshake"
+              onClick={handleCopyResult}
+              title={copied ? 'Copied to clipboard' : 'Copy result to clipboard'}
+              style={{
+                marginLeft: 'auto', fontSize: '10px', padding: '2px 6px',
+                background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
+                border: '1px solid rgba(147,51,234,0.2)', borderRadius: '4px',
+                cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              {ctaLabel}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

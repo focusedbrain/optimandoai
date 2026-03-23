@@ -8,10 +8,13 @@ import { UnlockView } from './UnlockView'
 import { connectVault, disconnectVault, lockVault, listItems, listContainers, createItem, createContainer, deleteItem, deleteContainer, getItem, updateItem, exportCSV, importCSV, getSettings, updateSettings } from './api'
 import type { VaultItem, Container, Field, ItemCategory } from './types'
 import { CATEGORY_UI_MAP } from './capabilities'
+import { HsContextProfileList } from './hsContext/HsContextProfileList'
 
 export const VaultUI: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false)
-  const [view, setView] = useState<'items' | 'settings'>('items')
+  const [view, setView] = useState<'items' | 'hs-context' | 'settings'>('items')
+  // Tier from vault settings — publisher/enterprise can see HS Context Profiles
+  const [vaultTier, setVaultTier] = useState<string>('free')
   const [items, setItems] = useState<VaultItem[]>([])
   const [containers, setContainers] = useState<Container[]>([])
   const [selectedCategory, setSelectedCategory] = useState<ItemCategory | 'all'>('all')
@@ -43,12 +46,18 @@ export const VaultUI: React.FC = () => {
       setItems(itemsData)
       setContainers(containersData)
       setAutoLockMinutes(settings.autoLockMinutes)
+      // Derive tier from settings if available
+      if ((settings as any).tier) {
+        setVaultTier((settings as any).tier)
+      }
     } catch (error) {
       console.error('[VAULT UI] Error loading data:', error)
     } finally {
       setLoading(false)
     }
   }
+
+  const canAccessHsContext = ['publisher', 'publisher_lifetime', 'enterprise'].includes(vaultTier)
 
   const handleLock = async () => {
     await lockVault()
@@ -170,6 +179,23 @@ export const VaultUI: React.FC = () => {
           >
             Items
           </button>
+          {canAccessHsContext && (
+            <button
+              onClick={() => setView('hs-context')}
+              style={{
+                background: view === 'hs-context' ? '#8b5cf6' : 'transparent',
+                border: 'none',
+                color: '#fff',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600,
+              }}
+            >
+              HS Profiles
+            </button>
+          )}
           <button
             onClick={() => setView('settings')}
             style={{
@@ -204,7 +230,12 @@ export const VaultUI: React.FC = () => {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {view === 'hs-context' && canAccessHsContext && (
+          <HsContextProfileList theme="dark" />
+        )}
+        {view !== 'hs-context' && (
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
         {view === 'items' && (
           <>
             {/* Search and Filters */}
@@ -404,6 +435,7 @@ export const VaultUI: React.FC = () => {
           </div>
         )}
       </div>
+        )}
 
       {/* Item Detail Modal */}
       {editingItem && (
@@ -474,6 +506,7 @@ export const VaultUI: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

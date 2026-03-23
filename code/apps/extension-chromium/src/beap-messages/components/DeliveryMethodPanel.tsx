@@ -19,7 +19,7 @@
 import React, { useState, useEffect } from 'react'
 import type { RecipientMode, SelectedRecipient } from './RecipientModeSwitch'
 
-export type DeliveryMethod = 'email' | 'messenger' | 'download'
+export type DeliveryMethod = 'email' | 'download' | 'p2p'
 
 export interface DeliveryMethodPanelProps {
   deliveryMethod: DeliveryMethod
@@ -27,7 +27,7 @@ export interface DeliveryMethodPanelProps {
   selectedRecipient: SelectedRecipient | null
   emailTo: string
   onEmailToChange: (value: string) => void
-  theme: 'standard' | 'hacker' | 'pro'
+  theme: 'standard' | 'hacker' | 'pro' | 'dark'
   ourFingerprintShort: string
 }
 
@@ -64,7 +64,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
   const getFilenamePreview = (): string => {
     const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     if (recipientMode === 'private' && selectedRecipient) {
-      const shortFp = selectedRecipient.receiver_fingerprint_short.replace(/[…\.]/g, '').slice(0, 8)
+      const shortFp = (selectedRecipient.receiver_fingerprint_short ?? '').replace(/[…\.]/g, '').slice(0, 8)
       return `beap_${timestamp}_${shortFp}.beap`
     }
     return `beap_${timestamp}_PUBLIC.beap`
@@ -171,7 +171,7 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
                 outline: 'none'
               }}
             >
-              {emails.map((email, idx) => (
+              {emails.map((email: string, idx: number) => (
                 <option key={idx} value={email} style={{ background: isStandard ? 'white' : '#1f2937', color: isStandard ? '#0f172a' : 'white' }}>
                   {email}
                 </option>
@@ -229,72 +229,79 @@ export const DeliveryMethodPanel: React.FC<DeliveryMethodPanelProps> = ({
   }
 
   // ==========================================================================
-  // MESSENGER DELIVERY
+  // P2P DELIVERY
   // ==========================================================================
-  if (deliveryMethod === 'messenger') {
+  if (deliveryMethod === 'p2p') {
+    const hasP2PEndpoint = recipientMode === 'private' && selectedRecipient && 
+      selectedRecipient.p2pEndpoint && String(selectedRecipient.p2pEndpoint).trim().length > 0
+    const p2pUnavailable = recipientMode === 'private' && selectedRecipient && !hasP2PEndpoint
     return (
       <div style={{
         padding: '14px',
-        background: isStandard 
-          ? (recipientMode === 'private' ? 'rgba(139,92,246,0.06)' : 'rgba(34,197,94,0.06)')
-          : (recipientMode === 'private' ? 'rgba(139,92,246,0.12)' : 'rgba(34,197,94,0.12)'),
+        background: p2pUnavailable
+          ? (isStandard ? 'rgba(239,68,68,0.06)' : 'rgba(239,68,68,0.12)')
+          : isStandard
+            ? (recipientMode === 'private' ? 'rgba(139,92,246,0.06)' : 'rgba(34,197,94,0.06)')
+            : (recipientMode === 'private' ? 'rgba(139,92,246,0.12)' : 'rgba(34,197,94,0.12)'),
         borderRadius: '8px',
-        border: `1px solid ${isStandard 
-          ? (recipientMode === 'private' ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)')
-          : (recipientMode === 'private' ? 'rgba(139,92,246,0.25)' : 'rgba(34,197,94,0.25)')}`
+        border: `1px solid ${p2pUnavailable
+          ? (isStandard ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.3)')
+          : isStandard
+            ? (recipientMode === 'private' ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)')
+            : (recipientMode === 'private' ? 'rgba(139,92,246,0.25)' : 'rgba(34,197,94,0.25)')}`,
+        opacity: p2pUnavailable ? 0.85 : 1
       }}>
-        <div style={{ 
-          fontSize: '10px', 
-          fontWeight: 600, 
-          textTransform: 'uppercase', 
-          letterSpacing: '0.5px', 
-          color: isStandard 
-            ? (recipientMode === 'private' ? '#7c3aed' : '#15803d')
-            : (recipientMode === 'private' ? '#c4b5fd' : '#86efac'),
+        <div style={{
+          fontSize: '10px',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          color: p2pUnavailable
+            ? (isStandard ? '#b91c1c' : '#fca5a5')
+            : isStandard
+              ? (recipientMode === 'private' ? '#7c3aed' : '#15803d')
+              : (recipientMode === 'private' ? '#c4b5fd' : '#86efac'),
           marginBottom: '8px',
           display: 'flex',
           alignItems: 'center',
           gap: '6px'
         }}>
-          <span>{recipientMode === 'private' ? '🔐' : '🌐'}</span>
-          <span>{recipientMode === 'private' ? 'Private Distribution' : 'Public Distribution'}</span>
+          <span>🔗</span>
+          <span>P2P Delivery</span>
         </div>
-        
-        {recipientMode === 'private' ? (
-          selectedRecipient ? (
-            <>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '4px' }}>
-                Recipient: {selectedRecipient.receiver_organization || selectedRecipient.receiver_display_name}
-              </div>
-              <div style={{ fontSize: '12px', color: mutedColor, fontFamily: 'monospace' }}>
-                Fingerprint: {selectedRecipient.receiver_fingerprint_short}
-              </div>
-            </>
-          ) : (
-            <div style={{ fontSize: '12px', color: isStandard ? '#92400e' : '#fcd34d' }}>
-              ⚠️ Select a handshake recipient to configure messenger delivery.
-            </div>
-          )
-        ) : (
+        {p2pUnavailable ? (
+          <div style={{ fontSize: '12px', color: isStandard ? '#b91c1c' : '#fca5a5' }}>
+            ⚠️ P2P not available — recipient has no P2P endpoint configured.
+          </div>
+        ) : recipientMode === 'private' && selectedRecipient ? (
           <>
             <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '4px' }}>
-              Public distribution (pBEAP)
+              Recipient: {selectedRecipient.receiver_organization || selectedRecipient.receiver_display_name}
             </div>
-            <div style={{ fontSize: '12px', color: mutedColor }}>
-              Package will be fully auditable with no recipient binding.
+            <div style={{ fontSize: '12px', color: mutedColor, fontFamily: 'monospace' }}>
+              Fingerprint: {selectedRecipient.receiver_fingerprint_short}
             </div>
           </>
+        ) : recipientMode === 'private' ? (
+          <div style={{ fontSize: '12px', color: isStandard ? '#92400e' : '#fcd34d' }}>
+            ⚠️ Select a handshake recipient for P2P delivery.
+          </div>
+        ) : (
+          <div style={{ fontSize: '12px', color: mutedColor }}>
+            Public P2P distribution (pBEAP).
+          </div>
         )}
-        
-        <div style={{ 
-          marginTop: '12px', 
-          paddingTop: '10px', 
-          borderTop: `1px solid ${borderColor}`,
-          fontSize: '11px',
-          color: mutedColor
-        }}>
-          💬 Payload will be copied to clipboard for pasting into any messenger platform.
-        </div>
+        {!p2pUnavailable && (
+          <div style={{
+            marginTop: '12px',
+            paddingTop: '10px',
+            borderTop: `1px solid ${borderColor}`,
+            fontSize: '11px',
+            color: mutedColor
+          }}>
+            🔗 Package will be sent via P2P relay to the recipient.
+          </div>
+        )}
       </div>
     )
   }

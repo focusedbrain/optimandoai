@@ -119,7 +119,14 @@ interface BeapMessagesState {
   acceptMessage: (
     id: string, 
     envelopeSummary: EnvelopeSummaryUI, 
-    capsuleMetadata?: CapsuleMetadataUI
+    capsuleMetadata?: CapsuleMetadataUI,
+    /**
+     * Sanitised verified package from the Stage 5 sandbox boundary.
+     * When present, stored as `decryptedData` on the message UI record.
+     * Consumers MUST check `decryptedData.authorizedProcessing.decision === 'AUTHORIZED'`
+     * before using capsule content.
+     */
+    decryptedData?: import('./sandbox').SanitisedDecryptedPackage
   ) => void
   
   /** Mark message as rejected */
@@ -343,7 +350,7 @@ export const useBeapMessagesStore = create<BeapMessagesState>((set, get) => ({
     }))
   },
   
-  acceptMessage: (id, envelopeSummary, capsuleMetadata) => {
+  acceptMessage: (id, envelopeSummary, capsuleMetadata, decryptedData) => {
     set(state => ({
       messages: state.messages.map(m => {
         if (m.id !== id) return m
@@ -353,7 +360,8 @@ export const useBeapMessagesStore = create<BeapMessagesState>((set, get) => ({
           status: 'accepted',
           verificationStatus: 'accepted',
           envelopeSummary,
-          capsuleMetadata
+          capsuleMetadata,
+          ...(decryptedData !== undefined ? { decryptedData } : {}),
         }
       })
     }))

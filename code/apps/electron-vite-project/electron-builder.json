@@ -3,7 +3,7 @@
   "productName": "WR Desk™",
   "icon": "public/giraffe",
   "directories": {
-    "output": "release/${version}",
+    "output": "dist/release",
     "buildResources": "build"
   },
   "files": [
@@ -36,9 +36,14 @@
     }
   ],
   "win": {
+    "signAndEditExecutable": false,
     "target": [
       {
-        "target": "nsis",
+        "target": "dir",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
         "arch": ["x64"]
       }
     ],
@@ -97,7 +102,8 @@
   "asar": true,
   "asarUnpack": [
     "**/*.node",
-    "resources/**/*"
+    "resources/**/*",
+    "dist-electron/preload.cjs"
   ]
 }
 

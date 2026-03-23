@@ -57,7 +57,7 @@ export function KPICard({
       <div className="hero-kpi-card__content">
         <span className="hero-kpi-card__label">{label}</span>
         <span className={`hero-kpi-card__value hero-kpi-card__value--${status}`}>
-          {value}
+          {typeof value === 'object' && value !== null ? '—' : value}
         </span>
         {subtext && <span className="hero-kpi-card__subtext">{subtext}</span>}
       </div>
@@ -118,7 +118,9 @@ export function StatusHero({
           <div className="hero-status__metrics">
             {metrics.map((metric, index) => (
               <div key={index} className="hero-status__metric">
-                <span className="hero-status__metric-value">{metric.value}</span>
+                <span className="hero-status__metric-value">
+                  {typeof metric.value === 'object' && metric.value !== null ? '—' : metric.value}
+                </span>
                 <span className="hero-status__metric-label">{metric.label}</span>
               </div>
             ))}

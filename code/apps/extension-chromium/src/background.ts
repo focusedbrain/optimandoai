@@ -1,6 +1,11 @@
 import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
-import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpAdapter'
+import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
+
+declare global {
+  var vaultRpcCallbacks: Map<string, (data: any) => void> | undefined
+  var emailCallbacks: Map<string, (data: any) => void> | undefined
+}
 
 let ws: WebSocket | null = null;
 let isConnecting = false;
@@ -15,6 +20,10 @@ const tabSidebarStatus = new Map<number, boolean>();
 // Track if we've already tried to launch Electron this session
 let electronLaunchAttempted = false;
 let electronLaunchInProgress = false;
+// Track the dashboard-launched popup window id so we can restore focus when it closes
+let dashboardPopupWindowId: number | null = null;
+// Guard against duplicate OPEN_COMMAND_CENTER_POPUP (e.g. double-click) creating multiple popups
+let creatingDashboardPopup = false;
 // Track if MailGuard should be active (persists across reconnections)
 let mailGuardShouldBeActive = false;
 let lastMailGuardWindowInfo: any = null;
@@ -128,12 +137,12 @@ function _recordWebMcpReject(now: number): void {
 // ---------------------------------------------------------------------------
 // Audit Export — UI context allowlist
 //
-// EXPORT_AUDIT_LOG is privileged: only popup.html and sidepanel.html may call
+// EXPORT_AUDIT_LOG is privileged: only popup-chat.html and sidepanel.html may call
 // it, and only when the vault is unlocked (VSBT present).
 // ---------------------------------------------------------------------------
 
 /** Allowed UI page filenames for EXPORT_AUDIT_LOG. */
-const AUDIT_EXPORT_ALLOWED_PAGES = ['/popup.html', '/sidepanel.html']
+const AUDIT_EXPORT_ALLOWED_PAGES = ['/src/popup-chat.html', '/sidepanel.html']
 
 /** Stable result version for EXPORT_AUDIT_LOG responses. */
 export const AUDIT_EXPORT_RESULT_VERSION = 'audit-export-v1'
@@ -153,7 +162,7 @@ export type AuditExportErrorCode = 'FORBIDDEN' | 'LOCKED' | 'HA_BLOCKED' | 'INTE
  *   3. The path component of sender.url must match an allowed page.
  *
  * Extension popup/sidepanel have sender.url like:
- *   chrome-extension://<id>/popup.html
+ *   chrome-extension://<id>/src/popup-chat.html
  *   chrome-extension://<id>/sidepanel.html
  */
 function _isExtensionUiContext(
@@ -636,7 +645,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'OpenGiraffe desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'WR Desk™ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -666,7 +675,7 @@ async function electronRequest(
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'OpenGiraffe desktop app stopped unexpectedly. Please restart it.',
+            error: 'WR Desk™ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -738,7 +747,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to OpenGiraffe desktop app';
+        lastError = 'Cannot connect to WR Desk™ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -751,7 +760,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart OpenGiraffe.`,
+    error: `${lastError}. Please try again or restart WR Desk™.`,
     errorCode: lastErrorCode
   };
 }
@@ -829,7 +838,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
     isConnecting = true;
     connectionAttempts++;
 
-    const wsUrl = 'ws://localhost:51247/';
+    const wsUrl = 'ws://127.0.0.1:51247/';
 
     try {
       console.log(`[BG] 🔗 Connecting to WebSocket (attempt ${connectionAttempts}): ${wsUrl}`);
@@ -893,7 +902,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             console.log('[BG] Vault RPC response received for ID:', data.id)
             const callback = globalThis.vaultRpcCallbacks.get(data.id)
             globalThis.vaultRpcCallbacks.delete(data.id)
-            callback(data)
+            callback?.(data)
             return
           }
           
@@ -902,7 +911,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             console.log('[BG] 📧 Email response received for ID:', data.id)
             const callback = globalThis.emailCallbacks.get(data.id)
             globalThis.emailCallbacks.delete(data.id)
-            callback(data)
+            callback?.(data)
             return
           }
           
@@ -994,6 +1003,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'OPEN_COMMAND_CENTER_POPUP') {
               // Open popup from Electron dashboard request
+              // Guard: prevent multiple popups from rapid/double clicks
+              if (creatingDashboardPopup) {
+                console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP ignored (creation already in progress)')
+                return
+              }
+              creatingDashboardPopup = true
               console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds, 'windowState:', data.windowState)
               const themeHint = typeof data.theme === 'string' ? data.theme : null
               const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
@@ -1020,12 +1035,20 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 top: dashboardBounds?.y ?? 100,
                 focused: true
               }
+
+              const trackPopupId = (winId: number) => {
+                dashboardPopupWindowId = winId
+                console.log('[BG] 📌 Tracking popup window id for focus-restore:', winId)
+              }
               
-              // Prevent duplicates: if a popup already exists, update its bounds and focus
+              // Prevent duplicates: if our tracked popup already exists, update its bounds and focus
               try {
-                chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
-                  const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
+                chrome.windows.getAll({ populate: false, windowTypes: ['popup'] }, (wins) => {
+                  const existing = dashboardPopupWindowId !== null
+                    && wins.find(w => w.id === dashboardPopupWindowId)
                   if (existing && existing.id) {
+                    trackPopupId(existing.id)
+                    creatingDashboardPopup = false
                     // Update existing popup: set state to match dashboard, set bounds, and focus
                     if (shouldMaximize) {
                       chrome.windows.update(existing.id, { focused: true, state: 'maximized' })
@@ -1040,33 +1063,33 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                       })
                     }
                   } else {
-                    // Create new popup with normal state first
+                    // Create new popup, then force focus after it has rendered
                     chrome.windows.create(opts, (newWindow) => {
+                      creatingDashboardPopup = false
                       if (newWindow?.id) {
                         const winId = newWindow.id
-                        // If dashboard was maximized/fullscreen, maximize the popup after creation
+                        trackPopupId(winId)
                         if (shouldMaximize) {
                           setTimeout(() => {
                             try {
-                              chrome.windows.update(winId, { focused: true, state: 'maximized', drawAttention: true })
+                              chrome.windows.update(winId, { focused: true, state: 'maximized' })
                             } catch {}
-                          }, 50)
+                          }, 100)
                         } else {
-                          // Ensure it's focused and visible on top
-                          const forceVisible = () => {
-                            try {
-                              chrome.windows.update(winId, { focused: true, state: 'normal', drawAttention: true })
-                            } catch {}
-                          }
-                          forceVisible()
-                          setTimeout(forceVisible, 50)
-                          setTimeout(forceVisible, 150)
+                          // Give the window time to render before forcing focus
+                          setTimeout(() => {
+                            try { chrome.windows.update(winId, { focused: true, state: 'normal' }) } catch {}
+                          }, 100)
+                          setTimeout(() => {
+                            try { chrome.windows.update(winId, { focused: true }) } catch {}
+                          }, 300)
                         }
                       }
                     })
                   }
                 })
               } catch (err) {
+                creatingDashboardPopup = false
                 console.error('[BG] Error creating popup:', err)
                 chrome.windows.create(opts)
               }
@@ -1478,11 +1501,38 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabSidebarStatus.delete(tabId)
 });
 
+// When the dashboard-launched popup is closed, restore focus to the Electron dashboard
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === dashboardPopupWindowId) {
+    dashboardPopupWindowId = null
+    console.log('[BG] 🔙 Dashboard popup closed — restoring focus to Electron dashboard')
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'FOCUS_DASHBOARD' })) } catch {}
+    }
+  }
+});
+
+// Notify Electron when the popup window gains / loses focus so it can
+// manage its always-on-top state (dashboard below popup, above tabs).
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (dashboardPopupWindowId === null) return
+  if (windowId === dashboardPopupWindowId) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'POPUP_FOCUSED' })) } catch {}
+    }
+  } else if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'POPUP_BLURRED' })) } catch {}
+    }
+  }
+});
+
 /**
  * Check if Electron app is running and launch it if needed
  * Uses a Windows-compatible notification approach (buttons don't work on Windows)
  */
-async function checkAndLaunchElectronApp(sendResponse: (response: any) => void): Promise<void> {
+async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, theme?: string): Promise<void> {
+  const themePayload = theme && ['standard', 'dark', 'pro'].includes(theme) ? { theme } : {}
   try {
     // First check if app is running via HTTP
     const isRunning = await isElectronRunning()
@@ -1493,7 +1543,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
       connectToWebSocketServer()
       setTimeout(async () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+          try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD', ...themePayload })) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
           // WebSocket still not connected, but app is running - try direct HTTP to open window
@@ -1530,7 +1580,7 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void):
         connectToWebSocketServer()
         setTimeout(() => {
           if (ws && ws.readyState === WebSocket.OPEN) {
-            try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+            try { ws.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD', ...themePayload })) } catch {}
             try { sendResponse({ success: true }) } catch {}
           } else {
             // App started but WebSocket not ready yet
@@ -1632,17 +1682,14 @@ async function launchElectronAppDirect(): Promise<boolean> {
   
   try {
     // ============================================================================
-    // REMOVED: Custom protocol launch attempts (wrcode://start, opengiraffe://start)
-    // 
-    // These caused Windows "Open Electron?" prompts and errors when the protocol
-    // handler was not correctly registered. The extension should NOT attempt
-    // to auto-launch the desktop app via custom protocol.
-    // 
-    // Instead, we simply wait and check if the app becomes available (in case
-    // the user is starting it manually right now).
+    // Protocol launch (wrcode://, wrdesk://) DISABLED on all platforms.
+    // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
+    // - Linux: Triggers "xdg-open öffnen?" when protocol handler not registered
+    //   (common in dev mode or when .desktop file doesn't register the handler).
+    // Users must start WR Desk manually from application menu or desktop shortcut.
     // ============================================================================
-    
-    // Wait briefly and check if app is starting
+
+    // Wait briefly and check if app is starting (user may have started manually)
     console.log('[BG] ⏳ Waiting briefly to see if app is starting...')
     for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 500))
@@ -1734,6 +1781,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // This gate runs BEFORE any handler dispatch.
   // ════════════════════════════════════════════════════════════════════════
   if (!msg || !msg.type) return true
+
+  // BEAP PQ auth headers — used by beapCrypto for qBEAP ML-KEM calls to Electron
+  if (msg.type === 'BEAP_GET_PQ_HEADERS') {
+    sendResponse({
+      headers: _launchSecret ? { 'X-Launch-Secret': _launchSecret } : {}
+    })
+    return false // synchronous response
+  }
 
   if (!sender || sender.id !== chrome.runtime.id) {
     console.warn('[BG] Rejected message from foreign sender:', sender?.id, msg.type)
@@ -1991,15 +2046,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // server-side — never exposed to the caller.
   //
   // See: src/rpc/electronRpc.ts for the full registry + schemas.
+  //
+  // Waits for launch secret before dispatching — same as AUTH_LOGIN.
+  // Without this, the sidepanel/popup Command Chat can open before the
+  // WebSocket handshake completes, causing 401 and "No models available".
   // ─────────────────────────────────────────────────────────────────────────
   if (msg && msg.type === 'ELECTRON_RPC') {
-    return handleElectronRpc(
-      msg as ElectronRpcRequest,
-      sender,
-      sendResponse,
-      _launchSecret,
-      ELECTRON_BASE_URL,
-    )
+    ;(async () => {
+      await ensureLaunchSecret(10000)
+      handleElectronRpc(
+        msg as ElectronRpcRequest,
+        sender,
+        sendResponse,
+        _launchSecret,
+        ELECTRON_BASE_URL,
+      )
+    })()
+    return true
   }
 
   // ===== AUTH HANDLERS =====
@@ -2020,10 +2083,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!hasSecret) {
           // Secret still missing – check if Electron is at least alive
           // via the secret-exempt /api/health endpoint.
-          const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(3000),
-          }).catch(() => null);
+          // Retry up to 3 times (app may still be starting on Linux)
+          let healthCheck: Response | null = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
+              method: 'GET',
+              signal: AbortSignal.timeout(3000),
+            }).catch(() => null);
+            if (healthCheck?.ok) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
 
           if (healthCheck && healthCheck.ok) {
             // Electron is running but the WebSocket handshake hasn't completed.
@@ -2291,29 +2360,66 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
 
-    // Forward the RPC call to Electron via WebSocket
-    try {
-      const rpcMessage = {
-        id: msg.id,
-        method: msg.method,
-        params: msg.params || {}
+    const VSBT_EXEMPT_RPC = new Set(['vault.create', 'vault.unlock', 'vault.getStatus'])
+    const needsBinding = !VSBT_EXEMPT_RPC.has(msg.method)
+
+    ;(async () => {
+      try {
+        // If the in-memory VSBT is missing (MV3 service worker restarted since unlock),
+        // eagerly recover it from chrome.storage.session before deciding whether to bind.
+        // The startup restore at module level is fire-and-forget; this ensures we don't
+        // skip binding just because the async restore hasn't resolved yet.
+        if (needsBinding && !_cachedVsbt && typeof chrome !== 'undefined' && chrome.storage?.session) {
+          try {
+            const stored = await chrome.storage.session.get(['_vsbt', '_vsbtAt'])
+            if (stored?._vsbt) {
+              const age = typeof stored._vsbtAt === 'number' ? Date.now() - stored._vsbtAt : Infinity
+              if (age < VSBT_MAX_AGE_MS) {
+                _cachedVsbt = stored._vsbt
+                _vsbtCachedAt = stored._vsbtAt
+                console.log('[BG] VAULT_RPC: recovered VSBT from session storage for bind')
+              }
+            }
+          } catch { /* storage unavailable — fall through, bind will be skipped */ }
+        }
+
+        // If this RPC requires a bound session and we have a cached VSBT (from HTTP unlock),
+        // bind the WebSocket connection first. The WebSocket is separate from HTTP, so
+        // unlock via VAULT_HTTP_API does not auto-bind the WS connection.
+        if (needsBinding && _cachedVsbt) {
+          const bindId = `vault-bind-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const bindPromise = new Promise<void>((resolve, reject) => {
+            if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
+            globalThis.vaultRpcCallbacks.set(bindId, (r: any) => {
+              if (r?.success) resolve()
+              else reject(new Error(r?.error || 'vault.bind failed'))
+            })
+          })
+          ws.send(JSON.stringify({
+            id: bindId,
+            method: 'vault.bind',
+            params: { vsbt: _cachedVsbt }
+          }))
+          await bindPromise
+          console.log('[BG] WebSocket vault session bound via vault.bind')
+        }
+
+        const rpcMessage = {
+          id: msg.id,
+          method: msg.method,
+          params: msg.params || {}
+        }
+        console.log('[BG] Forwarding to WebSocket:', rpcMessage)
+        ws.send(JSON.stringify(rpcMessage))
+
+        if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
+        globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
+      } catch (error: any) {
+        console.error('[BG] Error in vault RPC flow:', error)
+        sendResponse({ success: false, error: error.message })
       }
-
-      console.log('[BG] Forwarding to WebSocket:', rpcMessage)
-      ws.send(JSON.stringify(rpcMessage))
-
-      // Store the sendResponse callback to call it when response arrives
-      if (!globalThis.vaultRpcCallbacks) {
-        globalThis.vaultRpcCallbacks = new Map()
-      }
-      globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
-
-      return true // Keep channel open for async response
-    } catch (error: any) {
-      console.error('[BG] Error sending vault RPC:', error)
-      sendResponse({ success: false, error: error.message })
-      return true
-    }
+    })()
+    return true
   }
 
   if (!msg || !msg.type) return true;
@@ -2514,7 +2620,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else {
           // Try to connect on-demand to 127.0.0.1:53247 and retry
           try {
-            const url = 'ws://localhost:51247/'
+            const url = 'ws://127.0.0.1:51247/'
             const temp = new WebSocket(url)
             temp.addEventListener('open', () => {
               try { ws = temp as any } catch { }
@@ -2545,37 +2651,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           // First check if WebSocket is connected
           if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-            const payload = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            const payload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) payload.theme = msg.theme
             try { ws.send(JSON.stringify(payload)) } catch {}
             try { sendResponse({ success: true }) } catch {}
             return
           }
           
           // Try to connect on-demand
-          const url = 'ws://localhost:51247/'
+          const url = 'ws://127.0.0.1:51247/'
           const temp = new WebSocket(url)
           
           const timeout = setTimeout(() => {
             temp.close()
             // Check if Electron app is running via HTTP
-            checkAndLaunchElectronApp(sendResponse)
+            checkAndLaunchElectronApp(sendResponse, msg.theme)
           }, 2000) // 2 second timeout
           
           temp.addEventListener('open', () => {
             clearTimeout(timeout)
             try { ws = temp as any } catch {}
-            try { ws?.send(JSON.stringify({ type: 'OPEN_ANALYSIS_DASHBOARD' })) } catch {}
+            const payload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+            if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) payload.theme = msg.theme
+            try { ws?.send(JSON.stringify(payload)) } catch {}
             try { sendResponse({ success: true }) } catch {}
           })
           
           temp.addEventListener('error', () => {
             clearTimeout(timeout)
             // Check if Electron app is running via HTTP
-            checkAndLaunchElectronApp(sendResponse)
+            checkAndLaunchElectronApp(sendResponse, msg.theme)
           })
         } catch (err) {
           // Check if Electron app is running via HTTP
-          checkAndLaunchElectronApp(sendResponse)
+          checkAndLaunchElectronApp(sendResponse, msg.theme)
         }
       })()
       return true // Indicate async response
@@ -2807,7 +2916,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to OpenGiraffe. Make sure the Electron app is running.' 
+              error: 'Could not connect to WR Desk™. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }
@@ -3006,6 +3115,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true // Keep channel open for async response
     }
+
+    case 'EMAIL_CONNECT_CUSTOM_MAILBOX': {
+      console.log('[BG] 📧 Email connect custom IMAP+SMTP request')
+      electronRequest('/api/email/accounts/connect/custom-mailbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: msg.displayName,
+          email: msg.email,
+          imapHost: msg.imapHost,
+          imapPort: msg.imapPort,
+          imapSecurity: msg.imapSecurity,
+          imapUsername: msg.imapUsername,
+          imapPassword: msg.imapPassword,
+          smtpHost: msg.smtpHost,
+          smtpPort: msg.smtpPort,
+          smtpSecurity: msg.smtpSecurity,
+          smtpUseSameCredentials: msg.smtpUseSameCredentials,
+          smtpUsername: msg.smtpUsername,
+          smtpPassword: msg.smtpPassword
+        })
+      })
+        .then(result => {
+          console.log('[BG] 📧 Custom mailbox connect:', result.ok ? 'success' : result.error)
+          if (result.ok) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      return true
+    }
     
     case 'EMAIL_DELETE_ACCOUNT': {
       console.log('[BG] 📧 Email delete account request:', msg.accountId)
@@ -3023,6 +3164,81 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       
       return true // Keep channel open for async response
+    }
+    
+    case 'EMAIL_SEND': {
+      console.log('[BG] 📧 Email send request')
+      
+      electronRequest('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: msg.accountId,
+          to: msg.to,
+          subject: msg.subject || '(No subject)',
+          bodyText: msg.bodyText || '',
+          attachments: msg.attachments || []
+        })
+      })
+        .then(result => {
+          if (result.ok) {
+            sendResponse({ ok: true, data: result.data })
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+      
+      return true
+    }
+    
+    case 'BEAP_GENERATE_DRAFT': {
+      console.log('[BG] 📝 BEAP draft generation request')
+      electronRequest('/api/llm/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: msg.prompt || '' }]
+        })
+      })
+        .then(result => {
+          if (result.ok && result.data?.content != null) {
+            sendResponse({ ok: true, data: { content: result.data.content } })
+          } else {
+            sendResponse({ ok: false, error: result.error || 'Draft generation failed' })
+          }
+        })
+        .catch(err => {
+          sendResponse({ ok: false, error: err?.message || 'Draft generation failed' })
+        })
+      return true
+    }
+    
+    case 'EMAIL_SEND_BEAP': {
+      console.log('[BG] 📧 BEAP email send request')
+      
+      electronRequest('/api/email/send-beap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: msg.to,
+          subject: msg.subject || 'BEAP™ Secure Message',
+          body: msg.body || '',
+          attachments: msg.attachments || []
+        })
+      })
+        .then(result => {
+          if (result.ok) {
+            sendResponse({ ok: true, data: result.data })
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+        .catch(err => {
+          console.error('[BG] EMAIL_SEND_BEAP error:', err)
+          sendResponse({ ok: false, error: err?.message || 'Failed to send email' })
+        })
+      
+      return true
     }
     
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
@@ -3043,11 +3259,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronRequest('/api/email/credentials/gmail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
           console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
         })
       
       return true
@@ -3071,11 +3287,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret })
+        body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, tenantId: msg.tenantId, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
           console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
-          sendResponse(result.ok ? { ok: true } : { ok: false, error: result.error })
+          sendResponse(result.ok ? { ok: true, savedToVault: result.savedToVault } : { ok: false, error: result.error })
         })
       
       return true
@@ -3344,20 +3560,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           ws.send(JSON.stringify({ type: 'LAUNCH_DBEAVER' }));
           // Wait for response
+          const wsRef = ws;
           const responseHandler = (event: MessageEvent) => {
             try {
               const data = JSON.parse(event.data);
               if (data.type === 'LAUNCH_DBEAVER_RESULT') {
-                ws.removeEventListener('message', responseHandler);
-                try { sendResponse({ success: data.ok, message: data.message }) } catch { }
+                wsRef.removeEventListener('message', responseHandler);
+                try { sendResponse({ success: data.ok, message: data.message }) } catch {}
               }
             } catch { }
           };
-          ws.addEventListener('message', responseHandler);
-          // Timeout after 5 seconds
+          wsRef.addEventListener('message', responseHandler);
           setTimeout(() => {
-            ws.removeEventListener('message', responseHandler);
-            try { sendResponse({ success: false, error: 'Timeout waiting for response' }) } catch { }
+            wsRef.removeEventListener('message', responseHandler);
+            try { sendResponse({ success: false, error: 'Timeout waiting for response' }) } catch {}
           }, 5000);
         } catch (err) {
           console.error('Failed to send LAUNCH_DBEAVER message:', err);
@@ -3381,9 +3597,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'OPEN_COMMAND_CENTER_POPUP': {
       const themeHint = typeof msg.theme === 'string' ? msg.theme : null
+      const launchModeHint = typeof msg.launchMode === 'string' ? msg.launchMode : null
       const createPopup = (bounds: chrome.system.display.Bounds | null) => {
         // Use React-based popup-chat.html for full WRGuard and BEAP Messages functionality
-        const url = chrome.runtime.getURL('src/popup-chat.html' + (themeHint ? ('?t=' + encodeURIComponent(themeHint)) : ''))
+        const params: string[] = []
+        if (themeHint) params.push('t=' + encodeURIComponent(themeHint))
+        if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
+        const query = params.length ? '?' + params.join('&') : ''
+        const url = chrome.runtime.getURL('src/popup-chat.html' + query)
         const opts: chrome.windows.CreateData = {
           url,
           type: 'popup',
@@ -3653,7 +3874,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           return Promise.all(fetchPromises)
         })
-        .then((sessions: any[]) => {
+        .then((sessions) => {
+          if (!sessions) return
           const sessionsMap: Record<string, any> = {}
           sessions.forEach(({ key, data }) => {
             if (data) {

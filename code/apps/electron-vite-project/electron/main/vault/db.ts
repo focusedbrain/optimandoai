@@ -19,17 +19,28 @@ async function loadSQLCipher(): Promise<any> {
       // Load better-sqlite3 (works in dev and production)
       let sqlite3: any = null
       
-      // First try: standard require (works in dev)
+      // First try: standard require (works in dev with flat node_modules)
       try {
         sqlite3 = require('better-sqlite3')
         console.log('[VAULT DB] better-sqlite3 loaded via standard require')
       } catch (e1: any) {
         console.log('[VAULT DB] Standard require failed, trying fallback paths...')
-        // Second try: from app.asar.unpacked (works in production)
-        try {
+
+        // Second try: app-local node_modules (pnpm workspace — module not in flat node_modules)
+        if (!sqlite3) try {
+          const path = require('path')
+          const appNodeModules = path.join(__dirname, '..', 'node_modules', 'better-sqlite3')
+          console.log('[VAULT DB] Trying app node_modules path:', appNodeModules)
+          sqlite3 = require(appNodeModules)
+          console.log('[VAULT DB] better-sqlite3 loaded from app node_modules')
+        } catch (e1b: any) {
+          console.log('[VAULT DB] App node_modules failed:', e1b?.message)
+        }
+
+        // Third try: from app.asar.unpacked (works in production)
+        if (!sqlite3) try {
           const path = require('path')
           const { app } = require('electron')
-          // app.getAppPath() returns path to app.asar, so we go up one level to resources
           const resourcesPath = path.dirname(app.getAppPath())
           const unpackedPath = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'better-sqlite3')
           console.log('[VAULT DB] Trying unpacked path:', unpackedPath)
@@ -37,22 +48,21 @@ async function loadSQLCipher(): Promise<any> {
           console.log('[VAULT DB] better-sqlite3 loaded from unpacked directory')
         } catch (e2: any) {
           console.log('[VAULT DB] Unpacked path failed:', e2?.message)
-          // Third try: from node_modules in app directory
-          try {
-            const path = require('path')
-            const { app } = require('electron')
-            const resourcesPath = path.dirname(app.getAppPath())
-            const nodeModulesPath = path.join(resourcesPath, 'node_modules', 'better-sqlite3')
-            console.log('[VAULT DB] Trying node_modules path:', nodeModulesPath)
-            sqlite3 = require(nodeModulesPath)
-            console.log('[VAULT DB] better-sqlite3 loaded from node_modules')
-          } catch (e3: any) {
-            console.error('[VAULT DB] All better-sqlite3 load attempts failed')
-            console.error('[VAULT DB] Attempt 1 (require):', e1?.message)
-            console.error('[VAULT DB] Attempt 2 (unpacked):', e2?.message)
-            console.error('[VAULT DB] Attempt 3 (node_modules):', e3?.message)
-            throw e1 // Throw the original error
-          }
+        }
+
+        // Fourth try: from node_modules relative to app resources
+        if (!sqlite3) try {
+          const path = require('path')
+          const { app } = require('electron')
+          const resourcesPath = path.dirname(app.getAppPath())
+          const nodeModulesPath = path.join(resourcesPath, 'node_modules', 'better-sqlite3')
+          console.log('[VAULT DB] Trying node_modules path:', nodeModulesPath)
+          sqlite3 = require(nodeModulesPath)
+          console.log('[VAULT DB] better-sqlite3 loaded from node_modules')
+        } catch (e3: any) {
+          console.error('[VAULT DB] All better-sqlite3 load attempts failed')
+          console.error('[VAULT DB] Attempt 1 (require):', e1?.message)
+          throw e1
         }
       }
       
@@ -351,6 +361,25 @@ export async function openVaultDB(dek: Buffer, vaultId: string = 'default'): Pro
     // Run additive migration for document vault table (safe on every open)
     migrateDocumentTable(db)
 
+    // Run additive migration for handshake tables (safe on every open)
+    try {
+      const { migrateHandshakeTables } = await import('../handshake/db')
+      migrateHandshakeTables(db)
+    } catch (e: any) {
+      console.warn('[VAULT DB] ⚠️ Could not run handshake migrations:', e?.message)
+    }
+
+    // Run additive migration for ingestion tables (safe on every open)
+    try {
+      const { migrateIngestionTables } = await import('../ingestion/persistenceDb')
+      migrateIngestionTables(db)
+    } catch (e: any) {
+      console.warn('[VAULT DB] ⚠️ Could not run ingestion migrations:', e?.message)
+    }
+
+    // Run additive migration for HS Context Profile tables (safe on every open)
+    migrateHsContextProfileTables(db)
+
     console.log('[VAULT DB] Opened better-sqlite3 vault database')
     return db
   } catch (error) {
@@ -438,6 +467,199 @@ function migrateEnvelopeColumns(db: any): void {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_items_record_type ON vault_items(record_type)').run()
   } catch (e: any) {
     console.warn('[VAULT DB] ⚠️ Could not create envelope indexes:', e?.message)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Additive schema migration — HS Context Profile tables
+// ---------------------------------------------------------------------------
+// Creates hs_context_profiles and hs_context_profile_documents if they do
+// not exist. Safe to call on every open (CREATE TABLE IF NOT EXISTS).
+
+export function migrateHsContextProfileTables(db: any): void {
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profiles (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        description TEXT,
+        scope TEXT NOT NULL DEFAULT 'non_confidential'
+          CHECK (scope IN ('non_confidential','confidential')),
+        tags TEXT NOT NULL DEFAULT '[]',
+        fields TEXT NOT NULL DEFAULT '{}',
+        custom_fields TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ hs_context_profiles table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profiles table:', e?.message)
+  }
+
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_org ON hs_context_profiles(org_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_archived ON hs_context_profiles(archived)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_profiles_updated ON hs_context_profiles(updated_at)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profiles indexes:', e?.message)
+  }
+
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profile_documents (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL REFERENCES hs_context_profiles(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+        storage_key TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'confidential',
+        extraction_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (extraction_status IN ('pending','success','failed')),
+        extracted_text TEXT,
+        extracted_at INTEGER,
+        extractor_name TEXT,
+        error_message TEXT,
+        sensitive INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents table:', e?.message)
+  }
+
+  // Additive migration: sensitive column for existing tables
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.sensitive column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add sensitive column:', e?.message)
+    }
+  }
+
+  // Additive migration: label and document_type for labeled custom documents
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN label TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.label column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add label column:', e?.message)
+    }
+  }
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN document_type TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.document_type column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add document_type column:', e?.message)
+    }
+  }
+
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_profile ON hs_context_profile_documents(profile_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_docs_status ON hs_context_profile_documents(extraction_status)').run()
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_documents indexes:', e?.message)
+  }
+
+  // ── HS Context access approvals (whitelist for originals + links) ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_access_approvals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('document','link')),
+        entity_id TEXT NOT NULL,
+        handshake_id TEXT,
+        actor_wrdesk_user_id TEXT NOT NULL,
+        approved_at TEXT NOT NULL,
+        UNIQUE(entity_type, entity_id, actor_wrdesk_user_id)
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_approvals_entity ON hs_context_access_approvals(entity_type, entity_id)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_approvals_actor ON hs_context_access_approvals(actor_wrdesk_user_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_access_approvals table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_access_approvals:', e?.message)
+  }
+
+  // ── HS Context access audit ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_access_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        handshake_id TEXT,
+        actor_wrdesk_user_id TEXT,
+        outcome TEXT,
+        metadata TEXT
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_audit_timestamp ON hs_context_access_audit(timestamp)').run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_audit_entity ON hs_context_access_audit(entity_type, entity_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_access_audit table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_access_audit:', e?.message)
+  }
+
+  // ── vault_settings: encrypted BYOK API key storage ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS vault_settings (
+        key TEXT PRIMARY KEY,
+        value_encrypted BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run()
+    console.log('[VAULT DB] ✅ vault_settings table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create vault_settings table:', e?.message)
+  }
+
+  // ── Additive migration: error_code for structured failure handling ──
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN error_code TEXT').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.error_code column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add error_code column:', e?.message)
+    }
+  }
+
+  // ── Additive migration: page_count for document reader ──
+  try {
+    db.prepare('ALTER TABLE hs_context_profile_documents ADD COLUMN page_count INTEGER DEFAULT 0').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_documents.page_count column added')
+  } catch (e: any) {
+    if (!/duplicate column|already exists/i.test(e?.message ?? '')) {
+      console.warn('[VAULT DB] ⚠️ Could not add page_count column:', e?.message)
+    }
+  }
+
+  // ── Per-page extracted text for document reader ──
+  try {
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS hs_context_profile_document_pages (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES hs_context_profile_documents(id) ON DELETE CASCADE,
+        page_number INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(document_id, page_number)
+      )
+    `).run()
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_hs_doc_pages_doc ON hs_context_profile_document_pages(document_id)').run()
+    console.log('[VAULT DB] ✅ hs_context_profile_document_pages table ready')
+  } catch (e: any) {
+    console.warn('[VAULT DB] ⚠️ Could not create hs_context_profile_document_pages:', e?.message)
   }
 }
 
@@ -532,6 +754,9 @@ function createSchema(db: any): void {
 
     // ── Document Vault table ──
     migrateDocumentTable(db)
+
+    // ── HS Context Profile tables ──
+    migrateHsContextProfileTables(db)
     
     // Verify schema was created correctly
     // NOTE: sqlite_master queries return {} instead of [] with current SQLCipher config

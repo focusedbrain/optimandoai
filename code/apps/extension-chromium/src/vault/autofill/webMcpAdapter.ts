@@ -668,6 +668,7 @@ function mapFieldKeyToKind(key: string, prefix: string): FieldKind | null {
       phone: 'company.phone',
       vat_number: 'company.vat_number',
       tax_id: 'company.tax_id',
+      company_registration_number: 'company.hrb',
       iban: 'company.iban',
     },
   }

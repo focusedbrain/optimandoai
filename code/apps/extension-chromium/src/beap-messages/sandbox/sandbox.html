@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!--
+  BEAP Sandbox Sub-Orchestrator Page — Stage 5 Isolation Boundary
+  Per A.3.055 Stage 5 and Annex I §I.2 (Normative)
+
+  This page runs in a Chrome Extension Sandboxed context (manifest "sandbox" key).
+  It has:
+    - Its own isolated JS context (separate window, no shared memory)
+    - No access to chrome.* extension APIs
+    - No access to extension storage, vault, or credentials
+    - No outbound network access (connect-src 'none' in sandbox CSP)
+    - Communication only via window.postMessage to/from the parent frame
+
+  The ONLY script loaded is sandbox.ts (the Sandbox Sub-Orchestrator).
+  No external resources, no analytics, no CDN dependencies.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Content-Security-Policy for the sandboxed page.
+      script-src 'self'   — only self-hosted scripts allowed
+      connect-src 'none'  — no outbound network from sandbox
+      object-src 'none'   — no plugins
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; connect-src 'none'; object-src 'none';"
+    />
+    <title>BEAP Sandbox</title>
+  </head>
+  <body>
+    <!-- No visible UI — this page exists only as a processing context -->
+    <script type="module" src="./sandbox.ts"></script>
+  </body>
+</html>

@@ -82,7 +82,7 @@ let banner: HTMLElement | null = null
 let rowUpdateInterval: ReturnType<typeof setInterval> | null = null
 let urlCheckInterval: ReturnType<typeof setInterval> | null = null
 let emailRowElements: Map<string, Element> = new Map()
-let currentTheme: 'default' | 'dark' | 'professional' = 'default'
+let currentTheme: 'pro' | 'dark' | 'standard' = 'standard'
 let listenersInitialized = false
 
 // Track if overlay is hidden for lightbox
@@ -303,7 +303,7 @@ async function loadTheme(): Promise<void> {
 // Listen for theme changes
 chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === 'local' && changes['optimando-ui-theme']) {
-    currentTheme = changes['optimando-ui-theme'].newValue || 'default'
+    currentTheme = (changes['optimando-ui-theme'].newValue as 'pro' | 'dark' | 'standard') || 'standard'
     console.log('[MailGuard] Theme changed to:', currentTheme)
     // Refresh banner if visible (use re-enable banner since auto-enable is now default)
     if (banner) {
@@ -542,7 +542,7 @@ function showConnectionWarning(): void {
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     border: 2px solid #f59e0b;
   `
-  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if OpenGiraffe is running.'
+  warning.innerHTML = '<span style="font-size:16px">⚠️</span> Connection lost - Overlay may be inactive. Check if WR Desk™ is running.'
   document.body.appendChild(warning)
 }
 
@@ -1206,7 +1206,7 @@ async function activateMailGuard(): Promise<void> {
     align-items: center;
     gap: 10px;
   `
-  statusDiv.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting to OpenGiraffe...'
+  statusDiv.innerHTML = '<span style="animation: spin 1s linear infinite; display: inline-block;">⏳</span> Connecting to WR Desk™...'
   document.body.appendChild(statusDiv)
   
   // Add spin animation
@@ -1272,7 +1272,7 @@ async function activateMailGuard(): Promise<void> {
         
         // If it's a connection error, the background is already retrying
         // Wait a bit longer for it to succeed
-        if (lastError.includes('connect') || lastError.includes('OpenGiraffe')) {
+        if (lastError.includes('connect') || lastError.includes('WR Desk™')) {
           await new Promise(r => setTimeout(r, 500))
         }
       }
@@ -1284,7 +1284,7 @@ async function activateMailGuard(): Promise<void> {
   
   // All retries failed
   statusDiv.remove()
-  showActivationError(lastError || 'Connection failed. Please ensure the OpenGiraffe app is running and try again.')
+  showActivationError(lastError || 'Connection failed. Please ensure the WR Desk™ app is running and try again.')
 }
 
 function showActivationError(message: string): void {
@@ -1309,7 +1309,7 @@ function showActivationError(message: string): void {
     <div style="font-weight: 600; margin-bottom: 8px;">⚠️ MailGuard Activation Failed</div>
     <div style="font-size: 12px; opacity: 0.9;">${message}</div>
     <div style="font-size: 11px; margin-top: 10px; opacity: 0.7;">
-      Make sure OpenGiraffe (Electron app) is running and try reloading the extension.
+      Make sure WR Desk™ (Electron app) is running and try reloading the extension.
     </div>
   `
   document.body.appendChild(errorDiv)

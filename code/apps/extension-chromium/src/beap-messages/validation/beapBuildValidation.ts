@@ -41,7 +41,7 @@ export async function validateBuiltQBeapPackage(pkg: BeapPackage): Promise<strin
   
   // 1.2) PQ metadata with kemCiphertextB64
   const pq = pkg.header.crypto?.pq
-  if (!pq || pq === false) {
+  if (!pq) {
     errors.push('header.crypto.pq is false or missing (PQ is required for qBEAP)')
   } else {
     if (!pq.kemCiphertextB64 || typeof pq.kemCiphertextB64 !== 'string' || pq.kemCiphertextB64.length === 0) {

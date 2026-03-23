@@ -1,19 +1,95 @@
 /**
  * PDF Parser Service
- * 
- * Calls the Electron Orchestrator HTTP API to extract text from PDFs.
+ *
+ * Extracts text from PDFs using a fallback chain:
+ * 1. Browser (pdfjs-dist) — works in Chrome extension without Electron
+ * 2. Electron Orchestrator (optional) — when available and browser returns empty
+ *
  * Extracted text is stored ONLY in CapsuleAttachment.semanticContent (capsule-bound).
- * 
+ *
  * SECURITY INVARIANTS:
  * - Extracted text NEVER appears in email subject/body
  * - Extracted text NEVER appears in messenger payloads
  * - Extracted text NEVER appears in filenames or logs
  * - All extracted content is capsule-bound only
- * 
- * @version 1.0.0
+ *
+ * @version 2.0.0
  */
 
 import type { CapsuleAttachment, RasterProof } from './canonical-types'
+
+// Browser-based PDF text extraction (pdfjs-dist) — no Electron required
+let _pdfjsInit = false
+async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
+  if (_pdfjsInit) {
+    return (await import('pdfjs-dist')) as typeof import('pdfjs-dist')
+  }
+  const pdfjsLib = await import('pdfjs-dist')
+  if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+    try {
+      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.mjs?url')).default
+      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+    } catch {
+      // Worker init may fail in some environments; getDocument may still work
+    }
+  }
+  _pdfjsInit = true
+  return pdfjsLib
+}
+
+/** Timeout for browser extraction — prevents hanging on large/complex PDFs */
+const BROWSER_EXTRACT_TIMEOUT_MS = 90_000
+
+/**
+ * Extract text from PDF using pdfjs-dist (browser-compatible, no Electron)
+ * Wrapped with timeout to prevent indefinite hangs.
+ */
+async function extractPdfTextBrowser(base64Data: string): Promise<ParserResult> {
+  const timeoutPromise = new Promise<ParserResult>((_, reject) => {
+    setTimeout(() => reject(new Error('PDF extraction timed out — try Vision AI fallback')), BROWSER_EXTRACT_TIMEOUT_MS)
+  })
+
+  const extractPromise = (async (): Promise<ParserResult> => {
+    const pdfjsLib = await initPdfjs()
+    try {
+      const binary = atob(base64Data)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      const loadingTask = pdfjsLib.getDocument({ data: bytes })
+      const pdf = await loadingTask.promise
+      const pageCount = pdf.numPages
+      const textParts: string[] = []
+      const MAX_PAGES = 500
+      const pagesToProcess = Math.min(pageCount, MAX_PAGES)
+      for (let i = 1; i <= pagesToProcess; i++) {
+        const page = await pdf.getPage(i)
+        const textContent = await page.getTextContent()
+        const pageText = textContent.items
+          .map((item: { str?: string }) => item.str || '')
+          .join(' ')
+        textParts.push(pageText)
+      }
+      const extractedText = textParts.join('\n\n').trim()
+      return {
+        success: true,
+        pageCount,
+        pagesProcessed: pagesToProcess,
+        extractedText: extractedText || undefined,
+        truncated: pageCount > MAX_PAGES,
+        parser: { engine: 'pdfjs-dist', version: pdfjsLib.version || 'unknown' },
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Browser PDF extraction failed',
+      }
+    }
+  })()
+
+  return Promise.race([extractPromise, timeoutPromise])
+}
 
 // =============================================================================
 // Types
@@ -98,8 +174,42 @@ export function isParseableFormat(mimeType: string): boolean {
 }
 
 /**
- * Extract text from a PDF file via the Electron Orchestrator
- * 
+ * Extract text from PDF via Electron Orchestrator (when available)
+ */
+async function extractPdfTextElectron(
+  attachmentId: string,
+  base64Data: string
+): Promise<ParserResult> {
+  try {
+    const response = await fetch(`${ELECTRON_BASE_URL}/api/parser/pdf/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attachmentId, base64: base64Data }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      return {
+        success: false,
+        error: errorData.error || `HTTP ${response.status}: ${response.statusText}`,
+      }
+    }
+    return await response.json()
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to connect to parser service',
+    }
+  }
+}
+
+/**
+ * Extract text from a PDF file.
+ *
+ * Fallback chain:
+ * 1. Browser (pdfjs-dist) — always tried first, works without Electron
+ * 2. Electron Orchestrator — tried when browser returns empty (e.g. scanned/image-only PDFs)
+ *
  * @param attachmentId - Unique ID for the attachment
  * @param base64Data - Base64-encoded PDF data
  * @returns Parser result with extracted text
@@ -108,34 +218,26 @@ export async function extractPdfText(
   attachmentId: string,
   base64Data: string
 ): Promise<ParserResult> {
-  try {
-    const response = await fetch(`${ELECTRON_BASE_URL}/api/parser/pdf/extract`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        attachmentId,
-        base64: base64Data
-      })
-    })
+  // 1. Try browser extraction first (no Electron required)
+  const browserResult = await extractPdfTextBrowser(base64Data)
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      return {
-        success: false,
-        error: errorData.error || `HTTP ${response.status}: ${response.statusText}`
-      }
-    }
-
-    return await response.json()
-  } catch (error) {
-    // Connection errors (Electron not running, etc.)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to connect to parser service'
-    }
+  if (browserResult.success && browserResult.extractedText && browserResult.extractedText.trim().length > 0) {
+    return browserResult
   }
+
+  // 2. Browser failed or returned empty (e.g. scanned PDF) — try Electron if available
+  const electronResult = await extractPdfTextElectron(attachmentId, base64Data)
+  if (electronResult.success) {
+    return electronResult
+  }
+
+  // 3. Both failed — prefer Electron error if we got one (more specific); else browser/empty
+  if (electronResult.error) {
+    return electronResult
+  }
+  return browserResult.success
+    ? { ...browserResult, success: false, error: 'No text extracted (image-only PDF?). Use Vision AI fallback.' }
+    : browserResult
 }
 
 /**

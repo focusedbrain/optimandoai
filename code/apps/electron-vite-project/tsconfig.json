@@ -16,11 +16,28 @@
 
     /* Linting */
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ext/*": ["../extension-chromium/src/*"],
+      "@ext/handshake/handshakeRpc": ["src/shims/handshakeRpc"],
+      "@ext/vault/hsContextProfilesRpc": ["src/shims/hsContextProfilesRpc"],
+      "@ext/reconstruction": ["src/shims/reconstruction"],
+      "@ext/audit": ["src/shims/audit"],
+      "@ext/envelope-evaluation": ["src/shims/envelope-evaluation"],
+      "@ext/ingress": ["src/shims/ingress"]
+    }
   },
-  "include": ["src", "electron"],
+  "include": [
+    "src",
+    "electron",
+    "../extension-chromium/src/beap-messages",
+    "../extension-chromium/src/handshake",
+    "../extension-chromium/src/shared",
+    "../extension-chromium/src/vault/hsContextProfilesRpc.ts"
+  ],
   "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

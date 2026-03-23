@@ -1,4 +1,4 @@
-import type { StorageAdapter } from '@shared/core/storage/StorageAdapter';
+import type { StorageAdapter } from '@shared/storage/StorageAdapter';
 
 /**
  * Chrome Storage adapter implementation

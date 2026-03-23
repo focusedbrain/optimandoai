@@ -1,5 +1,3 @@
-/// <reference types="chrome-types"/>
-
 import './agent-manager-v2'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
@@ -22,9 +20,81 @@ if (!_isExtensionPage) {
       }, { once: true })
     }
   } catch {
-    // Autofill init failed — extension continues to work normally
+    // Autofill init failed &rdquo;” extension continues to work normally
   }
 }
+
+// ─── Unified Content-Script Theme Helper ─────────────────────────────────────
+// Exact WRVault palette &rdquo;” single source of truth for all vanilla-JS lightboxes.
+// Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
+function csTheme() {
+  let t: 'pro' | 'dark' | 'standard' = 'pro'
+  try {
+    const raw = localStorage.getItem('optimando-ui-theme')
+    if (raw === 'dark') t = 'dark'
+    else if (raw === 'standard' || raw === 'professional') t = 'standard'
+    else t = 'pro'
+  } catch { /* ignore */ }
+
+  // ── Dark: deep slate &rdquo;” WRVault Dark (#0f172a → #1e293b) ──
+  if (t === 'dark') return {
+    panelBg:      'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+    headerGrad:   'rgba(30,41,59,0.8)',
+    headerBorder: 'rgba(148,163,184,0.15)',
+    border:       'rgba(148,163,184,0.15)',
+    cardBg:       'rgba(30,41,59,0.5)',
+    text:         '#e7e9ea',
+    muted:        '#94a3b8',
+    inputBg:      'rgba(15,23,42,0.8)',
+    inputText:    '#e7e9ea',
+    accent:       '#818cf8',
+    accentColor:  '#818cf8',
+    accentGrad:   'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+    overlay:      'rgba(0,0,0,0.90)',
+    shadow:       '0 20px 60px rgba(0,0,0,0.7)',
+    successText:  '#4ade80', errorText: '#f87171', warnText: '#fbbf24', infoText: '#a5b4fc',
+    isLight:      false,
+  }
+  // ── Standard: light &rdquo;” WRVault Standard (#f8f9fb / dark text) ──
+  if (t === 'standard') return {
+    panelBg:      '#f8f9fb',
+    headerGrad:   '#ffffff',
+    headerBorder: '#e1e8ed',
+    border:       '#e1e8ed',
+    cardBg:       '#f0f2f5',
+    text:         '#0f1419',
+    muted:        '#536471',
+    inputBg:      '#ffffff',
+    inputText:    '#0f1419',
+    accent:       '#6366f1',
+    accentColor:  '#6366f1',
+    accentGrad:   'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+    overlay:      'rgba(15,20,25,0.60)',
+    shadow:       '0 20px 60px rgba(15,23,42,0.12)',
+    successText:  '#166534', errorText: '#991b1b', warnText: '#92400e', infoText: '#3730a3',
+    isLight:      true,
+  }
+  // ── Pro (default): vivid purple &rdquo;” WRVault Pro (#1e1040 → #2d1b69) ──
+  return {
+    panelBg:      'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
+    headerGrad:   'rgba(168,85,247,0.12)',
+    headerBorder: 'rgba(168,85,247,0.18)',
+    border:       'rgba(168,85,247,0.18)',
+    cardBg:       'rgba(168,85,247,0.06)',
+    text:         '#f3f0ff',
+    muted:        '#c4b5fd',
+    inputBg:      'rgba(0,0,0,0.3)',
+    inputText:    '#f3f0ff',
+    accent:       '#a855f7',
+    accentColor:  '#a855f7',
+    accentGrad:   'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)',
+    overlay:      'rgba(30,10,60,0.92)',
+    shadow:       '0 20px 60px rgba(30,10,60,0.6)',
+    successText:  '#4ade80', errorText: '#ff6b6b', warnText: '#fbbf24', infoText: '#a5b4fc',
+    isLight:      false,
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Per-Tab Activation System
 
@@ -42,7 +112,7 @@ const OPTI_MARKER_START = '<<OPTIMANDO_STATE:'
 
 const OPTI_MARKER_END = '>>'
 
-type DedicatedRole = { type: 'master' } | { type: 'hybrid', hybridMasterId?: string }
+type DedicatedRole = { type: 'master'; hybridMasterId?: string } | { type: 'hybrid'; hybridMasterId?: string }
 
 type OptimandoTabState = { role?: DedicatedRole, sessionKey?: string }
 
@@ -225,6 +295,8 @@ if (savedState === 'true' || dedicatedRole) {
 }
 
 
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Listen for toggle message from background script
 
@@ -854,7 +926,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return
     }
     
-    console.log('🗑️ DELETE_AGENT_BOX from sidepanel:', agentId)
+    console.log('🗝‘️ DELETE_AGENT_BOX from sidepanel:', agentId)
     
     // Find the box to get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
@@ -913,7 +985,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (globalLightboxFunctions.startNewSession) {
 
-        console.log('🆕 Creating new session from sidepanel...')
+        console.log('🏆• Creating new session from sidepanel...')
 
         // Call the original startNewSession function that already exists
 
@@ -1306,11 +1378,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         import('./policy/components/policy-lightbox-init').then(({ openPolicyLightboxInContent }) => {
           console.log('✅ Policy lightbox module loaded, opening...')
-          const cleanup = openPolicyLightboxInContent('default')
+          const cleanup = openPolicyLightboxInContent()
           
           // Store cleanup function for potential future use
           globalLightboxFunctions.openPolicyLightbox = () => {
-            openPolicyLightboxInContent('default')
+            openPolicyLightboxInContent()
           }
         }).catch(err => {
           console.error('❌ Failed to load policy lightbox module:', err)
@@ -1478,9 +1550,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     card.style.cssText = `
 
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: ${csTheme().panelBg};
 
-      border: 1px solid rgba(255,255,255,0.3);
+      border: 1px solid ${csTheme().border};
 
       border-radius: 8px;
 
@@ -1554,7 +1626,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         background: rgba(255,255,255,0.98);
 
-        border: 1px solid rgba(255,255,255,0.3);
+        border: 1px solid ${csTheme().border};
 
         border-radius: 6px;
 
@@ -1632,7 +1704,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
         background: rgba(255,255,255,0.98);
 
-        border: 1px solid rgba(255,255,255,0.3);
+        border: 1px solid ${csTheme().border};
 
         border-radius: 6px;
 
@@ -2148,6 +2220,12 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
 
 
 function initializeExtension() {
+  // OAuth callback pages: never inject — prevents extension from breaking
+  // http://localhost:51249/callback, etc. (Electron OAuth server)
+  const host = window.location.hostname
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return
+  }
 
   try {
 
@@ -2437,7 +2515,11 @@ function initializeExtension() {
 
   
 
-  let currentTabData = {
+  let currentTabData: Record<string, any> & {
+    tabId: string; tabName: string; isLocked: boolean
+    goals: { shortTerm: string; midTerm: string; longTerm: string }
+    agentBoxes: any[]; agentBoxHeights: Record<string, any>
+  } = {
 
     tabId: tabId,
 
@@ -2818,7 +2900,7 @@ function initializeExtension() {
 
     const newKey = `session_${Date.now()}_${Math.floor(Math.random()*1000000)}`
 
-    console.log('🆕 ensureActiveSession: Creating NEW session (main master tab):', newKey)
+    console.log('🏆• ensureActiveSession: Creating NEW session (main master tab):', newKey)
 
     try { setCurrentSessionKey(newKey) } catch {}
 
@@ -2981,7 +3063,7 @@ function initializeExtension() {
 
     { key: 'analyze', name: 'Analyze', icon: '📊' },
 
-    { key: 'generate', name: 'Generate', icon: '✨' },
+    { key: 'generate', name: 'Generate', icon: '✏¨' },
 
     { key: 'coordinate', name: 'Coordinate', icon: '🎯' }
 
@@ -3235,7 +3317,7 @@ function initializeExtension() {
 
   function deleteAgent(key: string, scope: string, done: () => void) {
 
-    console.log(`🗑️ deleteAgent called for "${key}" with scope: ${scope}`)
+    console.log(`🗝‘️ deleteAgent called for "${key}" with scope: ${scope}`)
 
     
 
@@ -3247,7 +3329,7 @@ function initializeExtension() {
 
         const updatedAgents = accountAgents.filter((a: any) => a.key !== key)
 
-        console.log(`🗑️ Removing account agent "${key}". Before: ${accountAgents.length}, After: ${updatedAgents.length}`)
+        console.log(`🗝‘️ Removing account agent "${key}". Before: ${accountAgents.length}, After: ${updatedAgents.length}`)
 
         saveAccountAgents(updatedAgents, () => {
 
@@ -3705,7 +3787,7 @@ function initializeExtension() {
 
   function updateAgentPlatform(agentKey: string, platform: 'desktop' | 'mobile', enabled: boolean, scope: string) {
 
-    console.log(`🖥️ Updating ${platform} platform for agent ${agentKey} in ${scope} scope:`, enabled)
+    console.log(`🖥 Updating ${platform} platform for agent ${agentKey} in ${scope} scope:`, enabled)
 
     
 
@@ -4095,29 +4177,29 @@ function initializeExtension() {
 
           const card = document.createElement('div')
 
-          card.style.cssText = 'background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; position: relative;'
+          card.style.cssText = `background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; text-align: center; position: relative;`
 
           card.innerHTML = `
 
             <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
 
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: #FFFFFF; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} &rdquo;” ${a.name || 'Agent'}</h4>
 
-              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#4CAF50' : '#f44336'}; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
+              <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#16a34a' : (csTheme().isLight ? '#dc2626' : '#f87171')}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
               
 
               <div class="scope-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 8px;">
 
-                <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Session</span>
+                <span style="font-size: 9px; color: ${csTheme().muted};">Session</span>
 
-                <button class="scope-toggle-switch" data-agent="${a.key}" style="position: relative; width: 40px; height: 20px; background: ${isAccount ? '#4CAF50' : 'rgba(255,255,255,0.2)'}; border: none; border-radius: 10px; cursor: pointer; transition: background 0.3s;">
+                <button class="scope-toggle-switch" data-agent="${a.key}" style="position: relative; width: 40px; height: 20px; background: ${isAccount ? '#16a34a' : csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 10px; cursor: pointer; transition: background 0.3s;">
 
                   <div style="position: absolute; top: 2px; left: ${isAccount ? '22px' : '2px'}; width: 16px; height: 16px; background: white; border-radius: 50%; transition: left 0.3s;"></div>
 
                 </button>
 
-                <span style="font-size: 9px; color: rgba(255,255,255,0.7);">Account</span>
+                <span style="font-size: 9px; color: ${csTheme().muted};">Account</span>
 
               </div>
 
@@ -4129,17 +4211,17 @@ function initializeExtension() {
 
                   <input type="checkbox" class="platform-checkbox-desktop" data-agent="${a.key}" checked style="cursor: pointer;">
 
-                  <span style="font-size: 9px; color: rgba(255,255,255,0.9);">Desktop</span>
+                  <span style="font-size: 9px; color: ${csTheme().text};">Desktop</span>
 
                 </label>
 
-                <span style="font-size: 9px; color: rgba(255,255,255,0.4);">|</span>
+                <span style="font-size: 9px; color: ${csTheme().muted};">|</span>
 
                 <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
 
                   <input type="checkbox" class="platform-checkbox-mobile" data-agent="${a.key}" checked style="cursor: pointer;">
 
-                  <span style="font-size: 9px; color: rgba(255,255,255,0.9);">Mobile</span>
+                  <span style="font-size: 9px; color: ${csTheme().text};">Mobile</span>
 
                 </label>
 
@@ -4147,13 +4229,13 @@ function initializeExtension() {
 
               
 
-            <button class="delete-agent" data-key="${a.key}" data-scope="${a.scope || 'session'}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(244,67,54,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">×</button>
+            <button class="delete-agent" data-key="${a.key}" data-scope="${a.scope || 'session'}" title="Delete" style="position:absolute;top:6px;right:6px;background:rgba(220,38,38,0.85);border:none;color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer">&times;</button>
 
               
 
             <div style="display: flex; justify-content: center; gap: 6px; margin-top: 10px;">
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
 
                 <span style="font-size: 14px;">📋</span>
 
@@ -4161,7 +4243,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
+              <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
 
                 <span style="font-size: 14px;">🧠</span>
 
@@ -4169,7 +4251,7 @@ function initializeExtension() {
 
               </button>
 
-              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
+              <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
 
                 <span style="font-size: 14px;">⚙️</span>
 
@@ -4196,7 +4278,7 @@ function initializeExtension() {
 
             // Update UI immediately
             toggle.textContent = newEnabled ? 'ON' : 'OFF'
-            toggle.style.background = newEnabled ? '#4CAF50' : '#f44336'
+            toggle.style.background = newEnabled ? '#16a34a' : (csTheme().isLight ? '#dc2626' : '#f87171')
 
             // Persist to storage
             ensureActiveSession((activeKey: string, session: any) => {
@@ -4229,7 +4311,7 @@ function initializeExtension() {
 
               
 
-              toggleAgentScope(agentKey, currentScope, newScope, () => {
+              toggleAgentScope(agentKey ?? '', currentScope, newScope, () => {
 
                 renderAgentsGrid(overlay, filter)
 
@@ -4424,7 +4506,7 @@ function initializeExtension() {
     // Remove old keys
     keysToRemove.forEach(key => {
       localStorage.removeItem(key)
-      console.log(`  🗑️ Removed old key: ${key}`)
+      console.log(`  🗝‘️ Removed old key: ${key}`)
     })
 
     console.log(`🧹 Cleaned up ${keysToRemove.length} old localStorage entries`)
@@ -4528,9 +4610,9 @@ function initializeExtension() {
 
             const gridBoxes = sessionData.agentBoxes.filter((b: any) => b.source === 'display_grid')
 
-            console.log(`  ✓ Master tab boxes: ${masterBoxes.length}`)
+            console.log(`  ✏“ Master tab boxes: ${masterBoxes.length}`)
 
-            console.log(`  ✓ Display grid boxes: ${gridBoxes.length}`)
+            console.log(`  ✏“ Display grid boxes: ${gridBoxes.length}`)
 
             
 
@@ -5061,7 +5143,7 @@ function initializeExtension() {
             addSidepanelExpandButton()
           })
         } else {
-          console.log(`🖥️ Master tab on load (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
+          console.log(`🖥 Master tab on load (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
         }
       } catch (e) {
         console.error('Error checking tab type:', e)
@@ -5099,7 +5181,7 @@ function initializeExtension() {
       transform: translateY(-50%);
       width: 50px;
       height: 100px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: ${csTheme().panelBg};
       color: white;
       display: flex;
       align-items: center;
@@ -5116,13 +5198,13 @@ function initializeExtension() {
     // Hover effect
     button.addEventListener('mouseenter', () => {
       button.style.width = '60px'
-      button.style.background = 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)'
+      button.style.background = csTheme().panelBg
       button.style.boxShadow = '-6px 0 16px rgba(0,0,0,0.5)'
     })
     
     button.addEventListener('mouseleave', () => {
       button.style.width = '50px'
-      button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      button.style.background = csTheme().panelBg
       button.style.boxShadow = '-4px 0 12px rgba(0,0,0,0.4)'
     })
     
@@ -5374,15 +5456,15 @@ function initializeExtension() {
 
             </label>
 
-            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
+            <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
 
-              ✏️
+              ✏️
 
             </button>
 
-            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Delete this agent box">
+            <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Delete this agent box">
 
-              ✕
+              ✏•
 
             </button>
 
@@ -5439,7 +5521,7 @@ function initializeExtension() {
 
 
   function deleteAgentBox(agentId: string) {
-    console.log('🗑️ deleteAgentBox called with agentId:', agentId)
+    console.log('🗝‘️ deleteAgentBox called with agentId:', agentId)
     
     // Find the box before removing it so we can get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
@@ -5453,7 +5535,7 @@ function initializeExtension() {
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
-    console.log('🗑️ Deleting box:', { 
+    console.log('🗝‘️ Deleting box:', { 
       agentId, 
       identifier: deletedBox.identifier, 
       boxNumber: deletedBox.boxNumber,
@@ -5524,7 +5606,7 @@ function initializeExtension() {
 
   // Delete display grid agent box (uses identifier instead of id)
   function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
-    console.log('🗑️ deleteDisplayGridAgentBox called:', { identifier, slotId })
+    console.log('🗝‘️ deleteDisplayGridAgentBox called:', { identifier, slotId })
     
     // Find the box by identifier (display grid boxes use identifier, not id)
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
@@ -5540,7 +5622,7 @@ function initializeExtension() {
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
-    console.log('🗑️ Deleting display grid box:', { 
+    console.log('🗝‘️ Deleting display grid box:', { 
       identifier: deletedBox.identifier, 
       boxNumber: deletedBox.boxNumber,
       slotId,
@@ -5591,7 +5673,7 @@ function initializeExtension() {
 
   function openAddAgentBoxDialog() {
 
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', `${csTheme().accent}`, `${csTheme().accent}`, '#9C27B0', `${csTheme().isLight ? "#dc2626" : "#f87171"}`, '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -5909,7 +5991,7 @@ function initializeExtension() {
 
           <button id="cancel-add-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
-          <button id="confirm-add-agent" style="padding: 10px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Add Agent Box</button>
+          <button id="confirm-add-agent" style="padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Add Agent Box</button>
 
         </div>
 
@@ -5999,7 +6081,7 @@ function initializeExtension() {
 
           ${tool}
 
-          <button class="tool-remove" data-idx="${idx}" style="background: transparent; border: 0; color: #1e3a8a; cursor: pointer; font-weight: 700;">×</button>
+          <button class="tool-remove" data-idx="${idx}" style="background: transparent; border: 0; color: #1e3a8a; cursor: pointer; font-weight: 700;">&times;</button>
 
         </span>
 
@@ -6063,11 +6145,11 @@ function initializeExtension() {
 
     // Color selection
 
-    overlay.querySelectorAll('.color-select').forEach(btn => {
+    overlay.querySelectorAll<HTMLElement>('.color-select').forEach(btn => {
 
       btn.addEventListener('click', () => {
 
-        overlay.querySelectorAll('.color-select').forEach(b => b.style.border = '3px solid transparent')
+        overlay.querySelectorAll<HTMLElement>('.color-select').forEach(b => b.style.border = '3px solid transparent')
 
         btn.style.border = '3px solid #333'
 
@@ -6386,7 +6468,7 @@ function initializeExtension() {
 
   function openEditAgentBoxDialog(agentId: string) {
 
-    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336', '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
+    const colors = ['#4CAF50', `${csTheme().accent}`, `${csTheme().accent}`, '#9C27B0', `${csTheme().isLight ? "#dc2626" : "#f87171"}`, '#E91E63', '#9E9E9E', '#795548', '#607D8B', '#FF5722']
 
     
 
@@ -6569,12 +6651,12 @@ function initializeExtension() {
         
         <div style="padding: 20px 30px; border-top: 1px solid #eee; flex-shrink: 0; display: flex; gap: 10px; justify-content: space-between;">
 
-          <button id="delete-agent-box" style="padding: 10px 20px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Delete</button>
+          <button id="delete-agent-box" style="padding: 10px 20px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Delete</button>
 
           <div style="display: flex; gap: 10px;">
             <button id="cancel-edit-agent" style="padding: 10px 20px; background: #ccc; border: none; color: #333; border-radius: 6px; cursor: pointer; font-size: 14px;">Cancel</button>
 
-            <button id="confirm-edit-agent" style="padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
+            <button id="confirm-edit-agent" style="padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">Save Changes</button>
           </div>
 
         </div>
@@ -6695,19 +6777,19 @@ function initializeExtension() {
 
       panel.innerHTML = `
 
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid ${csTheme().border}">
 
-          <div style="font-weight:700">Tool Catalog</div>
+          <div style="font-weight:700;color:${csTheme().text}">Tool Catalog</div>
 
-          <button id="at-close" style="padding:6px 10px;background:#475569;border:none;color:#e2e8f0;border-radius:6px;cursor:pointer">Close</button>
+          <button id="at-close" style="padding:6px 10px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};border-radius:6px;cursor:pointer">Close</button>
 
         </div>
 
         <div style="padding:12px 14px;display:flex;gap:10px;align-items:center">
 
-          <input id="at-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#0f172a;color:#e2e8f0" />
+          <input id="at-search" placeholder="Search tools..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid ${csTheme().border};background:${csTheme().inputBg};color:${csTheme().inputText}" />
 
-          <button id="at-add" disabled style="padding:8px 12px;background:#22c55e;border:none;color:#07210f;border-radius:8px;cursor:pointer;font-weight:700">Add</button>
+          <button id="at-add" disabled style="padding:8px 12px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:8px;cursor:pointer;font-weight:700">Add</button>
 
         </div>
 
@@ -6772,9 +6854,9 @@ function initializeExtension() {
       const confirmDelete = confirm('Are you sure you want to delete this agent box?')
 
       if (confirmDelete) {
-        console.log('🗑️ Delete button clicked in edit dialog')
-        console.log('🗑️ agentId:', agentId)
-        console.log('🗑️ agentBox:', agentBox)
+        console.log('🗝‘️ Delete button clicked in edit dialog')
+        console.log('🗝‘️ agentId:', agentId)
+        console.log('🗝‘️ agentBox:', agentBox)
 
         // Close the dialog first
         overlay.remove()
@@ -7050,7 +7132,7 @@ function initializeExtension() {
 
     `
 
-    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
+    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
 
     document.body.appendChild(notification)
 
@@ -7382,9 +7464,9 @@ function initializeExtension() {
 
           const notification = document.createElement('div')
 
-          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} ✓`
+          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} ✏“`
 
-          notification.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${isEnabled ? '#4CAF50' : '#666'};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;`
+          notification.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${isEnabled ? '#16a34a' : '#64748b'};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;`
 
           document.body.appendChild(notification)
 
@@ -7486,7 +7568,7 @@ function initializeExtension() {
 
       .lightbox-content {
 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: ${csTheme().panelBg};
 
         border-radius: 12px;
 
@@ -7514,7 +7596,7 @@ function initializeExtension() {
 
         padding: 20px;
 
-        border-bottom: 1px solid rgba(255,255,255,0.2);
+        border-bottom: 1px solid ${csTheme().border};
 
         display: flex;
 
@@ -7746,7 +7828,7 @@ function initializeExtension() {
 
       /* WR Scan Text and Session ID Text */
 
-      .theme-pro .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
+      .theme-pro .wr-scan-text { color: ${csTheme().text} !important; }
 
       .theme-pro .session-id-text { color: white !important; }
 
@@ -7758,13 +7840,13 @@ function initializeExtension() {
 
       
 
-      .theme-dark .wr-scan-text { color: rgba(255,255,255,0.8) !important; }
+      .theme-dark .wr-scan-text { color: ${csTheme().text} !important; }
 
       .theme-dark .session-id-text { color: white !important; }
 
     </style>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 10px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().border}; padding-bottom: 10px;">
 
       <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px;">
 
@@ -7838,13 +7920,13 @@ function initializeExtension() {
 
       <div style="display:flex; gap:6px; align-items:center;">
 
-        <button id="command-center-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
+        <button id="command-center-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
 
           💬
 
         </button>
 
-      <button id="quick-expand-btn" style="background: rgba(255,255,255,0.2); border: none; color: inherit; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
+      <button id="quick-expand-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
 
         ⇄
 
@@ -7868,7 +7950,7 @@ function initializeExtension() {
 
     <div style="margin-bottom: 20px;">
 
-      <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+      <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
         ➕ Add New Agent Box
 
@@ -7996,7 +8078,7 @@ function initializeExtension() {
 
       <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
 
-      <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
+      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
 
     </div>
 
@@ -8004,7 +8086,7 @@ function initializeExtension() {
 
     <!-- WR Login Connection -->
 
-    <div id="wr-card" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+    <div id="wr-card" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
       <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
 
@@ -8020,7 +8102,7 @@ function initializeExtension() {
 
       
 
-      <div class="wr-scan-text" style="font-size: 11px; color: rgba(255,255,255,0.8); margin-bottom: 15px;">
+      <div class="wr-scan-text" style="font-size: 11px; color: ${csTheme().muted}; margin-bottom: 15px;">
 
         Scan to connect your WR account
 
@@ -8028,7 +8110,7 @@ function initializeExtension() {
 
       
 
-      <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: #4CAF50; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
+      <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
 
         🔗 WR Login
 
@@ -8062,7 +8144,7 @@ function initializeExtension() {
 
     <div style="margin-bottom: 20px;">
 
-      <button id="add-agent-box-btn-right-main" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+      <button id="add-agent-box-btn-right-main" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
         ➕ Add New Agent Box
 
@@ -8074,25 +8156,25 @@ function initializeExtension() {
 
     <!-- Runtime Controls - Consolidated -->
 
-    <div id="quick-actions-card" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <div id="quick-actions-card" style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
       <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Runtime Controls</h3>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 
-        <button id="add-helpergrid-btn" style="padding: 10px; background: #FF6B6B; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
+        <button id="add-helpergrid-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
 
-        <button id="sessions-history-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
+        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
 
-        <button id="save-session-btn" style="padding: 10px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
+        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
 
-        <button id="sync-btn" style="padding: 10px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
+        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
 
-        <button id="export-btn" style="padding: 10px; background: #FF9800; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
+        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
 
-        <button id="import-btn" style="padding: 10px; background: #9C27B0; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
+        <button id="import-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
 
-        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid rgba(255,255,255,0.25); grid-column: 1 / span 2; background: rgba(255,255,255,0.1);">
+        <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid ${csTheme().border}; grid-column: 1 / span 2; background: ${csTheme().cardBg};">
 
           <span>🔒</span>
 
@@ -8126,9 +8208,9 @@ function initializeExtension() {
 
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-        <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥️ Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥 Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
 
-        <button id="quick-expand-right-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
+        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
 
       </div>
 
@@ -8138,7 +8220,7 @@ function initializeExtension() {
 
       <div style="margin-bottom: 20px;">
 
-        <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: rgba(76, 175, 80, 0.8); border: 2px dashed rgba(76, 175, 80, 1); color: white; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+        <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
           ➕ Add New Agent Box
 
@@ -8181,7 +8263,7 @@ function initializeExtension() {
 
     height: 45px;
 
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: ${csTheme().panelBg};
 
     color: white;
 
@@ -8233,7 +8315,7 @@ function initializeExtension() {
 
         .theme-pro #topbar-tabs .topbar-tab { color: white !important; }
 
-        .theme-dark #topbar-tabs .topbar-tab { background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.2) !important; color: #ffffff !important; }
+        .theme-dark #topbar-tabs .topbar-tab { background: ${csTheme().cardBg} !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
         .theme-standard #topbar-tabs .topbar-tab { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.15) !important; color: #0f172a !important; }
 
@@ -8241,9 +8323,9 @@ function initializeExtension() {
 
         /* Orchestration quick actions */
 
-        .theme-pro .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-pro .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
-        .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+        .theme-dark .quick-action { background: rgba(255,255,255,0.18) !important; border: 1px solid ${csTheme().border} !important; color: #ffffff !important; }
 
         .theme-standard .quick-action { background: #ffffff !important; border: 1px solid rgba(139, 92, 246, 0.2) !important; color: #0f172a !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
 
@@ -8347,33 +8429,33 @@ function initializeExtension() {
 
         /* Pro (purple) */
 
-        .theme-pro .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked { background: ${csTheme().cardBg}; border-color: rgba(255,255,255,0.20); color: white; }
 
         .theme-pro .chat-docked .chat-hdr { background: linear-gradient(135deg,#c084fc 0%,#a855f7 50%,#9333ea 100%); border-bottom-color: rgba(255,255,255,0.20); color: white; }
 
-        .theme-pro .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-pro .chat-docked .chat-msgs { background: ${csTheme().cardBg}; border-bottom: 1px solid rgba(255,255,255,0.20); }
 
-        .theme-pro .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: white; }
 
-        .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: white; }
+        .theme-pro .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: ${csTheme().text}; }
 
-        .theme-pro .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-pro .chat-docked .chat-send { background:${csTheme().accentGrad}; border:1px solid #16a34a; color:#0b1e12; }
 
 
 
         /* Dark */
 
-        .theme-dark .chat-docked { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked { background: ${csTheme().cardBg}; border-color: rgba(255,255,255,0.20); color: #e5e7eb; }
 
         .theme-dark .chat-docked .chat-hdr { background: linear-gradient(135deg,#0f172a,#1e293b); border-bottom-color: rgba(255,255,255,0.20); color: #e5e7eb; }
 
-        .theme-dark .chat-docked .chat-msgs { background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.20); }
+        .theme-dark .chat-docked .chat-msgs { background: ${csTheme().cardBg}; border-bottom: 1px solid rgba(255,255,255,0.20); }
 
-        .theme-dark .chat-docked .chat-ta { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
+        .theme-dark .chat-docked .chat-ta { background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
         .theme-dark .chat-docked .chat-btn { background: rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.20); color: #e5e7eb; }
 
-        .theme-dark .chat-docked .chat-send { background:#22c55e; border:1px solid #16a34a; color:#0b1e12; }
+        .theme-dark .chat-docked .chat-send { background:${csTheme().accentGrad}; border:1px solid #16a34a; color:#0b1e12; }
 
 
 
@@ -8389,7 +8471,7 @@ function initializeExtension() {
 
         .theme-standard .chat-docked .chat-btn { background:#ffffff; border:1px solid rgba(139, 92, 246, 0.2); color:#0f172a; }
 
-        .theme-standard .chat-docked .chat-send { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border:1px solid rgba(139, 92, 246, 0.3); color:#ffffff; }
+        .theme-standard .chat-docked .chat-send { background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); border:1px solid rgba(139, 92, 246, 0.3); color: ${csTheme().text}; }
 
       `
 
@@ -8399,7 +8481,7 @@ function initializeExtension() {
 
   }
 
-  function applyTheme(theme) {
+  function applyTheme(theme: string) {
 
     injectThemeCSSOnce()
 
@@ -8433,13 +8515,13 @@ function initializeExtension() {
 
     }
 
-    const bg = gradients[theme]
+    const bg = gradients[theme as keyof typeof gradients]
 
     if (!bg) return
 
-    const fg = textColors[theme]
+    const fg = textColors[theme as keyof typeof textColors]
 
-    const titleFg = titleColors[theme]
+    const titleFg = titleColors[theme as keyof typeof titleColors]
 
     
 
@@ -8489,7 +8571,7 @@ function initializeExtension() {
 
       // Button color rules
 
-      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      const addAgentBtn = leftSidebar.querySelector<HTMLElement>('#add-agent-box-btn')
 
       if (addAgentBtn) {
 
@@ -8547,7 +8629,7 @@ function initializeExtension() {
 
       // Fix QR code instruction text
 
-      const qrText = rightSidebar.querySelector('div[style*="font-size: 11px"]')
+      const qrText = rightSidebar.querySelector<HTMLElement>('div[style*="font-size: 11px"]')
 
       if (qrText) {
 
@@ -8557,15 +8639,15 @@ function initializeExtension() {
 
       // Right sidebar buttons
 
-      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const wrBtn = rightSidebar.querySelector<HTMLElement>('#wr-connect-btn')
 
-      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const helperBtn = rightSidebar.querySelector<HTMLElement>('#add-helpergrid-btn')
 
-      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const sessionsBtn = rightSidebar.querySelector<HTMLElement>('#sessions-history-btn')
 
       const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
 
-      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      const cards = rightSidebar.querySelectorAll<HTMLElement>('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
 
       
 
@@ -8595,7 +8677,7 @@ function initializeExtension() {
 
       })
 
-      const setBtn = (btn) => {
+      const setBtn = (btn: HTMLElement | null) => {
 
         if (!btn) return
 
@@ -8685,7 +8767,7 @@ function initializeExtension() {
 
           addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
 
-          addAgentBtnRight.style.color = 'white'
+          addAgentBtnRight.style.color = '#fff'
 
         }
 
@@ -8695,7 +8777,7 @@ function initializeExtension() {
 
       // Fix dropdown area titles for better readability
 
-      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      const dropdownTitles = rightSidebar.querySelectorAll<HTMLElement>('.bottom-panel h4')
 
       dropdownTitles.forEach(title => {
 
@@ -8725,7 +8807,7 @@ function initializeExtension() {
 
       // Fix all h4 titles in the right sidebar (including Intent Detection, Goals, Reasoning)
 
-      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      const allH4Titles = rightSidebar.querySelectorAll<HTMLElement>('h4')
 
       allH4Titles.forEach(title => {
 
@@ -8755,7 +8837,7 @@ function initializeExtension() {
 
       // Fix dropdown titles specifically (Intent Detection, Goals)
 
-      const dropdownTitlesInRightSidebar = rightSidebar.querySelectorAll('.dropdown-title')
+      const dropdownTitlesInRightSidebar = rightSidebar.querySelectorAll<HTMLElement>('.dropdown-title')
 
       dropdownTitlesInRightSidebar.forEach(title => {
 
@@ -8823,7 +8905,7 @@ function initializeExtension() {
 
       if (theme === 'standard' || theme === 'dark') {
 
-        const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+        const headerTitles = bottomSidebar.querySelectorAll<HTMLElement>('h1, h2, h3, .header-title, .session-id')
 
         headerTitles.forEach(title => {
 
@@ -8833,7 +8915,7 @@ function initializeExtension() {
 
         })
 
-        const sessionId = bottomSidebar.querySelector('#session-id')
+        const sessionId = bottomSidebar.querySelector<HTMLElement>('#session-id')
 
         if (sessionId) {
 
@@ -8847,7 +8929,7 @@ function initializeExtension() {
 
         // Fix top menu links for all themes
 
-        const allElements = bottomSidebar.querySelectorAll('*')
+        const allElements = bottomSidebar.querySelectorAll<HTMLElement>('*')
 
         allElements.forEach(element => {
 
@@ -8907,7 +8989,7 @@ function initializeExtension() {
 
       leftSidebar.style.color = 'white'
 
-      const addAgentBtn = leftSidebar.querySelector('#add-agent-box-btn')
+      const addAgentBtn = leftSidebar.querySelector<HTMLElement>('#add-agent-box-btn')
 
       if (addAgentBtn) {
 
@@ -8929,15 +9011,15 @@ function initializeExtension() {
 
       rightSidebar.style.color = 'white'
 
-      const wrBtn = rightSidebar.querySelector('#wr-connect-btn')
+      const wrBtn = rightSidebar.querySelector<HTMLElement>('#wr-connect-btn')
 
-      const helperBtn = rightSidebar.querySelector('#add-helpergrid-btn')
+      const helperBtn = rightSidebar.querySelector<HTMLElement>('#add-helpergrid-btn')
 
-      const sessionsBtn = rightSidebar.querySelector('#sessions-history-btn')
+      const sessionsBtn = rightSidebar.querySelector<HTMLElement>('#sessions-history-btn')
 
       const addAgentBtnRight = rightSidebar.querySelector('#add-agent-box-btn-right') as HTMLElement | null
 
-      const cards = rightSidebar.querySelectorAll('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
+      const cards = rightSidebar.querySelectorAll<HTMLElement>('#wr-card, #helpergrid-card, #sessions-card, #quick-actions-card')
 
       
 
@@ -8963,7 +9045,7 @@ function initializeExtension() {
 
       if (wrBtn) wrBtn.style.background = '#4CAF50'
 
-      if (sessionsBtn) sessionsBtn.style.background = '#2196F3'
+      if (sessionsBtn) sessionsBtn.style.background = `${csTheme().accent}`
 
       if (helperBtn) helperBtn.style.background = '#FF6B6B'
 
@@ -8973,7 +9055,7 @@ function initializeExtension() {
 
         addAgentBtnRight.style.border = '2px dashed rgba(76, 175, 80, 1)'
 
-        addAgentBtnRight.style.color = 'white'
+        addAgentBtnRight.style.color = '#fff'
 
       }
 
@@ -8991,7 +9073,7 @@ function initializeExtension() {
 
       // Reset header titles to original styling
 
-      const headerTitles = bottomSidebar.querySelectorAll('h1, h2, h3, .header-title, .session-id')
+      const headerTitles = bottomSidebar.querySelectorAll<HTMLElement>('h1, h2, h3, .header-title, .session-id')
 
       headerTitles.forEach(title => {
 
@@ -9001,7 +9083,7 @@ function initializeExtension() {
 
       })
 
-      const sessionId = bottomSidebar.querySelector('#session-id')
+      const sessionId = bottomSidebar.querySelector<HTMLElement>('#session-id')
 
       if (sessionId) {
 
@@ -9015,7 +9097,7 @@ function initializeExtension() {
 
       // Fix dropdown area titles for default theme
 
-      const dropdownTitles = rightSidebar.querySelectorAll('.bottom-panel h4')
+      const dropdownTitles = rightSidebar.querySelectorAll<HTMLElement>('.bottom-panel h4')
 
       dropdownTitles.forEach(title => {
 
@@ -9027,7 +9109,7 @@ function initializeExtension() {
 
       // Fix all h4 titles in the right sidebar for default theme
 
-      const allH4Titles = rightSidebar.querySelectorAll('h4')
+      const allH4Titles = rightSidebar.querySelectorAll<HTMLElement>('h4')
 
       allH4Titles.forEach(title => {
 
@@ -9045,7 +9127,7 @@ function initializeExtension() {
 
       // Fix dropdown titles specifically for default theme
 
-      const dropdownTitlesForDefault = rightSidebar.querySelectorAll('.dropdown-title')
+      const dropdownTitlesForDefault = rightSidebar.querySelectorAll<HTMLElement>('.dropdown-title')
 
       dropdownTitlesForDefault.forEach(title => {
 
@@ -9063,7 +9145,7 @@ function initializeExtension() {
 
       // Fix top menu links for default theme
 
-      const menuLinks = bottomSidebar.querySelectorAll('a, button, span, div')
+      const menuLinks = bottomSidebar.querySelectorAll<HTMLElement>('a, button, span, div')
 
       menuLinks.forEach(link => {
 
@@ -9218,13 +9300,13 @@ function initializeExtension() {
 
           </div>
 
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
 
-          <button id="context-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
 
-          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
+          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
 
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: rgba(255,255,255,0.1); border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
 
           <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">💬</button>
 
@@ -9242,7 +9324,7 @@ function initializeExtension() {
 
             <input id="session-name-input" class="session-id-text" type="text" value="" 
 
-                   style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: inherit; 
+                   style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: inherit; 
 
                           padding: 6px 10px; border-radius: 6px; font-size: 12px; width: 100%; 
 
@@ -9254,13 +9336,13 @@ function initializeExtension() {
 
                    placeholder="Session Name">
 
-            ${(() => { const sk = getCurrentSessionKey(); return sk ? `<div style="padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;"><span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sk}</span></div>` : ''; })()}
+            ${(() => { const sk = getCurrentSessionKey(); return sk ? `<div style="padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; color: ${csTheme().muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;"><span style="color: ${csTheme().muted}; margin-right: 4px;">ID:</span><span style="color: ${csTheme().accent}; font-weight: 400;">${sk}</span></div>` : ''; })()}
 
           </div>
 
-          <button id="new-session-btn" style="background: rgba(76, 175, 80, 0.8); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
+          <button id="new-session-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
 
-          <button id="lock-btn" style="background: rgba(255,255,255,0.1); border: none; color: white; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? 'background: rgba(255,215,0,0.3);' : ''}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
+          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? "background: rgba(251,191,36,0.25);" : ""}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
 
         </div>
 
@@ -9276,11 +9358,11 @@ function initializeExtension() {
 
         <div id="topbar-tabs" style="display:flex; gap:8px; margin-bottom:10px;">
 
-          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
+          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
 
-          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
+          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
 
-          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
+          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
 
         </div>
 
@@ -9294,7 +9376,7 @@ function initializeExtension() {
 
             <!-- Left: User Intent Detection (1/3) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
               <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
 
@@ -9304,15 +9386,15 @@ function initializeExtension() {
 
                   <label for="optimization-mode-select" style="font-size: 10px; opacity: 0.9;">Optimization</label>
 
-                  <select id="optimization-mode-select" style="background: rgba(17,24,39,0.92); border: 1px solid rgba(255,255,255,0.35); color: #ffffff; padding: 4px 6px; border-radius: 6px; font-size: 10px; max-width: 160px; appearance: auto; color-scheme: dark;">
+                  <select id="optimization-mode-select" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 6px; border-radius: 6px; font-size: 10px; max-width: 160px; appearance: auto;">
 
-                    <option value="off" style="background:#111827;color:#ffffff;">Off (default)</option>
+                    <option value="off">Off (default)</option>
 
-                    <option value="on" style="background:#111827;color:#ffffff;">On</option>
+                    <option value="on">On</option>
 
-                    <option value="optiscan" style="background:#111827;color:#ffffff;">Optiscan</option>
+                    <option value="optiscan">Optiscan</option>
 
-                    <option value="deepfix" style="background:#111827;color:#ffffff;">Deepfix</option>
+                    <option value="deepfix">Deepfix</option>
 
                   </select>
 
@@ -9320,11 +9402,11 @@ function initializeExtension() {
 
               </div>
 
-              <div id="detected-intent-demo" style="font-size: 10px; opacity: 0.9; line-height:1.5; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.18); border-radius:6px; padding:8px;">
+              <div id="detected-intent-demo" style="font-size: 10px; opacity: 0.9; line-height:1.5; background: rgba(0,0,0,0.25); border: 1px solid ${csTheme().border}; border-radius:6px; padding:8px;">
 
                 <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                <div style="opacity:0.8;">Confidence: 72% • Updated: just now</div>
+                <div style="opacity:0.8;">Confidence: 72% &rdquo;¢ Updated: just now</div>
 
               </div>
 
@@ -9334,7 +9416,7 @@ function initializeExtension() {
 
             <!-- Right: Orchestration Logic (2/3) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
               <div style="display:flex; align-items:center; justify-content:space-between;">
 
@@ -9346,7 +9428,7 @@ function initializeExtension() {
 
                   <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🧭 Paths</button>
 
-                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">♻️ Feedback</button>
+                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">♻ Feedback</button>
 
                 </div>
 
@@ -9354,7 +9436,7 @@ function initializeExtension() {
 
               <div id="orchestration-log" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-size: 10px; height: 120px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                [System] Orchestrator idle. Awaiting actions…
+                [System] Orchestrator idle. Awaiting actions&rdquo;¦
 
               </div>
 
@@ -9368,7 +9450,7 @@ function initializeExtension() {
 
         <div id="tab-content-session-goals" style="display:none;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
+          <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:10px;">
 
             <div style="display:flex; align-items:center; gap:6px;">
 
@@ -9384,9 +9466,9 @@ function initializeExtension() {
 
                 <label for="goal-text" style="display:flex; align-items:center; gap:6px; font-size:11px;">Goal</label>
 
-                <textarea id="goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
+                <textarea id="goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
 
-                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
+                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
 
               </div>
 
@@ -9394,15 +9476,15 @@ function initializeExtension() {
 
                 <label for="role-text" style="display:flex; align-items:center; gap:6px; font-size:11px;">Role</label>
 
-                <input id="role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 44px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.45); color: white; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px;"/>
+                <input id="role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 44px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px;"/>
 
-                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
+                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
 
               </div>
 
               <div style="display:flex; justify-content:flex-end; align-items:center;">
 
-                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
+                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
 
               </div>
 
@@ -9420,17 +9502,17 @@ function initializeExtension() {
 
           <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">📧 Send Email</div>
 
               <div style="font-size:10px; opacity:0.9;">Draft and send a concise email.</div>
 
-              <button data-workflow="email" class="wf-action" style="padding:6px 8px; background:#22c55e; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
+              <button data-workflow="email" class="wf-action" style="padding:6px 8px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:6px; font-size:11px; cursor:pointer;">Start</button>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">📅 Manage Calendar</div>
 
@@ -9440,7 +9522,7 @@ function initializeExtension() {
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
               <div style="font-size:12px; font-weight:600;">🧹 Clean Up Draft</div>
 
@@ -9548,9 +9630,9 @@ function initializeExtension() {
 
       bottomSidebar.style.cursor = 'default'
 
-      expandBtn.style.transform = 'rotate(180deg)'
+      expandBtn!.style.transform = 'rotate(180deg)'
 
-      expandableContent.style.display = 'block'
+      expandableContent!.style.display = 'block'
 
       // Update page margin to accommodate expanded top bar - use setProperty for priority
 
@@ -9572,9 +9654,9 @@ function initializeExtension() {
 
       bottomSidebar.style.cursor = 'pointer'
 
-      expandBtn.style.transform = 'rotate(0deg)'
+      expandBtn!.style.transform = 'rotate(0deg)'
 
-      expandableContent.style.display = 'none'
+      expandableContent!.style.display = 'none'
 
       // Update page margin back to collapsed height - use setProperty for priority
 
@@ -9624,15 +9706,15 @@ function initializeExtension() {
 
     const isProfessional = bottomSidebar.classList.contains('theme-professional')
 
-    const activeBg = isProfessional ? 'rgba(2,6,23,0.08)' : 'rgba(255,255,255,0.2)'
+    const activeBg = csTheme().accentGrad
 
-    const inactiveBg = isProfessional ? 'rgba(2,6,23,0.03)' : 'rgba(255,255,255,0.1)'
+    const inactiveBg = csTheme().inputBg
 
-    const activeBorder = isProfessional ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.25)'
+    const activeBorder = isProfessional ? '1px solid #cbd5e1' : `1px solid ${csTheme().border}`
 
-    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)'
+    const inactiveBorder = isProfessional ? '1px solid #e2e8f0' : `1px solid ${csTheme().border}`
 
-    const textColor = isProfessional ? '#0f172a' : 'white'
+    const textColor = csTheme().text
 
     tabs.forEach(btn => {
 
@@ -9644,7 +9726,7 @@ function initializeExtension() {
 
         btn.style.border = activeBorder
 
-        btn.style.color = textColor
+        btn.style.color = (id === tabId) ? '#fff' : csTheme().text
 
       } else {
 
@@ -9652,7 +9734,7 @@ function initializeExtension() {
 
         btn.style.border = inactiveBorder
 
-        btn.style.color = textColor
+        btn.style.color = (id === tabId) ? '#fff' : csTheme().text
 
       }
 
@@ -9920,7 +10002,7 @@ function initializeExtension() {
 
       } catch {
 
-        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        return csTheme().panelBg
 
       }
 
@@ -9952,11 +10034,11 @@ function initializeExtension() {
 
       const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-      if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+      if (t === 'dark') return csTheme().panelBg
 
-      if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+      if (t === 'standard') return csTheme().panelBg
 
-      return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      return csTheme().panelBg
 
     }
 
@@ -10226,15 +10308,15 @@ function initializeExtension() {
 
         const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-        if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+        if (t === 'dark') return csTheme().panelBg
 
-        if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+        if (t === 'standard') return csTheme().panelBg
 
-        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        return csTheme().panelBg
 
       } catch {
 
-        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        return csTheme().panelBg
 
       }
 
@@ -10248,7 +10330,7 @@ function initializeExtension() {
 
       position: sticky; top: 0; z-index: 1000;
 
-      padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2);
+      padding: 10px 20px; border-bottom: 1px solid ${csTheme().border};
 
       display: flex; gap: 10px; background: ${safeGradient};
 
@@ -10286,9 +10368,10 @@ function initializeExtension() {
 
         transition: all 0.2s ease;
 
-        background: ${tab.id === activeTab ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)'};
+        background: ${tab.id === activeTab ? csTheme().accentGrad : csTheme().inputBg};
 
-        color: ${tab.id === activeTab ? 'white' : 'rgba(255,255,255,0.7)'};
+        color: ${tab.id === activeTab ? '#fff' : csTheme().text};
+        border: 1px solid ${csTheme().border};
 
       `
 
@@ -10395,7 +10478,7 @@ function initializeExtension() {
 
       text += `\n━━━ Agent ${num}: ${name} ━━━\n`
 
-      text += `Enabled: ${agentData.enabled ? '✓ YES' : '✗ NO'}\n`
+      text += `Enabled: ${agentData.enabled ? '✏“ YES' : '✏— NO'}\n`
 
       text += `Icon: ${agentData.icon || '🤖'}\n\n`
 
@@ -10411,7 +10494,7 @@ function initializeExtension() {
 
       if (hasListener && agentData.listening) {
 
-        text += `  State: ✓ ACTIVE\n\n`
+        text += `  State: ✏“ ACTIVE\n\n`
 
         
 
@@ -10423,9 +10506,9 @@ function initializeExtension() {
 
         text += `  Modes:\n`
 
-        text += `    Passive Listener: ${passiveEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+        text += `    Passive Listener: ${passiveEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-        text += `    Active Listener: ${activeEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+        text += `    Active Listener: ${activeEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
 
         
 
@@ -10491,7 +10574,7 @@ function initializeExtension() {
 
             passiveTriggers.forEach((trigger: any) => {
 
-              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    &rdquo;¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10519,7 +10602,7 @@ function initializeExtension() {
 
             activeTriggers.forEach((trigger: any) => {
 
-              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    &rdquo;¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10545,7 +10628,7 @@ function initializeExtension() {
 
           exampleFiles.forEach((file: any) => {
 
-            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+            text += `    &rdquo;¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
           })
 
@@ -10603,7 +10686,7 @@ function initializeExtension() {
 
       } else {
 
-        text += `  State: ✗ INACTIVE (No listener configured)\n`
+        text += `  State: ✏— INACTIVE (No listener configured)\n`
 
         text += `  ⚡ ALL INPUT FORWARDED to Reasoning section\n`
 
@@ -10739,11 +10822,11 @@ function initializeExtension() {
 
       const contextSettings = agentData.contextSettings || {}
 
-      text += `  Session Context: ${contextSettings.sessionContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+      text += `  Session Context: ${contextSettings.sessionContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-      text += `  Account Context: ${contextSettings.accountContext ? '✓ ENABLED' : '✗ DISABLED'}\n`
+      text += `  Account Context: ${contextSettings.accountContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-      text += `  Agent Context: ${contextSettings.agentContext ? '✓ ENABLED' : '✗ DISABLED'}\n\n`
+      text += `  Agent Context: ${contextSettings.agentContext ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
 
       
 
@@ -10757,7 +10840,7 @@ function initializeExtension() {
 
         agentContextFiles.forEach((file: any) => {
 
-          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+          text += `    &rdquo;¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
         })
 
@@ -10777,23 +10860,23 @@ function initializeExtension() {
 
       text += `[MEMORY SETTINGS]\n`
 
-      text += `  Session Memory: ${memSettings.sessionEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+      text += `  Session Memory: ${memSettings.sessionEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
       if (memSettings.sessionEnabled) {
 
-        text += `    Read: ${memSettings.sessionRead ? '✓' : '✗'}\n`
+        text += `    Read: ${memSettings.sessionRead ? '✏“' : '✏—'}\n`
 
-        text += `    Write: ${memSettings.sessionWrite ? '✓' : '✗'}\n`
+        text += `    Write: ${memSettings.sessionWrite ? '✏“' : '✏—'}\n`
 
       }
 
-      text += `  Account Memory: ${memSettings.accountEnabled ? '✓ ENABLED' : '✗ DISABLED'}\n`
+      text += `  Account Memory: ${memSettings.accountEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
       if (memSettings.accountEnabled) {
 
-        text += `    Read: ${memSettings.accountRead ? '✓' : '✗'}\n`
+        text += `    Read: ${memSettings.accountRead ? '✏“' : '✏—'}\n`
 
-        text += `    Write: ${memSettings.accountWrite ? '✓' : '✗'}\n`
+        text += `    Write: ${memSettings.accountWrite ? '✏“' : '✏—'}\n`
 
       }
 
@@ -10888,13 +10971,13 @@ function initializeExtension() {
       const labels: Record<string, string> = {
         'agentBox': 'Agent Boxes (Default)',
         'agent': 'Specific Agent(s)',
-        'clip-summary': 'Clipboard – Summary',
-        'clip-screenshot': 'Clipboard – Screenshot',
-        'pdf-summary': 'PDF – Summary',
-        'pdf-screenshot': 'PDF – Screenshot',
-        'pdf-both': 'PDF – Summary + Screenshot',
-        'image-screenshot': 'Image – Screenshot (PNG/WebP)',
-        'chat-inline-summary': 'Chat Inline – Summary'
+        'clip-summary': 'Clipboard &rdquo;“ Summary',
+        'clip-screenshot': 'Clipboard &rdquo;“ Screenshot',
+        'pdf-summary': 'PDF &rdquo;“ Summary',
+        'pdf-screenshot': 'PDF &rdquo;“ Screenshot',
+        'pdf-both': 'PDF &rdquo;“ Summary + Screenshot',
+        'image-screenshot': 'Image &rdquo;“ Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline &rdquo;“ Summary'
       }
       return labels[kind] || kind
     }
@@ -10910,12 +10993,12 @@ function initializeExtension() {
     text += 'OUTPUT ROUTING RULES\n'
     text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     text += 'Agent → AgentBox Connection:\n'
-    text += '  • Agent Number must match AgentBox.agentNumber\n'
-    text += '  • AgentBox must be enabled (enabled !== false)\n'
-    text += '  • Output displays in the connected AgentBox\n\n'
+    text += '  &rdquo;¢ Agent Number must match AgentBox.agentNumber\n'
+    text += '  &rdquo;¢ AgentBox must be enabled (enabled !== false)\n'
+    text += '  &rdquo;¢ Output displays in the connected AgentBox\n\n'
     text += 'LLM Model Selection:\n'
-    text += '  • If AgentBox has provider/model set → Use that model\n'
-    text += '  • Otherwise → Use default local model (Ollama)\n'
+    text += '  &rdquo;¢ If AgentBox has provider/model set → Use that model\n'
+    text += '  &rdquo;¢ Otherwise → Use default local model (Ollama)\n'
     text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
     
@@ -11008,7 +11091,7 @@ function initializeExtension() {
 
           text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
 
-          text += `  Status: ${matchedAgent.enabled ? '✓ Active' : '⚠️ Agent disabled'}\n`
+          text += `  Status: ${matchedAgent.enabled ? '✏“ Active' : '⚠️ Agent disabled'}\n`
 
           
 
@@ -11110,18 +11193,18 @@ function initializeExtension() {
             // Summary note about output destination
             const hasAgentBoxDest = specialDestinations.some((d: any) => d.kind === 'agentBox')
             if (hasAgentBoxDest || specialDestinations.length === 0) {
-              text += `    ✓ Output will display in Agent Box ${boxNum}\n`
+              text += `    ✏“ Output will display in Agent Box ${boxNum}\n`
             }
             const otherDests = specialDestinations.filter((d: any) => d.kind !== 'agentBox')
             if (otherDests.length > 0) {
-              text += `    ✓ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
+              text += `    ✏“ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
             }
 
           } else {
 
             text += `\n  [EXECUTION SECTION]\n`
 
-            text += `    Status: ✗ Not enabled\n`
+            text += `    Status: ✏— Not enabled\n`
 
           }
 
@@ -11183,7 +11266,7 @@ function initializeExtension() {
 
   function getAllAgentsFromSession(callback: (agents: any[]) => void) {
 
-    ensureActiveSession((key, session) => {
+    ensureActiveSession((key: string, session: any) => {
 
       const agents = session.agents || []
 
@@ -11205,7 +11288,7 @@ function initializeExtension() {
 
       // Get agent boxes from session
 
-      ensureActiveSession((key, session) => {
+      ensureActiveSession((key: string, session: any) => {
 
         const agentBoxes = session.agentBoxes || []
 
@@ -11281,7 +11364,7 @@ function initializeExtension() {
 
       } catch {
 
-        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        return csTheme().panelBg
 
       }
 
@@ -11289,7 +11372,7 @@ function initializeExtension() {
 
 
 
-    // Show default 01–05 for a fresh lightbox; session will override below
+    // Show default 01&rdquo;“05 for a fresh lightbox; session will override below
 
     const nSummarize = '01'
 
@@ -11341,11 +11424,11 @@ function initializeExtension() {
 
       const t = (localStorage.getItem('optimando-ui-theme') || 'standard') as 'pro'|'dark'|'standard'
 
-      if (t === 'dark') return 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'
+      if (t === 'dark') return csTheme().panelBg
 
-      if (t === 'standard') return 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)'
+      if (t === 'standard') return csTheme().panelBg
 
-      return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+      return csTheme().panelBg
 
     }
 
@@ -11353,17 +11436,17 @@ function initializeExtension() {
 
     // Force default look for Settings wrapper as well
 
-    const themeGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    const themeGradient = csTheme().panelBg
 
     overlay.innerHTML = `
 
-      <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${themeGradient}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
 
-          <button id="close-agents-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agents-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -11371,21 +11454,21 @@ function initializeExtension() {
 
         <!-- TABS: All Agents | Account | System -->
 
-        <div style="padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; gap: 10px;">
+        <div style="padding: 10px 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; gap: 10px;">
 
-          <button class="agent-filter-tab" data-filter="all" style="padding: 8px 16px; background: rgba(255,255,255,0.3); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button class="agent-filter-tab" data-filter="all" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             All Agents
 
           </button>
 
-          <button class="agent-filter-tab" data-filter="account" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+          <button class="agent-filter-tab" data-filter="account" style="padding: 8px 16px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">
 
             Account
 
           </button>
 
-          <button class="agent-filter-tab" data-filter="system" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-size: 12px;">
+          <button class="agent-filter-tab" data-filter="system" style="padding: 8px 16px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">
 
             System
 
@@ -11405,7 +11488,7 @@ function initializeExtension() {
 
           <div id="add-agent-container" style="text-align: center; margin-top: 15px;">
 
-            <button id="add-new-agent" style="padding: 12px 20px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            <button id="add-new-agent" style="padding: 12px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
               ➕ Add New Agent
 
@@ -11419,33 +11502,33 @@ function initializeExtension() {
 
           <div id="system-tab-content" style="display: none;">
 
-            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;margin-bottom:20px;">
+            <div style="background:${csTheme().cardBg};border:1px solid ${csTheme().border};padding:20px;border-radius:8px;margin-bottom:20px;">
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📥 Input Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📥 Input Coordinator (System Instructions)</label>
 
-                <button id="reload-input-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+                <button id="reload-input-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
               </div>
 
-              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
+              <textarea id="input-coordinator-text" style="width:100%;height:350px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().inputText};padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Input coordinator wiring logic will appear here..."></textarea>
 
             </div>
 
             
 
-            <div style="background:rgba(255,255,255,0.08);padding:20px;border-radius:8px;">
+            <div style="background:${csTheme().cardBg};border:1px solid ${csTheme().border};padding:20px;border-radius:8px;">
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:#FFD700;">📤 Output Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📤 Output Coordinator (System Instructions)</label>
 
-                <button id="reload-output-coordinator" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
+                <button id="reload-output-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
               </div>
 
-              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
+              <textarea id="output-coordinator-text" style="width:100%;height:350px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().inputText};padding:12px;border-radius:6px;font-size:12px;font-family:'Consolas',monospace;resize:vertical;line-height:1.6;" placeholder="Output coordinator wiring logic will appear here..."></textarea>
 
             </div>
 
@@ -11463,7 +11546,7 @@ function initializeExtension() {
 
     
 
-    document.getElementById('close-agents-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-agents-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -11485,17 +11568,17 @@ function initializeExtension() {
 
           if (t === tab) {
 
-            t.style.background = 'rgba(255,255,255,0.3)'
+            t.style.background = csTheme().accentGrad
 
-            t.style.color = 'white'
+            t.style.color = '#fff'
 
             t.style.fontWeight = 'bold'
 
           } else {
 
-            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.background = csTheme().inputBg
 
-            t.style.color = 'rgba(255,255,255,0.7)'
+            t.style.color = csTheme().text
 
             t.style.fontWeight = 'normal'
 
@@ -11635,7 +11718,7 @@ function initializeExtension() {
 
         if (!confirm('Delete this agent?')) return
 
-        console.log(`🗑️ Deleting agent "${key}" with scope: ${scope}`)
+        console.log(`🗝‘️ Deleting agent "${key}" with scope: ${scope}`)
 
         deleteAgent(key, scope, () => renderAgentsGrid(overlay, currentFilter))
 
@@ -11727,7 +11810,7 @@ function initializeExtension() {
 
           const num = map && map[key] ? String(map[key]).padStart(2, '0') : '01'
 
-          if (h4) h4.textContent = `Agent ${num} — ${label}`
+          if (h4) h4.textContent = `Agent ${num} &rdquo;” ${label}`
 
         })
 
@@ -11853,13 +11936,13 @@ function initializeExtension() {
 
   }
 
-  function openAgentConfigDialog(agentName, type, parentOverlay, agentScope = 'session', agentNumber?) {
+  function openAgentConfigDialog(agentName: string, type: string, parentOverlay: HTMLElement, agentScope = 'session', agentNumber?: string | number) {
 
     console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}", Number: ${agentNumber}`)
 
-    function pad2(n) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
+    function pad2(n: any) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
 
-    function capitalizeName(n) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
+    function capitalizeName(n: any) { try { return (n || '').toString().charAt(0).toUpperCase() + (n || '').toString().slice(1) } catch { return n } }
 
     // Fallback function for agent number when not provided via parameter
     // Note: Agent number should be passed via data-number attribute when available
@@ -11912,9 +11995,9 @@ function initializeExtension() {
 
       'summarize': '#4CAF50',
 
-      'research': '#2196F3',
+      'research': `${csTheme().accent}`,
 
-      'analyze': '#FF9800',
+      'analyze': `${csTheme().accent}`,
 
       'generate': '#9C27B0',
 
@@ -13050,13 +13133,13 @@ function initializeExtension() {
             <label>Name (Command Identifier)
               <span title="The command identifier used to reference this agent. Used in triggers like @agent-name or #agent-name. Should be lowercase with hyphens." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
 
-              <input id="ag-name" value="${(agentName||'').toString()}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+              <input id="ag-name" value="${(agentName||'').toString()}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
             <label>Icon
 
-              <input id="ag-icon" value="🤖" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+              <input id="ag-icon" value="🤖" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
@@ -13069,7 +13152,7 @@ function initializeExtension() {
             <label>Description
               <span title="A human-readable description of what this agent does, its purpose, and how it should be used. This helps other users and systems understand the agent's role." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
 
-              <textarea id="ag-description" placeholder="Describe what this agent does..." style="width:100%;min-height:60px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px;resize:vertical;font-family:inherit"></textarea>
+              <textarea id="ag-description" placeholder="Describe what this agent does..." style="width:100%;min-height:60px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;resize:vertical;font-family:inherit"></textarea>
 
             </label>
 
@@ -13103,11 +13186,11 @@ function initializeExtension() {
 
         <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory:</label>
 
-            <textarea id="agent-context" style="width: 100%; height: 180px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
+            <textarea id="agent-context" style="width: 100%; height: 180px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
 
             </div>
 
@@ -13115,11 +13198,11 @@ function initializeExtension() {
 
           <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🧠 Memory Allocation:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory Allocation:</label>
 
-              <select id="agent-memory" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+              <select id="agent-memory" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
                 <option value="low">Low (2MB)</option>
 
@@ -13137,9 +13220,9 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -13161,11 +13244,11 @@ function initializeExtension() {
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⚡ Priority Level:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⚡ Priority Level:</label>
 
-            <select id="agent-priority" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;">
+            <select id="agent-priority" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
               <option value="low">Low</option>
 
@@ -13181,9 +13264,9 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">🚀 Auto-Activation:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🚀 Auto-Activation:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 12px; cursor: pointer;">
 
@@ -13205,11 +13288,11 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">⏱️ Response Delay:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⏱️ Response Delay:</label>
 
-            <input type="number" id="agent-delay" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
+            <input type="number" id="agent-delay" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
 
             <div style="margin-top: 8px; font-size: 10px; opacity: 0.7;">0-5000 milliseconds</div>
 
@@ -13241,7 +13324,7 @@ function initializeExtension() {
 
       }
 
-      return `${typeLabels[type]} - ${capitalizeName(agentName)}`
+      return `${typeLabels[type as keyof typeof typeLabels]} - ${capitalizeName(agentName)}`
 
     })()
 
@@ -13249,13 +13332,13 @@ function initializeExtension() {
 
     configOverlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, ${agentColors[agentName] || '#667eea'} 0%, rgba(118, 75, 162, 0.8) 100%);">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${(agentColors as Record<string, string>)[agentName] ? `linear-gradient(135deg, ${(agentColors as Record<string, string>)[agentName]} 0%, rgba(118, 75, 162, 0.8) 100%)` : csTheme().headerGrad};">
 
           <h2 style="margin: 0; font-size: 20px; text-transform: capitalize;">${headerTitle}</h2>
 
-          <button id="close-agent-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agent-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -13265,21 +13348,21 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg};">
 
           <div style="display: flex; gap: 10px; align-items: center;">
-            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.3); border: 1px solid rgba(59,130,246,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
+            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.4); color: ${csTheme().isLight ? '#1d4ed8' : '#93c5fd'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.3); border: 1px solid rgba(147,51,234,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.3); border: 1px solid rgba(245,158,11,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.4); color: ${csTheme().isLight ? '#7c3aed' : '#c4b5fd'}; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4); color: ${csTheme().isLight ? '#b45309' : '#fcd34d'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
             </div>
-            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.3); border: 1px solid rgba(34,197,94,0.5); color: white; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
+            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4); color: ${csTheme().isLight ? '#15803d' : '#86efac'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
           </div>
 
           <div style="display: flex; gap: 15px;">
-            <button id="agent-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
-            <button id="agent-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+            <button id="agent-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
           </div>
 
         </div>
@@ -13445,7 +13528,7 @@ function initializeExtension() {
 
         del.title = 'Remove'
 
-        del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+        del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer'
 
         del.addEventListener('click', () => row.remove())
 
@@ -13470,17 +13553,17 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'exec-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
         header.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="display:flex;align-items:center;gap:8px;flex:1">
-              <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
-              <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
+              <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
+              <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">✕</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">×</button>
           </div>
         `
         
@@ -13498,23 +13581,23 @@ function initializeExtension() {
           </div>
           <div class="e-run-when-content">
             <div class="e-run-when-always" style="display:${runWhenType === 'always' ? 'block' : 'none'};padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px">
-              <span style="font-size:11px;color:rgba(255,255,255,0.8)">✓ This workflow will always run when reached</span>
+              <span style="font-size:11px;color:rgba(255,255,255,0.8)">✏“ This workflow will always run when reached</span>
             </div>
             <div class="e-run-when-boolean" style="display:${runWhenType === 'boolean' ? 'block' : 'none'}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                 <span style="font-size:11px;opacity:0.7">Conditions (structured reasoning/execution input):</span>
-                <button class="e-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+                <button class="e-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
               </div>
               <div class="e-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
             </div>
-            <div class="e-run-when-tag" style="display:${runWhenType === 'tag' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+            <div class="e-run-when-tag" style="display:${runWhenType === 'tag' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#3b82f6;font-size:12px">#</span>
                 <input type="text" placeholder="tag_name (e.g. create_chart)" class="e-run-tag" value="${conditions[0]?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
               <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this exact tag is detected in reasoning output</div>
             </div>
-            <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:4px">
+            <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
                 <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
@@ -13550,7 +13633,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.e-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'e-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -13576,10 +13659,10 @@ function initializeExtension() {
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✕</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✏•</button>
             </div>
             <div class="e-wcond-route-container" style="display:none;padding-left:20px">
-              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
             </div>
           `
           
@@ -14584,7 +14667,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = `trigger-${type}-row`
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14593,17 +14676,17 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="internal" class="t-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="external" class="t-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
               </label>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✕</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✏•</button>
           </div>
           <div class="t-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
-            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
           </div>
         `
         
@@ -14621,7 +14704,7 @@ function initializeExtension() {
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
-            <button class="t-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+            <button class="t-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="t-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
         `
@@ -14637,7 +14720,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.t-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 't-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:6px;font-size:12px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <span style="opacity:0.7;white-space:nowrap">If</span>
@@ -14657,10 +14740,10 @@ function initializeExtension() {
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✕</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✏•</button>
             </div>
             <div class="t-wcond-route-container" style="display:none;padding-left:20px">
-              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
             </div>
           `
           
@@ -14711,7 +14794,7 @@ function initializeExtension() {
         
         const row = document.createElement('div')
         row.className = 'reasoning-workflow-row'
-        row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+        row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
         
         const header = document.createElement('div')
         header.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:8px'
@@ -14720,18 +14803,18 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="internal" class="r-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🔧 Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="external" class="r-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
               </label>
               <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✕</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✏•</button>
           </div>
           <div class="r-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
-            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
           </div>
         `
         
@@ -14753,7 +14836,7 @@ function initializeExtension() {
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
-            <button class="r-workflow-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+            <button class="r-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
         `
@@ -14769,7 +14852,7 @@ function initializeExtension() {
         conditionsWrap.querySelector('.r-workflow-add-cond')?.addEventListener('click', () => {
           const condRow = document.createElement('div')
           condRow.className = 'r-workflow-cond-row'
-          condRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)'
+          condRow.style.cssText = `display:flex;flex-direction:column;gap:8px;font-size:12px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;border:1px solid ${csTheme().border}`
           condRow.innerHTML = `
             <div style="display:flex;gap:6px;align-items:center">
               <select class="r-wcond-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px;font-weight:500">
@@ -14777,7 +14860,7 @@ function initializeExtension() {
                 <option value="tag">Tag Detection</option>
                 <option value="signal">Workflow Signal</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">✕</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">✏•</button>
             </div>
             <div class="r-wcond-fields" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
             <div style="display:flex;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);flex-wrap:wrap">
@@ -14799,12 +14882,12 @@ function initializeExtension() {
               <span title="Defines how the workflow's output is used in the reasoning step." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
             </div>
             <div class="r-wcond-route-container" style="display:none;padding-left:20px">
-              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
+              <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
             </div>
             <div class="r-wcond-signal-container" style="display:none;padding-left:20px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">⚡</span>
-                <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
+                <input type="text" placeholder="signal_name" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
               </div>
               <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
             </div>
@@ -14964,7 +15047,7 @@ function initializeExtension() {
 
         const agentCtxWrap = document.createElement('div')
 
-        agentCtxWrap.style.cssText = 'background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15)'
+        agentCtxWrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border}`
 
         agentCtxWrap.innerHTML = `
 
@@ -14980,7 +15063,7 @@ function initializeExtension() {
 
             <label style="display:block;margin-bottom:6px;font-size:12px;color:rgba(255,255,255,0.8)">Upload context files (JSON / PDF / DOCX / MD)</label>
 
-            <input id="AC-files" type="file" multiple accept="application/json,application/pdf,.doc,.docx,text/markdown,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+            <input id="AC-files" type="file" multiple accept="application/json,application/pdf,.doc,.docx,text/markdown,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             <div id="AC-list" style="margin-top:6px;font-size:12px;opacity:.85">No files selected</div>
 
@@ -15031,7 +15114,7 @@ function initializeExtension() {
 
                 <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
               </div>
 
@@ -15069,7 +15152,7 @@ function initializeExtension() {
 
               
 
-              console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
+              console.log(`🗝‘️ Removed Agent Context file at index ${idx} and saved to storage`)
 
                 btn.closest('.saved-file-row')?.remove()
 
@@ -15243,7 +15326,7 @@ function initializeExtension() {
 
                       <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                     </div>
 
@@ -15283,7 +15366,7 @@ function initializeExtension() {
 
                 
 
-                console.log(`🗑️ Removed Agent Context file at index ${idx} and saved to storage`)
+                console.log(`🗝‘️ Removed Agent Context file at index ${idx} and saved to storage`)
 
                       btn.closest('.saved-file-row')?.remove()
 
@@ -15319,7 +15402,7 @@ function initializeExtension() {
 
           wrap.id = 'box-listening'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);color:#fff;display:${capL.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};color:#fff;display:${capL.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15335,7 +15418,7 @@ function initializeExtension() {
 
               <div id="L-unified-triggers" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
 
-              <button id="L-add-trigger" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
+              <button id="L-add-trigger" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Trigger</button>
             </div>
 
 `
@@ -15370,7 +15453,7 @@ function initializeExtension() {
 
                     <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                   </div>
 
@@ -15378,7 +15461,7 @@ function initializeExtension() {
 
                 <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                  ✚ Upload new files below to add more (duplicates will be skipped)
+                  ✏š Upload new files below to add more (duplicates will be skipped)
 
                 </div>
 
@@ -15416,7 +15499,7 @@ function initializeExtension() {
 
                 
 
-                console.log(`🗑️ Removed Listener Example file at index ${idx} and saved to storage`)
+                console.log(`🗝‘️ Removed Listener Example file at index ${idx} and saved to storage`)
 
                 btn.closest('.saved-file-row')?.remove()
 
@@ -15566,7 +15649,7 @@ function initializeExtension() {
 
                             <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                           </div>
 
@@ -15608,7 +15691,7 @@ function initializeExtension() {
 
                     
 
-                    console.log(`🗑️ Removed Listener Example file at index ${idx} and saved to storage`)
+                    console.log(`🗝‘️ Removed Listener Example file at index ${idx} and saved to storage`)
 
                           btn.closest('.saved-file-row')?.remove()
 
@@ -15646,7 +15729,7 @@ function initializeExtension() {
 
           wrap.id = 'box-reasoning'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capR.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capR.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15666,7 +15749,7 @@ function initializeExtension() {
                     </div>
                   </div>
                 </div>
-                <button id="R-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
+                <button id="R-add-section" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Reasoning Section</button>
               </div>
 
             </div>
@@ -15678,24 +15761,24 @@ function initializeExtension() {
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button id="R-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button id="R-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
             <label style="display:block;margin-top:12px">Goals (System instructions)
 
-              <textarea id="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea id="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
             <label style="display:block">Role (optional)
 
-              <input id="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+              <input id="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
             <label style="display:block">Rules
 
-              <textarea id="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea id="R-rules" style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -15704,7 +15787,7 @@ function initializeExtension() {
             <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings (moved from separate section) -->
-            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
                 Memory & Context
                 <span title="Configure which memory and context sources this agent can access during reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
@@ -15718,11 +15801,11 @@ function initializeExtension() {
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-read" type="checkbox">
-                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-write" type="checkbox">
-                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15732,11 +15815,11 @@ function initializeExtension() {
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-read" type="checkbox">
-                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-write" type="checkbox">
-                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">OFF</span></span>
+                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15780,7 +15863,7 @@ function initializeExtension() {
 
           wrap.id = 'box-execution'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);display:${capE.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capE.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
@@ -15805,7 +15888,7 @@ function initializeExtension() {
 
             </div>
 
-            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:8px">
+            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="display:flex;align-items:center;gap:10px">
                 <span style="font-weight:600;font-size:13px;white-space:nowrap">Execution Mode:</span>
                 <select id="E-execution-mode-main" style="flex:1;max-width:280px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
@@ -15821,7 +15904,7 @@ function initializeExtension() {
 
               <div id="E-workflow-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button id="E-add-workflow" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button id="E-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -15896,7 +15979,7 @@ function initializeExtension() {
           row.className = 'condition-row'
           row.style.cssText = 'display:flex;gap:6px;align-items:center'
           row.innerHTML = `
-            <input type="text" placeholder="Field (e.g. input.length)" value="${field}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-field">
+            <input type="text" placeholder="Field (e.g. input.length)" value="${field}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="cond-field">
             <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:4px;font-size:12px" class="cond-op">
               <option value="eq" ${op==='eq'?'selected':''}>equals</option>
               <option value="ne" ${op==='ne'?'selected':''}>not equals</option>
@@ -15908,8 +15991,8 @@ function initializeExtension() {
               <option value="exists" ${op==='exists'?'selected':''}>exists</option>
               <option value="regex" ${op==='regex'?'selected':''}>regex</option>
             </select>
-            <input type="text" placeholder="Value" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="cond-value">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✕</button>
+            <input type="text" placeholder="Value" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="cond-value">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✏•</button>
           `
           row.querySelector('.cond-del')?.addEventListener('click', () => row.remove())
           return row
@@ -15926,14 +16009,14 @@ function initializeExtension() {
         const createSensorWorkflowRow = (workflowId: string = '', conditions: any[] = []) => {
           const row = document.createElement('div')
           row.className = 'sensor-workflow-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:10px`
           
           const header = document.createElement('div')
           header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
           header.innerHTML = `
             <span style="font-size:13px;font-weight:500;color:#fff">📊 Sensor:</span>
-            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✕</button>
+            <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✏•</button>
           `
           
           const conditionsWrap = document.createElement('div')
@@ -15941,7 +16024,7 @@ function initializeExtension() {
           conditionsWrap.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
               <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
-              <button class="sensor-add-cond" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+              <button class="sensor-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
             </div>
             <div class="sensor-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
           `
@@ -15976,7 +16059,7 @@ function initializeExtension() {
                 <option value="skip">Skip Agent</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✕</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✏•</button>
             `
             condRow.querySelector('.scond-del')?.addEventListener('click', () => condRow.remove())
             sensorCondList.appendChild(condRow)
@@ -16012,8 +16095,8 @@ function initializeExtension() {
           row.className = 'action-workflow-row'
           row.style.cssText = 'display:flex;gap:6px;align-items:center'
           row.innerHTML = `
-            <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✕</button>
+            <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✏•</button>
           `
           row.querySelector('.workflow-del')?.addEventListener('click', () => row.remove())
           return row
@@ -16041,7 +16124,61 @@ function initializeExtension() {
           domEvent?: string,
           commandLabel?: string,
           websiteFilter?: string,
-          conditions?: any[]
+          conditions?: any[],
+          id?: string,
+          tag?: string,
+          channel?: string,
+          sourceAgent?: string,
+          miniAppId?: string,
+          miniAppUiElements?: any,
+          miniAppConditions?: any,
+          eventTagConditions?: any,
+          parserTrigger?: string,
+          parserInterval?: number,
+          domParseTarget?: string,
+          domParseSelector?: string,
+          domUrlFilter?: string,
+          domPayloadUrl?: boolean,
+          domPayloadSnippet?: boolean,
+          domPayloadSelection?: boolean,
+          sanitizeTrim?: boolean,
+          sanitizeStripMarkdown?: boolean,
+          sanitizeRemoveBoilerplate?: boolean,
+          metaSelectors?: any,
+          autoDetected?: any,
+          autoDetectSelectors?: any,
+          siteFilters?: any,
+          domParserRules?: any,
+          overlayModeButton?: boolean,
+          overlayModeEmpty?: boolean,
+          overlayModeElement?: boolean,
+          overlayModeSelection?: boolean,
+          overlayTriggerName?: string,
+          overlayButtonLabel?: string,
+          overlayPhrases?: any,
+          overlayUrlPattern?: string,
+          overlayWrcodeOnly?: boolean,
+          overlayPayloadSelection?: boolean,
+          overlayPayloadContext?: boolean,
+          overlayPayloadUrl?: boolean,
+          overlayPayloadCoords?: boolean,
+          buttonSelector?: string,
+          buttonSelectors?: string[],
+          triggerOnEnterKey?: boolean,
+          enterKeyIgnoreShift?: boolean,
+          captureInput?: boolean,
+          inputSelector?: string,
+          inputSelectors?: string[],
+          captureOutput?: boolean,
+          outputSelector?: string,
+          outputSelectors?: string[],
+          responseReadyMode?: string,
+          quietPeriodMs?: number,
+          responseSignalSelector?: string,
+          maxWaitTimeMs?: number,
+          captureUrl?: boolean,
+          capturePageTitle?: boolean,
+          [key: string]: any
         }) => {
           // Generate a readable trigger ID
           const existingTriggers = document.querySelectorAll('#L-unified-triggers .unified-trigger-row').length
@@ -16051,15 +16188,15 @@ function initializeExtension() {
           const row = document.createElement('div')
           row.className = 'unified-trigger-row'
           row.dataset.triggerId = triggerId
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
           
           // ID display row
           const idRow = document.createElement('div')
-          idRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.1)'
+          idRow.style.cssText = `display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${csTheme().border}`
           idRow.innerHTML = `
             <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
-            <button class="trigger-temp-save" style="margin-left:auto;background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
+            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
           `
           row.appendChild(idRow)
           
@@ -16070,19 +16207,19 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            tempSaveBtn.textContent = '✓ Saved'
+            tempSaveBtn.textContent = '✏“ Saved'
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               tempSaveBtn.textContent = '💾 Save'
-              tempSaveBtn.style.background = '#22c55e'
+              tempSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
             // Add persistent green checkmark indicator if not already present
             if (!row.querySelector('.trigger-saved-indicator')) {
               const checkmark = document.createElement('span')
               checkmark.className = 'trigger-saved-indicator'
-              checkmark.textContent = '✓'
-              checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+              checkmark.textContent = '✏“'
+              checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
               checkmark.title = 'Trigger saved'
               tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
             }
@@ -16173,7 +16310,7 @@ function initializeExtension() {
                 <select class="trigger-channel" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:6px">
                   <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>💬 WR Chat</option>
                   <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>📧 Email</option>
-                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>🌐 Web/Messaging</option>
+                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>🌐 Web/Messaging</option>
                   <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>🎯 Augmented Overlay</option>
                   <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>🤖 Agent</option>
                   <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>📱 Mini-App</option>
@@ -16202,7 +16339,7 @@ function initializeExtension() {
               const senderCondition = existingConditions.find((c: any) => c.type === 'sender_whitelist')
               
               securitySection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
@@ -16251,7 +16388,7 @@ function initializeExtension() {
               websiteSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:8px'
               websiteSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;opacity:0.7">(optional)</span>
+                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;opacity:0.7">(optional)</span>
                 </div>
                 <div>
                   <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL Pattern</label>
@@ -16301,14 +16438,14 @@ function initializeExtension() {
                 <div style="margin-bottom:10px">
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                     <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
-                    <button class="miniapp-add-ui" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
+                    <button class="miniapp-add-ui" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
                   </div>
                   <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
                 <div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                     <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
-                    <button class="miniapp-add-condition" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+                    <button class="miniapp-add-condition" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
                   </div>
                   <div class="miniapp-condition-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
@@ -16331,7 +16468,7 @@ function initializeExtension() {
                   </select>
                   <input type="text" placeholder="Element ID" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-id">
                   <input type="text" placeholder="Label" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-label">
-                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">&times;</button>
                 `
                 miniappUiList.appendChild(uiRow)
               })
@@ -16353,7 +16490,7 @@ function initializeExtension() {
                     <option value="exists">exists</option>
                   </select>
                   <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-value">
-                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">&times;</button>
                 `
                 miniappCondList.appendChild(condRow)
               })
@@ -16487,7 +16624,7 @@ function initializeExtension() {
               // Conditions section with condition type selector
               const condSection = document.createElement('div')
               condSection.className = 'workflow-conditions-section'
-              condSection.style.cssText = 'margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.15)'
+              condSection.style.cssText = `margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid ${csTheme().border}`
               condSection.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                   <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Conditions (when to activate)</span>
@@ -16504,7 +16641,7 @@ function initializeExtension() {
               const createConditionRow = (initCond?: { conditionType?: string, field?: string, op?: string, value?: string, tag?: string, signal?: string }) => {
                 const condRow = document.createElement('div')
                 condRow.className = 'condition-row'
-                condRow.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                condRow.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:6px;padding:8px`
                 
                 const condType = initCond?.conditionType || 'boolean'
                 
@@ -16515,7 +16652,7 @@ function initializeExtension() {
                       <option value="tag" ${condType === 'tag' ? 'selected' : ''}>Tag Detection</option>
                       <option value="signal" ${condType === 'signal' ? 'selected' : ''}>Workflow Signal</option>
                     </select>
-                    <button class="remove-cond-btn" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">×</button>
+                    <button class="remove-cond-btn" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">&times;</button>
                   </div>
                   <div class="cond-fields" style="display:flex;gap:4px;align-items:center"></div>
                 `
@@ -16651,7 +16788,7 @@ function initializeExtension() {
               parserSection.className = 'trigger-section trigger-dom-parser-section'
               parserSection.style.cssText = 'padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;margin-bottom:10px'
               parserSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔍</span> DOM Parser
                   <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
                 </div>
@@ -16678,7 +16815,7 @@ function initializeExtension() {
                   <!-- Header -->
                   <div style="font-size:13px;color:#60a5fa;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
                     <span style="font-size:15px">🤖</span> AI Chat Capture
-                    <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);padding:0 5px;border-radius:50%">?</span>
+                    <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid ${csTheme().border};padding:0 5px;border-radius:50%">?</span>
                   </div>
                   <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:12px;line-height:1.4">
                     Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
@@ -16688,14 +16825,14 @@ function initializeExtension() {
                   <div style="margin-bottom:10px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
                       Site Filters <span style="font-weight:400;opacity:0.7">(optional)</span>
-                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;&rdquo;¢ *.openai.com/* - all OpenAI pages&#10;&rdquo;¢ https://claude.ai/* - Claude AI&#10;&rdquo;¢ *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
-                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains – one pattern per line. Leave empty to match all sites.</div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains &rdquo;“ one pattern per line. Leave empty to match all sites.</div>
                   </div>
 
                   <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
-                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px">
+                  <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
                       When should capture start?
                       <span title="Define what triggers the capture. You can monitor send button clicks and/or Enter key presses. The capture starts the moment the user sends their message." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
@@ -16709,7 +16846,7 @@ function initializeExtension() {
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                         <input type="checkbox" class="trigger-auto-detect" ${init?.autoDetectSelectors ? 'checked' : ''} style="margin:0">
                         <span style="font-size:10px;color:#fbbf24;font-weight:600">⚡ Auto-Detect Selectors</span>
-                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;&rdquo;¢ Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;&rdquo;¢ Detects send buttons, input fields, and response areas&#10;&rdquo;¢ No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
@@ -16718,16 +16855,16 @@ function initializeExtension() {
                         </button>
                         <div class="auto-detect-status" style="display:none;margin-top:6px;padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;font-size:9px;font-family:monospace"></div>
                         <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
-                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✓ Detected Elements:</div>
+                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✏“ Detected Elements:</div>
                           <div style="font-size:9px;color:rgba(255,255,255,0.7);font-family:monospace;line-height:1.6">
-                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '&rdquo;”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '&rdquo;”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '&rdquo;”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '&rdquo;”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '&rdquo;”'}</span></div>
                           </div>
                           <button type="button" class="btn-apply-detected" style="margin-top:8px;width:100%;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.3);color:#4ade80;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
-                            ✓ Apply to all fields
+                            ✏“ Apply to all fields
                           </button>
                         </div>
                       </div>
@@ -16737,7 +16874,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Button Selectors
-                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;&rdquo;¢ button[data-testid='send-button'] - ChatGPT&#10;&rdquo;¢ button[aria-label='Send Message'] - Claude&#10;&rdquo;¢ .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
@@ -16752,7 +16889,7 @@ function initializeExtension() {
                         <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
                           <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
                           <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
-                          <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </label>
                       </div>
                     </div>
@@ -16774,7 +16911,7 @@ function initializeExtension() {
                     <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
                       <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                         Input Selectors
-                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;&rdquo;¢ textarea[data-id='root'] - ChatGPT&#10;&rdquo;¢ #prompt-textarea - Generic&#10;&rdquo;¢ [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
                       <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
@@ -16799,7 +16936,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Output Selectors
-                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;&rdquo;¢ [data-message-author-role='assistant'] - ChatGPT&#10;&rdquo;¢ .markdown-body - Rendered markdown&#10;&rdquo;¢ .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
@@ -16809,7 +16946,7 @@ function initializeExtension() {
                       <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
                         <div style="font-size:10px;color:rgba(255,255,255,0.75);margin-bottom:5px;display:flex;align-items:center;gap:4px">
                           Response ready when:
-                          <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="How to know when the AI has finished responding:&#10;&#10;&rdquo;¢ First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;&rdquo;¢ Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;&rdquo;¢ Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
                           <select class="trigger-response-ready-mode" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:10px;min-width:130px">
@@ -16824,13 +16961,13 @@ function initializeExtension() {
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">Wait</span>
                           <input type="number" class="trigger-quiet-period-ms" value="${init?.quietPeriodMs || '1500'}" style="width:60px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms with no changes</span>
-                          <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                         
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
                             <span style="font-size:10px;color:rgba(255,255,255,0.6)">Signal selector:</span>
-                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;&rdquo;¢ button[aria-label='Copy'] - Copy button&#10;&rdquo;¢ .feedback-buttons - Thumbs up/down&#10;&rdquo;¢ .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
@@ -16839,7 +16976,7 @@ function initializeExtension() {
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">Max wait:</span>
                           <input type="number" class="trigger-max-wait-time-ms" value="${init?.maxWaitTimeMs || '60000'}" style="width:70px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
                           <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms</span>
-                          <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);padding:0 4px;border-radius:50%">?</span>
+                          <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                       </div>
                     </div>
@@ -16868,7 +17005,7 @@ function initializeExtension() {
                     <div>
                       <label style="font-size:10px;color:rgba(255,255,255,0.75);display:flex;align-items:center;gap:4px;margin-bottom:2px">
                         Context Selectors <span style="opacity:0.6">(optional)</span>
-                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;&rdquo;¢ [data-conversation-id] - Conversation ID&#10;&rdquo;¢ .model-selector - Which AI model is selected&#10;&rdquo;¢ .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-meta-selectors" placeholder="[data-conversation-id]&#10;.model-selector" style="width:100%;min-height:32px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.metaSelectors || []).join('\n')}</textarea>
                     </div>
@@ -17078,7 +17215,7 @@ function initializeExtension() {
                 for (const pattern of buttonPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       detectedButton = el.closest('button') || el
                       break
                     }
@@ -17106,7 +17243,7 @@ function initializeExtension() {
                 for (const pattern of inputPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       detectedInput = el
                       break
                     }
@@ -17134,7 +17271,7 @@ function initializeExtension() {
                   try {
                     const els = document.querySelectorAll(pattern)
                     const el = els[els.length - 1]
-                    if (el && el.offsetParent !== null && (el.textContent?.length || 0) > 20) {
+                    if (el && (el as HTMLElement).offsetParent !== null && (el.textContent?.length || 0) > 20) {
                       detectedOutput = el
                       break
                     }
@@ -17166,7 +17303,7 @@ function initializeExtension() {
                 for (const { pattern } of contextPatterns) {
                   try {
                     const el = document.querySelector(pattern)
-                    if (el && el.offsetParent !== null) {
+                    if (el && (el as HTMLElement).offsetParent !== null) {
                       const selector = generateSelector(el)
                       if (selector && !detectedContext.includes(selector)) {
                         detectedContext.push(selector)
@@ -17185,7 +17322,7 @@ function initializeExtension() {
                   if (autoDetectStatus) {
                     const foundCount = [siteFilter, buttonSelector, inputSelector, outputSelector].filter(Boolean).length + detectedContext.length
                     if (foundCount > 0) {
-                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">✓ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
+                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">✏“ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
                       if (autoDetectedResults) {
                         autoDetectedResults.style.display = 'block'
                         const siteSpan = autoDetectedResults.querySelector('.detected-site-filter')
@@ -17208,7 +17345,7 @@ function initializeExtension() {
                         }
                       }
                     } else {
-                      autoDetectStatus.innerHTML = '<span style="color:#f87171">✗ Could not detect AI chat elements. This may not be a supported chat interface.</span>'
+                      autoDetectStatus.innerHTML = '<span style="color:#f87171">✏— Could not detect AI chat elements. This may not be a supported chat interface.</span>'
                     }
                   }
                 }, 300)
@@ -17284,7 +17421,7 @@ function initializeExtension() {
                     detected.output,
                     ...(detected.context || [])
                   ].filter(Boolean).length
-                  applyDetectedBtn.textContent = `✓ Applied ${appliedCount} selectors!`
+                  applyDetectedBtn.textContent = `✏“ Applied ${appliedCount} selectors!`
                   applyDetectedBtn.style.background = 'rgba(34,197,94,0.3)'
                   setTimeout(() => {
                     applyDetectedBtn.textContent = 'Apply to all fields'
@@ -17338,7 +17475,7 @@ function initializeExtension() {
               const createParserRule = (initRule?: any) => {
                 const rule = document.createElement('div')
                 rule.className = 'dom-parser-rule'
-                rule.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px'
+                rule.style.cssText = `background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px;padding:8px`
                 rule.innerHTML = `
                   <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
                     <select class="dom-rule-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
@@ -17348,7 +17485,7 @@ function initializeExtension() {
                       <option value="attribute" ${initRule?.type === 'attribute' ? 'selected' : ''}>Attribute Check</option>
                       <option value="text_length" ${initRule?.type === 'text_length' ? 'selected' : ''}>Text Length</option>
                     </select>
-                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">✕</button>
+                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">✏•</button>
                   </div>
                   <div class="dom-rule-fields" style="display:flex;flex-direction:column;gap:6px"></div>
                   <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1)">
@@ -17454,31 +17591,31 @@ function initializeExtension() {
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Interaction Modes <span style="opacity:0.6">(select one or more)</span></label>
                   <div style="display:flex;flex-direction:column;gap:8px">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">⌘ Overlay Button</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User clicks a button in the overlay UI</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🎤 Voice + Pointer (empty area)</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at empty space</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
                       <div>
                         <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🖱️ Voice + Element</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at a specific element</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">✂️ Voice + Selection</div>
+                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">✏‚️ Voice + Selection</div>
                         <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while having text selected</div>
                       </div>
                     </label>
@@ -17486,7 +17623,7 @@ function initializeExtension() {
                 </div>
                 <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:6px">
                   <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Button Label / Icon</label>
-                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✏¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
                   <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Button displayed in the overlay UI</div>
                 </div>
                 <div style="margin-bottom:10px">
@@ -17604,14 +17741,14 @@ function initializeExtension() {
                 <div style="margin-bottom:10px">
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                     <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
-                    <button class="miniapp-add-ui-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
+                    <button class="miniapp-add-ui-btn" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
                   </div>
                   <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
                 <div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                     <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
-                    <button class="miniapp-add-cond-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);color:#fff;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
+                    <button class="miniapp-add-cond-btn" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
                   </div>
                   <div class="miniapp-cond-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
@@ -17634,7 +17771,7 @@ function initializeExtension() {
                   </select>
                   <input type="text" placeholder="Element ID" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-id">
                   <input type="text" placeholder="Label" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-ui-label">
-                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">&times;</button>
                 `
                 uiList.appendChild(uiRow)
               })
@@ -17656,7 +17793,7 @@ function initializeExtension() {
                     <option value="exists">exists</option>
                   </select>
                   <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:4px;font-size:11px" class="miniapp-cond-value">
-                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">×</button>
+                  <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px" onclick="this.parentElement.remove()">&times;</button>
                 `
                 condList.appendChild(condRow)
               })
@@ -17773,11 +17910,11 @@ function initializeExtension() {
           
           // ========== SAVE BUTTON AT BOTTOM OF TRIGGER ==========
           const bottomSaveRow = document.createElement('div')
-          bottomSaveRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15)'
+          bottomSaveRow.style.cssText = `display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}`
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
           bottomSaveBtn.textContent = '💾 Save Trigger'
-          bottomSaveBtn.style.cssText = 'background:#22c55e;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600'
+          bottomSaveBtn.style.cssText = `background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600`
           bottomSaveRow.appendChild(bottomSaveBtn)
           row.appendChild(bottomSaveRow)
           
@@ -17787,11 +17924,11 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            bottomSaveBtn.textContent = '✓ Saved!'
+            bottomSaveBtn.textContent = '✏“ Saved!'
             bottomSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
               bottomSaveBtn.textContent = '💾 Save Trigger'
-              bottomSaveBtn.style.background = '#22c55e'
+              bottomSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
             // Add persistent green checkmark to ID row if not already present
@@ -17800,8 +17937,8 @@ function initializeExtension() {
               if (idRowEl) {
                 const checkmark = document.createElement('span')
                 checkmark.className = 'trigger-saved-indicator'
-                checkmark.textContent = '✓'
-                checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                checkmark.textContent = '✏“'
+                checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                 checkmark.title = 'Trigger saved'
                 idRowEl.appendChild(checkmark)
               }
@@ -17838,7 +17975,7 @@ function initializeExtension() {
               if (channel && channel !== 'chat') {
                 const channelIcons: Record<string, string> = {
                   'email': '📧',
-                  'web': '🌐',
+                  'web': '🌐',
                   'overlay': '🎯',
                   'agent': '🤖',
                   'miniapp': '📱',
@@ -17973,10 +18110,10 @@ function initializeExtension() {
 
         }
 
-        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string }) => {
+        const makeTriggerRow = (init?: { tag?: string, source?: string, sourceValue?: string, cronSchedule?: string, kind?: string, extra?: any }) => {
           const row = document.createElement('div')
           row.className = 'act-row'
-          row.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:12px'
+          row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
           
           // Header row with tag name and delete button
           const header = document.createElement('div')
@@ -17989,7 +18126,7 @@ function initializeExtension() {
           const tagInput = document.createElement('input')
           tagInput.placeholder = 'trigger-name (e.g. invoice, report, screenshot)'
           tagInput.className = 'act-tag'
-          tagInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px 12px;border-radius:6px;font-size:13px'
+          tagInput.style.cssText = `flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px 12px;border-radius:6px;font-size:13px`
           if (init?.tag) tagInput.value = init.tag
           
           const delBtn = document.createElement('button')
@@ -18043,7 +18180,7 @@ function initializeExtension() {
           // Source-specific value input (shown for workflow, api, dom)
           const sourceValueInput = document.createElement('input')
           sourceValueInput.className = 'act-source-value'
-          sourceValueInput.style.cssText = 'flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;display:none'
+          sourceValueInput.style.cssText = `flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:6px;font-size:12px;display:none`
           if (init?.sourceValue && init?.source !== 'agent') sourceValueInput.value = init.sourceValue
           
           // Agent select dropdown (1-50)
@@ -18065,7 +18202,7 @@ function initializeExtension() {
           // Email tags container - inline tag input style
           const emailContainer = document.createElement('div')
           emailContainer.className = 'act-email-container'
-          emailContainer.style.cssText = 'flex:1;display:none;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:4px 8px;min-height:32px;cursor:text'
+          emailContainer.style.cssText = `flex:1;display:none;background:${csTheme().inputBg};border:1px solid ${csTheme().border};border-radius:6px;padding:4px 8px;min-height:32px;cursor:text`
           
           const emailTagsWrap = document.createElement('div')
           emailTagsWrap.className = 'act-email-tags'
@@ -18086,7 +18223,7 @@ function initializeExtension() {
             const tag = document.createElement('span')
             tag.className = 'email-tag'
             tag.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:rgba(96,165,250,.4);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px'
-            tag.innerHTML = `<span>${trimmed}</span><button type="button" style="background:none;border:none;color:#fff;cursor:pointer;padding:0;font-size:14px;line-height:1;opacity:0.8">×</button>`
+            tag.innerHTML = `<span>${trimmed}</span><button type="button" style="background:none;border:none;color:#fff;cursor:pointer;padding:0;font-size:14px;line-height:1;opacity:0.8">&times;</button>`
             tag.querySelector('button')?.addEventListener('click', (e) => { e.stopPropagation(); tag.remove() })
             emailTagsWrap.insertBefore(tag, emailInput)
             return true
@@ -18126,7 +18263,7 @@ function initializeExtension() {
               <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.8">
                 <input type="checkbox" class="act-cron-enable" style="margin:0"> + Cron Schedule
               </label>
-              <input type="text" class="act-cron-schedule" placeholder="*/5 * * * *" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 8px;border-radius:4px;font-family:monospace;font-size:11px;display:none">
+              <input type="text" class="act-cron-schedule" placeholder="*/5 * * * *" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:4px 8px;border-radius:4px;font-family:monospace;font-size:11px;display:none">
             </div>
           `
           
@@ -18303,7 +18440,7 @@ function initializeExtension() {
 
               const merged = [
 
-                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} — ${id}` })),
+                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} &rdquo;” ${id}` })),
 
                 ...agents.map((a:any)=>({ id: a.key || a.id || a.name || 'agent', name: a.name || a.id || a.key }))
 
@@ -18317,7 +18454,7 @@ function initializeExtension() {
 
                 const label = document.createElement('label')
 
-                label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:6px'
+                label.style.cssText = `display:inline-flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:6px`
 
                 const cb = document.createElement('input'); cb.type='checkbox'; cb.value=a.id; cb.className='E-agent'
 
@@ -18357,19 +18494,19 @@ function initializeExtension() {
 
             { label: 'Agent', value: 'agent' },
 
-            { label: 'Chat Inline – Summary', value: 'chat-inline-summary' },
+            { label: 'Chat Inline &rdquo;“ Summary', value: 'chat-inline-summary' },
 
-            { label: 'Clipboard – Summary', value: 'clip-summary' },
+            { label: 'Clipboard &rdquo;“ Summary', value: 'clip-summary' },
 
-            { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
+            { label: 'Clipboard &rdquo;“ Screenshot', value: 'clip-screenshot' },
 
-            { label: 'PDF – Summary', value: 'pdf-summary' },
+            { label: 'PDF &rdquo;“ Summary', value: 'pdf-summary' },
 
-            { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
+            { label: 'PDF &rdquo;“ Screenshot', value: 'pdf-screenshot' },
 
-            { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
+            { label: 'PDF &rdquo;“ Summary + Screenshot', value: 'pdf-both' },
 
-            { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' }
+            { label: 'Image &rdquo;“ Screenshot (PNG/WebP)', value: 'image-screenshot' }
 
           ]
 
@@ -18388,7 +18525,7 @@ function initializeExtension() {
 
           const buildAgentBoxSelect = (): HTMLSelectElement => {
 
-            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+            const boxOpts = [{ label: '&rdquo;” Select Agent Box &rdquo;”', value: '' }]
 
             // Try to get agent boxes from the current session to show LLM info
             const sessionKey = getCurrentSessionKey()
@@ -18413,9 +18550,9 @@ function initializeExtension() {
                 }
                 // Add LLM info if available
                 if (boxInfo.provider && boxInfo.model) {
-                  label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                  label += ` &rdquo;” ${boxInfo.provider}/${boxInfo.model}`
                 } else if (boxInfo.model) {
-                  label += ` — ${boxInfo.model}`
+                  label += ` &rdquo;” ${boxInfo.model}`
                 }
                 // Add enabled/disabled status
                 if (boxInfo.enabled === false) {
@@ -18440,7 +18577,7 @@ function initializeExtension() {
 
           const buildAgentSelect = (): HTMLSelectElement => {
 
-            const agentOpts = [{ label: '— Select Agent —', value: '' }]
+            const agentOpts = [{ label: '&rdquo;” Select Agent &rdquo;”', value: '' }]
 
             for (let i = 1; i <= 50; i++) {
 
@@ -18461,11 +18598,11 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = '×'
+          del.textContent = '&times;'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
 
           del.addEventListener('click', () => row.remove())
 
@@ -18535,21 +18672,21 @@ function initializeExtension() {
 
           key.placeholder = 'Custom field (name)'
 
-          key.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+          key.style.cssText = `background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
           const val = document.createElement('input')
 
           val.placeholder = 'value'
 
-          val.style.cssText = 'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+          val.style.cssText = `background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
           const del = document.createElement('button')
 
-          del.textContent = '×'
+          del.textContent = '&times;'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
 
           del.addEventListener('click', () => row.remove())
 
@@ -18574,7 +18711,7 @@ function initializeExtension() {
           if (checkbox && state) {
             const updateState = () => {
               state.textContent = checkbox.checked ? 'ON' : 'OFF'
-              state.style.background = checkbox.checked ? '#22c55e' : 'rgba(255,255,255,.15)'
+              state.style.background = checkbox.checked ? `${csTheme().accent}` : 'rgba(255,255,255,.15)'
             }
             checkbox.addEventListener('change', updateState)
             updateState() // Initialize
@@ -18618,7 +18755,7 @@ function initializeExtension() {
           
           // Channel icons for display
           const channelIcons: Record<string, string> = {
-            'email': '📧', 'web': '🌐', 'overlay': '🎯', 'agent': '🤖', 'miniapp': '📱',
+            'email': '📧', 'web': '🌐', 'overlay': '🎯', 'agent': '🤖', 'miniapp': '📱',
             'screenshot': '📸', 'stream': '📺', 'pdf': '📄', 'docs': '📝', 'voicememo': '🎙️',
             'video': '🎬', 'voice_command': '🗣️', 'picture': '🖼️', 'api': '🔌'
           }
@@ -18726,7 +18863,7 @@ function initializeExtension() {
           const delBtn = document.createElement('button')
           delBtn.type = 'button'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
-          delBtn.textContent = '×'
+          delBtn.textContent = '&times;'
           delBtn.addEventListener('click', () => row.remove())
           
           row.appendChild(sel)
@@ -18802,7 +18939,7 @@ function initializeExtension() {
                   </div>
                 </div>
               </div>
-              <button class="R-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+              <button class="R-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
             </div>
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
@@ -18812,24 +18949,24 @@ function initializeExtension() {
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button class="R-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="R-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
             <label style="display:block;margin-top:12px">Goals (System instructions)
 
-              <textarea class="R-goals" style="width:100%;min-height:90px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
             <label style="display:block">Role (optional)
 
-              <input class="R-role" style="width:100%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px">
+              <input class="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
             <label style="display:block">Rules
 
-              <textarea class="R-rules" style="width:100%;min-height:70px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-rules" style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -18838,7 +18975,7 @@ function initializeExtension() {
             <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings -->
-            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px">
+            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
               <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
                 Memory & Context
                 <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
@@ -18889,11 +19026,11 @@ function initializeExtension() {
 
             row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px'
 
-            const key = document.createElement('input'); key.placeholder='Custom field (name)'; key.style.cssText='background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+            const key = document.createElement('input'); key.placeholder='Custom field (name)'; key.style.cssText=`background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
-            const val = document.createElement('input'); val.placeholder='value'; val.style.cssText='background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.35);color:#fff;padding:8px;border-radius:6px'
+            const val = document.createElement('input'); val.placeholder='value'; val.style.cssText=`background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px`
 
-            const del = document.createElement('button'); del.textContent='×'; del.title='Remove'; del.style.cssText='background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
+            const del = document.createElement('button'); del.textContent='&times;'; del.title='Remove'; del.style.cssText='background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'; del.addEventListener('click', ()=> row.remove())
 
             row.appendChild(key); row.appendChild(val); row.appendChild(del)
 
@@ -18974,14 +19111,14 @@ function initializeExtension() {
                   </div>
                 </div>
               </div>
-              <button class="E-del" title="Remove" style="background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">×</button>
+              <button class="E-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
             </div>
 
             <div style="margin-top:8px">
 
               <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-add-workflow-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="E-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
@@ -19009,13 +19146,13 @@ function initializeExtension() {
               { label: 'Agent Box', value: 'agentBox' },
               { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
               { label: 'Agent', value: 'agent' },
-              { label: 'Chat Inline – Summary', value: 'chat-inline-summary' },
-              { label: 'Clipboard – Summary', value: 'clip-summary' },
-              { label: 'Clipboard – Screenshot', value: 'clip-screenshot' },
-              { label: 'PDF – Summary', value: 'pdf-summary' },
-              { label: 'PDF – Screenshot', value: 'pdf-screenshot' },
-              { label: 'PDF – Summary + Screenshot', value: 'pdf-both' },
-              { label: 'Image – Screenshot (PNG/WebP)', value: 'image-screenshot' }
+              { label: 'Chat Inline &rdquo;“ Summary', value: 'chat-inline-summary' },
+              { label: 'Clipboard &rdquo;“ Summary', value: 'clip-summary' },
+              { label: 'Clipboard &rdquo;“ Screenshot', value: 'clip-screenshot' },
+              { label: 'PDF &rdquo;“ Summary', value: 'pdf-summary' },
+              { label: 'PDF &rdquo;“ Screenshot', value: 'pdf-screenshot' },
+              { label: 'PDF &rdquo;“ Summary + Screenshot', value: 'pdf-both' },
+              { label: 'Image &rdquo;“ Screenshot (PNG/WebP)', value: 'image-screenshot' }
             ]
 
             const row = document.createElement('div')
@@ -19031,7 +19168,7 @@ function initializeExtension() {
 
             // Build agent box options (01-50) with LLM info from session
             const buildAgentBoxSelectSub = (): HTMLSelectElement => {
-              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+              const boxOpts = [{ label: '&rdquo;” Select Agent Box &rdquo;”', value: '' }]
               
               // Try to get agent boxes from the current session to show LLM info
               const sessionKey = getCurrentSessionKey()
@@ -19053,9 +19190,9 @@ function initializeExtension() {
                     label += ` (${boxInfo.title})`
                   }
                   if (boxInfo.provider && boxInfo.model) {
-                    label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                    label += ` &rdquo;” ${boxInfo.provider}/${boxInfo.model}`
                   } else if (boxInfo.model) {
-                    label += ` — ${boxInfo.model}`
+                    label += ` &rdquo;” ${boxInfo.model}`
                   }
                   if (boxInfo.enabled === false) {
                     label += ' [disabled]'
@@ -19071,7 +19208,7 @@ function initializeExtension() {
 
             // Build agent options (01-50)
             const buildAgentSelectSub = (): HTMLSelectElement => {
-              const agentOpts = [{ label: '— Select Agent —', value: '' }]
+              const agentOpts = [{ label: '&rdquo;” Select Agent &rdquo;”', value: '' }]
               for (let i = 1; i <= 50; i++) {
                 const num = String(i).padStart(2, '0')
                 agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
@@ -19082,9 +19219,9 @@ function initializeExtension() {
             }
 
             const del = document.createElement('button')
-            del.textContent = '×'
+            del.textContent = '&times;'
             del.title = 'Remove'
-            del.style.cssText = 'background:#f44336;color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+            del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
             del.addEventListener('click', () => row.remove())
 
             row.appendChild(sel)
@@ -19205,7 +19342,7 @@ function initializeExtension() {
 
               acSession.checked = cs.sessionContext
 
-              console.log(`  ✓ Restored Session Context: ${cs.sessionContext}`)
+              console.log(`  ✏“ Restored Session Context: ${cs.sessionContext}`)
 
             }
 
@@ -19213,7 +19350,7 @@ function initializeExtension() {
 
               acAccount.checked = cs.accountContext
 
-              console.log(`  ✓ Restored Account Context: ${cs.accountContext}`)
+              console.log(`  ✏“ Restored Account Context: ${cs.accountContext}`)
 
             }
 
@@ -19223,7 +19360,7 @@ function initializeExtension() {
 
               acAgent.dispatchEvent(new Event('change'))
 
-              console.log(`  ✓ Restored Agent Context: ${cs.agentContext}`)
+              console.log(`  ✏“ Restored Agent Context: ${cs.agentContext}`)
 
             }
 
@@ -19259,7 +19396,7 @@ function initializeExtension() {
             if (ms.sessionEnabled !== undefined) {
               if (memSession) memSession.checked = ms.sessionEnabled
               if (rMemSession) { rMemSession.checked = ms.sessionEnabled; rMemSession.dispatchEvent(new Event('change')) }
-              console.log(`  ✓ Restored Memory Session: ${ms.sessionEnabled}`)
+              console.log(`  ✏“ Restored Memory Session: ${ms.sessionEnabled}`)
             }
             
             // Session read
@@ -19278,7 +19415,7 @@ function initializeExtension() {
             if (ms.accountEnabled !== undefined) {
               if (memAccount) memAccount.checked = ms.accountEnabled
               if (rMemAccount) { rMemAccount.checked = ms.accountEnabled; rMemAccount.dispatchEvent(new Event('change')) }
-              console.log(`  ✓ Restored Memory Account: ${ms.accountEnabled}`)
+              console.log(`  ✏“ Restored Memory Account: ${ms.accountEnabled}`)
             }
 
             // Account read
@@ -19365,7 +19502,7 @@ function initializeExtension() {
 
                     <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                   </div>
 
@@ -19403,7 +19540,7 @@ function initializeExtension() {
 
                   
 
-                    console.log(`🗑️ Removed Agent Context file at index ${idx}`)
+                    console.log(`🗝‘️ Removed Agent Context file at index ${idx}`)
 
                   btn.closest('.saved-file-row')?.remove()
 
@@ -19461,7 +19598,7 @@ function initializeExtension() {
 
                 contextTextarea.value = l.expectedContext
 
-                console.log(`  ✓ Restored Expected Context text (${l.expectedContext.length} chars)`)
+                console.log(`  ✏“ Restored Expected Context text (${l.expectedContext.length} chars)`)
 
               }
 
@@ -19483,7 +19620,7 @@ function initializeExtension() {
 
                 websiteInput.value = l.website
 
-                console.log(`  ✓ Restored Website: ${l.website}`)
+                console.log(`  ✏“ Restored Website: ${l.website}`)
 
               }
 
@@ -19496,7 +19633,7 @@ function initializeExtension() {
               const apiInput = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
               if (apiInput) {
                 apiInput.value = l.apiEndpoint
-                console.log(`  ✓ Restored API Endpoint: ${l.apiEndpoint}`)
+                console.log(`  ✏“ Restored API Endpoint: ${l.apiEndpoint}`)
               }
             }
 
@@ -19505,7 +19642,7 @@ function initializeExtension() {
               const cronInput = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
               if (cronInput) {
                 cronInput.value = l.cronSchedule
-                console.log(`  ✓ Restored Cron Schedule: ${l.cronSchedule}`)
+                console.log(`  ✏“ Restored Cron Schedule: ${l.cronSchedule}`)
               }
             }
 
@@ -19514,7 +19651,7 @@ function initializeExtension() {
               document.querySelectorAll('.L-modality').forEach((el: any) => {
                 el.checked = l.modalities.includes(el.value)
               })
-              console.log(`  ✓ Restored Modalities: ${l.modalities.join(', ')}`)
+              console.log(`  ✏“ Restored Modalities: ${l.modalities.join(', ')}`)
             }
 
             // Restore Conditions
@@ -19540,7 +19677,7 @@ function initializeExtension() {
                     if (valueInput) valueInput.value = cond.value || ''
                   }
                 })
-                console.log(`  ✓ Restored Conditions: ${condItems.length}`)
+                console.log(`  ✏“ Restored Conditions: ${condItems.length}`)
               }
             }
 
@@ -19577,7 +19714,7 @@ function initializeExtension() {
                     })
                   }
                 })
-                console.log(`  ✓ Restored Sensor Workflows: ${l.sensorWorkflows.length}`)
+                console.log(`  ✏“ Restored Sensor Workflows: ${l.sensorWorkflows.length}`)
               }
             }
 
@@ -19593,7 +19730,7 @@ function initializeExtension() {
                   const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
                   if (input) input.value = wfId
                 })
-                console.log(`  ✓ Restored Allowed Actions: ${l.allowedActions.length}`)
+                console.log(`  ✏“ Restored Allowed Actions: ${l.allowedActions.length}`)
               }
             }
 
@@ -19609,7 +19746,7 @@ function initializeExtension() {
 
                 passiveToggle.dispatchEvent(new Event('change'))
 
-                console.log(`  ✓ Restored Passive toggle: ${l.passiveEnabled}`)
+                console.log(`  ✏“ Restored Passive toggle: ${l.passiveEnabled}`)
 
               }
 
@@ -19625,7 +19762,7 @@ function initializeExtension() {
 
                 activeToggle.dispatchEvent(new Event('change'))
 
-                console.log(`  ✓ Restored Active toggle: ${l.activeEnabled}`)
+                console.log(`  ✏“ Restored Active toggle: ${l.activeEnabled}`)
 
               }
 
@@ -19682,7 +19819,7 @@ function initializeExtension() {
                     }
                   }
                 })
-                console.log(`  ✓ Restored ${triggersToRestore.length} action triggers`)
+                console.log(`  ✏“ Restored ${triggersToRestore.length} action triggers`)
               }
             }
 
@@ -19726,7 +19863,7 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✓ Restored ${l.active.triggers.length} active triggers`)
+                console.log(`  ✏“ Restored ${l.active.triggers.length} active triggers`)
 
               }
 
@@ -19746,7 +19883,7 @@ function initializeExtension() {
 
                   checkbox.checked = true
 
-                  console.log(`  ✓ Restored tag checkbox: ${tag}`)
+                  console.log(`  ✏“ Restored tag checkbox: ${tag}`)
 
                 }
 
@@ -19787,7 +19924,7 @@ function initializeExtension() {
                       if (idDisplay && trigger.id) {
                         idDisplay.textContent = trigger.id
                         row.dataset.triggerId = trigger.id
-                        console.log(`    ✓ Set trigger ${idx + 1} ID: ${trigger.id}`)
+                        console.log(`    ✏“ Set trigger ${idx + 1} ID: ${trigger.id}`)
                       }
                       
                       // Set trigger type
@@ -19804,7 +19941,7 @@ function initializeExtension() {
                         if (tagInput && (trigger.tag || trigger.tagName)) {
                           const tagValue = (trigger.tag || trigger.tagName || '').replace('#', '')
                           tagInput.value = tagValue
-                          console.log(`    ✓ Set trigger ${idx + 1} tag: ${tagValue}`)
+                          console.log(`    ✏“ Set trigger ${idx + 1} tag: ${tagValue}`)
                         }
                       
                       // Set channel
@@ -19841,7 +19978,7 @@ function initializeExtension() {
                         const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
                         if (keywordsInput && !keywordsInput.value) {
                           keywordsInput.value = trigger.keywords
-                          console.log(`    ✓ Restored keywords from trigger.keywords: ${trigger.keywords}`)
+                          console.log(`    ✏“ Restored keywords from trigger.keywords: ${trigger.keywords}`)
                         }
                       }
                       
@@ -19850,7 +19987,7 @@ function initializeExtension() {
                         const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
                         if (keywordsInput && !keywordsInput.value) {
                           keywordsInput.value = trigger.expectedContext
-                          console.log(`    ✓ Restored keywords from expectedContext: ${trigger.expectedContext}`)
+                          console.log(`    ✏“ Restored keywords from expectedContext: ${trigger.expectedContext}`)
                         }
                       }
                       
@@ -19933,7 +20070,7 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-site-filters') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.siteFilters.join('\n')
-                                  console.log(`      ✓ Restored siteFilters: ${trigger.siteFilters.length} patterns`)
+                                  console.log(`      ✏“ Restored siteFilters: ${trigger.siteFilters.length} patterns`)
                                 }
                               }
                               // Auto-Detect Selectors
@@ -19949,7 +20086,7 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.buttonSelectors.join('\n')
-                                  console.log(`      ✓ Restored buttonSelectors: ${trigger.buttonSelectors.length} selectors`)
+                                  console.log(`      ✏“ Restored buttonSelectors: ${trigger.buttonSelectors.length} selectors`)
                                 }
                               } else if (trigger.buttonSelector) {
                                 const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
@@ -19979,7 +20116,7 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.inputSelectors.join('\n')
-                                  console.log(`      ✓ Restored inputSelectors: ${trigger.inputSelectors.length} selectors`)
+                                  console.log(`      ✏“ Restored inputSelectors: ${trigger.inputSelectors.length} selectors`)
                                 }
                               } else if (trigger.inputSelector) {
                                 const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
@@ -19997,7 +20134,7 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.outputSelectors.join('\n')
-                                  console.log(`      ✓ Restored outputSelectors: ${trigger.outputSelectors.length} selectors`)
+                                  console.log(`      ✏“ Restored outputSelectors: ${trigger.outputSelectors.length} selectors`)
                                 }
                               } else if (trigger.outputSelector) {
                                 const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
@@ -20036,7 +20173,7 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.metaSelectors.join('\n')
-                                  console.log(`      ✓ Restored metaSelectors: ${trigger.metaSelectors.length} selectors`)
+                                  console.log(`      ✏“ Restored metaSelectors: ${trigger.metaSelectors.length} selectors`)
                                 }
                               }
                               // Sanitization
@@ -20053,7 +20190,7 @@ function initializeExtension() {
                                 if (checkbox) checkbox.checked = true
                               }
                               
-                              console.log(`    ✓ AI Chat Capture fields restored for trigger ${idx + 1}`)
+                              console.log(`    ✏“ AI Chat Capture fields restored for trigger ${idx + 1}`)
                             }, 150) // Wait 150ms for DOM to update after parserTrigger change
                           }
                         }
@@ -20141,7 +20278,7 @@ function initializeExtension() {
                             })
                             sensorList.appendChild(wfRow)
                           })
-                          console.log(`    ✓ Restored ${trigger.sensorWorkflows.length} sensor workflows for trigger ${idx + 1}`)
+                          console.log(`    ✏“ Restored ${trigger.sensorWorkflows.length} sensor workflows for trigger ${idx + 1}`)
                         }
                       }
                       
@@ -20158,7 +20295,7 @@ function initializeExtension() {
                             })
                             actionsList.appendChild(wfRow)
                           })
-                          console.log(`    ✓ Restored ${trigger.allowedActions.length} allowed actions for trigger ${idx + 1}`)
+                          console.log(`    ✏“ Restored ${trigger.allowedActions.length} allowed actions for trigger ${idx + 1}`)
                         }
                       }
                       
@@ -20167,13 +20304,13 @@ function initializeExtension() {
                       if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
                         const checkmark = document.createElement('span')
                         checkmark.className = 'trigger-saved-indicator'
-                        checkmark.textContent = '✓'
-                        checkmark.style.cssText = 'color:#22c55e;font-weight:bold;margin-left:6px;font-size:14px'
+                        checkmark.textContent = '✏“'
+                        checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                         checkmark.title = 'Trigger saved'
                         tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
                       }
                       
-                      console.log(`  ✓ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
+                      console.log(`  ✏“ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
                       
                       // Refresh Apply For options after setting tag
                       if (typeof refreshApplyForOptions === 'function') {
@@ -20191,7 +20328,7 @@ function initializeExtension() {
                   unifiedList.dispatchEvent(event)
                 }, 200 + (50 * l.unifiedTriggers.length))
                 
-                console.log(`  ✓ Started restoring ${l.unifiedTriggers.length} unified triggers`)
+                console.log(`  ✏“ Started restoring ${l.unifiedTriggers.length} unified triggers`)
               }
             }
 
@@ -20235,7 +20372,7 @@ function initializeExtension() {
 
                           <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕</button>
+                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                         </div>
 
@@ -20275,7 +20412,7 @@ function initializeExtension() {
 
                       
 
-                      console.log(`🗑️ Removed Listener Example file at index ${idx}`)
+                      console.log(`🗝‘️ Removed Listener Example file at index ${idx}`)
 
                       btn.closest('.saved-file-row')?.remove()
 
@@ -20356,7 +20493,7 @@ function initializeExtension() {
 
                 goalsTextarea.value = r.goals
 
-                console.log(`  ✓ Restored Goals text (${r.goals.length} chars)`)
+                console.log(`  ✏“ Restored Goals text (${r.goals.length} chars)`)
 
               }
 
@@ -20374,7 +20511,7 @@ function initializeExtension() {
 
                 roleInput.value = r.role
 
-                console.log(`  ✓ Restored Role text: ${r.role}`)
+                console.log(`  ✏“ Restored Role text: ${r.role}`)
 
               }
 
@@ -20392,7 +20529,7 @@ function initializeExtension() {
 
                 rulesTextarea.value = r.rules
 
-                console.log(`  ✓ Restored Rules text (${r.rules.length} chars)`)
+                console.log(`  ✏“ Restored Rules text (${r.rules.length} chars)`)
 
               }
 
@@ -20428,7 +20565,7 @@ function initializeExtension() {
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
-                      console.log(`  ✓ Set first Reasoning Apply For to: ${valueToSet}`)
+                      console.log(`  ✏“ Set first Reasoning Apply For to: ${valueToSet}`)
                     } else {
                       console.warn(`  ⚠️ Reasoning Apply For value "${valueToSet}" not found in options. Available:`, 
                         Array.from(firstSelect.options).map(o => o.value))
@@ -20438,7 +20575,7 @@ function initializeExtension() {
                   
                   // Add additional Apply For rows for remaining values - use sequential async
                   if (rApplyList && rApplyForListToRestore.length > 1) {
-                    const additionalValues = rApplyForListToRestore.slice(1).filter(v => v !== '__any__')
+                    const additionalValues = rApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
                       console.log(`  🔄 Creating ${additionalValues.length} additional Apply For rows`)
                       
@@ -20461,7 +20598,7 @@ function initializeExtension() {
                             const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
-                              console.log(`    ✓ Set additional Reasoning Apply For ${idx + 2} to: ${valueToSet}`)
+                              console.log(`    ✏“ Set additional Reasoning Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
                               console.warn(`    ⚠️ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
                             }
@@ -20516,7 +20653,7 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✓ Restored ${r.acceptFrom.length} reasoning listen-from rows`)
+                console.log(`  ✏“ Restored ${r.acceptFrom.length} reasoning listen-from rows`)
 
               }
 
@@ -20539,7 +20676,7 @@ function initializeExtension() {
                       conditions: wf.conditions || []
                     })
                     wfList.appendChild(wfRow)
-                    console.log(`    ✓ Restored reasoning workflow ${idx + 1}: ${wf.type}`)
+                    console.log(`    ✏“ Restored reasoning workflow ${idx + 1}: ${wf.type}`)
                   }, idx * 100)
                 })
               }
@@ -20579,7 +20716,7 @@ function initializeExtension() {
 
                         inputs[1].value = customField.value || ''
 
-                        console.log(`    ✓ Restored custom field ${idx + 1}: ${customField.key}`)
+                        console.log(`    ✏“ Restored custom field ${idx + 1}: ${customField.key}`)
 
                       }
 
@@ -20621,7 +20758,7 @@ function initializeExtension() {
                   // Create a new section - stagger the clicks
                   setTimeout(() => {
                     rAddSectionBtn.click()
-                    console.log(`  ✓ Clicked add section button for reasoning section ${sectionIdx + 1}`)
+                    console.log(`  ✏“ Clicked add section button for reasoning section ${sectionIdx + 1}`)
 
                     // Wait longer for section to be fully created in DOM
                     setTimeout(() => {
@@ -20632,7 +20769,7 @@ function initializeExtension() {
                       const newSection = sections[sectionIdx] as HTMLElement
 
                       if (newSection) {
-                        console.log(`  ✓ Reasoning section ${sectionIdx + 1} found in DOM`)
+                        console.log(`  ✏“ Reasoning section ${sectionIdx + 1} found in DOM`)
 
                         // Restore Apply For - DELAYED to ensure trigger options are populated first
                         // Calculate delay based on trigger count
@@ -20660,14 +20797,14 @@ function initializeExtension() {
                                 
                                 if (optionExists) {
                                   applySelect.value = valueToSet
-                                  console.log(`    ✓ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
+                                  console.log(`    ✏“ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
                                 } else {
                                   console.warn(`    ⚠️ Additional R-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && rSectionApplyForList.length > 1) {
-                                  const additionalValues = rSectionApplyForList.slice(1).filter(v => v !== '__any__')
+                                  const additionalValues = rSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
                                     console.log(`    🔄 Creating ${additionalValues.length} additional R-section Apply For rows`)
                                     
@@ -20689,7 +20826,7 @@ function initializeExtension() {
                                           const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
-                                            console.log(`      ✓ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
+                                            console.log(`      ✏“ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
                                           } else {
                                             console.warn(`      ⚠️ R-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
@@ -20842,15 +20979,15 @@ function initializeExtension() {
                               conditions: wf.conditions || []
                             })
                             wfListSub.appendChild(wfRow)
-                            console.log(`      ✓ Restored reasoning workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                            console.log(`      ✏“ Restored reasoning workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
                           })
-                          console.log(`    ✓ Restored ${rSection.reasoningWorkflows.length} reasoning workflows for section ${sectionIdx + 1}`)
+                          console.log(`    ✏“ Restored ${rSection.reasoningWorkflows.length} reasoning workflows for section ${sectionIdx + 1}`)
                         }
                       }
 
                       
 
-                        console.log(`    ✓ Restored reasoning section ${sectionIdx + 1}`)
+                        console.log(`    ✏“ Restored reasoning section ${sectionIdx + 1}`)
                       } else {
                         console.error(`    ❌ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
@@ -20909,7 +21046,7 @@ function initializeExtension() {
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
-                      console.log(`  ✓ Set first Execution Apply For to: ${valueToSet}`)
+                      console.log(`  ✏“ Set first Execution Apply For to: ${valueToSet}`)
                     } else {
                       console.warn(`  ⚠️ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
                         availableOptions)
@@ -20919,7 +21056,7 @@ function initializeExtension() {
                   
                   // Add additional Apply For rows for remaining values - use sequential async
                   if (eApplyList && eApplyForListToRestore.length > 1) {
-                    const additionalValues = eApplyForListToRestore.slice(1).filter(v => v !== '__any__')
+                    const additionalValues = eApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
                       console.log(`  🔄 Creating ${additionalValues.length} additional Execution Apply For rows`)
                       
@@ -20942,7 +21079,7 @@ function initializeExtension() {
                             const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
-                              console.log(`    ✓ Set additional Execution Apply For ${idx + 2} to: ${valueToSet}`)
+                              console.log(`    ✏“ Set additional Execution Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
                               console.warn(`    ⚠️ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
                             }
@@ -20971,7 +21108,7 @@ function initializeExtension() {
                 if (eWorkflowSection) {
                   eWorkflowSection.style.display = modeValue === 'agent_only' ? 'none' : 'block'
                 }
-                console.log(`  ✓ Restored Execution Mode: ${modeValue}`)
+                console.log(`  ✏“ Restored Execution Mode: ${modeValue}`)
               }
             }
 
@@ -20989,7 +21126,7 @@ function initializeExtension() {
                   })
                   workflowList.appendChild(wfRow)
                 })
-                console.log(`  ✓ Restored ${e.executionWorkflows.length} execution workflows (new format)`)
+                console.log(`  ✏“ Restored ${e.executionWorkflows.length} execution workflows (new format)`)
               }
             } else if (e.workflows && e.workflows.length > 0) {
               // Legacy format fallback - just workflow IDs
@@ -21005,7 +21142,7 @@ function initializeExtension() {
                   })
                   workflowList.appendChild(wfRow)
                 })
-                console.log(`  ✓ Restored ${e.workflows.length} execution workflows (legacy format)`)
+                console.log(`  ✏“ Restored ${e.workflows.length} execution workflows (legacy format)`)
               }
             }
 
@@ -21069,7 +21206,7 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✓ Restored ${e.specialDestinations.length} execution special destinations`)
+                console.log(`  ✏“ Restored ${e.specialDestinations.length} execution special destinations`)
 
               }
 
@@ -21102,7 +21239,7 @@ function initializeExtension() {
                   // Create a new section - stagger the clicks
                   setTimeout(() => {
                     eAddSectionBtn.click()
-                    console.log(`  ✓ Clicked add section button for section ${sectionIdx + 1}`)
+                    console.log(`  ✏“ Clicked add section button for section ${sectionIdx + 1}`)
 
                     // Wait longer for section to be fully created in DOM
                     setTimeout(() => {
@@ -21113,7 +21250,7 @@ function initializeExtension() {
                       const newSection = sections[sectionIdx] as HTMLElement
 
                       if (newSection) {
-                        console.log(`  ✓ Section ${sectionIdx + 1} found in DOM`)
+                        console.log(`  ✏“ Section ${sectionIdx + 1} found in DOM`)
 
                         // Restore Apply For - DELAYED to ensure trigger options are populated first
                         // Calculate delay based on trigger count
@@ -21141,14 +21278,14 @@ function initializeExtension() {
                                 
                                 if (optionExists) {
                                   applySelect.value = valueToSet
-                                  console.log(`    ✓ Set additional section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
+                                  console.log(`    ✏“ Set additional section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
                                 } else {
                                   console.warn(`    ⚠️ Additional E-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && eSectionApplyForList.length > 1) {
-                                  const additionalValues = eSectionApplyForList.slice(1).filter(v => v !== '__any__')
+                                  const additionalValues = eSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
                                     console.log(`    🔄 Creating ${additionalValues.length} additional E-section Apply For rows`)
                                     
@@ -21170,7 +21307,7 @@ function initializeExtension() {
                                           const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
-                                            console.log(`      ✓ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
+                                            console.log(`      ✏“ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
                                           } else {
                                             console.warn(`      ⚠️ E-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
@@ -21198,7 +21335,7 @@ function initializeExtension() {
                                 conditions: wf.conditions || []
                               })
                               wfListSub.appendChild(wfRow)
-                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
+                              console.log(`    ✏“ Restored workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
                             })
                           }
                         } else if (eSection.workflows && eSection.workflows.length > 0) {
@@ -21214,7 +21351,7 @@ function initializeExtension() {
                                 conditions: []
                               })
                               wfListSub.appendChild(wfRow)
-                              console.log(`    ✓ Restored workflow ${wfIdx + 1}: ${workflowId} (legacy)`)
+                              console.log(`    ✏“ Restored workflow ${wfIdx + 1}: ${workflowId} (legacy)`)
                             })
                           }
                         }
@@ -21245,7 +21382,7 @@ function initializeExtension() {
                                   if (kindSel) {
                                     kindSel.value = dest.kind
                                     kindSel.dispatchEvent(new Event('change'))
-                                    console.log(`      ✓ Set Report To kind to: ${dest.kind}`)
+                                    console.log(`      ✏“ Set Report To kind to: ${dest.kind}`)
                                   }
 
                                   // For agentBox or agent, set the follow-up select value
@@ -21254,7 +21391,7 @@ function initializeExtension() {
                                       const followUp = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
                                       if (followUp && dest.agents[0]) {
                                         followUp.value = dest.agents[0]
-                                        console.log(`      ✓ Set Report To agent/box to: ${dest.agents[0]}`)
+                                        console.log(`      ✏“ Set Report To agent/box to: ${dest.agents[0]}`)
                                       }
                                     }, 150)
                                   }
@@ -21262,13 +21399,13 @@ function initializeExtension() {
                               }, 100)
                             }, destIdx * 200) // Stagger each destination restoration
                           })
-                          console.log(`    ✓ Restoring ${eSection.specialDestinations.length} Report To destinations`)
+                          console.log(`    ✏“ Restoring ${eSection.specialDestinations.length} Report To destinations`)
                         }
                       }
 
                       
 
-                        console.log(`    ✓ Restored execution section ${sectionIdx + 1}`)
+                        console.log(`    ✏“ Restored execution section ${sectionIdx + 1}`)
                       } else {
                         console.error(`    ❌ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
@@ -21665,7 +21802,7 @@ function initializeExtension() {
 
                       
 
-                      console.log(`  ✓ Active Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
+                      console.log(`  ✏“ Active Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
 
                     }
 
@@ -21737,7 +21874,7 @@ function initializeExtension() {
 
                       
 
-                      console.log(`  ✓ Passive Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
+                      console.log(`  ✏“ Passive Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
 
                     }
 
@@ -21777,7 +21914,7 @@ function initializeExtension() {
 
                         <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
+                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
 
                       </div>
 
@@ -21785,7 +21922,7 @@ function initializeExtension() {
 
                     <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                      ✚ Upload new files below to add more (duplicates will be skipped)
+                      ✏š Upload new files below to add more (duplicates will be skipped)
 
                     </div>
 
@@ -21825,7 +21962,7 @@ function initializeExtension() {
 
                         if (countEl) countEl.textContent = `${l.exampleFiles.length} example file(s) saved:`
 
-                        console.log(`🗑️ Deleted Listener Example file at index ${idx}, ${l.exampleFiles.length} remaining`)
+                        console.log(`🗝‘️ Deleted Listener Example file at index ${idx}, ${l.exampleFiles.length} remaining`)
 
                       }
 
@@ -22043,7 +22180,7 @@ function initializeExtension() {
 
                       <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:#f44336;border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✕ Delete</button>
+                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
 
                     </div>
 
@@ -22051,7 +22188,7 @@ function initializeExtension() {
 
                   <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                    ✚ Upload new files below to add more (duplicates will be skipped)
+                    ✏š Upload new files below to add more (duplicates will be skipped)
 
                   </div>
 
@@ -22095,7 +22232,7 @@ function initializeExtension() {
 
                       if (countEl) countEl.textContent = `${parsed.agentContextFiles.length} file(s) saved:`
 
-                      console.log(`🗑️ Deleted Agent Context file at index ${idx}, ${parsed.agentContextFiles.length} remaining`)
+                      console.log(`🗝‘️ Deleted Agent Context file at index ${idx}, ${parsed.agentContextFiles.length} remaining`)
 
                     }
 
@@ -22273,9 +22410,9 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-agent-config').onclick = () => configOverlay.remove()
+    document.getElementById('close-agent-config')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('agent-config-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('agent-config-cancel')!.onclick = () => configOverlay.remove()
 
     // Export handler - Shows dialog with connected agent boxes (v2.1.0)
     const exportBtn = document.getElementById('ag-export-btn')
@@ -22802,8 +22939,8 @@ function initializeExtension() {
                             ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
                           </div>
                           <div style="font-size: 11px; color: #94a3b8;">
-                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
-                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
+                            ${box.identifier || 'AB??'} &rdquo;¢ Box #${box.boxNumber} → Agent #${box.agentNumber}
+                            ${box.provider ? ` &rdquo;¢ ${box.provider}/${box.model || 'auto'}` : ''}
                           </div>
                         </div>
                       </label>
@@ -23319,7 +23456,7 @@ function initializeExtension() {
           await downloadMasterSchema()
           
           console.log('✅ Unified master schema downloaded!')
-          schemaBtn.innerHTML = '✓'
+          schemaBtn.innerHTML = '✏“'
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
         } catch (error) {
           console.error('❌ Schema download failed:', error)
@@ -23346,7 +23483,7 @@ function initializeExtension() {
           await downloadUnifiedTemplate()
           
           console.log('✅ Unified template downloaded!')
-          templateBtn.innerHTML = '✓'
+          templateBtn.innerHTML = '✏“'
           setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
         } catch (error) {
           console.error('❌ Template download failed:', error)
@@ -23625,7 +23762,7 @@ function initializeExtension() {
 
                 triggers.push({ tag: { name, kind, extra } })
 
-                console.log(`    ✓ Added active trigger: ${name}`)
+                console.log(`    ✏“ Added active trigger: ${name}`)
 
               } else {
 
@@ -23689,7 +23826,7 @@ function initializeExtension() {
 
                 passiveTriggers.push({ tag: { name, kind, extra } })
 
-                console.log(`    ✓ Added passive trigger: ${name}`)
+                console.log(`    ✏“ Added passive trigger: ${name}`)
 
               } else {
 
@@ -24791,7 +24928,7 @@ function initializeExtension() {
 
           console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsedData.listening?.sources || [])}`)
 
-          console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
+          console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
 
           console.log(`  🏷️ Tags: ${JSON.stringify(parsedData.listening?.tags || [])}`)
 
@@ -24801,7 +24938,7 @@ function initializeExtension() {
 
           console.log(`  💤 Passive Triggers: ${parsedData.listening?.passive?.triggers?.length || 0}`)
 
-          console.log(`  📎 Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
+          console.log(`  Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
 
           console.log(`  📋 R-Rules: "${parsedData.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsedData.reasoning?.rules?.length > 50 ? '...' : ''}"`)
 
@@ -24901,7 +25038,7 @@ function initializeExtension() {
           // Use chrome.storage.local.remove directly to avoid any routing issues
           chrome.storage.local.remove(autoSaveDraftKey, () => {
 
-            console.log('🗑️ Cleared auto-save draft:', autoSaveDraftKey)
+            console.log('🗝‘️ Cleared auto-save draft:', autoSaveDraftKey)
 
             resolve()
 
@@ -24929,41 +25066,41 @@ function initializeExtension() {
 
             if (type === 'instructions') {
 
-              details.push(`✓ Name: ${parsed.name}`)
+              details.push(`✏“ Name: ${parsed.name}`)
 
-              details.push(`✓ Icon: ${parsed.icon}`)
+              details.push(`✏“ Icon: ${parsed.icon}`)
 
-              if (parsed.capabilities?.length) details.push(`✓ Capabilities: ${parsed.capabilities.join(', ')}`)
+              if (parsed.capabilities?.length) details.push(`✏“ Capabilities: ${parsed.capabilities.join(', ')}`)
 
-              if (parsed.contextSettings) details.push(`✓ Context Settings`)
+              if (parsed.contextSettings) details.push(`✏“ Context Settings`)
 
-              if (parsed.memorySettings) details.push(`✓ Memory Settings`)
+              if (parsed.memorySettings) details.push(`✏“ Memory Settings`)
 
-              if (parsed.listening) details.push(`✓ Listener Config`)
+              if (parsed.listening) details.push(`✏“ Listener Config`)
 
-              if (parsed.reasoning) details.push(`✓ Reasoning Config`)
+              if (parsed.reasoning) details.push(`✏“ Reasoning Config`)
 
-              if (parsed.execution) details.push(`✓ Execution Config`)
+              if (parsed.execution) details.push(`✏“ Execution Config`)
 
-              if (parsed.agentContextFiles?.length) details.push(`✓ ${parsed.agentContextFiles.length} Agent Context Files`)
+              if (parsed.agentContextFiles?.length) details.push(`✏“ ${parsed.agentContextFiles.length} Agent Context Files`)
 
-              if (parsed.listening?.exampleFiles?.length) details.push(`✓ ${parsed.listening.exampleFiles.length} Listener Example Files`)
+              if (parsed.listening?.exampleFiles?.length) details.push(`✏“ ${parsed.listening.exampleFiles.length} Listener Example Files`)
 
             } else if (type === 'context') {
 
-              if (parsed.text) details.push(`✓ Context Text (${parsed.text.length} chars)`)
+              if (parsed.text) details.push(`✏“ Context Text (${parsed.text.length} chars)`)
 
-              if (parsed.memory) details.push(`✓ Memory: ${parsed.memory}`)
+              if (parsed.memory) details.push(`✏“ Memory: ${parsed.memory}`)
 
-              if (parsed.source) details.push(`✓ Source: ${parsed.source}`)
+              if (parsed.source) details.push(`✏“ Source: ${parsed.source}`)
 
             } else if (type === 'settings') {
 
-              if (parsed.priority) details.push(`✓ Priority: ${parsed.priority}`)
+              if (parsed.priority) details.push(`✏“ Priority: ${parsed.priority}`)
 
-              if (parsed.autostart !== undefined) details.push(`✓ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
+              if (parsed.autostart !== undefined) details.push(`✏“ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
 
-              if (parsed.autorespond !== undefined) details.push(`✓ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+              if (parsed.autorespond !== undefined) details.push(`✏“ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
 
             }
 
@@ -25146,7 +25283,7 @@ function initializeExtension() {
 
           transform: translate(-50%, -50%);
 
-          background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+          background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"} 0%, #d32f2f 100%);
 
           color: white;
 
@@ -25354,7 +25491,7 @@ function initializeExtension() {
 
   }
 
-  function openAddNewAgentDialog(parentOverlay) {
+  function openAddNewAgentDialog(parentOverlay: HTMLElement) {
 
     // Create add new agent dialog
 
@@ -25376,13 +25513,13 @@ function initializeExtension() {
 
     configOverlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 500px; max-height: 80vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 500px; max-height: 80vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
 
-          <button id="close-add-agent" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-add-agent" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -25392,45 +25529,45 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🤖 Agent Name:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🤖 Agent Name:</label>
 
-              <input type="text" id="new-agent-name" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
+              <input type="text" id="new-agent-name" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
 
             </div>
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #FFD700; font-weight: bold;">🎨 Agent Icon:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎨 Agent Icon:</label>
 
               <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
 
-                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
+                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
 
-                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
+                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
 
-                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
+                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
 
-                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
+                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
 
-                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
+                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
 
-                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
+                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
 
-                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
+                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
 
-                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
+                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
 
-                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
+                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
 
-                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
+                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
 
-                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
+                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
 
-                <button class="icon-btn" data-icon="🌟" style="padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 4px; cursor: pointer; font-size: 20px;">🌟</button>
+                <button class="icon-btn" data-icon="🌐Ÿ" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🌐Ÿ</button>
 
               </div>
 
@@ -25442,11 +25579,11 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 15px; background: ${csTheme().cardBg};">
 
-          <button id="add-agent-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <button id="add-agent-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="add-agent-create" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
+          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
 
         </div>
 
@@ -25462,21 +25599,21 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-add-agent').onclick = () => configOverlay.remove()
+    document.getElementById('close-add-agent')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('add-agent-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('add-agent-cancel')!.onclick = () => configOverlay.remove()
 
     
 
     // Icon selection
 
-    configOverlay.querySelectorAll('.icon-btn').forEach(btn => {
+    configOverlay.querySelectorAll<HTMLElement>('.icon-btn').forEach(btn => {
 
       btn.addEventListener('click', () => {
 
         // Remove selection from all buttons
 
-        configOverlay.querySelectorAll('.icon-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.1)')
+        configOverlay.querySelectorAll<HTMLElement>('.icon-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.1)')
 
         // Highlight selected button
 
@@ -25484,7 +25621,7 @@ function initializeExtension() {
 
         // Store selected icon
 
-        document.getElementById('selected-icon').value = btn.dataset.icon
+        ;(document.getElementById('selected-icon') as HTMLInputElement | null)!.value = btn.dataset.icon!
 
       })
 
@@ -25494,11 +25631,11 @@ function initializeExtension() {
 
     // Create agent handler
 
-    document.getElementById('add-agent-create').onclick = () => {
+    document.getElementById('add-agent-create')!.onclick = () => {
 
-      const agentName = document.getElementById('new-agent-name').value.trim()
+      const agentName = (document.getElementById('new-agent-name') as HTMLInputElement).value.trim()
 
-      const agentIcon = document.getElementById('selected-icon').value
+      const agentIcon = (document.getElementById('selected-icon') as HTMLInputElement).value
 
       
 
@@ -25608,15 +25745,15 @@ function initializeExtension() {
 
     const generateUrlFieldsHTML = () => {
 
-      return existingWhitelist.map((url, index) => `
+      return existingWhitelist.map((url: string, index: number) => `
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="whitelist-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingWhitelist.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingWhitelist.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">&times;</button>
 
         </div>
 
@@ -25628,21 +25765,21 @@ function initializeExtension() {
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🛡️ URL Whitelist Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🛡 URL Whitelist Configuration</h2>
 
-          <button id="close-whitelist-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-whitelist-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Trusted URLs</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Trusted URLs</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add URLs that you trust and want to enable WR Desk features on. Use HTTPS URLs for security.</p>
 
@@ -25658,9 +25795,9 @@ function initializeExtension() {
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
 
-              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗑️ Clear All</button>
+              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗝‘️ Clear All</button>
 
-              <button id="load-defaults" style="padding: 8px 16px; background: #2196F3; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
+              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
 
             </div>
 
@@ -25668,19 +25805,19 @@ function initializeExtension() {
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Security Information</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Security Information</h3>
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
+              <p style="margin: 0 0 10px 0;">&rdquo;¢ Only URLs in this whitelist will have WR Desk features enabled</p>
 
-              <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
+              <p style="margin: 0 0 10px 0;">&rdquo;¢ Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
-              <p style="margin: 0 0 10px 0;">• Changes take effect immediately across all tabs</p>
+              <p style="margin: 0 0 10px 0;">&rdquo;¢ Changes take effect immediately across all tabs</p>
 
-              <p style="margin: 0;">• HTTPS is recommended for security</p>
+              <p style="margin: 0;">&rdquo;¢ HTTPS is recommended for security</p>
 
             </div>
 
@@ -25688,9 +25825,9 @@ function initializeExtension() {
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="whitelist-save" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="whitelist-save" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             💾 Save Whitelist
 
@@ -25710,7 +25847,7 @@ function initializeExtension() {
 
     // Close handlers
 
-    document.getElementById('close-whitelist-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-whitelist-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -25718,13 +25855,13 @@ function initializeExtension() {
 
     // Add URL field functionality
 
-    const container = document.getElementById('url-fields-container')
+    const container = document.getElementById('url-fields-container')!
 
     
 
     const updateUrlFields = () => {
 
-      const urls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
 
       container.innerHTML = generateUrlFieldsHTML()
 
@@ -25740,7 +25877,7 @@ function initializeExtension() {
 
         btn.addEventListener('click', (e) => {
 
-          const currentUrls = Array.from(container.querySelectorAll('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
+          const currentUrls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url')).map(input => input.value.trim()).filter(url => url)
 
           if (currentUrls.length < 20) { // Limit to 20 URLs
 
@@ -25766,7 +25903,9 @@ function initializeExtension() {
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           existingWhitelist.splice(index, 1)
 
@@ -25788,7 +25927,7 @@ function initializeExtension() {
 
     // Clear all button
 
-    document.getElementById('clear-all-urls').onclick = () => {
+    document.getElementById('clear-all-urls')!.onclick = () => {
 
       existingWhitelist.length = 0
 
@@ -25802,7 +25941,7 @@ function initializeExtension() {
 
     // Load defaults button
 
-    document.getElementById('load-defaults').onclick = () => {
+    document.getElementById('load-defaults')!.onclick = () => {
 
       existingWhitelist.length = 0
 
@@ -25816,9 +25955,9 @@ function initializeExtension() {
 
     // Save handler
 
-    document.getElementById('whitelist-save').onclick = () => {
+    document.getElementById('whitelist-save')!.onclick = () => {
 
-      const urls = Array.from(container.querySelectorAll('.whitelist-url'))
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.whitelist-url'))
 
         .map(input => input.value.trim())
 
@@ -25856,7 +25995,7 @@ function initializeExtension() {
 
       `
 
-      notification.innerHTML = `🛡️ URL Whitelist saved! (${urls.length} URLs)`
+      notification.innerHTML = `🛡 URL Whitelist saved! (${urls.length} URLs)`
 
       document.body.appendChild(notification)
 
@@ -25880,7 +26019,7 @@ function initializeExtension() {
 
     // Immediately re-theme docked Command Chat if present
 
-    try { setDockedChatTheme(theme) } catch {}
+    try { const _t = localStorage.getItem('optimando-ui-theme'); setDockedChatTheme((_t === 'dark' ? 'dark' : _t === 'standard' ? 'standard' : 'pro') as 'pro'|'dark'|'standard') } catch {}
 
   }
 
@@ -25942,21 +26081,21 @@ function initializeExtension() {
 
       <div style="
 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
 
-        color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
+        color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); 
 
         display: flex; flex-direction: column;
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">📄 Global Context Management</h2>
+          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">📄 Global Context Management</h2>
 
-          <button id="close-context-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -25966,37 +26105,37 @@ function initializeExtension() {
 
           <!-- Tab Navigation -->
 
-          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.3);">
+          <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid ${csTheme().border};">
 
             <button id="user-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.2); border: none; 
+              padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; 
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: #fff; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600;
 
               transition: all 0.3s ease;
 
-            ">👤 User Context (Session)</button>
+            ">User Context</button>
 
             <button id="publisher-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              padding: 10px 20px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-bottom: none;
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: ${csTheme().text}; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
               transition: all 0.3s ease;
 
-            ">🌐 Publisher Context (Session)</button>
+            ">Publisher Context (Session)</button>
 
             <button id="account-context-tab" style="
 
-              padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; 
+              padding: 10px 20px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-bottom: none;
 
-              color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+              color: ${csTheme().text}; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
 
               transition: all 0.3s ease;
 
-            ">🏢 Account Context</button>
+            ">Account Context</button>
 
           </div>
 
@@ -26006,31 +26145,29 @@ function initializeExtension() {
 
           <div id="user-context-content" style="display: block;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Auto-scrape Website Context</h3>
 
               <button id="scrape-user-context-btn" style="
 
-                background: linear-gradient(135deg, #4CAF50, #45a049);
+                background: ${csTheme().accentGrad};
 
-                border: none; color: white; padding: 12px 24px; border-radius: 8px;
+                border: none; color: #fff; padding: 10px 20px; border-radius: 8px;
 
-                cursor: pointer; font-size: 14px; font-weight: bold;
-
-                transition: all 0.3s ease; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+                cursor: pointer; font-size: 13px; font-weight: 600;
 
                 margin-bottom: 15px;
 
-              ">🔍 Scrape Current Page</button>
+              ">Scrape Current Page</button>
 
               
 
               <textarea id="user-context-text" style="
 
-                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26042,21 +26179,21 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
-                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text};
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
               ">
 
-              <div id="user-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+              <div id="user-pdf-files-list" style="font-size: 12px; color: ${csTheme().muted};"></div>
 
             </div>
 
@@ -26068,29 +26205,29 @@ function initializeExtension() {
 
           <div id="publisher-context-content" style="display: none;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Publisher Context from wrdesk.com</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Publisher Context from wrdesk.com</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
                 <button id="scrape-publisher-context-btn" style="
 
-                  background: linear-gradient(135deg, #4CAF50, #45a049);
+                  background: ${csTheme().accentGrad};
 
-                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  border: none; color: #fff; padding: 8px 16px; border-radius: 6px;
 
-                  cursor: pointer; font-size: 12px; font-weight: bold;
+                  cursor: pointer; font-size: 12px; font-weight: 600;
 
-                ">🔍 Scrape Current Page</button>
+                ">Scrape Current Page</button>
 
                 <button id="load-wrcode-context" style="
 
-                  background: linear-gradient(135deg, #2196F3, #1976D2);
+                  background: ${csTheme().inputBg};
 
-                  border: none; color: white; padding: 10px 20px; border-radius: 6px;
+                  border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 8px 16px; border-radius: 6px;
 
-                  cursor: pointer; font-size: 12px; font-weight: bold;
+                  cursor: pointer; font-size: 12px; font-weight: 500;
 
                 ">Load from wrdesk.com</button>
 
@@ -26100,9 +26237,9 @@ function initializeExtension() {
 
               <textarea id="publisher-context-text" style="
 
-                width: 100%; height: 200px; background: rgba(255,255,255,0.1);
+                width: 100%; height: 200px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 15px;
 
                 border-radius: 8px; font-size: 14px; resize: vertical;
 
@@ -26114,21 +26251,21 @@ function initializeExtension() {
 
             
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">📎 Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
-                width: 100%; padding: 10px; background: rgba(255,255,255,0.1);
+                width: 100%; padding: 10px; background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3); color: white;
+                border: 1px solid ${csTheme().border}; color: ${csTheme().text};
 
                 border-radius: 6px; font-size: 12px; margin-bottom: 10px;
 
               ">
 
-              <div id="publisher-pdf-files-list" style="font-size: 12px; color: #CCCCCC;"></div>
+              <div id="publisher-pdf-files-list" style="font-size: 12px; color: ${csTheme().muted};"></div>
 
           </div>
 
@@ -26140,31 +26277,31 @@ function initializeExtension() {
 
           <div id="account-context-content" style="display: none;">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 10px; font-size:12px;opacity:.9">
 
               Account context is persistent across all sessions (e.g. a company's knowledgebase), while session context only applies within a single active session.
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Auto-scrape Website Context</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Auto-scrape Website Context</h3>
 
               <div style="display: flex; gap: 10px; margin-bottom: 15px;">
 
-                <button id="account-scrape-context" style="background: #34D399; color: white; border: none; padding: 10px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; display:flex;align-items:center;gap:6px">🔎 Scrape Current Page</button>
+                <button id="account-scrape-context" style="background: ${csTheme().accentGrad}; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; display:flex;align-items:center;gap:6px">Scrape Current Page</button>
 
               </div>
 
-              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 10px;"></textarea>
+              <textarea id="account-context-input" placeholder="Enter your context information here or use the scrape button above..." style="width: 100%; height: 160px; background: ${csTheme().inputBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 10px;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #66FF66;">Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">Upload PDF Files</h3>
 
-              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 8px; width: 100%;" />
+              <input id="account-context-pdf" type="file" accept="application/pdf" multiple style="background: ${csTheme().inputBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px; width: 100%;" />
 
               <div id="account-pdf-list" style="margin-top: 10px; font-size: 12px; opacity: 0.8;">No PDF files uploaded</div>
 
@@ -26180,39 +26317,33 @@ function initializeExtension() {
 
             <button id="inject-context-btn" style="
 
-              background: linear-gradient(135deg, #4CAF50, #45a049);
+              background: ${csTheme().accentGrad};
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">💉 Inject Context to LLMs</button>
+            ">Inject Context to LLMs</button>
 
             <button id="save-context-btn" style="
 
-              background: linear-gradient(135deg, #2196F3, #1976D2);
+              background: ${csTheme().accentGrad};
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">💾 Save Context</button>
+            ">Save Context</button>
 
             <button id="clear-context-btn" style="
 
-              background: linear-gradient(135deg, #f44336, #d32f2f);
+              background: #dc2626;
 
-              border: none; color: white; padding: 15px 30px; border-radius: 10px;
+              border: none; color: #fff; padding: 12px 24px; border-radius: 8px;
 
-              cursor: pointer; font-size: 16px; font-weight: bold;
+              cursor: pointer; font-size: 14px; font-weight: 600;
 
-              transition: all 0.3s ease; box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-
-            ">🗑️ Clear All</button>
+            ">Clear All</button>
 
           </div>
 
@@ -26314,15 +26445,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeUserPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -26354,15 +26485,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removePublisherPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -26394,15 +26525,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📎 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
-              <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
                 <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeAccountPdfFile(${index})" style="background: #f44336; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✕</button>
+                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -26510,9 +26641,9 @@ function initializeExtension() {
 
     userTab?.addEventListener('click', () => {
 
-      userTab.style.background = 'rgba(255,255,255,0.2)'
+      userTab.style.background = csTheme().accentGrad; userTab.style.color = '#fff'
 
-      publisherTab!.style.background = 'rgba(255,255,255,0.1)'
+      publisherTab!.style.background = csTheme().inputBg; publisherTab!.style.color = csTheme().text
 
       accountTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -26528,7 +26659,7 @@ function initializeExtension() {
 
     publisherTab?.addEventListener('click', () => {
 
-      publisherTab.style.background = 'rgba(255,255,255,0.2)'
+      publisherTab.style.background = csTheme().accentGrad; publisherTab.style.color = '#fff'
 
       userTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -26546,7 +26677,7 @@ function initializeExtension() {
 
     accountTab?.addEventListener('click', () => {
 
-      accountTab.style.background = 'rgba(255,255,255,0.2)'
+      accountTab.style.background = csTheme().accentGrad; accountTab.style.color = '#fff'
 
       userTab!.style.background = 'rgba(255,255,255,0.1)'
 
@@ -27264,53 +27395,53 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
 
-          <button id="close-memory-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-memory-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
         <div style="flex:1; padding: 20px; overflow-y:auto;">
 
-          <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid rgba(255,255,255,0.3)">
+          <div style="display:flex; gap:10px; margin-bottom: 16px; border-bottom:1px solid ${csTheme().border}">
 
-            <button id="mem-session-tab" style="padding:10px 16px; background: rgba(255,255,255,0.2); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🗂️ Session Memory</button>
+            <button id="mem-session-tab" style="padding:10px 16px; background: ${csTheme().accentGrad}; border:none; color:#fff; border-radius:8px 8px 0 0; cursor:pointer; font-weight:600">Session Memory</button>
 
-            <button id="mem-account-tab" style="padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🏢 Account Memory</button>
+            <button id="mem-account-tab" style="padding:10px 16px; background: ${csTheme().inputBg}; border:1px solid ${csTheme().border}; border-bottom:none; color:${csTheme().text}; border-radius:8px 8px 0 0; cursor:pointer">Account Memory</button>
 
-            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: rgba(255,255,255,0.1); border:0; color:#fff; border-radius:8px 8px 0 0; cursor:pointer">🧾 KnowledgeVault</button>
+            <button id="mem-sessions-tab" style="margin-left:auto;padding:10px 16px; background: ${csTheme().inputBg}; border:1px solid ${csTheme().border}; border-bottom:none; color:${csTheme().text}; border-radius:8px 8px 0 0; cursor:pointer">KnowledgeVault</button>
 
           </div>
 
           <div id="mem-session" style="display:block">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-session-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-session-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 12px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-top: 12px;">
 
-              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #FFD700; font-weight: bold;">💾 Memory Settings:</label>
+              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
               <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -27326,21 +27457,21 @@ ${pageText}
 
           <div id="mem-account" style="display:none">
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
-              <textarea id="mem-account-text" style="width:100%;height:180px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
+              <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
             </div>
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:#FFD700;font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
-                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:white;padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
+                <input id="mem-account-alloc-mb" type="number" min="1" step="1" value="200" style="flex:0 0 120px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;"> <span>MB</span>
 
               </div>
 
@@ -27360,9 +27491,9 @@ ${pageText}
 
             </div>
 
-            <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); padding:10px; border-radius:8px;">
+            <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid ${csTheme().border}; padding:10px; border-radius:8px;">
 
-              KnowledgeVault – Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
+              KnowledgeVault &rdquo;“ Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
 
             </div>
 
@@ -27380,19 +27511,19 @@ ${pageText}
 
                   <tr>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Title</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Title</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Type</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Type</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Evidence</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Evidence</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Root Cause</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Root Cause</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Fix</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Fix</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Status</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Status</th>
 
-                    <th style="text-align:left;padding:6px;border-bottom:1px solid rgba(255,255,255,.2)">Actions</th>
+                    <th style="text-align:left;padding:6px;border-bottom:1px solid ${csTheme().border}">Actions</th>
 
                   </tr>
 
@@ -27408,11 +27539,11 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 16px; border-top:1px solid rgba(255,255,255,0.3); display:flex; justify-content:flex-end; gap:12px; background: rgba(255,255,255,0.05)">
+        <div style="padding: 16px; border-top:1px solid ${csTheme().border}; display:flex; justify-content:flex-end; gap:12px; background: ${csTheme().cardBg}">
 
-          <button id="memory-cancel" style="padding:10px 20px;background:rgba(255,255,255,0.2);border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
+          <button id="memory-cancel" style="padding:10px 20px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
-          <button id="memory-save" style="padding:10px 20px;background:#4CAF50;border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
 
         </div>
 
@@ -27444,11 +27575,11 @@ ${pageText}
 
       xBox.style.display = which==='x' ? 'block' : 'none'
 
-      sTab.style.background = which==='s' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      sTab.style.background = which==='s' ? csTheme().accentGrad : csTheme().inputBg; sTab.style.color = which==='s' ? '#fff' : csTheme().text
 
-      aTab.style.background = which==='a' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      aTab.style.background = which==='a' ? csTheme().accentGrad : csTheme().inputBg; aTab.style.color = which==='a' ? '#fff' : csTheme().text
 
-      xTab.style.background = which==='x' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)'
+      xTab.style.background = which==='x' ? csTheme().accentGrad : csTheme().inputBg; xTab.style.color = which==='x' ? '#fff' : csTheme().text
 
     }
 
@@ -27470,7 +27601,7 @@ ${pageText}
 
     // --- Sessions UI wiring ---
 
-    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
+    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'&rdquo;¦': s }
 
     function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
 
@@ -27558,17 +27689,17 @@ ${pageText}
 
       drawer.innerHTML = `
 
-        <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,.2);display:flex;justify-content:space-between;align-items:center">
+        <div style="padding:16px;border-bottom:1px solid ${csTheme().border};display:flex;justify-content:space-between;align-items:center">
 
           <div>
 
             <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
 
-            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}% • Human/Ai ${item.humanAiMix ?? 0}%</div>
+            <div style="font-size:12px;opacity:.85">${item.status} &rdquo;¢ ${fmtDur(item.durationSec)} &rdquo;¢ Confidence ${item.confidencePct ?? '-'}% &rdquo;¢ Human/Ai ${item.humanAiMix ?? 0}%</div>
 
           </div>
 
-          <button id="sess-close" style="width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;cursor:pointer">×</button>
+          <button id="sess-close" style="width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;cursor:pointer">&times;</button>
 
         </div>
 
@@ -27578,7 +27709,7 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">Co-Authoring Timeline</div>
 
-            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} – ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('– '+l.message):''}</div>`).join('')}</div>
+            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} &rdquo;“ ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('&rdquo;“ '+l.message):''}</div>`).join('')}</div>
 
           </div>
 
@@ -27586,15 +27717,15 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '&rdquo;”'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '&rdquo;”'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '&rdquo;”'}</div>
 
             <div style="display:flex;gap:8px">
 
-              <button id="sess-accept-draft" style="padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Accept as Draft</button>
+              <button id="sess-accept-draft" style="padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Accept as Draft</button>
 
               <button id="sess-edit" style="padding:6px 10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:6px;cursor:pointer">Edit</button>
 
@@ -27636,7 +27767,7 @@ ${pageText}
 
               </select>
 
-              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:#22c55e;border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
 
             </div>
 
@@ -27648,9 +27779,9 @@ ${pageText}
 
             <div style="display:flex;gap:8px;margin-bottom:8px">
 
-              <input id="gov-reviewer" placeholder="Reviewer" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;font-size:12px">
+              <input id="gov-reviewer" placeholder="Reviewer" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:6px;font-size:12px">
 
-              <input id="gov-wrstamp" placeholder="WRStamp" style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px;border-radius:6px;font-size:12px">
+              <input id="gov-wrstamp" placeholder="WRStamp" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:6px;font-size:12px">
 
             </div>
 
@@ -27690,7 +27821,7 @@ ${pageText}
 
           const cell = document.createElement('div')
 
-          cell.style.cssText = 'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center'
+          cell.style.cssText = `background:rgba(255,255,255,.08);border:1px solid ${csTheme().border};border-radius:8px;padding:6px;display:flex;gap:6px;align-items:center`
 
           const label = document.createElement('div')
 
@@ -27758,7 +27889,7 @@ ${pageText}
 
       const audit = drawer.querySelector('#audit-log') as HTMLElement
 
-      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} – ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('– '+l.message):''}</div>`).join('')
+      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} &rdquo;“ ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('&rdquo;“ '+l.message):''}</div>`).join('')
 
       // export handlers
 
@@ -27990,7 +28121,7 @@ ${pageText}
 
             displayId: `MA02-${shortId}`,
 
-            title: '✍️ Content Rewriter',
+            title: '✏️ Content Rewriter',
 
             description: 'Rewrites selected text in different tones and styles. Supports formal, casual, professional, creative, and concise modes. Maintains the original meaning while improving clarity.',
 
@@ -28088,9 +28219,9 @@ ${pageText}
 
         <div class="miniapp-card" data-id="${app.id}" data-display-id="${app.displayId}" data-scope="${app.scope}" style="
 
-          background: rgba(255,255,255,0.1);
+          background: ${csTheme().cardBg};
 
-          border: 1px solid ${app.scope === 'account' ? 'rgba(255,215,0,0.4)' : 'rgba(255,255,255,0.2)'};
+          border: 1px solid ${app.scope === 'account' ? 'rgba(180,130,0,0.5)' : csTheme().border};
 
           border-radius: 12px;
 
@@ -28104,17 +28235,17 @@ ${pageText}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
 
-            <h3 style="margin: 0; font-size: 16px; color: #FFD700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;">${app.title}</h3>
+            <h3 style="margin: 0; font-size: 16px; color: ${csTheme().muted}; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;">${app.title}</h3>
 
             <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
 
               <button class="edit-miniapp-btn" data-id="${app.id}" style="
 
-                background: rgba(255,255,255,0.15);
+                background: ${csTheme().cardBg};
 
-                border: 1px solid rgba(255,255,255,0.3);
+                border: 1px solid ${csTheme().border};
 
-                color: white;
+                color: ${csTheme().text};
 
                 padding: 4px 10px;
 
@@ -28130,7 +28261,7 @@ ${pageText}
 
                 align-items: center;
 
-              ">✏️ Edit</button>
+              ">✏️ Edit</button>
 
               <button class="delete-miniapp-btn" data-id="${app.id}" style="
 
@@ -28156,7 +28287,7 @@ ${pageText}
 
                 justify-content: center;
 
-              " title="Delete mini-app">✕</button>
+              " title="Delete mini-app">×</button>
 
             </div>
 
@@ -28168,7 +28299,7 @@ ${pageText}
 
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;" onclick="event.stopPropagation()">
 
-            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Scope:</span>
+            <span style="font-size: 11px; color: ${csTheme().muted};">Scope:</span>
 
             <div class="scope-toggle" data-id="${app.id}" style="
 
@@ -28196,9 +28327,9 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: ${csTheme().muted};'}
 
-              ">🗂️ Session</span>
+              ">🗂 Session</span>
 
               <span class="scope-option ${app.scope === 'account' ? 'active' : ''}" data-scope="account" style="
 
@@ -28212,7 +28343,7 @@ ${pageText}
 
                 transition: all 0.2s ease;
 
-                ${app.scope === 'account' ? 'background: rgba(255,215,0,0.4); color: #FFD700;' : 'background: transparent; color: rgba(255,255,255,0.5);'}
+                ${app.scope === 'account' ? `background: ${csTheme().cardBg}; color: ${csTheme().muted};` : 'background: transparent; color: ${csTheme().muted};'}
 
               ">🏢 Account</span>
 
@@ -28220,13 +28351,13 @@ ${pageText}
 
           </div>
 
-          <p style="margin: 0; font-size: 13px; color: rgba(255,255,255,0.8); line-height: 1.5;">
+          <p style="margin: 0; font-size: 13px; color: ${csTheme().text}; line-height: 1.5;">
 
             ${app.description.length > 150 ? app.description.slice(0, 150) + '...' : app.description}
 
           </p>
 
-          <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.5); display: flex; justify-content: space-between; align-items: center;">
+          <div style="margin-top: 10px; font-size: 10px; color: ${csTheme().muted}; display: flex; justify-content: space-between; align-items: center;">
 
             <span>Updated: ${new Date(app.updatedAt).toLocaleDateString()}</span>
 
@@ -28246,7 +28377,7 @@ ${pageText}
 
       <div style="
 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; 
 
@@ -28256,11 +28387,11 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
 
-          <button id="close-miniapps-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-miniapps-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -28328,7 +28459,7 @@ ${pageText}
 
               padding: 40px;
 
-              background: rgba(255,255,255,0.05);
+              background: ${csTheme().cardBg};
 
               border: 2px dashed rgba(255,255,255,0.2);
 
@@ -28336,7 +28467,7 @@ ${pageText}
 
             ">
 
-              <p style="font-size: 14px; color: rgba(255,255,255,0.6);">
+              <p style="font-size: 14px; color: ${csTheme().muted};">
 
                 No mini-apps yet. Click "Mini-App Builder" to create your first one!
 
@@ -28400,11 +28531,11 @@ ${pageText}
 
         ">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <h3 style="margin: 0; font-size: 18px;">🛠️ Mini-App Builder</h3>
 
-            <button id="close-builder-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">×</button>
+            <button id="close-builder-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">&times;</button>
 
           </div>
 
@@ -28412,11 +28543,11 @@ ${pageText}
 
             <!-- Left Panel: Form -->
 
-            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid ${csTheme().border};">
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
 
@@ -28424,9 +28555,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28442,21 +28573,21 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
 
                     <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">🗂️ Session</span>
+                    <span style="font-size: 13px;">🗂 Session</span>
 
                   </label>
 
-                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
-                    <input type="radio" name="builder-scope" value="account" style="accent-color: #FFD700;">
+                    <input type="radio" name="builder-scope" value="account" style="accent-color: ${csTheme().muted};">
 
                     <span style="font-size: 13px;">🏢 Account</span>
 
@@ -28468,7 +28599,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
 
@@ -28478,9 +28609,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28504,9 +28635,9 @@ ${pageText}
 
                   padding: 10px 20px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   color: white;
 
@@ -28584,7 +28715,7 @@ ${pageText}
 
                 background: rgba(0,0,0,0.3);
 
-                border: 1px solid rgba(255,255,255,0.1);
+                border: 1px solid ${csTheme().border};
 
                 border-radius: 8px;
 
@@ -28602,7 +28733,7 @@ ${pageText}
 
               ">
 
-                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
+                <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
                   <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
@@ -28614,7 +28745,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
@@ -28710,17 +28841,17 @@ ${pageText}
 
         ">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <div style="display: flex; align-items: center; gap: 12px;">
 
-              <h3 style="margin: 0; font-size: 18px;">✏️ Edit Mini-App</h3>
+              <h3 style="margin: 0; font-size: 18px;">✏️ Edit Mini-App</h3>
 
               <span id="edit-display-id-badge" style="background: rgba(144,238,144,0.3); padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #90EE90;"></span>
 
             </div>
 
-            <button id="close-edit-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">×</button>
+            <button id="close-edit-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">&times;</button>
 
           </div>
 
@@ -28728,7 +28859,7 @@ ${pageText}
 
             <!-- Left Panel: Form -->
 
-            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.15);">
+            <div style="flex: 1; padding: 20px; overflow-y: auto; border-right: 1px solid ${csTheme().border};">
 
               <input type="hidden" id="edit-miniapp-id">
 
@@ -28736,7 +28867,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="edit-title" type="text" style="
 
@@ -28744,9 +28875,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28762,21 +28893,21 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
-                  <label id="edit-scope-session-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
+                  <label id="edit-scope-session-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(102,238,102,0.5);">
 
                     <input type="radio" name="edit-scope" value="session" style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">🗂️ Session</span>
+                    <span style="font-size: 13px;">🗂 Session</span>
 
                   </label>
 
-                  <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
+                  <label id="edit-scope-account-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 16px; background: ${csTheme().cardBg}; border-radius: 8px; border: 2px solid rgba(255,215,0,0.3);">
 
-                    <input type="radio" name="edit-scope" value="account" style="accent-color: #FFD700;">
+                    <input type="radio" name="edit-scope" value="account" style="accent-color: ${csTheme().muted};">
 
                     <span style="font-size: 13px;">🏢 Account</span>
 
@@ -28788,7 +28919,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #FFD700; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="edit-description" style="
 
@@ -28798,9 +28929,9 @@ ${pageText}
 
                   padding: 12px;
 
-                  background: rgba(255,255,255,0.1);
+                  background: ${csTheme().cardBg};
 
-                  border: 1px solid rgba(255,255,255,0.3);
+                  border: 1px solid ${csTheme().border};
 
                   border-radius: 8px;
 
@@ -28836,7 +28967,7 @@ ${pageText}
 
                   font-size: 13px;
 
-                ">🗑️ Delete</button>
+                ">🗝‘️ Delete</button>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -28844,9 +28975,9 @@ ${pageText}
 
                     padding: 10px 20px;
 
-                    background: rgba(255,255,255,0.1);
+                    background: ${csTheme().cardBg};
 
-                    border: 1px solid rgba(255,255,255,0.3);
+                    border: 1px solid ${csTheme().border};
 
                     color: white;
 
@@ -28926,7 +29057,7 @@ ${pageText}
 
                 background: rgba(0,0,0,0.3);
 
-                border: 1px solid rgba(255,255,255,0.1);
+                border: 1px solid ${csTheme().border};
 
                 border-radius: 8px;
 
@@ -28944,7 +29075,7 @@ ${pageText}
 
               ">
 
-                <div style="color: rgba(255,255,255,0.4); text-align: center; padding: 40px 20px;">
+                <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
                   <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
@@ -28956,7 +29087,7 @@ ${pageText}
 
               </div>
 
-              <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.5);">
+              <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
                 💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
@@ -29323,16 +29454,29 @@ ${pageText}
 
         testOutput.innerHTML = 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
-            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
+
           '</div>' +
-          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+
+          `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
+
             '📱 Mini-App: <strong>' + title + '</strong>' +
           '</div>' +
-          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+
+          '<div style="color: ${csTheme().muted}; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+
             shortDesc +
           '</div>' +
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
             '⏳ Processing...' +
+
+          '</div>' +
+
+          `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
+
+            '💡 Test functionality will be integrated in a future update.' +
+
           '</div>'
 
         ;(async () => {
@@ -29567,17 +29711,17 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: rgba(255,255,255,0.5);">[</span>' + timestamp + '<span style="color: rgba(255,255,255,0.5);">]</span> 🚀 Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
 
           '</div>' +
 
-          '<div style="color: #FFD700; margin-bottom: 8px;">' +
+          `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
             '📱 Mini-App: <strong>' + title + '</strong>' +
 
           '</div>' +
 
-          '<div style="color: rgba(255,255,255,0.6); margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
+          '<div style="color: ${csTheme().muted}; margin-bottom: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px; font-size: 11px;">' +
 
             shortDesc +
 
@@ -29586,6 +29730,12 @@ ${pageText}
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
 
             '⏳ Processing...' +
+
+          '</div>' +
+
+          `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
+
+            '💡 Test functionality will be integrated in a future update.' +
 
           '</div>'
 
@@ -29801,7 +29951,7 @@ ${pageText}
 
       <div style="
 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        background: ${csTheme().panelBg}; 
 
         border-radius: 16px; width: 85vw; max-width: 800px; height: auto; max-height: 80vh;
 
@@ -29811,11 +29961,11 @@ ${pageText}
 
       ">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
 
-          <button id="close-agent-memory" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-agent-memory" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -29823,7 +29973,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
+          <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
 
             💡 Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
 
@@ -29831,15 +29981,15 @@ ${pageText}
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
             <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">📝 Memory Notes:</label>
 
             <textarea id="agent-memory-notes" style="
 
-              width: 100%; height: 300px; background: rgba(255,255,255,0.1);
+              width: 100%; height: 300px; background: ${csTheme().cardBg};
 
-              border: 1px solid rgba(255,255,255,0.3); color: white; padding: 15px;
+              border: 1px solid ${csTheme().border}; color: white; padding: 15px;
 
               border-radius: 8px; font-size: 13px; resize: vertical;
 
@@ -29851,7 +30001,7 @@ ${pageText}
 
           
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
             <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">💾 Memory Sharing Settings:</label>
 
@@ -29871,7 +30021,7 @@ ${pageText}
 
               <input type="checkbox" id="agent-memory-share-all" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
 
-              <span>🌐 Share with all Sessions (available across all sessions)</span>
+              <span>🌐 Share with all Sessions (available across all sessions)</span>
 
             </label>
 
@@ -29881,7 +30031,7 @@ ${pageText}
 
         
 
-        <div style="padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 16px 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 12px; background: ${csTheme().cardBg};">
 
           <button id="agent-memory-cancel" style="
 
@@ -30065,11 +30215,11 @@ ${pageText}
 
     const header = document.createElement('div')
 
-    header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:space-between;`
+    header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;`
 
     header.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault – Password Manager</div>
-      <button id="wrv-close" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">×</button>
+      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault &rdquo;“ Password Manager</div>
+      <button id="wrv-close" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">&times;</button>
     `
 
     const reactRoot = document.createElement('div')
@@ -30092,16 +30242,11 @@ ${pageText}
       })
     }
 
-    safeAppendToBody(overlay)
-
-    // Initialize vault UI (pure TypeScript, no React)
-    import('./vault/vault-ui-typescript').then(({ openVaultLightbox: initVaultUI }) => {
-      // Remove the placeholder and re-init with the full UI
-      overlay.remove()
-      initVaultUI()
+    // Import first, then open — avoids placeholder flash (never append placeholder to DOM)
+    import('./vault/vault-ui-typescript').then(({ openVaultLightbox }) => {
+      openVaultLightbox()
     }).catch((error) => {
       console.error('[VAULT] Error loading vault UI:', error)
-      reactRoot.innerHTML = '<div style="padding: 40px; text-align: center; color: rgba(255,255,255,0.6);">Error loading vault UI. Please check console.</div>'
     })
 
   }
@@ -30254,7 +30399,7 @@ ${pageText}
 
       const toolbar = document.createElement('div')
 
-      toolbar.style.cssText = 'position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.25); font-size:12px; pointer-events:auto; z-index:2147483648;'
+      toolbar.style.cssText = `position:fixed; display:none; gap:8px; background:#111827; color:white; padding:6px 8px; border-radius:8px; border:1px solid ${csTheme().border}; font-size:12px; pointer-events:auto; z-index:2147483648;`
 
       const btnShot = document.createElement('button'); btnShot.textContent = 'Screenshot'; btnShot.style.cssText='background:#10b981;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
@@ -30282,9 +30427,9 @@ ${pageText}
 
       labCommand.append(cbCommand, spanCommand)
 
-      // Close control (×)
+      // Close control (&times;)
 
-      const btnClose = document.createElement('button'); btnClose.textContent='×'; btnClose.title='Close selection'; btnClose.style.cssText='background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
+      const btnClose = document.createElement('button'); btnClose.textContent='&times;'; btnClose.title='Close selection'; btnClose.style.cssText=`background:rgba(255,255,255,0.08);border:1px solid ${csTheme().border};color:white;padding:4px 8px;border-radius:6px;cursor:pointer`
 
       toolbar.append(btnShot, btnStream, btnRec, btnStop, timerEl, lab, labCommand, btnClose)
 
@@ -30510,7 +30655,7 @@ ${pageText}
 
           bar.id = 'og-trigger-savebar'
 
-          bar.style.cssText = 'grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#ffffff; border:1px solid rgba(255,255,255,0.3); border-radius:8px;'
+          bar.style.cssText = `grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; padding:16px; background:${csTheme().accentGrad}; color:#ffffff; border:1px solid ${csTheme().border}; border-radius:8px;`
 
           
 
@@ -30526,7 +30671,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Create Trigger'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText='flex:1; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;'
+            nameIn = document.createElement('input'); nameIn.type='text'; nameIn.placeholder='Enter trigger name...'; nameIn.style.cssText=`flex:1; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; outline:none;`
             
             // Style placeholder text
             const placeholderStyle = document.createElement('style')
@@ -30562,7 +30707,7 @@ ${pageText}
 
             const label = document.createElement('span'); label.textContent='Optional Command'; label.style.cssText='font-size:14px; font-weight:600; color:#ffffff;'
 
-            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText='width:100%; min-height:70px; padding:10px 12px; border:1px solid rgba(255,255,255,0.3); border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;'
+            commandIn = document.createElement('textarea'); commandIn.placeholder='Quickly enhance the agent\'s default behaviour...'; commandIn.style.cssText=`width:100%; min-height:70px; padding:10px 12px; border:1px solid ${csTheme().border}; border-radius:6px; font-size:13px; background:rgba(255,255,255,0.98); color:#000000; resize:vertical; box-sizing:border-box; line-height:1.5; font-family:inherit; outline:none;`
 
             commandRow.append(label, commandIn)
 
@@ -30582,10 +30727,9 @@ ${pageText}
           let btnTheme: 'pro'|'dark'|'standard' = 'standard'
           try { 
             const t = localStorage.getItem('optimando-ui-theme')
-            if (t === 'standard' || t === 'dark' || t === 'pro') {
-              // Map old 'default' to 'pro' for backward compatibility
-              btnTheme = (t === 'default' ? 'pro' : t) as any
-            }
+            if (t === 'dark') btnTheme = 'dark'
+            else if (t === 'standard') btnTheme = 'standard'
+            else btnTheme = 'pro'
           } catch {}
           const saveBtnColor = btnTheme === 'standard' ? '#3b82f6' : '#10b981'
 
@@ -31047,7 +31191,7 @@ ${pageText}
 
   // Load session data from Electron app
 
-  function loadSessionFromElectron(sessionId) {
+  function loadSessionFromElectron(sessionId: string) {
 
     console.log('📂 Loading session from Electron app:', sessionId)
 
@@ -31121,7 +31265,7 @@ ${pageText}
 
   // Save full session data to Electron app
 
-  function saveSessionToElectron(sessionId, sessionData) {
+  function saveSessionToElectron(sessionId: string, sessionData: any) {
 
     console.log('💾 Saving full session to Electron app:', sessionId)
 
@@ -31271,7 +31415,7 @@ ${pageText}
 
                 }
 
-                const existingIndex = currentTabData.displayGrids.findIndex(g => 
+                const existingIndex = currentTabData.displayGrids.findIndex((g: any) => 
 
                   g.sessionId === response.sessionId && g.layout === response.data.grid_config.layout
 
@@ -31437,17 +31581,17 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
 
           <div style="display:flex; gap:10px; align-items:center;">
 
-            <button id="settings-whitelist-btn" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡️ Whitelist</button>
+            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡 Whitelist</button>
 
-          <button id="close-settings-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-settings-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
           </div>
 
@@ -31459,11 +31603,11 @@ ${pageText}
 
             <!-- Account & Billing (TOP) -->
 
-            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / -1;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
 
               <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💳 Account & Billing</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</h4>
 
                 <div id="account-balance" style="font-size: 12px; font-weight: 700;">Balance: $0.00</div>
 
@@ -31471,9 +31615,9 @@ ${pageText}
 
               <div style="display:flex; gap:10px;">
 
-                <button id="btn-payg" style="flex:1; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
+                <button id="btn-payg" style="flex:1; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">Pay-as-you-go</button>
 
-                <button id="btn-subscription" style="flex:1; background: #4CAF50; border: none; color: white; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
+                <button id="btn-subscription" style="flex:1; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Subscription</button>
 
               </div>
 
@@ -31485,23 +31629,23 @@ ${pageText}
 
             <!-- API Keys Configuration (moved first) -->
 
-            <div style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">🔑 API Keys</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">🔑 API Keys</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="add-custom-api-key" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
+                  <button id="add-custom-api-key" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
 
-                  <button id="save-api-keys" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                  <button id="save-api-keys" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
 
                 </div>
 
               </div>
 
-              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(76,175,80,0.20); border:1px solid rgba(76,175,80,0.35); border-radius:6px;">
+              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:6px;">
 
                 BYOK is supported on all plans. Enter your API keys above and click Save.
 
@@ -31509,43 +31653,43 @@ ${pageText}
 
               <div id="api-keys-container" style="display: grid; gap: 6px;">
 
-                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">OpenAI</label>
 
-                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Claude</label>
 
-                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Gemini</label>
 
-                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: rgba(0,0,0,0.12); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);">
+                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
 
                   <label style="font-size:10px; font-weight:700; opacity:0.95;">Grok</label>
 
-                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31557,17 +31701,17 @@ ${pageText}
 
             <!-- Local LLMs (next to API Keys) -->
 
-            <div id="local-llms-panel" style="background: rgba(255,255,255,0.10); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
+            <div id="local-llms-panel" style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: #FFD700;">💻 Local LLMs</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💻 Local LLMs</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="add-local-llm-row" style="background: rgba(76,175,80,0.85); border: none; color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
+                  <button id="add-local-llm-row" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
 
-                  <button id="save-local-llms" style="background: #4CAF50; border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                  <button id="save-local-llms" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
 
                 </div>
 
@@ -31575,29 +31719,29 @@ ${pageText}
 
               <div id="local-llms-container" style="display: grid; gap: 6px;"></div>
 
-              <div style="margin-top: 8px; font-size: 10px; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
+              <div style="margin-top: 8px; font-size: 10px; color: ${csTheme().text}; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
 
 
 
-              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.25);">
+              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed ${csTheme().border};">
 
                 <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px;">
 
                   <div style="display:flex; align-items:center; gap:6px;">
 
-                    <span style="font-size:12px; color:#FFD700; font-weight:700;">🎛️ Finetuned local LLMs</span>
+                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">🎛️ Finetuned local LLMs</span>
 
-                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color:white; padding:2px 6px; border-radius:999px;">PRO</span>
+                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color:${csTheme().accent}; padding:2px 6px; border-radius:999px;">PRO</span>
 
                   </div>
 
                 </div>
 
-              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
+              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
 
                   🔒 Finetuned models are available for Pro subscribers.
 
-                  <button id="unlock-finetuned" style="margin-left: 8px; background: #22c55e; border: none; color: #0b1e12; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
+                  <button id="unlock-finetuned" style="margin-left: 8px; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
 
                 </div>
 
@@ -31605,7 +31749,7 @@ ${pageText}
 
                   <div id="finetuned-items" style="display:grid; gap:6px;"></div>
 
-                  <button id="add-finetuned-row" style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
+                  <button id="add-finetuned-row" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
 
                 </div>
 
@@ -31617,15 +31761,15 @@ ${pageText}
 
             <!-- Appearance (moved up) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🎨 Appearance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
 
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
 
                 <label style="display: inline-block; margin: 0;">Theme:</label>
 
-                <select id="optimando-theme-select" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
+                <select id="optimando-theme-select" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
 
                   <option value="standard" selected>Standard</option>
                   <option value="pro">Pro</option>
@@ -31641,9 +31785,9 @@ ${pageText}
 
             <!-- System Settings -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚙️ System</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
 
               <div style="font-size: 10px;">
 
@@ -31651,7 +31795,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Max Agents:</label>
 
-                  <input type="number" value="10" min="5" max="20" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" value="10" min="5" max="20" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
@@ -31659,11 +31803,11 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Memory (hours):</label>
 
-                  <input type="number" value="24" min="1" max="168" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" value="24" min="1" max="168" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
-                <button style="width: 100%; padding: 6px; background: #4CAF50; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
+                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
 
               </div>
 
@@ -31677,9 +31821,9 @@ ${pageText}
 
             <!-- Performance Settings -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">⚡ Performance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
 
               <div style="font-size: 10px;">
 
@@ -31687,7 +31831,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Reasoning Speed:</label>
 
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option>Conservative</option>
 
@@ -31703,7 +31847,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Auto-save Interval:</label>
 
-                  <select style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option>30 seconds</option>
 
@@ -31725,9 +31869,9 @@ ${pageText}
 
             <!-- Privacy & Security -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🔒 Privacy & Security</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
 
               <div style="font-size: 10px;">
 
@@ -31783,17 +31927,17 @@ ${pageText}
 
             <!-- Export/Import -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📦 Backup</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📦 Backup</h4>
 
               <div style="font-size: 10px;">
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #2196F3; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: #FF9800; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
 
-                <button style="width: 100%; padding: 6px; background: #F44336; border: none; color: white; border-radius: 3px; cursor: pointer; font-size: 9px;">🗑️ Reset All</button>
+                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">🗝‘️ Reset All</button>
 
               </div>
 
@@ -31823,7 +31967,7 @@ ${pageText}
 
     safeAppendToBody(overlay)
 
-    document.getElementById('close-settings-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-settings-lightbox')!.onclick = () => overlay.remove()
 
     const whitelistBtnInSettings = document.getElementById('settings-whitelist-btn')
 
@@ -31881,7 +32025,7 @@ ${pageText}
 
       function handleThemeChange() {
 
-        const theme = themeSelect.value
+        const theme = themeSelect!.value
 
         console.log('🎨 Theme changed to:', theme)
 
@@ -32081,17 +32225,17 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.style.border = `1px solid ${csTheme().border}`
 
         row.innerHTML = `
 
-          <input class="api-name" placeholder="Name" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">
+          <input class="api-name" placeholder="Name" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">
 
-          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
-          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>
+          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>
 
         `
 
@@ -32227,11 +32371,11 @@ ${pageText}
 
         row.style.borderRadius = '6px'
 
-        row.style.border = '1px solid rgba(255,255,255,0.18)'
+        row.style.border = `1px solid ${csTheme().border}`
 
         row.innerHTML = (
 
-          '<select class="local-llm-select" style="width:100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+          `<select class="local-llm-select" style="width:100%; background: ${csTheme().cardBg}; border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
             getLocalLLMOptionsHTML()+
 
@@ -32239,7 +32383,7 @@ ${pageText}
 
           '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
 
-          '<button class="remove-local-llm" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>'
+          '<button class="remove-local-llm" title="Remove" style="background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #dc2626; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;">&#x2715;</button>'
 
         )
 
@@ -32399,7 +32543,9 @@ ${pageText}
 
       const unlockBtn = document.getElementById('unlock-finetuned')
 
-      unlockBtn?.addEventListener('click', () => openBillingModal('subscription'))
+      unlockBtn?.addEventListener('click', () => {
+        window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
+      })
 
 
 
@@ -32435,15 +32581,15 @@ ${pageText}
 
           row.style.borderRadius = '6px'
 
-          row.style.border = '1px solid rgba(255,255,255,0.18)'
+          row.style.border = `1px solid ${csTheme().border}`
 
           row.innerHTML = (
 
-            '<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            `<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
-            '<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color: white; padding: 6px; border-radius: 4px; font-size: 10px;">'+
+            `<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
-            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>'
+            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
 
           )
 
@@ -32529,7 +32675,10 @@ ${pageText}
 
     btnPAYG?.addEventListener('click', () => openBillingModal('payg'))
 
-    btnSub?.addEventListener('click', () => openBillingModal('subscription'))
+    // Subscription → open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
+    btnSub?.addEventListener('click', () => {
+      window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
+    })
 
 
 
@@ -32537,7 +32686,7 @@ ${pageText}
 
       // Always use default gradient for a consistent, professional look
 
-      return 'linear-gradient(135deg,#667eea,#764ba2)'
+      return csTheme().panelBg
 
     }
 
@@ -32551,77 +32700,79 @@ ${pageText}
       const isPublisherTier = currentUserTier === 'publisher' || currentUserTier === 'publisher_lifetime'
       const isEnterpriseTier = currentUserTier === 'enterprise'
 
+      const th = csTheme()
+
       const m = document.createElement('div')
 
-      m.style.cssText = 'position:fixed;inset:0;background:'+getModalThemeGradient()+';z-index:2147483650;display:flex;align-items:center;justify-content:center;'
+      m.style.cssText = `position:fixed;inset:0;background:${th.overlay};backdrop-filter:blur(6px);z-index:2147483650;display:flex;align-items:center;justify-content:center;`
 
       const b = document.createElement('div')
 
-      b.style.cssText = 'background:'+getModalThemeGradient()+';color:#fff;border-radius:12px;max-width:1150px;width:90vw;max-height:88vh;overflow:auto;box-shadow:0 20px 40px rgba(0,0,0,.35)'
+      b.style.cssText = `background:${th.panelBg};color:${th.text};border-radius:14px;max-width:1200px;width:95vw;max-height:92vh;overflow:auto;box-shadow:${th.shadow};border:1px solid ${th.border};font-family:-apple-system,"Segoe UI",Roboto,sans-serif`
 
       if (kind === 'payg') {
 
         b.innerHTML = (
 
-          '<div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
+          `<div style="padding:16px 18px;border-bottom:1px solid ${th.border};display:flex;justify-content:space-between;align-items:center">` +
 
-            '<div style="font-weight:800">Pay-as-you-go</div>' +
+            `<div style="font-weight:800;font-size:15px;color:${th.text}">Pay-as-you-go</div>` +
 
-            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:6px 8px;cursor:pointer">×</button>' +
+            `<button id="billing-close" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;width:30px;height:30px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&times;</button>` +
 
           '</div>' +
 
-          '<div style="padding:16px 18px;display:grid;gap:12px">' +
+          `<div style="padding:16px 18px;display:grid;gap:12px">` +
 
-            '<div style="font-size:12px;line-height:1.6">Simple usage-based billing. Only pay for what you use. Top up balance and consume credits when using cloud AI models. Local LLM usage stays free.</div>' +
+            `<div style="font-size:12px;line-height:1.6;color:${th.muted}">Simple usage-based billing. Only pay for what you use. Top up balance and consume credits when using cloud AI models. Local LLM usage stays free.</div>` +
 
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">` +
 
-              '<div style="background:rgba(0,0,0,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:12px">' +
+              `<div style="background:${th.cardBg};border:1px solid ${th.border};border-radius:8px;padding:12px">` +
 
-                '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Load Balance</div>' +
+                `<div style="font-weight:700;font-size:12px;margin-bottom:6px;color:${th.text}">Load Balance</div>` +
 
-                '<div style="font-size:11px;opacity:.9;margin-bottom:8px">Choose a quick top-up amount to add credits to your account.</div>' +
+                `<div style="font-size:11px;color:${th.muted};margin-bottom:8px">Choose a quick top-up amount to add credits to your account.</div>` +
 
-                '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                `<div style="display:flex;gap:8px;flex-wrap:wrap">` +
 
-                  '<button class="quick-topup" data-amount="10" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>' +
+                  `<button class="quick-topup" data-amount="10" style="flex:1;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$10</button>` +
 
-                  '<button class="quick-topup" data-amount="25" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>' +
+                  `<button class="quick-topup" data-amount="25" style="flex:1;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$25</button>` +
 
-                  '<button class="quick-topup" data-amount="50" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>' +
+                  `<button class="quick-topup" data-amount="50" style="flex:1;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$50</button>` +
 
-                  '<button class="quick-topup" data-amount="100" style="flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$100</button>' +
+                  `<button class="quick-topup" data-amount="100" style="flex:1;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer">$100</button>` +
 
                 '</div>' +
 
-                '<div style="margin-top:8px;display:flex;gap:8px;align-items:center">' +
+                `<div style="margin-top:8px;display:flex;gap:8px;align-items:center">` +
 
-                  '<input id="custom-topup" type="number" min="10" step="1" placeholder="Custom amount (min $10)" style="flex:1;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px;border-radius:6px;font-size:11px" />' +
+                  `<input id="custom-topup" type="number" min="10" step="1" placeholder="Custom amount (min $10)" style="flex:1;background:${th.inputBg};border:1px solid ${th.border};color:${th.inputText};padding:8px;border-radius:6px;font-size:11px" />` +
 
-                  '<button id="topup-now" style="background:#22c55e;border:0;color:#0b1e12;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>' +
+                  `<button id="topup-now" style="background:${th.accentGrad};border:0;color:#fff;border-radius:6px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer">Top up</button>` +
 
                 '</div>' +
 
               '</div>' +
 
-              '<div style="background:rgba(0,0,0,.12);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:12px">' +
+              `<div style="background:${th.cardBg};border:1px solid ${th.border};border-radius:8px;padding:12px">` +
 
-                '<div style="font-weight:700;font-size:12px;margin-bottom:6px">Payment Method</div>' +
+                `<div style="font-weight:700;font-size:12px;margin-bottom:6px;color:${th.text}">Payment Method</div>` +
 
-                '<div style="font-size:11px;opacity:.9;margin-bottom:8px">Select a payment method to use when adding balance.</div>' +
+                `<div style="font-size:11px;color:${th.muted};margin-bottom:8px">Select a payment method to use when adding balance.</div>` +
 
-                '<div style="display:grid;gap:8px">' +
+                `<div style="display:grid;gap:8px;color:${th.text}">` +
 
-                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method" checked> Credit / Debit Card</label>' +
+                  `<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method" checked> Credit / Debit Card</label>` +
 
-                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> PayPal</label>' +
+                  `<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> PayPal</label>` +
 
-                  '<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> Invoice (Business)</label>' +
+                  `<label style="display:flex;gap:8px;align-items:center;font-size:11px"><input type="radio" name="payg-method"> Invoice (Business)</label>` +
 
                 '</div>' +
 
-                '<button style="margin-top:10px;width:100%;background:#2563eb;border:0;color:white;border-radius:6px;padding:8px 12px;font-size:11px;cursor:pointer">Continue</button>' +
+                `<button style="margin-top:10px;width:100%;background:${th.accentGrad};border:0;color:#fff;border-radius:6px;padding:8px 12px;font-size:11px;cursor:pointer;font-weight:600">Continue</button>` +
 
               '</div>' +
 
@@ -32711,19 +32862,19 @@ ${pageText}
             #agents-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
             @media (max-width: 1199px) { #agents-grid { grid-template-columns: repeat(2, 1fr); } }
             @media (max-width: 767px) { #agents-grid { grid-template-columns: 1fr; } }
-            .wr-plan-card { background: rgba(0,0,0,.12); padding: 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18); display: flex; flex-direction: column; height: 100%; }
-            .wr-plan-card.featured { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.22); }
-            .wr-plan-card h3 { font-weight: 800; font-size: 14px; margin: 0 0 8px 0; }
-            .wr-plan-card .price { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
-            .wr-plan-card .price span { font-size: 12px; opacity: .85; }
-            .wr-plan-card ul { margin: 0 0 12px 18px; padding: 0; font-size: 12px; line-height: 1.7; flex: 1; }
+            .wr-plan-card { background: ${csTheme().cardBg}; color: ${csTheme().text}; padding: 16px; border-radius: 10px; border: 1px solid ${csTheme().border}; display: flex; flex-direction: column; height: 100%; }
+            .wr-plan-card.featured { background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; }
+            .wr-plan-card h3 { font-weight: 800; font-size: 14px; margin: 0 0 8px 0; color: ${csTheme().text}; }
+            .wr-plan-card .price { font-size: 22px; font-weight: 800; margin-bottom: 8px; color: ${csTheme().text}; }
+            .wr-plan-card .price span { font-size: 12px; color: ${csTheme().muted}; }
+            .wr-plan-card ul { margin: 0 0 12px 18px; padding: 0; font-size: 12px; line-height: 1.7; flex: 1; color: ${csTheme().text}; }
             .wr-plan-card ul li { margin-bottom: 2px; }
             .wr-plan-card .toggle-row { display: flex; gap: 6px; margin-bottom: 10px; }
             .wr-plan-card .toggle-btn { flex: 1; border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
-            .wr-plan-card .toggle-btn.active { background: #22c55e; color: #0b1e12; border: 0; }
-            .wr-plan-card .toggle-btn:not(.active) { background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: #fff; }
-            .wr-plan-card .cta-btn { width: 100%; border: 0; color: white; border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer; margin-top: auto; font-weight: 600; }
-            .wr-plan-note { font-size: 10px; opacity: .8; margin-top: 6px; line-height: 1.4; }
+            .wr-plan-card .toggle-btn.active { background:${csTheme().accentGrad}; color: #fff; border: 0; }
+            .wr-plan-card .toggle-btn:not(.active) { background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; }
+            .wr-plan-card .cta-btn { width: 100%; border: 0; color: #fff; border-radius: 6px; padding: 10px 12px; font-size: 12px; cursor: pointer; margin-top: auto; font-weight: 700; }
+            .wr-plan-note { font-size: 10px; color: ${csTheme().muted}; margin-top: 6px; line-height: 1.4; }
           `
           document.head.appendChild(styleEl)
         }
@@ -32731,7 +32882,7 @@ ${pageText}
         // Affiliate Founders Pack HTML - ONLY shown if isAffiliateAttributed === true
         // By default this is NOT rendered at all for normal users
         const affiliateFoundersPackHtml = isAffiliateAttributed ? `
-          <div style="font-weight:700;font-size:11px;color:#22c55e;margin-bottom:6px">Affiliate Founders Pack</div>
+          <div style="font-weight:700;font-size:11px;color:${csTheme().accent};margin-bottom:6px">Affiliate Founders Pack</div>
           <ul style="margin:0 0 0 16px;padding:0;font-size:10px;line-height:1.5">
             <li>Exclusive templates (Founders Pack)</li>
             <li>Founding User badge</li>
@@ -32741,12 +32892,12 @@ ${pageText}
         ` : ''
 
         b.innerHTML = (
-          '<div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.25);display:flex;justify-content:space-between;align-items:center">' +
-            '<div style="font-weight:800;font-size:16px">Plans & Licensing</div>' +
-            '<button id="billing-close" style="background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:14px">×</button>' +
+          `<div style="padding:14px 18px;border-bottom:1px solid ${th.border};display:flex;justify-content:space-between;align-items:center">` +
+            `<div style="font-weight:800;font-size:16px;color:${th.text}">Plans & Licensing</div>` +
+            `<button id="billing-close" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.text};border-radius:6px;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">&times;</button>` +
           '</div>' +
-          '<div style="padding:14px 18px;display:grid;gap:12px">' +
-            '<div style="background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:10px;font-size:12px;line-height:1.5">' +
+          `<div style="padding:14px 18px;display:grid;gap:12px">` +
+            `<div style="background:${th.cardBg};border:1px solid ${th.border};border-radius:8px;padding:10px;font-size:12px;line-height:1.5;color:${th.text}">` +
               'All tiers support local LLM execution (no cost) and BYOK integration (OpenAI, Anthropic, Google, xAI). Optional cloud compute available via pay-as-you-go (25% service fee).' +
             '</div>' +
             '<div id="agents-grid">' +
@@ -32754,9 +32905,9 @@ ${pageText}
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
                 '<div class="price">€0</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Single-user local deployments for non-commercial use.</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
+                `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user local deployments for non-commercial use.</div>` +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
@@ -32765,14 +32916,14 @@ ${pageText}
                   '<li>pBEAP™ secure messaging (baseline)</li>' +
                   '<li>WRGuard™ baseline integrity monitoring</li>' +
                 '</ul>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
                   '<li>Local-only verification (no external attestation)</li>' +
                 '</ul>' +
                 (isFreeTier
-                  ? '<button class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default" disabled>Active Plan</button>'
-                  : '<button class="cta-btn" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3)">Select Basic</button>') +
+                  ? `<button class="cta-btn" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.muted};opacity:0.7;cursor:default" disabled>Active Plan</button>`
+                  : `<button class="cta-btn" style="background:${th.accentGrad}">Select Basic</button>`) +
               '</div>' +
               // PRO (PRIVATE) TIER
               '<div class="wr-plan-card">' +
@@ -32782,11 +32933,11 @@ ${pageText}
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                '<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Single-user private deployments for individuals and independent professionals. Non-commercial publishing rights.</div>' +
-                (isAffiliateAttributed ? '<div id="pro-private-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                `<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>` +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
+                `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user private deployments for individuals and independent professionals. Non-commercial publishing rights.</div>` +
+                (isAffiliateAttributed ? `<div id="pro-private-founders" style="display:none;background:${th.cardBg};border:1px solid ${th.border};border-radius:6px;padding:10px;margin:8px 0">` + affiliateFoundersPackHtml + '</div>' : '') +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Basic tier capabilities</li>' +
                   '<li>WRVault™ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
@@ -32797,29 +32948,29 @@ ${pageText}
                   '<li>WRGuard™ advanced strict mode (tamper detection)</li>' +
                   '<li>Basic support</li>' +
                 '</ul>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>PoAE™ advanced cryptographic proofs (signed attestations)</li>' +
                   '<li>Exportable proof artifacts for personal records</li>' +
                   '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
                 (isPrivateTier
-                  ? '<div id="pro-private-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  ? `<div id="pro-private-cta" class="cta-btn" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.muted};opacity:0.7;cursor:default;text-align:center">Active Plan</div>`
                   : '<a id="pro-private-cta" class="cta-btn" style="background:#2563eb;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=private_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.private.ctaLabels.annual + '</a>') +
               '</div>' +
               // PUBLISHER TIER
               '<div class="wr-plan-card featured" style="position:relative">' +
-                '<div style="position:absolute;top:-10px;right:12px;background:#22c55e;color:#0b1e12;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>' +
+                `<div style="position:absolute;top:-10px;right:12px;background:${th.accentGrad};color:#fff;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:800">Small Business</div>` +
                 '<h3>Publisher</h3>' +
                 '<div id="publisher-price" class="price">' + PLAN_CONFIG.publisher.priceLabels.annual + '</div>' +
                 '<div class="toggle-row">' +
                   '<button id="publisher-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="publisher-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Single-user commercial deployments with publishing and third-party verification rights.</div>' +
-                (isAffiliateAttributed ? '<div id="publisher-founders" style="display:none;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);border-radius:6px;padding:10px;margin:8px 0">' + affiliateFoundersPackHtml + '</div>' : '') +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
+                `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user commercial deployments with publishing and third-party verification rights.</div>` +
+                (isAffiliateAttributed ? `<div id="publisher-founders" style="display:none;background:${th.cardBg};border:1px solid ${th.border};border-radius:6px;padding:10px;margin:8px 0">` + affiliateFoundersPackHtml + '</div>' : '') +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Pro (Private) tier capabilities</li>' +
                   '<li>Commercial WR Desk™ publishing rights</li>' +
@@ -32829,14 +32980,14 @@ ${pageText}
                   '<li>Up to 5GB managed template storage</li>' +
                   '<li>Basic support</li>' +
                 '</ul>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>PoAE™ advanced proofs with verification endpoint</li>' +
                   '<li>Third-party verification capability (client-accessible)</li>' +
                   '<li>Proof chain export for external review</li>' +
                 '</ul>' +
                 (isPublisherTier
-                  ? '<div id="publisher-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  ? `<div id="publisher-cta" class="cta-btn" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.muted};opacity:0.7;cursor:default;text-align:center">Active Plan</div>`
                   : '<a id="publisher-cta" class="cta-btn" style="background:#16a34a;font-weight:700;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/buy/?plan=publisher_annual" target="_blank" rel="noopener">' + PLAN_CONFIG.publisher.ctaLabels.annual + '</a>') +
               '</div>' +
               // BUSINESS/ENTERPRISE TIER
@@ -32847,9 +32998,9 @@ ${pageText}
                   '<button id="enterprise-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="enterprise-monthly" class="toggle-btn">Monthly</button>' +
                 '</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>' +
-                '<div style="font-size:11px;margin-bottom:8px">Multi-user organizational deployments requiring governance, role-based access, and audit-ready documentation.</div>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
+                `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Multi-user organizational deployments requiring governance, role-based access, and audit-ready documentation.</div>` +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Publisher tier capabilities</li>' +
                   '<li>Multi-user access with role-based permissions</li>' +
@@ -32857,7 +33008,7 @@ ${pageText}
                   '<li>Data Processing Agreement (DPA) availability</li>' +
                   '<li>Contractual support + SLA availability</li>' +
                 '</ul>' +
-                '<div style="font-size:10px;opacity:0.7;margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>' +
+                `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>PoAE™ advanced proofs with full audit export</li>' +
                   '<li>Per-user attribution in proof chain</li>' +
@@ -32865,7 +33016,7 @@ ${pageText}
                   '<li>Third-party verification with organizational context</li>' +
                 '</ul>' +
                 (isEnterpriseTier
-                  ? '<div id="enterprise-cta" class="cta-btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);opacity:0.6;cursor:default;text-align:center">Active Plan</div>'
+                  ? `<div id="enterprise-cta" class="cta-btn" style="background:${th.inputBg};border:1px solid ${th.border};color:${th.muted};opacity:0.7;cursor:default;text-align:center">Active Plan</div>`
                   : '<a id="enterprise-cta" class="cta-btn" style="background:#0ea5e9;text-align:center;text-decoration:none;display:block" href="https://wrdesk.com/?page_id=864" target="_blank" rel="noopener">' + PLAN_CONFIG.enterprise.ctaLabels.annual + '</a>') +
               '</div>' +
             '</div>' +
@@ -33074,7 +33225,7 @@ ${pageText}
 
     // Add event handler for display port configuration
 
-    document.getElementById('configure-display-ports').onclick = () => {
+    document.getElementById('configure-display-ports')!.onclick = () => {
 
       openDisplayPortsConfig(overlay)
 
@@ -33088,7 +33239,7 @@ ${pageText}
 
 
 
-  function openDisplayPortsConfig(parentOverlay) {
+  function openDisplayPortsConfig(parentOverlay: HTMLElement) {
 
     // Create display ports configuration dialog
 
@@ -33110,13 +33261,13 @@ ${pageText}
 
     configOverlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1200px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🖥️ Display Ports Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🖥 Display Ports Configuration</h2>
 
-          <button id="close-display-config" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-display-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -33128,9 +33279,9 @@ ${pageText}
 
             <!-- Port 1 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: #FFD700; font-weight: bold;">🖥️ Display Port #1</h4>
+              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🖥 Display Port #1</h4>
 
               <div style="font-size: 12px;">
 
@@ -33138,7 +33289,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Output Type:</label>
 
-                  <select id="port1-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33158,7 +33309,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Resolution:</label>
 
-                  <select id="port1-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="auto">Auto</option>
 
@@ -33176,7 +33327,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 6px; font-size: 11px; font-weight: bold;">Position:</label>
 
-                  <select id="port1-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px; border-radius: 4px; font-size: 11px;">
+                  <select id="port1-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 8px; border-radius: 4px; font-size: 11px;">
 
                     <option value="center">Center</option>
 
@@ -33200,9 +33351,9 @@ ${pageText}
 
             <!-- Port 2 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #2</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #2</h4>
 
               <div style="font-size: 10px;">
 
@@ -33210,7 +33361,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port2-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33230,7 +33381,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port2-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto" selected>Auto</option>
 
@@ -33248,7 +33399,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port2-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port2-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center" selected>Center</option>
 
@@ -33272,9 +33423,9 @@ ${pageText}
 
             <!-- Port 3 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #3</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #3</h4>
 
               <div style="font-size: 10px;">
 
@@ -33282,7 +33433,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port3-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33302,7 +33453,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port3-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto">Auto</option>
 
@@ -33320,7 +33471,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port3-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port3-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center">Center</option>
 
@@ -33344,9 +33495,9 @@ ${pageText}
 
             <!-- Port 4 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #4</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #4</h4>
 
               <div style="font-size: 10px;">
 
@@ -33354,7 +33505,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port4-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33374,7 +33525,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port4-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto">Auto</option>
 
@@ -33392,7 +33543,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port4-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port4-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center">Center</option>
 
@@ -33414,9 +33565,9 @@ ${pageText}
 
             <!-- Port 5 -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">🖥️ Display Port #5</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #5</h4>
 
               <div style="font-size: 10px;">
 
@@ -33424,7 +33575,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="port5-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron">Electron App</option>
 
@@ -33444,7 +33595,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Resolution:</label>
 
-                  <select id="port5-resolution" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-resolution" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="auto" selected>Auto</option>
 
@@ -33462,7 +33613,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Position:</label>
 
-                  <select id="port5-position" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="port5-position" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="center" selected>Center</option>
 
@@ -33486,9 +33637,9 @@ ${pageText}
 
             <!-- Monitor Output -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #FFD700;">📺 Monitor Output</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📺 Monitor Output</h4>
 
               <div style="font-size: 10px;">
 
@@ -33496,7 +33647,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">Output Type:</label>
 
-                  <select id="monitor-type" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <select id="monitor-type" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                     <option value="electron" selected>Electron App</option>
 
@@ -33512,7 +33663,7 @@ ${pageText}
 
                   <label style="display: block; margin-bottom: 3px;">API Port:</label>
 
-                  <input type="number" id="monitor-port" value="51247" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <input type="number" id="monitor-port" value="51247" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
 
                 </div>
 
@@ -33538,11 +33689,11 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: flex-end; gap: 15px; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 15px; background: ${csTheme().cardBg};">
 
-          <button id="display-config-cancel" style="padding: 12px 24px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+          <button id="display-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="display-config-save" style="padding: 12px 24px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
+          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
 
         </div>
 
@@ -33558,25 +33709,25 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-display-config').onclick = () => configOverlay.remove()
+    document.getElementById('close-display-config')!.onclick = () => configOverlay.remove()
 
-    document.getElementById('display-config-cancel').onclick = () => configOverlay.remove()
+    document.getElementById('display-config-cancel')!.onclick = () => configOverlay.remove()
 
     
 
     // Save handler
 
-    document.getElementById('display-config-save').onclick = () => {
+    document.getElementById('display-config-save')!.onclick = () => {
 
       // Save all display port configurations
 
       for (let i = 1; i <= 5; i++) {
 
-        const type = document.getElementById(`port${i}-type`).value
+        const type = (document.getElementById(`port${i}-type`) as HTMLInputElement).value
 
-        const resolution = document.getElementById(`port${i}-resolution`).value
+        const resolution = (document.getElementById(`port${i}-resolution`) as HTMLInputElement).value
 
-        const position = document.getElementById(`port${i}-position`).value
+        const position = (document.getElementById(`port${i}-position`) as HTMLInputElement).value
 
         
 
@@ -33594,11 +33745,11 @@ ${pageText}
 
       const monitorConfig = {
 
-        type: document.getElementById('monitor-type').value,
+        type: (document.getElementById('monitor-type') as HTMLInputElement).value,
 
-        port: document.getElementById('monitor-port').value,
+        port: (document.getElementById('monitor-port') as HTMLInputElement).value,
 
-        autostart: document.getElementById('monitor-autostart').checked
+        autostart: (document.getElementById('monitor-autostart') as HTMLInputElement).checked
 
       }
 
@@ -33682,13 +33833,13 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1000px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
           <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
 
-          <button id="close-helpergrid-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-helpergrid-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -33700,13 +33851,13 @@ ${pageText}
 
             <!-- Web Sources (renamed from Helper Tabs) -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Web Sources</h3>
 
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Web Sources</h4>
 
@@ -33720,13 +33871,13 @@ ${pageText}
 
             <!-- Add Master View (renamed from Display Grid Screen) -->
 
-            <div id="add-hybrid-grid-config" style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div id="add-hybrid-grid-config" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Add Master View</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Add Master View</h3>
 
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🖥️</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🖥</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Master Tab</h4>
 
@@ -33740,13 +33891,13 @@ ${pageText}
 
             <!-- Display Grid Browser -->
 
-            <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; text-align: center;">
+            <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 12px; text-align: center;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Display Grid Browser</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Display Grid Browser</h3>
 
               <div id="display-grid-browser-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🗂️</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🗂</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">AI Output Grids</h4>
 
@@ -33762,9 +33913,9 @@ ${pageText}
 
               </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="helpergrid-close" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="helpergrid-close" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             ✅ Close Configuration
 
@@ -33784,9 +33935,9 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-helpergrid-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-helpergrid-lightbox')!.onclick = () => overlay.remove()
 
-    document.getElementById('helpergrid-close').onclick = () => overlay.remove()
+    document.getElementById('helpergrid-close')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -33794,7 +33945,7 @@ ${pageText}
 
     // Helper tabs configuration
 
-    document.getElementById('helper-tabs-config').onclick = () => {
+    document.getElementById('helper-tabs-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33804,7 +33955,7 @@ ${pageText}
 
     // Add Hybrid Grid configuration -> open select modal
 
-    document.getElementById('add-hybrid-grid-config').onclick = () => {
+    document.getElementById('add-hybrid-grid-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33814,7 +33965,7 @@ ${pageText}
 
     // Display Grid Browser configuration
 
-    document.getElementById('display-grid-browser-config').onclick = () => {
+    document.getElementById('display-grid-browser-config')!.onclick = () => {
 
       overlay.remove()
 
@@ -33836,15 +33987,15 @@ ${pageText}
 
     const generateUrlFieldsHTML = () => {
 
-      return existingUrls.map((url, index) => `
+      return existingUrls.map((url: string, index: number) => `
 
         <div class="url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${existingUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">&times;</button>
 
               </div>
 
@@ -33872,21 +34023,21 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
 
-          <button id="close-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
           </div>
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">URLs Configuration</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">URLs Configuration</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Add up to 10 URLs that will open in separate tabs when activated.</p>
 
@@ -33902,9 +34053,9 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="save-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+          <button id="save-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
             🚀 Save & Open Web Sources
 
@@ -33924,7 +34075,7 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-helper-tabs').onclick = () => overlay.remove()
+    document.getElementById('close-helper-tabs')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -33932,7 +34083,7 @@ ${pageText}
 
     // URL field management
 
-    const container = document.getElementById('helper-url-fields-container')
+    const container = document.getElementById('helper-url-fields-container')!
 
     
 
@@ -33970,7 +34121,9 @@ ${pageText}
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           existingUrls.splice(index, 1)
 
@@ -33990,9 +34143,9 @@ ${pageText}
 
     // Save configuration
 
-    document.getElementById('save-helper-tabs').onclick = () => {
+    document.getElementById('save-helper-tabs')!.onclick = () => {
 
-      const urls = Array.from(container.querySelectorAll('.helper-url'))
+      const urls = Array.from(container.querySelectorAll<HTMLInputElement>('.helper-url'))
 
         .map(input => input.value.trim())
 
@@ -34094,7 +34247,7 @@ ${pageText}
 
             }
 
-            console.log('🌐 Updating existing session with helper tabs:', urls.length, 'tabs')
+            console.log('🌐 Updating existing session with helper tabs:', urls.length, 'tabs')
 
       } else {
 
@@ -34140,7 +34293,7 @@ ${pageText}
 
             }
 
-            console.log('🌐 Creating new session with helper tabs:', urls.length, 'tabs')
+            console.log('🌐 Creating new session with helper tabs:', urls.length, 'tabs')
 
           }
 
@@ -34156,7 +34309,7 @@ ${pageText}
 
             writeOptimandoState({ sessionKey })
 
-            console.log('🌐 Session contains:', {
+            console.log('🌐 Session contains:', {
 
               helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
 
@@ -34244,13 +34397,13 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 520px; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 520px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; max-height: 80vh;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 18px;">🖥️ Add Master Tabs</h2>
+          <h2 style="margin: 0; font-size: 18px;">🖥 Add Master Tabs</h2>
 
-          <button id="close-hybrid-select" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-hybrid-select" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -34258,7 +34411,7 @@ ${pageText}
 
           <label for="hybrid-count" style="display:block; margin-bottom:8px; font-size: 13px;">Number of master tabs</label>
 
-          <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; margin-bottom: 20px;">
+          <select id="hybrid-count" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid ${csTheme().border}; background: rgba(0,0,0,0.2); color: white; margin-bottom: 20px;">
 
             ${Array.from({ length: 5 }, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
 
@@ -34276,9 +34429,9 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="hybrid-save-open" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
+          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
 
         </div>
 
@@ -34294,7 +34447,7 @@ ${pageText}
 
     const close = () => overlay.remove()
 
-    document.getElementById('close-hybrid-select').onclick = close
+    document.getElementById('close-hybrid-select')!.onclick = close
 
     overlay.onclick = (e) => { if (e.target === overlay) close() }
 
@@ -34348,7 +34501,7 @@ ${pageText}
 
               placeholder="https://example.com" 
 
-              style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); color: white; font-size: 12px;"
+              style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid ${csTheme().border}; background: rgba(0,0,0,0.2); color: white; font-size: 12px;"
 
             />
 
@@ -34370,11 +34523,11 @@ ${pageText}
 
     updateUrlFields()
 
-    document.getElementById('hybrid-count').addEventListener('change', updateUrlFields)
+    document.getElementById('hybrid-count')!.addEventListener('change', updateUrlFields)
 
 
 
-    document.getElementById('hybrid-save-open').onclick = () => {
+    document.getElementById('hybrid-save-open')!.onclick = () => {
 
       const countEl = document.getElementById('hybrid-count') as HTMLSelectElement
 
@@ -34532,7 +34685,7 @@ ${pageText}
 
         note.textContent = `✅ Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
 
-        note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+        note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
         document.body.appendChild(note)
 
@@ -34604,13 +34757,13 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: white; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 96vw; max-width: 1400px; height: 95vh; max-height: 95vh; color: ${csTheme().text}; overflow: hidden; display: flex; flex-direction: column; margin: 0 auto;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
-          <h2 style="margin: 0; font-size: 22px;">🗂️ Display Grid Browser Layouts</h2>
+          <h2 style="margin: 0; font-size: 22px;">🗂 Display Grid Browser Layouts</h2>
 
-          <button id="close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
@@ -34624,21 +34777,21 @@ ${pageText}
 
             <!-- ROW 1: 2-slot, 3-slot, 4-slot -->
 
-            <div id="btn-2-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-2-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-2-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">2-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">2-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34648,7 +34801,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Secondary</p>
 
-              <select id="select-2-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-2-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34666,21 +34819,21 @@ ${pageText}
 
           
 
-            <div id="btn-3-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-3-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-3-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">3-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">3-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34692,7 +34845,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Primary + Dual</p>
 
-              <select id="select-3-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-3-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34710,21 +34863,21 @@ ${pageText}
 
 
 
-            <div id="btn-4-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-4-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-4-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">4-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">4-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">#7</div>
 
@@ -34738,7 +34891,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">2x2 Grid</p>
 
-              <select id="select-4-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-4-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34758,21 +34911,21 @@ ${pageText}
 
             <!-- ROW 2: 5-slot, 6-slot, 7-slot -->
 
-            <div id="btn-5-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-5-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-5-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">5-Slot Layout</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">5-Slot Layout</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34788,7 +34941,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Side</p>
 
-              <select id="select-5-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-5-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34804,21 +34957,21 @@ ${pageText}
 
             </div>
 
-            <div id="btn-6-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-6-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-6-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">6-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">6-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34836,7 +34989,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x2 Grid</p>
 
-              <select id="select-6-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-6-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34854,21 +35007,21 @@ ${pageText}
 
             
 
-            <div id="btn-7-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-7-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-7-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">7-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">7-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; grid-row: span 2;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold;">#7</div>
 
@@ -34888,7 +35041,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">Main + Grid</p>
 
-              <select id="select-7-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-7-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34908,21 +35061,21 @@ ${pageText}
 
                         <!-- ROW 3: 8-slot, 9-slot, 10-slot -->
 
-            <div id="btn-8-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-8-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-8-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">8-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">8-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
 
@@ -34944,7 +35097,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">4x2 Grid</p>
 
-              <select id="select-8-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-8-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -34962,21 +35115,21 @@ ${pageText}
 
           
 
-            <div id="btn-9-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-9-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-9-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">9-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">9-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold;">#7</div>
 
@@ -35000,7 +35153,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">3x3 Grid</p>
 
-              <select id="select-9-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-9-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -35018,21 +35171,21 @@ ${pageText}
 
 
 
-            <div id="btn-10-slot" style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
+            <div id="btn-10-slot" style="background: ${csTheme().cardBg}; border-radius: 12px; padding: 15px; cursor: pointer; text-align: center; border: 2px solid transparent; position: relative;">
 
-              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: #FFD700; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
+              <label style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; background: ${csTheme().muted}; border: 3px solid #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 1000;">
 
                 <input type="checkbox" id="check-10-slot" style="width: 16px; height: 16px; cursor: pointer; margin: 0;">
 
               </label>
 
-              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #FFD700;">10-Slot Grid</h3>
+              <h3 style="margin: 0 0 10px 0; font-size: 16px; color: ${csTheme().muted};">10-Slot Grid</h3>
 
               <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 10px; height: 80px;">
 
                 <div style="display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; gap: 3px; height: 100%;">
 
-                  <div style="background: rgba(76,175,80,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#6</div>
+                  <div style="background:${csTheme().accentGrad}; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#6</div>
 
                   <div style="background: rgba(33,150,243,0.8); border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: bold;">#7</div>
 
@@ -35058,7 +35211,7 @@ ${pageText}
 
               <p style="margin: 0; font-size: 12px; opacity: 0.7;">5x2 Grid</p>
 
-              <select id="select-10-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid #FFD700; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
+              <select id="select-10-slot" style="width: 100%; padding: 8px 10px; margin-top: 10px; background: rgba(255,215,0,0.3); border: 2px solid ${csTheme().muted}; border-radius: 6px; color: #000; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; appearance: none; -webkit-appearance: none; -moz-appearance: none; display: block;">
                 <option value="0" style="background: rgba(255,215,0,0.9); color: #000;">0 instances</option>
                 <option value="1" style="background: rgba(255,215,0,0.9); color: #000;">1 instance</option>
                 <option value="2" style="background: rgba(255,215,0,0.9); color: #000;">2 instances</option>
@@ -35086,7 +35239,7 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05); flex-shrink: 0;">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg}; flex-shrink: 0;">
 
           <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
@@ -35108,7 +35261,7 @@ ${pageText}
 
     // Close button handler
 
-    document.getElementById('close-btn').onclick = () => overlay.remove()
+    document.getElementById('close-btn')!.onclick = () => overlay.remove()
 
     
 
@@ -35209,9 +35362,11 @@ ${pageText}
 
     checkboxes.forEach(id => {
 
-      const checkbox = document.getElementById(id)
+      const checkbox = document.getElementById(id) as HTMLInputElement | null
+      if (!checkbox) return
 
       const card = document.getElementById(id.replace('check-', 'btn-'))
+      if (!card) return
 
       
 
@@ -35245,7 +35400,7 @@ ${pageText}
 
           checkbox.checked = !checkbox.checked
 
-          checkbox.onchange()
+          checkbox.onchange?.(new Event('change'))
 
         }
 
@@ -35260,11 +35415,11 @@ ${pageText}
 
     selectboxes.forEach(id => {
 
-      const select = document.getElementById(id) as HTMLSelectElement
+      const select = document.getElementById(id) as HTMLSelectElement | null
+      if (!select) return
 
       const card = document.getElementById(id.replace('select-', 'btn-'))
-
-      
+      if (!card) return
 
       select.onchange = () => {
 
@@ -35310,7 +35465,7 @@ ${pageText}
 
     // Save & Open button handler
 
-    document.getElementById('save-open-grids').onclick = () => {
+    document.getElementById('save-open-grids')!.onclick = () => {
 
       // Collect all layouts with their instance counts from selectboxes
 
@@ -35350,7 +35505,7 @@ ${pageText}
 
       
 
-      console.log('🗂️ Saving and opening selected grids:', selectedLayoutsWithCounts)
+      console.log('🗂 Saving and opening selected grids:', selectedLayoutsWithCounts)
 
       
 
@@ -35366,7 +35521,7 @@ ${pageText}
 
       // Track which grids are actually new and need to be opened
 
-      const newGridsToOpen = []
+      const newGridsToOpen: { layout: string; sessionId: string }[] = []
 
       
 
@@ -35450,7 +35605,7 @@ ${pageText}
 
               currentTabData.displayGrids.splice(index, 1)
 
-              console.log(`🗑️ Removed excess grid instance for ${layout}:`, grid.sessionId)
+              console.log(`🗝‘️ Removed excess grid instance for ${layout}:`, grid.sessionId)
 
             }
 
@@ -35488,7 +35643,7 @@ ${pageText}
 
         setCurrentSessionKey(activeSessionKey)
 
-        console.log('🆕 Created new session for display grids:', activeSessionKey)
+        console.log('🏆• Created new session for display grids:', activeSessionKey)
 
       }
 
@@ -35540,7 +35695,7 @@ ${pageText}
 
             note.textContent = '✅ Display grids added to session'
 
-            note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+            note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
             document.body.appendChild(note)
 
@@ -35592,7 +35747,7 @@ ${pageText}
                     })
                   }, newGridsToOpen.length * 300 + 200) // Slightly longer delay
                 } else {
-                  console.log(`🖥️ This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
+                  console.log(`🖥 This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
                 }
               } catch (e) {
                 console.error('Error checking tab type:', e)
@@ -35630,13 +35785,13 @@ ${pageText}
 
       const notification = document.createElement('div')
 
-      notification.innerHTML = '🗂️ ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
+      notification.innerHTML = '🗂 ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
 
       notification.style.cssText = `
 
         position: fixed; top: 20px; right: 20px; z-index: 2147483650;
 
-        background: #4CAF50; color: white; padding: 12px 20px;
+        background:${csTheme().accentGrad}; color: white; padding: 12px 20px;
 
         border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 
@@ -35670,9 +35825,8 @@ ${pageText}
 
       })
 
-      const saveBtn = document.getElementById('save-open-grids')
-
-      
+      const saveBtn = document.getElementById('save-open-grids') as HTMLButtonElement | null
+      if (!saveBtn) return
 
       if (totalInstances > 0) {
 
@@ -35714,9 +35868,9 @@ ${pageText}
 
 
 
-  function saveGridToSession(layout) {
+  function saveGridToSession(layout: string) {
 
-    console.log('🗂️ Saving grid to session:', layout)
+    console.log('🗂 Saving grid to session:', layout)
 
     
 
@@ -35806,9 +35960,9 @@ ${pageText}
 
   }
 
-  function createGridTab(layout) {
+  function createGridTab(layout: string) {
 
-    console.log('🗂️ Selecting grid layout:', layout)
+    console.log('🗂 Selecting grid layout:', layout)
 
     
 
@@ -35888,7 +36042,7 @@ ${pageText}
 
         }
 
-        console.log('🗂️ Updating existing session with display grid:', layout)
+        console.log('🗂 Updating existing session with display grid:', layout)
 
       } else {
 
@@ -35934,7 +36088,7 @@ ${pageText}
 
         }
 
-        console.log('🗂️ Creating new session with display grid:', layout)
+        console.log('🗂 Creating new session with display grid:', layout)
 
       }
 
@@ -35942,9 +36096,9 @@ ${pageText}
 
       storageSet({ [sessionKey]: sessionData }, () => {
 
-        console.log('🗂️ Display grid session saved:', layout, 'Session ID:', sessionKey)
+        console.log('🗂 Display grid session saved:', layout, 'Session ID:', sessionKey)
 
-        console.log('🗂️ Session contains:', {
+        console.log('🗂 Session contains:', {
 
           helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
 
@@ -35968,13 +36122,13 @@ ${pageText}
 
     const notification = document.createElement('div')
 
-    notification.innerHTML = '🗂️ ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
+    notification.innerHTML = '🗂 ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
 
     notification.style.cssText = `
 
       position: fixed; top: 20px; right: 20px; z-index: 2147483650;
 
-      background: #4CAF50; color: white; padding: 12px 20px;
+      background:${csTheme().accentGrad}; color: white; padding: 12px 20px;
 
       border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 
@@ -35994,7 +36148,7 @@ ${pageText}
 
   ;(window as any).optimandoSaveGridConfig = (payload: any, sessionKey: string) => {
 
-    console.log('🌐 PARENT: optimandoSaveGridConfig called from grid window')
+    console.log('🌐 PARENT: optimandoSaveGridConfig called from grid window')
 
     console.log('📦 PARENT: Payload:', payload)
 
@@ -36270,7 +36424,7 @@ ${pageText}
 
   
 
-  function openGridFromSession(layout, sessionId) {
+  function openGridFromSession(layout: string, sessionId: string) {
 
     console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
 
@@ -36280,7 +36434,7 @@ ${pageText}
 
     // Get current theme
 
-    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'default'
+    const currentTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
 
     console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
 
@@ -36438,7 +36592,7 @@ ${pageText}
 
   
 
-  // 🆕 V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
+  // 🏆• V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
 
   function openGridFromSession_v2(layout: string, sessionId: string) {
 
@@ -36892,7 +37046,7 @@ ${pageText}
 
         }
 
-        console.log('🆕 Created new session data')
+        console.log('🏆• Created new session data')
 
       }
 
@@ -36912,7 +37066,7 @@ ${pageText}
 
       // STEP 4: Find or create the grid entry
 
-      let gridEntry = sessionData.displayGrids.find(g => g.layout === config.layout)
+      let gridEntry = sessionData.displayGrids.find((g: any) => g.layout === config.layout)
 
       if (!gridEntry) {
 
@@ -37006,7 +37160,7 @@ ${pageText}
 
           note.textContent = '✅ Grid config saved to session history'
 
-          note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+          note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
           document.body.appendChild(note)
 
@@ -37058,7 +37212,7 @@ ${pageText}
 
           if (!currentTabData.displayGrids) currentTabData.displayGrids = []
 
-          let entry = currentTabData.displayGrids.find(g => g.layout === payload.layout)
+          let entry = currentTabData.displayGrids.find((g: any) => g.layout === payload.layout)
 
           if (!entry) {
 
@@ -37236,7 +37390,7 @@ ${pageText}
 
               note.textContent = '✅ Grid config saved to session'
 
-              note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+              note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
               document.body.appendChild(note)
 
@@ -37260,7 +37414,7 @@ ${pageText}
 
   
 
-  function createGridHTML(layout, sessionId, theme = 'default', nextBoxNumber = 1) {
+  function createGridHTML(layout: string, sessionId: string, theme = 'default', nextBoxNumber = 1) {
 
     // Configure grid layout
 
@@ -37288,7 +37442,7 @@ ${pageText}
 
     
 
-    const config = layouts[layout] || layouts['4-slot']
+    const config = layouts[layout as keyof typeof layouts] || layouts['4-slot']
 
     const activeSessionKeyForGrid = (typeof getCurrentSessionKey === 'function' ? (getCurrentSessionKey() || '') : '')
 
@@ -37310,7 +37464,7 @@ ${pageText}
 
     const entry = (currentTabData && currentTabData.displayGrids)
 
-      ? currentTabData.displayGrids.find(g => g.layout === layout)
+      ? currentTabData.displayGrids.find((g: any) => g.layout === layout)
 
       : null
 
@@ -37448,7 +37602,7 @@ ${pageText}
 
               <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
 
-              <span style="margin-right: 4px;">🖥️</span>
+              <span style="margin-right: 4px;">🖥</span>
 
               <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
 
@@ -37456,9 +37610,9 @@ ${pageText}
 
             <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
 
-              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
+              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
 
-              <button class="close-slot" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">×</button>
+              <button class="close-slot" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">&times;</button>
 
             </div>
 
@@ -37628,7 +37782,7 @@ ${pageText}
 
             <span style="font-size:11px;opacity:.7">${t.cat}</span>
 
-            <button class="tl-add" data-id="${t.id}" style="padding:6px 10px;background:#22c55e;border:none;color:#07210f;border-radius:6px;cursor:pointer;font-weight:700">Add</button>
+            <button class="tl-add" data-id="${t.id}" style="padding:6px 10px;background:${csTheme().accentGrad};border:none;color:#07210f;border-radius:6px;cursor:pointer;font-weight:700">Add</button>
 
           </div>
 
@@ -37782,7 +37936,7 @@ ${pageText}
 
             border-radius: 0 5px 5px 0;
 
-          ">‹</button>
+          ">&rdquo;¹</button>
 
           <button id="next-slide" style="
 
@@ -37802,7 +37956,7 @@ ${pageText}
 
             border-radius: 5px 0 0 5px;
 
-          ">›</button>
+          ">&rdquo;º</button>
 
         </div>
 
@@ -37946,7 +38100,7 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;">
 
         <div style="text-align: center;">
 
@@ -38044,27 +38198,27 @@ ${pageText}
 
                     <input type="text" class="session-name-edit" data-session-id="${session.id}" value="${session.tabName || 'Unnamed Session'}" 
 
-                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #FFEF94; 
+                           style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; 
 
                                   padding: 6px ${session.isActive ? '70px' : '40px'} 6px 10px; border-radius: 6px; font-size: 15px; font-weight: bold; 
 
                                   flex: 1; min-width: 200px; outline: none; transition: all 0.2s ease;
 
-                                  text-shadow: 0 1px 2px rgba(0,0,0,0.5); cursor: text; position: relative;"
+                                  cursor: text; position: relative;"
 
                            placeholder="Click to edit session name" />
 
-                    ${session.isActive ? '<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: #4CAF50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>' : ''}
+                    ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
-                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: #FFB366; font-size: 14px; cursor: pointer; transition: all 0.2s ease; z-index: 2;" title="Click to save">💾</span>
+                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
 
                   </div>
 
-                  <div style="font-size: 10px; font-family: ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); letter-spacing: 0.3px; padding-left: 2px;">
+                  <div style="font-size: 10px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; color: ${csTheme().muted}; letter-spacing: 0.3px; padding-left: 2px;">
 
-                    <span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span>
+                    <span style="color: ${csTheme().muted}; margin-right: 4px;">ID:</span>
 
-                    <span style="color: rgba(255,215,0,0.7);">${session.id}</span>
+                    <span style="color: ${csTheme().muted};">${session.id}</span>
 
                   </div>
 
@@ -38072,11 +38226,11 @@ ${pageText}
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
 
-                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2196F3, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
-                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Agent Box Overview" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">📦</button>
+                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">Agents</button>
 
-                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #f44336, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗑️</button>
+                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗝‘️</button>
 
         </div>
 
@@ -38084,19 +38238,19 @@ ${pageText}
 
             <!-- Session box with content -->
 
-            <div class="session-item" data-session-id="${session.id}" style="background: ${session.isActive ? 'linear-gradient(135deg, rgba(76,175,80,0.25) 0%, rgba(76,175,80,0.15) 100%)' : 'linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)'}; border-radius: 12px; padding: 14px; cursor: pointer; transition: all 0.3s ease; border: 2px solid ${session.isActive ? 'rgba(76,175,80,0.5)' : 'transparent'}; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='${session.isActive ? 'rgba(76,175,80,0.8)' : 'rgba(255,255,255,0.4)'}'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.2)'" onmouseout="this.style.borderColor='${session.isActive ? 'rgba(76,175,80,0.5)' : 'transparent'}'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.1)'">
+            <div class="session-item" data-session-id="${session.id}" style="background: ${csTheme().cardBg}; border-radius: 10px; padding: 14px; cursor: pointer; border: 2px solid ${session.isActive ? csTheme().accentColor : csTheme().border};">
 
               <div class="session-content" style="cursor: pointer;">
 
-                <p style="margin: 0 0 8px 0; font-size: 12px; color: #F0F0F0; opacity: 0.9;">${session.url || 'No URL'}</p>
+                <p style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">${session.url || 'No URL'}</p>
 
                 
 
                 ${session.agentBoxes && session.agentBoxes.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: bold; color: #FFB366;\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
 
                   </div>
 
@@ -38104,13 +38258,13 @@ ${pageText}
 
                 ${session.agents && session.agents.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: bold; color: #90EE90;\">🤖 AI Agents (${session.agents.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🤖 AI Agents (${session.agents.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
-                      ${session.agents.map(agent => `<span style=\\\"background: rgba(144,238,144,0.25); color: white; border: 1px solid rgba(144,238,144,0.5); padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
+                      ${session.agents.map((agent: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
 
                     </div>
 
@@ -38122,17 +38276,17 @@ ${pageText}
 
                 ${session.hybridAgentBoxes && session.hybridAgentBoxes.length > 0 ? `
 
-                  <div style=\"background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px; margin: 8px 0;\">
+                  <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: bold; color: #B3E5FC;\">🖥️ Master Tabs (${session.hybridAgentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🖥 Master Tabs (${session.hybridAgentBoxes.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
                       ${session.hybridAgentBoxes
 
-                        .sort((a,b) => parseInt(a.id) - parseInt(b.id))
+                        .sort((a: any, b: any) => parseInt(a.id) - parseInt(b.id))
 
-                        .map(h => `<span style=\\\"background: rgba(33,150,243,0.9); color: white; padding: 3px 8px; border-radius: 10px; font-size: 10px;\\\">HM-${h.id} (${h.count})</span>`)
+                        .map((h: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 10px; font-size: 10px;\\\">HM-${h.id} (${h.count})</span>`)
 
                         .join('')}
 
@@ -38146,21 +38300,21 @@ ${pageText}
 
                 ${session.helperTabs && session.helperTabs.urls && session.helperTabs.urls.length > 0 ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 12px; font-weight: bold; color: #66FF66;">🌐 Web Sources (${session.helperTabs.urls.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🌐 Web Sources (${session.helperTabs.urls.length})</span>
 
-                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
+                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
 
           </div>
 
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
 
-                      ${session.helperTabs.urls.map((url, index) => `
+                      ${session.helperTabs.urls.map((url: string, index: number) => `
 
-                        <span style="background: rgba(102,255,102,0.25); color: white; border: 1px solid rgba(102,255,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${url}">${url.replace('https://', '').replace('http://', '').split('/')[0]}</span>
 
                       `).join('')}
 
@@ -38174,21 +38328,21 @@ ${pageText}
 
                 ${session.displayGrids && session.displayGrids.length > 0 ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 12px; font-weight: bold; color: #FFB366;">🗂️ Display Grids (${session.displayGrids.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🗂 Display Grids (${session.displayGrids.length})</span>
 
-                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
+                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
 
         </div>
 
                     <div style="display: flex; flex-wrap: wrap; gap: 6px;">
 
-                      ${session.displayGrids.map((grid, index) => `
+                      ${session.displayGrids.map((grid: any, index: number) => `
 
-                        <span style="background: rgba(255,179,102,0.25); color: white; border: 1px solid rgba(255,179,102,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="${grid.layout} - ${grid.sessionId}">${grid.layout}</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px;" title="${grid.layout} - ${grid.sessionId}">${grid.layout}</span>
 
                       `).join('')}
 
@@ -38202,11 +38356,11 @@ ${pageText}
 
                 ${session.context && (session.context.userContext?.text || session.context.publisherContext?.text || (session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0)) ? `
 
-                  <div style="background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; padding: 12px; margin: 10px 0;">
+                  <div style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;">
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 12px; font-weight: bold; color: #E6E6FA;">📄 Attached Context</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">📄 Attached Context</span>
 
                     </div>
 
@@ -38214,19 +38368,19 @@ ${pageText}
 
                       ${session.context.userContext?.text ? `
 
-                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">👤 User Context (${session.context.userContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">👤 User Context (${session.context.userContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.publisherContext?.text ? `
 
-                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">🌐 Publisher Context (${session.context.publisherContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">🌐 Publisher Context (${session.context.publisherContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
 
-                        <span style="background: rgba(230,230,250,0.25); color: white; border: 1px solid rgba(230,230,250,0.5); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map(f => f.name).join(', ')}">📎 PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📁 PDF Files (${session.context.userContext.pdfFiles.length})</span>
 
                       ` : ''}
 
@@ -38244,7 +38398,7 @@ ${pageText}
 
             <div style="padding: 4px 4px 0 4px;">
 
-              <span style="font-size: 10px; color: #D0D0D0; opacity: 0.7;">📅 ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
+              <span style="font-size: 10px; color: ${csTheme().muted};">📅 ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
 
             </div>
 
@@ -38258,13 +38412,13 @@ ${pageText}
 
       overlay.innerHTML = `
 
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 900px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
 
-            <button id="close-sessions-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+            <button id="close-sessions-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
           </div>
 
@@ -38278,11 +38432,11 @@ ${pageText}
 
           </div>
 
-          <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center; background: rgba(255,255,255,0.05);">
+          <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-            <button id="clear-all-sessions" style="padding: 12px 30px; background: #f44336; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
+            <button id="clear-all-sessions" style="padding: 12px 30px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-              🗑️ Clear All Sessions
+              🗝‘️ Clear All Sessions
 
             </button>
 
@@ -38300,7 +38454,7 @@ ${pageText}
 
       // Close handlers
 
-      document.getElementById('close-sessions-lightbox').onclick = () => overlay.remove()
+      document.getElementById('close-sessions-lightbox')!.onclick = () => overlay.remove()
 
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -38340,23 +38494,25 @@ ${pageText}
 
         sessionEl.addEventListener('click', (e) => {
 
+          const target = e.target as HTMLElement
+
           // Don't trigger if clicking on action buttons
 
-          if (e.target.classList.contains('rename-session-btn') || 
+          if (target.classList.contains('rename-session-btn') || 
 
-              e.target.classList.contains('delete-session-btn') ||
+              target.classList.contains('delete-session-btn') ||
 
-              e.target.classList.contains('agentbox-overview-btn')) {
+              target.classList.contains('agentbox-overview-btn')) {
 
             
 
             // Handle Agent Box Overview button
 
-            if (e.target.classList.contains('agentbox-overview-btn')) {
+            if (target.classList.contains('agentbox-overview-btn')) {
 
               e.stopPropagation()
 
-              const sessionId = sessionEl.dataset.sessionId
+              const sessionId = (sessionEl as HTMLElement).dataset.sessionId
 
               console.log('📦 Agent Box Overview clicked for session:', sessionId)
 
@@ -38376,7 +38532,7 @@ ${pageText}
 
           
 
-          const sessionId = sessionEl.dataset.sessionId
+          const sessionId = (sessionEl as HTMLElement).dataset.sessionId
 
           const sessionData = sessions.find(s => s.id === sessionId)
 
@@ -38398,7 +38554,7 @@ ${pageText}
 
             // Persist active session key globally and in this tab
 
-            setCurrentSessionKey(sessionId)
+            setCurrentSessionKey(sessionId!)
 
             console.log('✅ Active session key set to:', sessionId)
 
@@ -38408,7 +38564,7 @@ ${pageText}
             sessionData.lastOpenedAt = lastOpenedAt
             
             // Save the updated lastOpenedAt to chrome.storage.local
-            storageSet({ [sessionId]: { ...sessionData, lastOpenedAt } }, () => {
+            storageSet({ [sessionId as string]: { ...sessionData, lastOpenedAt } }, () => {
               console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
             })
 
@@ -38480,7 +38636,7 @@ ${pageText}
 
               // Open helper tabs immediately (no setTimeout to avoid popup blockers)
 
-              sessionData.helperTabs.urls.forEach((url, index) => {
+              sessionData.helperTabs.urls.forEach((url: any, index: number) => {
 
                 const agentId = index + 1
 
@@ -38587,7 +38743,7 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
 
                     const hybridId = hybridBox.id || String(index + 1)
 
@@ -38607,7 +38763,7 @@ ${pageText}
 
                       url.searchParams.set('hybrid_master_id', hybridId)
 
-                      url.searchParams.set('optimando_session_key', sessionId)
+                      url.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38651,7 +38807,7 @@ ${pageText}
 
                       base.searchParams.set('hybrid_master_id', hybridId)
 
-                      base.searchParams.set('optimando_session_key', sessionId)
+                      base.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38681,7 +38837,7 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map(g => ({ 
+                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map((g: any) => ({ 
 
                   layout: g.layout, 
 
@@ -38697,7 +38853,7 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Using currentTabData.displayGrids:', currentTabData.displayGrids)
 
-                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map(g => ({
+                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map((g: any) => ({
 
                   layout: g.layout,
 
@@ -38709,7 +38865,7 @@ ${pageText}
 
                 
 
-                sessionData.displayGrids.forEach((grid, index) => {
+                sessionData.displayGrids.forEach((grid: any, index: number) => {
 
                   console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
 
@@ -38721,7 +38877,7 @@ ${pageText}
 
                   if (!currentTabData.displayGrids) currentTabData.displayGrids = []
 
-                  let existingEntry = currentTabData.displayGrids.find(g => g.layout === grid.layout)
+                  let existingEntry = currentTabData.displayGrids.find((g: any) => g.layout === grid.layout)
 
                   
 
@@ -38882,7 +39038,7 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  sessionData.hybridAgentBoxes.forEach((hybridBox, index) => {
+                  sessionData.hybridAgentBoxes.forEach((hybridBox: any, index: number) => {
 
                     const hybridId = hybridBox.id || String(index + 1)
 
@@ -38902,7 +39058,7 @@ ${pageText}
 
                       url.searchParams.set('hybrid_master_id', hybridId)
 
-                      url.searchParams.set('optimando_session_key', sessionId)
+                      url.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38946,7 +39102,7 @@ ${pageText}
 
                       base.searchParams.set('hybrid_master_id', hybridId)
 
-                      base.searchParams.set('optimando_session_key', sessionId)
+                      base.searchParams.set('optimando_session_key', sessionId!)
 
                       
 
@@ -38982,11 +39138,11 @@ ${pageText}
 
                 console.log('🔧 DEBUG: Session data displayGrids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map(g => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
+                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map((g: any) => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
 
                 
 
-                sessionData.displayGrids.forEach((grid, index) => {
+                sessionData.displayGrids.forEach((grid: any, index: number) => {
 
                   console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
 
@@ -39107,7 +39263,7 @@ ${pageText}
       })
 
       // Handle edit session name button - focus field (it's already editable)
-      overlay.querySelectorAll('.edit-session-name-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.edit-session-name-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation()
           const sessionId = btn.dataset.sessionId
@@ -39146,7 +39302,7 @@ ${pageText}
         
         // Visual feedback on blur
         nameInput.addEventListener('blur', () => {
-          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
         })
 
@@ -39172,7 +39328,7 @@ ${pageText}
           saveTimeout = setTimeout(() => {
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = '✓'
+              saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39190,7 +39346,7 @@ ${pageText}
               saveTimeout = null
             }
             syncSessionName(nameInput.value, 'history', sessionId)
-            saveIndicator.textContent = '✓'
+            saveIndicator.textContent = '✏“'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39205,10 +39361,10 @@ ${pageText}
             saveTimeout = null
           }
           syncSessionName(nameInput.value, 'history', sessionId)
-          nameInput.style.background = 'rgba(255,255,255,0.1)'
+          nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
           if (saveIndicator) {
-            saveIndicator.textContent = '✓'
+            saveIndicator.textContent = '✏“'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39225,7 +39381,7 @@ ${pageText}
             }
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = '✓'
+              saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39238,7 +39394,7 @@ ${pageText}
 
       
 
-      overlay.querySelectorAll('.edit-helper-tabs-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.edit-helper-tabs-btn').forEach(btn => {
 
         btn.addEventListener('click', (e) => {
 
@@ -39262,7 +39418,7 @@ ${pageText}
 
       
 
-      overlay.querySelectorAll('.delete-session-btn').forEach(btn => {
+      overlay.querySelectorAll<HTMLElement>('.delete-session-btn').forEach(btn => {
 
         btn.addEventListener('click', (e) => {
 
@@ -39275,9 +39431,9 @@ ${pageText}
           if (confirm('Are you sure you want to delete this session?')) {
 
             // Use storageRemove to delete from SQLite
-            storageRemove([sessionId], () => {
+            storageRemove([sessionId!], () => {
 
-              console.log('🗑️ Session deleted from SQLite:', sessionId)
+              console.log('🗝‘️ Session deleted from SQLite:', sessionId)
 
               // Refresh the sessions list
 
@@ -39304,7 +39460,7 @@ ${pageText}
           if (confirm(`⚠️ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
             const sessionKeys = sessions.map(s => s.id)
             
-            console.log('🗑️ Clearing all sessions from SQLite:', sessionKeys.length)
+            console.log('🗝‘️ Clearing all sessions from SQLite:', sessionKeys.length)
             
             // Show loading notification
             const notification = document.createElement('div')
@@ -39406,11 +39562,11 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+      <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
         <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
 
-        <div>Loading agent boxes...</div>
+        <div style="color: ${csTheme().muted};">Loading agent boxes...</div>
 
       </div>
 
@@ -39470,11 +39626,11 @@ ${pageText}
 
         const unknownBoxes = session.agentBoxes.filter((b: any) => !b.source)
 
-        console.log(`  ✓ Master tab boxes: ${masterBoxes.length}`)
+        console.log(`  ✏“ Master tab boxes: ${masterBoxes.length}`)
 
-        console.log(`  ✓ Display grid boxes: ${gridBoxes.length}`)
+        console.log(`  ✏“ Display grid boxes: ${gridBoxes.length}`)
 
-        console.log(`  ✓ Unknown source boxes: ${unknownBoxes.length}`)
+        console.log(`  ✏“ Unknown source boxes: ${unknownBoxes.length}`)
 
         
 
@@ -39498,13 +39654,13 @@ ${pageText}
 
         overlay.innerHTML = `
 
-          <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; padding: 40px; color: white; text-align: center;">
+          <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
             <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
 
-            <div>Session not found</div>
+            <div style="color: ${csTheme().muted};">Session not found</div>
 
-            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: #2196F3; border: none; color: white; border-radius: 4px; cursor: pointer;">Close</button>
+            <button onclick="this.closest('div').parentElement.remove()" style="margin-top: 20px; padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;">Close</button>
 
           </div>
 
@@ -39533,6 +39689,8 @@ ${pageText}
         provider?: string;
 
         model?: string;
+
+        tools?: any[];
 
       }> = []
 
@@ -39596,13 +39754,13 @@ ${pageText}
 
               const match = String(box.agentId).match(/agent(\d+)/)
 
-              agentNumber = parseInt(match[1])
+              agentNumber = parseInt(match![1])
 
             } else if (box.model && String(box.model).match(/agent(\d+)/)) {
 
               const match = String(box.model).match(/agent(\d+)/)
 
-              agentNumber = parseInt(match[1])
+              agentNumber = parseInt(match![1])
 
             }
 
@@ -39820,17 +39978,17 @@ ${pageText}
 
         return `
 
-          <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
+          <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; margin: 6px 0; display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; align-items: center;">
 
-            <div style="font-family: monospace; font-weight: 700; color: #fbbf24; font-size: 16px;">${identifier}</div>
+            <div style="font-family: monospace; font-weight: 700; color: ${csTheme().accentColor}; font-size: 14px;">${identifier}</div>
 
-            <div style="font-size: 14px;">${box.title}</div>
+            <div style="font-size: 13px; color: ${csTheme().text}; font-weight: 500;">${box.title}</div>
 
-            <div style="font-size: 13px; opacity: 0.9;">${llmInfo}</div>
+            <div style="font-size: 12px; color: ${csTheme().muted};">${llmInfo}</div>
 
-            <div style="font-size: 12px; opacity: 0.8;">${box.location}</div>
+            <div style="font-size: 12px; color: ${csTheme().muted};">${box.location}</div>
 
-            <div style="font-size: 11px; opacity: 0.8;">${toolsInfo}</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">${toolsInfo}</div>
 
           </div>
 
@@ -39840,15 +39998,15 @@ ${pageText}
 
       overlay.innerHTML = `
 
-        <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border-radius: 16px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: white; box-shadow: 0 20px 40px rgba(0,0,0,0.4); display: flex; flex-direction: column;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 12px; width: 95vw; max-width: 1200px; max-height: 85vh; overflow: hidden; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; border: 1px solid ${csTheme().border}; display: flex; flex-direction: column;">
 
-          <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+          <div style="padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
             <div>
 
-              <h3 style="margin: 0; font-size: 18px; font-weight: 600;">📦 Agent Box Overview</h3>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: ${csTheme().text};">Agent Box Overview</h3>
 
-              <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 4px;">
+              <div style="font-size: 12px; color: ${csTheme().muted}; margin-top: 2px;">
 
                 Session: ${sessionKey.split('_')[1]} | Registered Boxes: ${registeredBoxes.length}
 
@@ -39856,27 +40014,27 @@ ${pageText}
 
             </div>
 
-            <button id="close-agentbox-overview" style="background: rgba(255,255,255,0.15); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+            <button id="close-agentbox-overview" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; display:flex; align-items:center; justify-content:center;">&times;</button>
 
           </div>
 
           
 
-          <div style="flex: 1; padding: 20px; overflow-y: auto;">
+          <div style="flex: 1; padding: 16px 20px; overflow-y: auto;">
 
-            <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; padding: 12px 15px; border-radius: 8px; margin-bottom: 16px;">
 
-              <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6;">
+              <div style="font-size: 12px; color: ${csTheme().muted}; line-height: 1.6;">
 
-                <strong>Identifier System:</strong><br>
+                <strong style="color: ${csTheme().text};">Identifier System:</strong><br>
 
-                • AB[BoxNumber][AgentNumber] format (e.g., AB0105 = Box 01 with Agent 05)<br>
+                &bull; AB[BoxNumber][AgentNumber] format (e.g., AB0105 = Box 01 with Agent 05)<br>
 
-                • Box numbers auto-increment (AB01, AB02, AB03, etc.)<br>
+                &bull; Box numbers auto-increment (AB01, AB02, AB03, etc.)<br>
 
-                • Agent numbers are assigned when creating each box<br>
+                &bull; Agent numbers are assigned when creating each box<br>
 
-                • All configured boxes are listed below
+                &bull; All configured boxes are listed below
 
               </div>
 
@@ -39884,9 +40042,9 @@ ${pageText}
 
             
 
-            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; padding: 10px 12px; border-radius: 8px; margin-bottom: 10px;">
 
-              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); text-transform: uppercase;">
+              <div style="display: grid; grid-template-columns: 110px 1fr 1fr 140px 150px; gap: 12px; font-size: 11px; font-weight: 700; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">
 
                 <div>Identifier</div>
 
@@ -39904,7 +40062,7 @@ ${pageText}
 
             
 
-            ${boxesHTML || '<div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.6);">No registered agent boxes</div>'}
+            ${boxesHTML || `<div style="text-align: center; padding: 20px; color: ${csTheme().muted};">No registered agent boxes</div>`}
 
           </div>
 
@@ -39936,15 +40094,15 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 1100px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 1100px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column;">
 
         <!-- Header -->
 
-        <div style="padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:space-between;">
+        <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;">
 
           <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
 
-          <button id="close-reasoning-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">×</button>
+          <button id="close-reasoning-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">&times;</button>
 
         </div>
 
@@ -39952,7 +40110,7 @@ ${pageText}
 
         <!-- Tabs -->
 
-        <div style="padding: 16px 24px 0; display: flex; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.2);">
+        <div style="padding: 16px 24px 0; display: flex; gap: 10px; border-bottom: 1px solid ${csTheme().border};">
 
           <button id="tab-reasoning" class="reasoning-tab active" style="padding: 10px 20px; background: rgba(255,255,255,0.25); border: none; border-bottom: 3px solid white; color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
@@ -39960,7 +40118,7 @@ ${pageText}
 
           </button>
 
-          <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: rgba(255,255,255,0.1); border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
+          <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: ${csTheme().cardBg}; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
             🛠️ Workflows
 
@@ -40010,7 +40168,7 @@ ${pageText}
 
                   <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
 
-                  <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
+                  <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
 
                     💾 Save as Agent
 
@@ -40056,11 +40214,11 @@ ${pageText}
 
                 </div>
 
-                <div style="font-size: 12px; opacity: 0.95; line-height:1.6; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.25); border-radius:8px; padding:12px;">
+                <div style="font-size: 12px; opacity: 0.95; line-height:1.6; background: rgba(0,0,0,0.3); border: 1px solid ${csTheme().border}; border-radius:8px; padding:12px;">
 
                   <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% • Updated: just now</div>
+                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% &rdquo;¢ Updated: just now</div>
 
                 </div>
 
@@ -40078,19 +40236,19 @@ ${pageText}
 
                   <div style="display:flex; gap:8px;">
 
-                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
+                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
 
-                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
+                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
 
-                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻️ Feedback</button>
+                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻ Feedback</button>
 
                   </div>
 
                 </div>
 
-                <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid rgba(255,255,255,0.25);">
+                <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid ${csTheme().border};">
 
-                  [System] Orchestrator idle. Awaiting actions…
+                  [System] Orchestrator idle. Awaiting actions&rdquo;¦
 
                 </div>
 
@@ -40114,7 +40272,7 @@ ${pageText}
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Draft and send a concise email.</div>
 
-                <button data-workflow="email" class="wf-action" style="padding:10px 14px; background:#22c55e; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
+                <button data-workflow="email" class="wf-action" style="padding:10px 14px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; transition: all 0.2s;">Start</button>
 
               </div>
 
@@ -40156,7 +40314,7 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-reasoning-lightbox').onclick = () => overlay.remove()
+    document.getElementById('close-reasoning-lightbox')!.onclick = () => overlay.remove()
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
 
@@ -40164,9 +40322,9 @@ ${pageText}
 
     // Tab switching
 
-    const tabs = overlay.querySelectorAll('.reasoning-tab')
+    const tabs = overlay.querySelectorAll<HTMLElement>('.reasoning-tab')
 
-    const contents = overlay.querySelectorAll('.reasoning-content')
+    const contents = overlay.querySelectorAll<HTMLElement>('.reasoning-content')
 
     
 
@@ -40188,15 +40346,15 @@ ${pageText}
 
             t.style.borderBottom = '3px solid white'
 
-            t.style.color = 'white'
+            t.style.color = '#fff'
 
           } else {
 
-            t.style.background = 'rgba(255,255,255,0.1)'
+            t.style.background = csTheme().inputBg
 
             t.style.borderBottom = '3px solid transparent'
 
-            t.style.color = 'rgba(255,255,255,0.7)'
+            t.style.color = csTheme().text
 
           }
 
@@ -40222,7 +40380,7 @@ ${pageText}
 
     // Save as Agent button handler
 
-    document.getElementById('save-as-agent-btn').onclick = () => {
+    document.getElementById('save-as-agent-btn')!.onclick = () => {
 
       const goal = (document.getElementById('reasoning-goal-text') as HTMLTextAreaElement)?.value || ''
 
@@ -40244,7 +40402,7 @@ ${pageText}
 
         setTimeout(() => {
 
-          globalLightboxFunctions.openAddAgentBoxDialog()
+          globalLightboxFunctions.openAddAgentBoxDialog!()
 
           // Pre-fill the goal and role fields after the dialog opens
 
@@ -40274,7 +40432,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Re-generating follow-up questions…\n' + log.textContent
+      if (log) log.textContent = '[System] Re-generating follow-up questions&rdquo;¦\n' + log.textContent
 
     })
 
@@ -40284,7 +40442,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Displaying reasoning paths…\n' + log.textContent
+      if (log) log.textContent = '[System] Displaying reasoning paths&rdquo;¦\n' + log.textContent
 
     })
 
@@ -40294,7 +40452,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Triggering feedback loop…\n' + log.textContent
+      if (log) log.textContent = '[System] Triggering feedback loop&rdquo;¦\n' + log.textContent
 
     })
 
@@ -40318,7 +40476,7 @@ ${pageText}
 
 
 
-  function openEditHelperTabsDialog(sessionData, sessionId, parentOverlay) {
+  function openEditHelperTabsDialog(sessionData: any, sessionId: any, parentOverlay: any) {
 
     // Create helper tabs edit dialog
 
@@ -40348,11 +40506,11 @@ ${pageText}
 
         <div class="edit-url-field-row" data-index="${index}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
 
-          <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
+          <input type="url" class="edit-helper-url" value="${url}" style="flex: 1; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: white !important; -webkit-text-fill-color: white !important; padding: 10px; border-radius: 6px; font-size: 12px;" placeholder="https://example.com">
 
-          <button class="add-edit-url-btn" style="background: #4CAF50; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
+          <button class="add-edit-url-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;" title="Add new URL field">+</button>
 
-          <button class="remove-edit-url-btn" style="background: #f44336; border: none; color: white; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${currentUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">×</button>
+          <button class="remove-edit-url-btn" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; ${currentUrls.length <= 1 ? 'opacity: 0.5; pointer-events: none;' : ''}" title="Remove this URL field">&times;</button>
 
         </div>
 
@@ -40364,21 +40522,21 @@ ${pageText}
 
     editOverlay.innerHTML = `
 
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: white; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 800px; height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
+          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
 
-          <button id="close-edit-helper-tabs" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">×</button>
+          <button id="close-edit-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
         </div>
 
         <div style="flex: 1; padding: 30px; overflow-y: auto;">
 
-          <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px;">
+          <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #FFD700;">Web Sources URLs</h3>
+            <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().muted};">Web Sources URLs</h3>
 
             <p style="margin: 0 0 20px 0; font-size: 12px; opacity: 0.8;">Edit the URLs that will open when this session is restored.</p>
 
@@ -40394,11 +40552,11 @@ ${pageText}
 
         </div>
 
-        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: space-between; background: rgba(255,255,255,0.05);">
+        <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; background: ${csTheme().cardBg};">
 
           <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
 
-          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: #4CAF50; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
+          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
 
         </div>
 
@@ -40414,9 +40572,9 @@ ${pageText}
 
     // Close handlers
 
-    document.getElementById('close-edit-helper-tabs').onclick = () => editOverlay.remove()
+    document.getElementById('close-edit-helper-tabs')!.onclick = () => editOverlay.remove()
 
-    document.getElementById('cancel-edit-helper-tabs').onclick = () => editOverlay.remove()
+    document.getElementById('cancel-edit-helper-tabs')!.onclick = () => editOverlay.remove()
 
     editOverlay.onclick = (e) => { if (e.target === editOverlay) editOverlay.remove() }
 
@@ -40424,7 +40582,7 @@ ${pageText}
 
     // URL field management
 
-    const container = document.getElementById('edit-helper-url-fields-container')
+    const container = document.getElementById('edit-helper-url-fields-container')!
 
     
 
@@ -40460,7 +40618,9 @@ ${pageText}
 
         btn.addEventListener('click', (e) => {
 
-          const index = parseInt(e.target.closest('.edit-url-field-row').dataset.index)
+          const row = (e.target as HTMLElement).closest('.edit-url-field-row') as HTMLElement | null
+
+          const index = parseInt(row?.dataset.index || '0')
 
           currentUrls.splice(index, 1)
 
@@ -40482,9 +40642,9 @@ ${pageText}
 
     // Save handler
 
-    document.getElementById('save-edit-helper-tabs').onclick = () => {
+    document.getElementById('save-edit-helper-tabs')!.onclick = () => {
 
-      const updatedUrls = Array.from(container.querySelectorAll('.edit-helper-url'))
+      const updatedUrls = Array.from(container.querySelectorAll<HTMLInputElement>('.edit-helper-url'))
 
         .map(input => input.value.trim())
 
@@ -40722,8 +40882,8 @@ ${pageText}
     if (sessionKey) {
       const idDisplay = document.createElement('div')
       idDisplay.className = 'session-id-display'
-      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
-      idDisplay.innerHTML = `<span style="color: rgba(255,255,255,0.4); margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
+      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: ${csTheme().muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
+      idDisplay.innerHTML = `<span style="color: ${csTheme().muted}; margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
       parentDiv.appendChild(idDisplay)
     }
   }
@@ -40927,7 +41087,7 @@ ${pageText}
     const isPendingSessionCreation = sessionStorage.getItem('optimando-pending-session-creation') === 'true'
     
     if (isPendingSessionCreation) {
-      console.log('🆕 Creating session on first user action')
+      console.log('🏆• Creating session on first user action')
       sessionStorage.removeItem('optimando-pending-session-creation')
     }
 
@@ -41041,130 +41201,125 @@ ${pageText}
     `
     
     overlay.innerHTML = `
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 650px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 650px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
         <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">📤 Export Session</h2>
         <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.9;">Choose what to export and select a format:</p>
         
         <!-- Quick Export Presets -->
-        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-          <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">⚡ Quick Export</div>
+        <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+          <div style="font-size: 12px; font-weight: 700; margin-bottom: 10px; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">Quick Export</div>
           <button class="export-preset-btn" data-preset="complete" style="
             width: 100%;
-            background: rgba(255, 215, 0, 0.2);
-            border: 2px solid rgba(255, 215, 0, 0.5);
-            color: white;
+            background: ${csTheme().accentGrad};
+            border: none;
+            color: #fff;
             padding: 12px 15px;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
             margin-bottom: 8px;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255, 215, 0, 0.3)'; this.style.borderColor='rgba(255, 215, 0, 0.7)'" onmouseout="this.style.background='rgba(255, 215, 0, 0.2)'; this.style.borderColor='rgba(255, 215, 0, 0.5)'">
-            <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
+          " >
+            <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
             <div style="font-size: 11px; opacity: 0.85;">Configuration + Memory + Context - Everything!</div>
           </button>
           <button class="export-preset-btn" data-preset="config-only" style="
             width: 100%;
-            background: rgba(255,255,255,0.1);
-            border: 2px solid rgba(255,255,255,0.25);
-            color: white;
+            background: ${csTheme().inputBg};
+            border: 1px solid ${csTheme().border};
+            color: ${csTheme().text};
             padding: 10px 15px;
             border-radius: 8px;
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.35)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'; this.style.borderColor='rgba(255,255,255,0.25)'">
-            <div style="font-size: 14px;">📋 Configuration Only</div>
-            <div style="font-size: 10px; opacity: 0.8;">Agent Boxes, Agents, UI State (no memory/context)</div>
+          ">
+            <div style="font-size: 13px; margin-bottom: 2px; font-weight: 600;">Configuration Only</div>
+            <div style="font-size: 10px; color: ${csTheme().muted};">Agent Boxes, Agents, UI State (no memory/context)</div>
           </button>
         </div>
         
         <!-- Detailed Export Options -->
-        <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-          <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">🎛️ Custom Export (Select Components)</div>
-          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px;">
+        <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+          <div style="font-size: 12px; font-weight: 700; margin-bottom: 10px; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">Custom Export (Select Components)</div>
+          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px; color: ${csTheme().text};">
             <input type="checkbox" id="export-session-data" checked style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
-            <span>✅ Session Configuration (Agent Boxes, Agents, UI State)</span>
+            <span>Session Configuration (Agent Boxes, Agents, UI State)</span>
           </label>
-          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px;">
+          <label style="display: flex; align-items: center; margin-bottom: 8px; cursor: pointer; font-size: 13px; color: ${csTheme().text};">
             <input type="checkbox" id="export-memory" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
-            <span>🧠 Memory Data (AI agent memory, conversation history)</span>
+            <span>Memory Data (AI agent memory, conversation history)</span>
           </label>
-          <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px;">
+          <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px; color: ${csTheme().text};">
             <input type="checkbox" id="export-context" style="margin-right: 8px; cursor: pointer; width: 16px; height: 16px;">
-            <span>📄 Context Data (Documents, embeddings, knowledge base)</span>
+            <span>Context Data (Documents, embeddings, knowledge base)</span>
           </label>
-          <div style="margin-top: 10px; padding: 10px; background: rgba(255,193,7,0.15); border-radius: 6px; font-size: 11px; opacity: 0.9;">
-            💡 <strong>Tip:</strong> Use "Complete Session" for full backup. Use custom selection for sharing sessions without private data.
+          <div style="margin-top: 10px; padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
+            <strong style="color: ${csTheme().text};">Tip:</strong> Use "Complete Session" for full backup. Use custom selection for sharing sessions without private data.
           </div>
         </div>
         
         <!-- Format Selection -->
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; opacity: 0.9;">📋 Select Format</div>
-        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+        <div style="font-size: 12px; font-weight: 700; margin-bottom: 10px; color: ${csTheme().muted}; text-transform: uppercase; letter-spacing: 0.05em;">Select Format</div>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
           <button class="export-format-btn" data-format="json" style="
-            background: rgba(255,255,255,0.15);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white;
+            background: ${csTheme().inputBg};
+            border: 1px solid ${csTheme().border};
+            color: ${csTheme().text};
             padding: 12px 15px;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
-            <div style="font-size: 16px; margin-bottom: 3px;">📄 JSON</div>
-            <div style="font-size: 11px; opacity: 0.8;">Machine-readable, best for programmatic use</div>
+          ">
+            <div style="font-size: 14px; margin-bottom: 2px; font-weight: 600;">JSON</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">Machine-readable, best for programmatic use</div>
           </button>
           
           <button class="export-format-btn" data-format="yaml" style="
-            background: rgba(255,255,255,0.15);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white;
+            background: ${csTheme().inputBg};
+            border: 1px solid ${csTheme().border};
+            color: ${csTheme().text};
             padding: 12px 15px;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
-            <div style="font-size: 16px; margin-bottom: 3px;">📋 YAML</div>
-            <div style="font-size: 11px; opacity: 0.8;">Human-readable, best for sharing and reviewing</div>
+          ">
+            <div style="font-size: 14px; margin-bottom: 2px; font-weight: 600;">YAML</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">Human-readable, best for sharing and reviewing</div>
           </button>
           
           <button class="export-format-btn" data-format="md" style="
-            background: rgba(255,255,255,0.15);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white;
+            background: ${csTheme().inputBg};
+            border: 1px solid ${csTheme().border};
+            color: ${csTheme().text};
             padding: 12px 15px;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
             text-align: left;
-          " onmouseover="this.style.background='rgba(255,255,255,0.25)'; this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'; this.style.borderColor='rgba(255,255,255,0.3)'">
-            <div style="font-size: 16px; margin-bottom: 3px;">📝 Markdown</div>
-            <div style="font-size: 11px; opacity: 0.8;">Documentation format, best for wrdesk.com</div>
+          ">
+            <div style="font-size: 14px; margin-bottom: 2px; font-weight: 600;">Markdown</div>
+            <div style="font-size: 11px; color: ${csTheme().muted};">Documentation format, best for wrdesk.com</div>
           </button>
         </div>
         
         <button class="export-cancel-btn" style="
-          background: rgba(255,255,255,0.1);
-          border: 1px solid rgba(255,255,255,0.3);
-          color: white;
+          background: ${csTheme().inputBg};
+          border: 1px solid ${csTheme().border};
+          color: ${csTheme().text};
           padding: 10px 20px;
           border-radius: 8px;
-          font-size: 14px;
+          font-size: 13px;
           cursor: pointer;
           width: 100%;
-        " onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+        ">
           Cancel
         </button>
       </div>
@@ -41595,7 +41750,7 @@ ${pageText}
     
     // Build YAML
     addLine('# WR Desk Session Export')
-    addLine('# Generated by OpenGiraffe Extension')
+    addLine('# Generated by WR Desk™ Extension')
     addLine('')
     
     Object.entries(data).forEach(([key, value]) => {
@@ -41667,7 +41822,7 @@ ${pageText}
     md.push('')
     
     md.push('---')
-    md.push('*Exported from OpenGiraffe Extension*')
+    md.push('*Exported from WR Desk™ Extension*')
     
     return md.join('\n')
   }
@@ -42309,14 +42464,14 @@ ${pageText}
       `
       
       overlay.innerHTML = `
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; width: 90vw; max-width: 500px; color: white; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
+        <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 500px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
           <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
           <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
-            ${sessionData.agentBoxes?.length || 0} agent boxes • 
-            ${sessionData.agents?.length || 0} agents • 
-            ${sessionData.hybridViews?.length || 0} hybrid tabs • 
+            ${sessionData.agentBoxes?.length || 0} agent boxes &rdquo;¢ 
+            ${sessionData.agents?.length || 0} agents &rdquo;¢ 
+            ${sessionData.hybridViews?.length || 0} hybrid tabs &rdquo;¢ 
             ${sessionData.displayGrids?.length || 0} display grids
           </p>
           ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
@@ -42335,11 +42490,11 @@ ${pageText}
               cursor: pointer;
               transition: all 0.2s;
             " onmouseover="this.style.background='rgba(76, 175, 80, 0.5)'" onmouseout="this.style.background='rgba(76, 175, 80, 0.3)'">
-              ✓ Load Now
+              ✏“ Load Now
             </button>
             <button class="import-close-btn" style="
               flex: 1;
-              background: rgba(255,255,255,0.1);
+              background: ${csTheme().cardBg};
               border: 2px solid rgba(255,255,255,0.3);
               color: white;
               padding: 12px 20px;
@@ -42743,7 +42898,8 @@ ${pageText}
 
   try {
 
-    const ro = new (window as any).ResizeObserver?.(() => applyLayoutOffsets())
+    const RO = (window as any).ResizeObserver
+    const ro = RO ? new RO(() => applyLayoutOffsets()) : null
 
     if (ro) ro.observe(bottomSidebar)
 
@@ -42967,7 +43123,7 @@ ${pageText}
 
       dockBtn.title = docked ? 'Undock from right sidebar' : 'Dock to right sidebar'
 
-      dockBtn.textContent = docked ? '📌✓' : '📌'
+      dockBtn.textContent = docked ? '📌✏“' : '📌'
 
     }
 
@@ -42989,7 +43145,7 @@ ${pageText}
 
       note.style.color = '#e5e7eb'
 
-      note.style.border = '1px solid rgba(255,255,255,0.18)'
+      note.style.border = `1px solid ${csTheme().border}`
 
       document.body.appendChild(note)
 
@@ -43035,7 +43191,7 @@ ${pageText}
 
       const box = document.createElement('div')
 
-      box.style.cssText = 'width:420px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden'
+      box.style.cssText = `width:420px;background:${csTheme().panelBg};color:${csTheme().text};border-radius:12px;border:1px solid rgba(255,255,255,.25);box-shadow:0 12px 30px rgba(0,0,0,.4);overflow:hidden`
 
       box.innerHTML = `
 
@@ -43055,7 +43211,7 @@ ${pageText}
 
           <button id="ing-cancel" style="padding:6px 10px;border:0;border-radius:6px;background:rgba(255,255,255,.18);color:white;cursor:pointer">Cancel</button>
 
-          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:#22c55e;color:#0b1e12;cursor:pointer">Embed</button>
+          <button id="ing-run" style="padding:6px 10px;border:0;border-radius:6px;background:${csTheme().accentGrad};color:#0b1e12;cursor:pointer">Embed</button>
 
         </div>`
 
@@ -43095,7 +43251,7 @@ ${pageText}
 
       function runEmbed(items: IngestItem[], target: IngestTarget) {
 
-        showToast('Vorverarbeitung…', 'info')
+        showToast('Vorverarbeitung&rdquo;¦', 'info')
 
         setTimeout(()=>{
 
@@ -43187,7 +43343,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = csTheme().headerGrad
 
       container.style.cssText = `background:${bg}; color:${fg}; border:1px solid ${br}; border-radius:8px; padding:0; margin: 0 0 12px 0; overflow:hidden; position:relative;`
 
@@ -43198,11 +43354,11 @@ ${pageText}
             <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
               <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✎</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✏Ž</button>
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
@@ -43217,7 +43373,7 @@ ${pageText}
           <div id="ccd-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccd-input" placeholder="Type..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-file" type="file" multiple style="display:none" />
-            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <button id="ccd-send" class="send-btn">Send</button>
           </div>
         </div>
@@ -43234,7 +43390,7 @@ ${pageText}
           <div id="ccd-overlay-compose" style="display:grid; grid-template-columns:1fr 36px 68px; gap:6px; align-items:center; padding:8px;">
             <textarea id="ccd-overlay-input" placeholder="Ask about the selected element..." style="box-sizing:border-box; height:36px; resize:vertical; background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:8px; font-size:12px;"></textarea>
             <input id="ccd-overlay-file" type="file" multiple style="display:none" />
-            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer;">📎</button>
+            <button id="ccd-overlay-attach" title="Attach" style="height:36px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
             <button id="ccd-overlay-send" class="send-btn">Send</button>
           </div>
         </div>
@@ -43248,7 +43404,7 @@ ${pageText}
             }
           </style>
           <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">✉️</span>
+            <span style="font-size:16px;">✏‰️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -43264,7 +43420,7 @@ ${pageText}
             <div id="ccd-mg-resize" style="height:12px; background:${theme==='standard'?'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)':'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 100%)'}; cursor:ns-resize; border-radius:6px; margin:8px 0; display:flex; align-items:center; justify-content:center; border:1px solid ${theme==='standard'?'rgba(15,23,42,0.1)':'rgba(255,255,255,0.15)'};" title="Drag to resize editor height"><div style="width:40px; height:4px; background:${theme==='standard'?'#94a3b8':'rgba(255,255,255,0.4)'}; border-radius:2px;"></div></div>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
-                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccd-mg-file" type="file" accept=".pdf" multiple style="display:none" />
               <button id="ccd-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
@@ -43393,7 +43549,7 @@ ${pageText}
             <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
-            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+            <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
           </div>
         `).join('')
         attachContainer.querySelectorAll('.ccd-mg-remove').forEach(btn => {
@@ -43509,8 +43665,8 @@ ${pageText}
           if (!ccdMgIsResizing) return
           const dy = e.clientY - ccdMgStartY
           const newH = Math.max(80, Math.min(400, ccdMgStartH + dy))
-          ccdMgBody.style.height = newH + 'px'
-          ccdMgBody.style.minHeight = newH + 'px'
+          ccdMgBody!.style.height = newH + 'px'
+          ccdMgBody!.style.minHeight = newH + 'px'
         }
         
         function ccdMgStopResize() {
@@ -43604,7 +43760,7 @@ ${pageText}
 
                 const deleteBtn = document.createElement('button')
 
-                deleteBtn.textContent = '×'
+                deleteBtn.textContent = '&times;'
 
                 deleteBtn.type = 'button'
 
@@ -43806,7 +43962,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = csTheme().headerGrad
 
       container.style.background = bg
 
@@ -43890,7 +44046,7 @@ ${pageText}
 
       const fg = theme === 'standard' ? '#0f172a' : 'white'
 
-      const hdr = theme === 'standard' ? 'linear-gradient(135deg,#ffffff,#f1f5f9)' : (theme==='dark' ? 'linear-gradient(135deg,#0f172a,#1e293b)' : 'linear-gradient(135deg,#667eea,#764ba2)')
+      const hdr = csTheme().headerGrad
 
       const box = document.createElement('div')
 
@@ -43907,12 +44063,12 @@ ${pageText}
             <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
               <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
               <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">🛡️ WR MailGuard</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
             </select>
 
             <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
-              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✎</button>
+              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✏Ž</button>
 
             </div>
 
@@ -43920,7 +44076,7 @@ ${pageText}
 
           <div style="display:flex; gap:6px; align-items:center;">
 
-            <button id="ccf-close" title="Close" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">×</button>
+            <button id="ccf-close" title="Close" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">&times;</button>
 
           </div>
 
@@ -43952,7 +44108,7 @@ ${pageText}
         <!-- MailGuard View -->
         <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.04)'};">
           <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">✉️</span>
+            <span style="font-size:16px;">✏‰️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -43967,7 +44123,7 @@ ${pageText}
             <textarea id="ccf-mg-body" placeholder="Compose your email message here..." style="background:${theme==='standard'?'#ffffff':'rgba(255,255,255,0.06)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:10px 12px; font-size:13px; min-height:120px; resize:vertical; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height:1.5; outline:none;"></textarea>
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:11px; font-weight:600; opacity:0.7; display:flex; align-items:center; gap:4px;">
-                <span>📎</span> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Attachments <span style="font-size:10px; opacity:0.6; font-weight:400;">(WR Stamped PDFs)</span>
               </span>
               <input id="ccf-mg-file" type="file" accept=".pdf" multiple style="display:none" />
               <button id="ccf-mg-add-pdf" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.12)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:6px 10px; font-size:11px; cursor:pointer;">+ Add PDF</button>
@@ -44178,7 +44334,7 @@ ${pageText}
             <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
-            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">×</button>
+            <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
           </div>
         `).join('')
         container.querySelectorAll('.ccf-mg-remove').forEach(btn => {
@@ -44383,7 +44539,7 @@ ${pageText}
 
                   const deleteBtn = document.createElement('button')
 
-                  deleteBtn.textContent = '×'
+                  deleteBtn.textContent = '&times;'
 
                   deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
 
@@ -44694,7 +44850,7 @@ ${pageText}
 
       note.textContent = `Starting LETmeGIRAFFETHATFORYOU: ${mode}`
 
-      note.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)'
+      note.style.cssText = `position:fixed;bottom:20px;left:20px;z-index:2147483650;background:#0b1220;color:#e5e7eb;padding:8px 12px;border:1px solid ${csTheme().border};border-radius:8px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,0.35)`
 
       document.body.appendChild(note)
 
@@ -44738,7 +44894,7 @@ ${pageText}
 
           } else {
 
-            btn.style.background = 'linear-gradient(135deg,#667eea,#764ba2)'
+            btn.style.background = csTheme().panelBg
 
             btn.style.color = '#ffffff'
 
@@ -44782,7 +44938,7 @@ ${pageText}
 
         } else {
 
-          btn.style.background = 'linear-gradient(135deg,#667eea,#764ba2)'
+          btn.style.background = csTheme().panelBg
 
           btn.style.color = '#ffffff'
 
@@ -44896,7 +45052,7 @@ ${pageText}
 
     // Session name input and lock button
 
-    const sessionNameInput = document.getElementById('session-name-input')
+    const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement | null
 
     const lockBtn = document.getElementById('lock-btn')
 
@@ -45049,7 +45205,7 @@ ${pageText}
 
           storageSet({ [sessionKey]: sessionData }, () => {
 
-            console.log('🔒 Session saved:', sessionKey, 'with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
+            console.log('🔒 Session saved:', sessionKey, 'with', (sessionData as any).helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
 
           })
 
@@ -45345,7 +45501,7 @@ function checkForElectronGridConfig() {
 
       note.textContent = '✅ Saved grid to session via Electron app'
 
-      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+      note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
       document.body.appendChild(note)
 
@@ -45355,7 +45511,7 @@ function checkForElectronGridConfig() {
 
   } catch (error) {
 
-    console.log('ℹ️ Could not check for Electron app config:', error.message);
+    console.log('ℹ️ Could not check for Electron app config:', (error as Error).message);
 
   }
 
@@ -45451,7 +45607,7 @@ function handleElectronGridSave(config: any) {
 
   note.textContent = '✅ Saved grid to session via Electron app'
 
-  note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:#4CAF50;color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
+  note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
   document.body.appendChild(note)
 
@@ -45539,7 +45695,7 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 ;(window as any).clearAllOptimandoSessions = function() {
 
-  console.log('🗑️ Manual NUCLEAR clear - removing EVERYTHING Optimando related')
+  console.log('🗝‘️ Manual NUCLEAR clear - removing EVERYTHING Optimando related')
 
   
 

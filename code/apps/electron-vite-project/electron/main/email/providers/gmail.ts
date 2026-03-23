@@ -23,7 +23,16 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+} from '../domain/orchestratorRemoteTypes'
+import {
+  resolveOrchestratorRemoteNames,
+  REMOTE_DELETION_TARGETS,
+} from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
+import { getCredentialsForOAuth } from '../credentials'
 
 /**
  * Gmail API scopes
@@ -44,7 +53,7 @@ function getOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials
  */
-function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
+export function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
   try {
     const configPath = getOAuthConfigPath()
     if (fs.existsSync(configPath)) {
@@ -74,6 +83,8 @@ export class GmailProvider extends BaseEmailProvider {
   private accessToken: string | null = null
   private refreshToken: string | null = null
   private tokenExpiresAt: number = 0
+  /** User-label name → Gmail label id */
+  private wrDeskLabelIdCache: Map<string, string> = new Map()
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -99,6 +110,7 @@ export class GmailProvider extends BaseEmailProvider {
     this.tokenExpiresAt = 0
     this.connected = false
     this.config = null
+    this.wrDeskLabelIdCache.clear()
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -135,72 +147,90 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const toGmailAfterDate = (isoOrRaw: string): string => {
+      const d = new Date(isoOrRaw)
+      if (Number.isNaN(d.getTime())) {
+        return isoOrRaw.replace(/-/g, '/').slice(0, 10)
+      }
+      const y = d.getUTCFullYear()
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(d.getUTCDate()).padStart(2, '0')
+      return `${y}/${m}/${day}`
+    }
+
     // Build query
     const queryParts: string[] = []
-    
+
     // Folder filter (Gmail uses label IDs)
     if (folder) {
       queryParts.push(`in:${folder}`)
     }
-    
+
     if (options?.search) {
       queryParts.push(options.search)
     }
-    
+
     if (options?.from) {
       queryParts.push(`from:${options.from}`)
     }
-    
+
     if (options?.subject) {
       queryParts.push(`subject:${options.subject}`)
     }
-    
+
     if (options?.unreadOnly) {
       queryParts.push('is:unread')
     }
-    
+
     if (options?.flaggedOnly) {
       queryParts.push('is:starred')
     }
-    
+
     if (options?.hasAttachments) {
       queryParts.push('has:attachment')
     }
-    
+
     if (options?.fromDate) {
-      queryParts.push(`after:${options.fromDate}`)
+      queryParts.push(`after:${toGmailAfterDate(options.fromDate)}`)
     }
-    
+
     if (options?.toDate) {
-      queryParts.push(`before:${options.toDate}`)
+      queryParts.push(`before:${toGmailAfterDate(options.toDate)}`)
     }
-    
+
     const query = queryParts.join(' ')
-    const limit = options?.limit || 50
-    
-    // List messages
-    const listParams = new URLSearchParams({
-      maxResults: limit.toString(),
-      ...(query ? { q: query } : {})
-    })
-    
-    const listResponse = await this.apiRequest(
-      'GET', 
-      `/users/me/messages?${listParams.toString()}`
-    )
-    
-    const messageIds = (listResponse.messages || []).map((m: any) => m.id)
-    
-    // Fetch each message
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
+    const singleLimit = Math.min(Math.max(1, options?.limit ?? 50), 500)
+    const pageSize = syncAll ? Math.min(500, maxTotal) : singleLimit
+
     const messages: RawEmailMessage[] = []
-    
-    for (const id of messageIds) {
-      const msg = await this.fetchMessage(id)
-      if (msg) {
-        messages.push(msg)
+    let pageToken: string | undefined
+
+    for (;;) {
+      const remaining = maxTotal - messages.length
+      if (remaining <= 0) break
+
+      const listParams = new URLSearchParams({
+        maxResults: Math.min(pageSize, remaining).toString(),
+        ...(query ? { q: query } : {}),
+        ...(pageToken ? { pageToken } : {}),
+      })
+
+      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+
+      const batch = (listResponse.messages || []) as Array<{ id: string }>
+      pageToken = listResponse.nextPageToken
+
+      for (const row of batch) {
+        if (messages.length >= maxTotal) break
+        const msg = await this.fetchMessage(row.id)
+        if (msg) messages.push(msg)
       }
+
+      if (!syncAll || !pageToken || batch.length === 0) break
     }
-    
+
     return messages
   }
   
@@ -270,6 +300,109 @@ export class GmailProvider extends BaseEmailProvider {
       })
     }
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.apiRequest(
+      'POST',
+      `/users/me/messages/${messageId}${REMOTE_DELETION_TARGETS.gmail.trashApiSuffix}`,
+    )
+  }
+
+  /**
+   * Gmail mapping (names from `resolveOrchestratorRemoteNames`; defaults match IMAP bucket labels):
+   * - **archive** — remove `INBOX` (All Mail / archive semantics).
+   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting pending-delete label.
+   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + pending-review label.
+   */
+  async applyOrchestratorRemoteOperation(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+    _context?: import('../domain/orchestratorRemoteTypes').OrchestratorRemoteApplyContext,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    try {
+      if (!this.config) {
+        return { ok: false, error: 'Not connected' }
+      }
+      const names = resolveOrchestratorRemoteNames(this.config)
+      const reviewId = await this.ensureWrDeskUserLabel(names.gmail.pendingReviewLabel)
+      const deleteId = await this.ensureWrDeskUserLabel(names.gmail.pendingDeleteLabel)
+
+      if (operation === 'archive') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          removeLabelIds: names.gmail.archiveRemoveLabelIds,
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'pending_review') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [reviewId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId],
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'pending_delete') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [deleteId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId],
+        })
+        return { ok: true }
+      }
+
+      return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      if (this.isGmailIdempotentModifyError(msg)) {
+        return { ok: true, skipped: true }
+      }
+      return { ok: false, error: msg }
+    }
+  }
+
+  private isGmailIdempotentModifyError(message: string): boolean {
+    const m = message.toLowerCase()
+    return (
+      m.includes('invalid label') ||
+      m.includes('label not found') ||
+      m.includes('cannot remove label') ||
+      m.includes('already exists')
+    )
+  }
+
+  private async gmailModifyOrIdempotent(
+    messageId: string,
+    body: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<void> {
+    try {
+      await this.apiRequest('POST', `/users/me/messages/${messageId}/modify`, body)
+    } catch (e: any) {
+      if (this.isGmailIdempotentModifyError(e?.message || '')) return
+      throw e
+    }
+  }
+
+  private async ensureWrDeskUserLabel(displayName: string): Promise<string> {
+    const cached = this.wrDeskLabelIdCache.get(displayName)
+    if (cached) return cached
+
+    const listed = await this.apiRequest('GET', '/users/me/labels')
+    const labels = listed.labels || []
+    const found = labels.find((l: any) => l.name === displayName && l.type === 'user')
+    if (found?.id) {
+      this.wrDeskLabelIdCache.set(displayName, found.id)
+      return found.id
+    }
+
+    const created = await this.apiRequest('POST', '/users/me/labels', {
+      name: displayName,
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    })
+    if (!created?.id) throw new Error('Gmail label create returned no id')
+    this.wrDeskLabelIdCache.set(displayName, created.id)
+    return created.id
+  }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     try {
@@ -314,7 +447,7 @@ export class GmailProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(email?: string): Promise<EmailAccountConfig['oauth']> {
-    const oauthConfig = loadOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('gmail')
     if (!oauthConfig) {
       throw new Error('OAuth client credentials not configured. Please set up Google Cloud Console credentials.')
     }
@@ -458,7 +591,7 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = loadOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('gmail')
     if (!oauthConfig || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
@@ -651,6 +784,7 @@ export class GmailProvider extends BaseEmailProvider {
   
   private buildRfc2822Message(payload: SendEmailPayload): string {
     const lines: string[] = []
+    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`
     
     lines.push(`To: ${payload.to.join(', ')}`)
     if (payload.cc?.length) {
@@ -658,7 +792,6 @@ export class GmailProvider extends BaseEmailProvider {
     }
     lines.push(`Subject: ${payload.subject}`)
     lines.push('MIME-Version: 1.0')
-    lines.push('Content-Type: text/plain; charset=utf-8')
     
     if (payload.inReplyTo) {
       lines.push(`In-Reply-To: ${payload.inReplyTo}`)
@@ -667,8 +800,37 @@ export class GmailProvider extends BaseEmailProvider {
       lines.push(`References: ${payload.references.join(' ')}`)
     }
     
-    lines.push('')
-    lines.push(payload.bodyText)
+    const hasAttachments = payload.attachments?.length && payload.attachments.length > 0
+    
+    if (hasAttachments) {
+      lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
+      lines.push('')
+      lines.push(`--${boundary}`)
+      lines.push('Content-Type: text/plain; charset=utf-8')
+      lines.push('Content-Transfer-Encoding: 7bit')
+      lines.push('')
+      lines.push(payload.bodyText)
+      
+      for (const att of payload.attachments!) {
+        lines.push(`--${boundary}`)
+        const mime = att.mimeType || 'application/octet-stream'
+        const safeName = att.filename.replace(/[^\x20-\x7E]/g, '?')
+        lines.push(`Content-Type: ${mime}; name="${safeName}"`)
+        lines.push('Content-Transfer-Encoding: base64')
+        lines.push(`Content-Disposition: attachment; filename="${safeName}"`)
+        lines.push('')
+        // Split base64 into 76-char lines per RFC 2045
+        const b64 = att.contentBase64.replace(/\s/g, '')
+        for (let i = 0; i < b64.length; i += 76) {
+          lines.push(b64.slice(i, i + 76))
+        }
+      }
+      lines.push(`--${boundary}--`)
+    } else {
+      lines.push('Content-Type: text/plain; charset=utf-8')
+      lines.push('')
+      lines.push(payload.bodyText)
+    }
     
     return lines.join('\r\n')
   }

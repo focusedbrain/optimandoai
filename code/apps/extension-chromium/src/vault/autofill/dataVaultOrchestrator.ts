@@ -647,7 +647,7 @@ async function handleDvIconClick(
       })
     } else if (result.action === 'remapped') {
       auditLog('info', 'DV_REMAP', `DataVault remapped field to: ${result.newVaultKey}`)
-      emitTelemetryEvent('dv_remap', { from: result.oldVaultKey, to: result.newVaultKey })
+      emitTelemetryEvent('dv_remap', { from: result.oldVaultKey ?? '', to: result.newVaultKey ?? '' })
     } else if (result.action === 'denied') {
       auditLog('info', 'DV_DENY_ORIGIN', `DataVault denied for origin: ${result.origin}`)
       _denylisted = true

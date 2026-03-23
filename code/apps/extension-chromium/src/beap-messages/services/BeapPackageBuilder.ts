@@ -13,6 +13,18 @@ import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
 import {
+  buildDefaultProcessingOffer,
+  mergeWithNoneDefaults,
+  validateProcessingEventOffer,
+  validateOfferSet,
+  isProcessingPermitted,
+  type ProcessingEventOffer,
+  type ProcessingEventDeclaration,
+  type ProcessingProvider,
+  type ConsentSelectableOfferSet,
+  type ConsentSelectableOffer,
+} from './processingEvents'
+import {
   deriveBeapKeys,
   generateEnvelopeSalt,
   encryptCapsulePayloadChunked,
@@ -36,15 +48,62 @@ import {
   resetDebugAadStats,
   setDebugAadTrackingEnabled,
   sha256Hex,
+  hmacSha256,
   type EncryptedArtefact,
   type BeapSignature,
   type CapsulePayloadEnc
 } from './beapCrypto'
 import { hasValidX25519Key, deriveSharedSecretX25519, getDeviceX25519PublicKey } from './x25519KeyAgreement'
+import {
+  type OuterEnvelopeHeader,
+  type InnerEnvelopeMetadata,
+  type ArtefactTopology,
+  type ArtefactTopologyEntry,
+  buildArtefactTopology,
+  encryptInnerEnvelope,
+} from './outerEnvelope'
+import {
+  generatePoAERecord,
+  type PoAERecord,
+} from './poae'
+import { normalizeUrls, type ExtractedUrl } from './urlNormalizer'
 
-// =============================================================================
-// Canon Violation Error
-// =============================================================================
+// Re-export processing event types for consumers of this module
+export type {
+  ProcessingEventOffer,
+  ProcessingEventDeclaration,
+  ProcessingProvider,
+  ConsentSelectableOffer,
+  ConsentSelectableOfferSet,
+  ProcessingEventClass,
+  ProcessingBoundary,
+  ProcessingScope,
+  ProcessingRetention
+} from './processingEvents'
+export {
+  buildDefaultProcessingOffer,
+  buildLocalSemanticOffer,
+  buildRemoteSemanticOffer,
+  mergeWithNoneDefaults,
+  validateProcessingEventOffer,
+  validateOfferSet,
+  coerceDeclarationToNoneIfUnboundable,
+  getDeclarationForClass,
+  isProcessingPermitted,
+  getProviderIdsForClass,
+  getRetentionForClass
+} from './processingEvents'
+
+// Re-export outer/inner envelope types for consumers of this module
+export type {
+  OuterEnvelopeHeader,
+  InnerEnvelopeMetadata,
+  ArtefactTopology,
+  ArtefactTopologyEntry,
+} from './outerEnvelope'
+export { buildArtefactTopology } from './outerEnvelope'
+
+
 
 /**
  * Error thrown when a BEAP operation would violate canon requirements.
@@ -284,19 +343,55 @@ export interface BeapPackageConfig {
   policy?: DraftBuildPolicy
   /**
    * @deprecated IGNORED - PQ is now MANDATORY for qBEAP per canon.
-   * 
+   *
    * Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
    * Per canon A.3.13: ".qBEAP MUST be encrypted using post-quantum-ready end-to-end cryptography"
-   * 
+   *
    * This option is retained for backward compatibility but has no effect.
    * qBEAP creation will ALWAYS fail closed if PQ is not available.
    * There is no opt-out from PQ for qBEAP.
    */
   requirePostQuantumForQbeap?: boolean
+
+  /**
+   * Processing Event declarations for this package (per canon A.3.054.9.1 + A.3.054.10.1 + A.3.054.14.1).
+   *
+   * Declares the sender's intent regarding how Capsule-bound content may
+   * be processed by the receiver (AI inference, summarisation, automation).
+   *
+   * PROVIDER BINDING (A.3.054.10.1): When boundary is LOCAL or REMOTE, each
+   * declaration MUST include at least one entry in providers[]. If providers
+   * cannot be listed deterministically, the builder coerces boundary to NONE
+   * via coerceDeclarationToNoneIfUnboundable() — fail-closed, not an error.
+   *
+   * OFFER SET (A.3.054.14.1): A full ProcessingEventOffer may include an
+   * offerSet — a finite list of consent-selectable options the receiver may
+   * present during approval. Offer set presence MUST NOT trigger processing.
+   * Each option's declaration is individually validated. At most one entry
+   * may have isDefault: true (requested preference only, not consent).
+   *
+   * Usage:
+   *   - Omit entirely → buildDefaultProcessingOffer() is used (all-NONE).
+   *   - Provide ProcessingEventDeclaration[] → mergeWithNoneDefaults() fills
+   *     gaps and applies provider coercion for each entry.
+   *   - Provide a full ProcessingEventOffer → validated as-is; invalid
+   *     declarations or offer set violations cause { success: false } (fail-closed).
+   *
+   * Per A.3.054.14.1: absence of a class = NONE for that class. When an offer
+   * set is present, the effective default compiles to NONE unless an explicit
+   * isDefault: true entry exists (and even then, that default is a requested
+   * preference that MUST be confirmed by explicit receiver-side consent).
+   */
+  processingEvents?: ProcessingEventDeclaration[] | ProcessingEventOffer
 }
 
 export interface BeapEnvelopeHeader {
-  version: '1.0'
+  /**
+   * Envelope format version.
+   * '1.0' = legacy flat single-header format (v1.0 packages).
+   * '2.0' = dual-envelope format (v2.0 packages, inner envelope separate).
+   */
+  version: '1.0' | '2.0'
   encoding: 'qBEAP' | 'pBEAP'
   encryption_mode: 'AES-256-GCM' | 'NONE'
   timestamp: number
@@ -307,6 +402,18 @@ export interface BeapEnvelopeHeader {
     display_name: string
     organization?: string
   }
+
+  /**
+   * Opaque recipient eligibility material (qBEAP v2.0 only).
+   *
+   * Per A.3.054.3 + A.3.055 Stage 0 (Normative):
+   *   HMAC-SHA256(handshakeSharedSecret, "BEAP v2 eligibility" || sender_fp || receiver_fp || content_hash)
+   *   Base64-encoded 32-byte opaque token. See `eligibilityCheck.ts` for derivation details.
+   *
+   * Absent on v1.0 packages (legacy eligibility via handshake_id string match).
+   * Present on all v2.0 qBEAP packages.
+   */
+  receiver_eligibility?: string
   template_hash: string
   policy_hash: string
   content_hash: string
@@ -369,7 +476,26 @@ export interface BeapEnvelopeHeader {
    * Declared and enforced by builder, AAD-bound for integrity.
    */
   sizeLimits?: SizeLimits
+
+  /**
+   * Processing Event declarations.
+   *
+   * v1.0 packages (legacy): present here (flat outer header).
+   * v2.0 packages (qBEAP): ABSENT here — moved to InnerEnvelopeMetadata.
+   * v2.0 packages (pBEAP): present here (public-auditable mode, no inner envelope).
+   *
+   * Per A.3.054.9.1 + A.3.054.10.1 + A.3.054.14.1 (Normative):
+   * SENDER-REQUESTED INTENT ONLY. SHALL NOT override receiver-side policy.
+   */
+  processingEvents?: ProcessingEventOffer
 }
+
+/**
+ * Type alias for backward compatibility.
+ * `OuterEnvelopeHeader` from `outerEnvelope.ts` is the canonical type for v2.0.
+ * `BeapEnvelopeHeader` covers both v1.0 and v2.0 on the package wire format.
+ */
+export type { OuterEnvelopeHeader }
 
 /**
  * Plaintext artefact entry (for pBEAP packages)
@@ -399,10 +525,10 @@ export interface BeapArtefactEncrypted {
   /** Original filename (for original artefacts only) */
   filename?: string
   mime: string
-  /** Base64-encoded nonce for this artefact */
-  nonce: string
-  /** Base64-encoded ciphertext */
-  ciphertext: string
+  /** Base64-encoded nonce (legacy single-blob; absent for chunked artefacts) */
+  nonce?: string
+  /** Base64-encoded ciphertext (legacy single-blob; absent for chunked artefacts) */
+  ciphertext?: string
   /** SHA-256 of plaintext (for verification after decrypt) */
   sha256Plain: string
   /** SHA-256 of ciphertext (for integrity verification) */
@@ -416,6 +542,32 @@ export interface BeapArtefactEncrypted {
 
 export interface BeapPackage {
   header: BeapEnvelopeHeader
+  /**
+   * Outer envelope version.
+   *
+   * '1.0' = legacy flat single-header format. `header` contains all fields.
+   *         `innerEnvelopeCiphertext` is absent. processingEvents is on `header`.
+   * '2.0' = dual-envelope format (A.3.055 Stage 4).
+   *         `innerEnvelopeCiphertext` is present for qBEAP packages.
+   *         processingEvents is inside the inner envelope (qBEAP) or on `header` (pBEAP).
+   *
+   * Absent (undefined) = legacy v1.0 for backward compat with pre-versioned packages.
+   */
+  outerEnvelopeVersion?: '1.0' | '2.0'
+
+  /**
+   * Encrypted inner envelope blob (v2.0 qBEAP packages only).
+   *
+   * Wire format: `<nonce_b64>.<ciphertext_b64>` (AES-256-GCM).
+   * AAD = canonical serialization of outer header fields.
+   * Key = innerEnvelopeKey derived from HKDF('BEAP v2 inner-envelope').
+   *
+   * Present only when `outerEnvelopeVersion === '2.0'` AND `header.encoding === 'qBEAP'`.
+   * Absent for pBEAP (no inner envelope — public-auditable mode).
+   * Absent for v1.0 packages.
+   */
+  innerEnvelopeCiphertext?: string
+
   /** 
    * For pBEAP: Base64-encoded plaintext JSON
    * For qBEAP: NOT used (see payloadEnc)
@@ -447,6 +599,15 @@ export interface BeapPackage {
    * Encrypted artefacts (qBEAP only)
    */
   artefactsEnc?: BeapArtefactEncrypted[]
+  /**
+   * Sender-side Proof of Authenticated Execution record (A.3.054.12 — Normative).
+   *
+   * Generated ONLY after the capsule is fully finalized (encrypted, signed, inner envelope
+   * committed). Binds to the finalized capsule state. No modification permitted after
+   * PoAE binding. When `poae.anchorRequired === true`, receivers MUST verify the
+   * anchor at Stage 2 before any capsule access.
+   */
+  poae?: PoAERecord
 }
 
 export interface PackageBuildResult {
@@ -527,8 +688,65 @@ export function canBuildPackage(config: BeapPackageConfig): boolean {
 }
 
 // =============================================================================
-// Hash Generation (Real SHA-256)
+// Processing Event Resolution (A.3.054.9.1)
 // =============================================================================
+
+/**
+ * Resolve the ProcessingEventOffer from config input.
+ *
+ * Accepts three forms from config.processingEvents:
+ *   1. undefined / null        → canonical all-NONE default (A.3.054.14.1)
+ *   2. ProcessingEventDeclaration[] → merged with NONE defaults for missing classes
+ *   3. ProcessingEventOffer         → used as-is after validation
+ *
+ * Returns { offer } on success or { error } on validation failure (fail-closed).
+ */
+function resolveProcessingEventOffer(
+  input: BeapPackageConfig['processingEvents']
+): { offer: ProcessingEventOffer } | { error: string } {
+  // Case 1: omitted → canonical default
+  if (input === undefined || input === null) {
+    return { offer: buildDefaultProcessingOffer() }
+  }
+
+  // Case 2: array of declarations → merge with NONE defaults
+  if (Array.isArray(input)) {
+    const offer = mergeWithNoneDefaults(input)
+    const errors = validateProcessingEventOffer(offer)
+    if (errors.length > 0) {
+      const messages = errors.map(e => `[${e.code}] ${e.message}`).join('; ')
+      return {
+        error: `POLICY: processingEvents validation failed: ${messages}`
+      }
+    }
+    return { offer }
+  }
+
+  // Case 3: full ProcessingEventOffer → validate declarations and offer set
+  const offer = input as ProcessingEventOffer
+  const errors = validateProcessingEventOffer(offer)
+  if (errors.length > 0) {
+    const messages = errors.map(e => `[${e.code}] ${e.message}`).join('; ')
+    return {
+      error: `POLICY: processingEvents validation failed: ${messages}`
+    }
+  }
+
+  // Validate offer set when present (A.3.054.14.1)
+  if (offer.offerSet !== undefined) {
+    const offerSetErrors = validateOfferSet(offer.offerSet)
+    if (offerSetErrors.length > 0) {
+      const messages = offerSetErrors.map(e => `[${e.code}] ${e.message}`).join('; ')
+      return {
+        error: `POLICY: offerSet validation failed: ${messages}`
+      }
+    }
+  }
+
+  return { offer }
+}
+
+
 
 // Note: These are now async and use the beapCrypto module functions:
 // - computeContentHash(body, attachments)
@@ -714,16 +932,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       error: 'SECURITY: qBEAP requires handshake binding. No handshake_id available.'
     }
   }
-  
-  // SECURITY: qBEAP REQUIRES real key agreement - NO FALLBACK
-  // Per canon A.3.054.10: "uses post-quantum encryption as the default for qBEAP"
-  // X25519 is the minimum requirement (stepping stone to PQ hybrid)
+
+  // SECURITY: Handshakes without full key material are INVALID. No upgrade path.
+  // Defensive guard — if a handshake without keys somehow reaches the builder, fail closed.
   const hasX25519KeyMaterial = hasValidX25519Key(recipient.peerX25519PublicKey)
-  
-  if (!hasX25519KeyMaterial) {
+  const hasPQKeyMaterial = !!(recipient.peerPQPublicKey && recipient.peerPQPublicKey.trim())
+  if (!hasX25519KeyMaterial || !hasPQKeyMaterial) {
     return {
       success: false,
-      error: 'SECURITY: qBEAP requires cryptographic key agreement. Selected handshake has no X25519 public key. Complete the handshake key exchange before sending private messages.'
+      error: 'Invalid handshake — missing cryptographic key material.'
     }
   }
   
@@ -748,8 +965,21 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
 
   // Determine authoritative content for capsule
   const hasEncryptedMessage = config.encryptedMessage && config.encryptedMessage.trim().length > 0
-  const authoritativeBody = hasEncryptedMessage ? config.encryptedMessage! : config.messageBody
-  const transportPlaintext = config.messageBody // Always the outer plaintext for transport
+  const rawAuthoritativeBody = hasEncryptedMessage ? config.encryptedMessage! : config.messageBody
+  const rawTransportPlaintext = config.messageBody // Always the outer plaintext for transport
+
+  // A.3.054.6 — URL normalization (Normative): all URLs must be in plain text form;
+  // no URLs may be directly executable or clickable inside the WRGuard™ processing boundary.
+  const authNormResult = normalizeUrls(rawAuthoritativeBody)
+  const transportNormResult = normalizeUrls(rawTransportPlaintext)
+  const authoritativeBody = authNormResult.normalizedText
+  const transportPlaintext = transportNormResult.normalizedText
+  // Consolidated URL references for the capsule metadata (deduped by normalizedUrl)
+  const normalizedUrlRefs: ExtractedUrl[] = Object.values(
+    [...authNormResult.extractedUrls, ...transportNormResult.extractedUrls].reduce<
+      Record<string, ExtractedUrl>
+    >((acc, u) => { acc[u.normalizedUrl] ??= u; return acc }, {})
+  )
 
   // Build automation metadata (capsule-bound)
   const automationMeta = buildAutomationMetadata(config.encryptedMessage, config.messageBody)
@@ -763,7 +993,18 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     }
   }
 
-  // SECURITY: Leak prevention assertion - encrypted message must never appear in transport plaintext
+  // ==========================================================================
+  // Resolve Processing Event Offer (A.3.054.9.1 — Normative)
+  // ==========================================================================
+  // Done early (before hashes) because processingEvents is included in the
+  // Envelope header which feeds into AAD. Fail closed on invalid declarations.
+  const processingEventsResult = resolveProcessingEventOffer(config.processingEvents)
+  if ('error' in processingEventsResult) {
+    return { success: false, error: processingEventsResult.error }
+  }
+  const processingEventOffer = processingEventsResult.offer
+
+
   if (hasEncryptedMessage && transportPlaintext.includes(config.encryptedMessage!)) {
     return {
       success: false,
@@ -844,7 +1085,34 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   hybridSecret.set(ecdhResult.sharedSecret, pqKemResult.sharedSecretBytes.length)  // Classical second
   
   // Derive capsule and artefact keys via HKDF-SHA256 from hybrid secret
-  const { capsuleKey, artefactKey } = await deriveBeapKeys(hybridSecret, envelopeSalt)
+  const { capsuleKey, artefactKey, innerEnvelopeKey } = await deriveBeapKeys(hybridSecret, envelopeSalt)
+
+  // ==========================================================================
+  // Generate Eligibility Material (A.3.054.3 + A.3.055 Stage 0 — Normative)
+  // ==========================================================================
+  // Opaque, non-disclosing token proving receiver is the intended recipient.
+  // Only a party holding the exact matching handshake shared secret can verify.
+  //
+  // Construction:
+  //   HMAC-SHA256(
+  //     key  = hybridSecret (64-byte PQ hybrid shared secret),
+  //     data = "BEAP v2 eligibility" || sender_fp || ":" || receiver_fp || ":" || content_hash
+  //   )
+  //
+  // Per A.3.054.3 (Normative):
+  //   - Derived exclusively from selected handshake material.
+  //   - Cryptographically bound to (a) sender endpoint identity,
+  //     (b) receiver endpoint identity, (c) Capsule context hash.
+  //   - Strictly size-bounded (32 bytes), format-fixed, opaque.
+  //   - No plaintext or globally inspectable identifiers in output.
+  const eligibilityInput = new TextEncoder().encode(
+    'BEAP v2 eligibility' +
+    config.senderFingerprint + ':' +
+    (recipient.receiver_fingerprint_full ?? '') + ':' +
+    contentHash
+  )
+  const eligibilityTag = await hmacSha256(hybridSecret, eligibilityInput)
+  const receiverEligibility = toBase64(eligibilityTag)
   
   // ==========================================================================
   // Build PQ Metadata (includes KEM ciphertext for recipient decapsulation)
@@ -863,9 +1131,14 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   
   const capsulePayloadJson = JSON.stringify({
     subject: config.subject || 'BEAP™ Message',
-    body: authoritativeBody, // Authoritative content (encryptedMessage if provided)
-    transport_plaintext: transportPlaintext, // Non-authoritative outer message
+    body: authoritativeBody, // Authoritative content (encryptedMessage if provided), URL-normalized per A.3.054.6
+    transport_plaintext: transportPlaintext, // Non-authoritative outer message, URL-normalized
     has_authoritative_encrypted: hasEncryptedMessage,
+    // A.3.054.6: extracted URL references (non-clickable; display only)
+    normalized_url_refs: normalizedUrlRefs.map(u => ({
+      url: u.normalizedUrl,
+      scheme: u.scheme,
+    })),
     // Full attachment metadata including parsed semantic content and raster proof
     attachments: config.attachments?.map(att => ({
       id: att.id,
@@ -954,12 +1227,13 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // The signing fields will be added after encryption is complete.
   
   const headerPreSignature = {
-    version: '1.0',
+    version: '2.0',
     encoding: 'qBEAP',
     encryption_mode: 'AES-256-GCM',
     timestamp: now,
     sender_fingerprint: config.senderFingerprint,
     receiver_fingerprint: recipient.receiver_fingerprint_full,
+    receiver_eligibility: receiverEligibility,
     template_hash: templateHash,
     policy_hash: policyHash,
     content_hash: contentHash,
@@ -974,7 +1248,9 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
       senderX25519PublicKeyB64,
       pq: pqMetadata
     },
-    sizeLimits  // Per canon A.3.054.9: declared in header and AAD-bound
+    sizeLimits,  // Per canon A.3.054.9: declared in header and AAD-bound
+    // processingEvents is NOT in outer header AAD for qBEAP v2.0 —
+    // it is in the encrypted inner envelope (innerEnvelopeCiphertext).
   }
   
   // ==========================================================================
@@ -984,14 +1260,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Any modification of eligibility material, size declarations, chunk topology,
   // or commitments is detected prior to further processing.
   
-  const aadFields = buildEnvelopeAadFields(headerPreSignature as Parameters<typeof buildEnvelopeAadFields>[0])
+  const aadFields = buildEnvelopeAadFields(headerPreSignature as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
   const aadBytes = canonicalSerializeAAD(aadFields)
   
   // Debug assertion: AAD must be non-empty for qBEAP (fail-closed sanity check)
   if (aadBytes.length === 0) {
     throw new BeapCanonViolationError(
-      'A.3.054.10',
-      'AAD bytes are empty for qBEAP; canonical header fields must be present'
+      'A.3.054.10: AAD bytes are empty for qBEAP; canonical header fields must be present',
+      ['A.3.054.10'],
+      'AAD must be non-empty for qBEAP'
     )
   }
   
@@ -1051,15 +1328,16 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // ==========================================================================
 
   const header: BeapEnvelopeHeader = {
-    version: '1.0',
+    version: '2.0',
     encoding: 'qBEAP',
     encryption_mode: 'AES-256-GCM',
     timestamp: now,
     sender_fingerprint: config.senderFingerprint,
     receiver_fingerprint: recipient.receiver_fingerprint_full,
+    receiver_eligibility: receiverEligibility,
     receiver_binding: {
       handshake_id: recipient.handshake_id,
-      display_name: recipient.receiver_display_name,
+      display_name: recipient.receiver_display_name ?? '',
       organization: recipient.receiver_organization
     },
     template_hash: templateHash,
@@ -1097,7 +1375,10 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     },
     // Size limits (per canon A.3.054.9)
     // Declared in header and AAD-bound for integrity
-    sizeLimits
+    sizeLimits,
+    // processingEvents is NOT on the outer header for qBEAP v2.0 packages.
+    // It is in the encrypted InnerEnvelopeMetadata (see innerEnvelopeCiphertext below).
+    // Per A.3.055 Stage 4: governance/expectation fields belong in the inner envelope.
   }
 
   // ==========================================================================
@@ -1108,7 +1389,7 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   
   if (debugValidationEnabled && aadHashPre) {
     // Recompute AAD from headerPreSignature (should be unchanged)
-    const aadFieldsPreSign = buildEnvelopeAadFields(headerPreSignature as Parameters<typeof buildEnvelopeAadFields>[0])
+    const aadFieldsPreSign = buildEnvelopeAadFields(headerPreSignature as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
     const aadBytesPreSign = canonicalSerializeAAD(aadFieldsPreSign)
     const aadHashPreSign = await sha256Hex(aadBytesPreSign)
     
@@ -1120,6 +1401,47 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     }
   }
   
+  // ==========================================================================
+  // Build and Encrypt Inner Envelope (A.3.055 Stage 4)
+  // ==========================================================================
+  // processingEvents and governance metadata belong in the encrypted inner
+  // envelope for qBEAP v2.0 packages. The inner envelope is AEAD-encrypted
+  // with a key derived from the same shared secret (distinct HKDF label),
+  // and bound to the outer header via AAD.
+  //
+  // Per A.3.055 Stage 4 (Normative):
+  //   - Inner envelope MUST be cryptographically bound to outer envelope material.
+  //   - Inner envelope MUST be AEAD-authenticated; fail-closed on failure.
+  //   - Inner envelope MUST NOT contain user data or original artefacts.
+  //   - All constraints declared here MUST be enforced BEFORE capsule access.
+
+  const artefactTopology = buildArtefactTopology(config.attachments ?? [])
+
+  // Build policy fingerprint from processingEvents offer
+  const policyFingerprintInput = JSON.stringify(processingEventOffer)
+  const policyFingerprint = await sha256Hex(new TextEncoder().encode(policyFingerprintInput))
+
+  const innerMetadata: InnerEnvelopeMetadata = {
+    schemaVersion: '1.0',
+    processingEvents: processingEventOffer,
+    artefactTopology,
+    policyFingerprint,
+    // Automation tag metadata (from capsule content — no tag values, only governance summary)
+    automationTagMetadata: undefined, // populated post-capsule-parse; set to undefined at build time
+    // Retention declarations forwarded for early Stage 4 enforcement on receive
+    retentionDeclarations: {
+      semantic: processingEventOffer.declarations.find(d => d.class === 'semantic')?.retention ?? 'NONE',
+      actuating: processingEventOffer.declarations.find(d => d.class === 'actuating')?.retention ?? 'NONE',
+    },
+    boundTimestamp: now,
+  }
+
+  const innerEnvelopeCiphertext = await encryptInnerEnvelope(
+    innerMetadata,
+    innerEnvelopeKey,
+    aadBytes // AAD = canonical outer header bytes — binds inner to outer
+  )
+
   // ==========================================================================
   // Generate Signature
   // ==========================================================================
@@ -1156,24 +1478,55 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Create signature
   const signature = await createBeapSignature(signingKeyPair, signingData)
 
-  const shortFp = recipient.receiver_fingerprint_short.replace(/[…\.]/g, '').slice(0, 8)
+  const shortFp = (recipient.receiver_fingerprint_short ?? '').replace(/[…\.]/g, '').slice(0, 8)
   const dateStr = new Date(now).toISOString().slice(0, 10).replace(/-/g, '')
   const filename = `beap_${dateStr}_${shortFp}.beap`
 
   const pkg: BeapPackage = {
     header,
+    outerEnvelopeVersion: '2.0',
+    innerEnvelopeCiphertext,
     // Encrypted payload (no plaintext payload for qBEAP)
     payloadEnc,
     signature,
     metadata: {
       created_at: now,
       delivery_method: config.deliveryMethod,
-      delivery_hint: recipient.receiver_email_list[0] || config.emailTo,
+      delivery_hint: recipient.receiver_email_list?.[0] || config.emailTo,
       filename
     },
     // Encrypted artefacts (no plaintext artefacts for qBEAP)
     artefactsEnc
   }
+
+  // ==========================================================================
+  // PoAE Record Generation (A.3.054.12 — Normative)
+  // ==========================================================================
+  // PoAE is generated ONLY when the package carries automation/execution content
+  // (actuating processing events with boundary !== NONE). Simple messages
+  // (text + attachments, no automation) do not require PoAE per canon.
+  const shouldGeneratePoAE = isProcessingPermitted(processingEventOffer, 'actuating')
+  let poaeRecord: PoAERecord | undefined
+  if (shouldGeneratePoAE) {
+    try {
+      poaeRecord = await generatePoAERecord({
+        capsuleHash: payloadEnc.sha256Plain,
+        policyFingerprint: header.policy_hash,
+        envelopeAADBytes: aadBytes,
+        packageSignature: signature,
+        anchorRequired: false,
+      })
+    } catch (poaeErr) {
+      return {
+        success: false,
+        error: poaeErr instanceof Error && /atob|base64/i.test(poaeErr.message)
+          ? 'Could not create execution proof. Check your session configuration.'
+          : `POAE: Failed to generate PoAE record: ${poaeErr instanceof Error ? poaeErr.message : String(poaeErr)}`
+      }
+    }
+  }
+
+  pkg.poae = poaeRecord ?? undefined
 
   // ==========================================================================
   // Dev-Only Build Validation (gated behind BEAP_DEBUG_VALIDATE)
@@ -1206,21 +1559,35 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
 async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage> {
   const now = Date.now()
 
-  // Compute hashes
+  // A.3.054.6 — URL normalization for pBEAP content (must happen before hashing)
+  const pbeapNormResult = normalizeUrls(config.messageBody)
+  const pbeapNormalizedBody = pbeapNormResult.normalizedText
+  const pbeapUrlRefs = pbeapNormResult.extractedUrls
+
+  // Compute hashes (using URL-normalized body so hash is deterministic over normalized content)
   const [templateHash, policyHash, contentHash] = await Promise.all([
     computeTemplateHash('beap-default-v1', '1.0.0'),
     computePolicyHash(config.policy),
     computeContentHash(
-      config.messageBody,
+      pbeapNormalizedBody,
       config.attachments?.map(a => ({ originalName: a.originalName, originalSize: a.originalSize }))
     )
   ])
-  
+
+  // Resolve Processing Event Offer (A.3.054.9.1)
+  // pBEAP defaults to all-NONE unless sender explicitly requests otherwise.
+  // Invalid declarations throw — caller wraps in try/catch.
+  const processingEventsResult = resolveProcessingEventOffer(config.processingEvents)
+  if ('error' in processingEventsResult) {
+    throw new Error(processingEventsResult.error)
+  }
+  const processingEventOffer = processingEventsResult.offer
+
   // Get signing key pair
   const signingKeyPair = await getSigningKeyPair()
 
   const header: BeapEnvelopeHeader = {
-    version: '1.0',
+    version: '2.0',
     encoding: 'pBEAP',
     encryption_mode: 'NONE',
     timestamp: now,
@@ -1246,13 +1613,22 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
         'pBEAP: Original artefacts not encrypted (per canon A.3.043: encryption is qBEAP-only)',
         'Canon source: external (not in repository)'
       ]
-    }
+    },
+    // pBEAP has NO inner envelope (public-auditable mode).
+    // processingEvents stays on the outer header for public inspection/audit.
+    // Per A.3.055 Stage 4: inner envelope is qBEAP-only.
+    processingEvents: processingEventOffer
   }
 
   // Plaintext payload for public distribution
   const payloadPlain = JSON.stringify({
     subject: config.subject || 'BEAP Public Message',
-    body: config.messageBody,
+    body: pbeapNormalizedBody,
+    // A.3.054.6: extracted URL references (non-clickable; display only)
+    normalized_url_refs: pbeapUrlRefs.map(u => ({
+      url: u.normalizedUrl,
+      scheme: u.scheme,
+    })),
     // Full attachment metadata for public package
     attachments: config.attachments?.map(att => ({
       id: att.id,
@@ -1289,8 +1665,33 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
   const dateStr = new Date(now).toISOString().slice(0, 10).replace(/-/g, '')
   const filename = `beap_${dateStr}_PUBLIC.beap`
 
+  // ==========================================================================
+  // PoAE Record Generation (A.3.054.12 — Normative)
+  // ==========================================================================
+  // pBEAP: PoAE only when actuating processing is declared. Otherwise skip.
+  // pBEAP PoAE is best-effort — public packages are not fail-closed on PoAE.
+  const pbeapShouldGeneratePoAE = isProcessingPermitted(processingEventOffer, 'actuating')
+  let pbeapPoaeRecord: PoAERecord | undefined
+  if (pbeapShouldGeneratePoAE) {
+    try {
+      const pbeapAadFields = buildEnvelopeAadFields(header as unknown as Parameters<typeof buildEnvelopeAadFields>[0])
+      const pbeapAadBytes = canonicalSerializeAAD(pbeapAadFields)
+      pbeapPoaeRecord = await generatePoAERecord({
+        capsuleHash: contentHash,
+        policyFingerprint: header.policy_hash,
+        envelopeAADBytes: pbeapAadBytes,
+        packageSignature: signature,
+        anchorRequired: false,
+      })
+    } catch {
+      // pBEAP PoAE is best-effort — anchor failures do not invalidate the package
+    }
+  }
+
   return {
     header,
+    outerEnvelopeVersion: '2.0',
+    // pBEAP has no inner envelope (public-auditable mode, no encryption)
     payload: payloadEncoded,
     signature,
     metadata: {
@@ -1302,7 +1703,8 @@ async function buildPBeapPackage(config: BeapPackageConfig): Promise<BeapPackage
     // Include raster artefacts (base64 page images) if provided
     artefacts: config.rasterArtefacts && config.rasterArtefacts.length > 0
       ? config.rasterArtefacts
-      : undefined
+      : undefined,
+    poae: pbeapPoaeRecord,
   }
 }
 
@@ -1484,7 +1886,7 @@ export async function executeEmailAction(
   config: BeapPackageConfig
 ): Promise<DeliveryResult> {
   const toAddress = config.recipientMode === 'private'
-    ? config.selectedRecipient?.receiver_email_list[0] || config.emailTo
+    ? config.selectedRecipient?.receiver_email_list?.[0] || config.emailTo
     : config.emailTo
 
   if (!toAddress) {
@@ -1501,32 +1903,56 @@ export async function executeEmailAction(
   // SECURITY: Validate no encrypted content leaks via email transport
   validateEmailTransportContract(emailContract, config)
 
-  // Stub: In production, would integrate with email provider
-  // NOTE: Intentionally NOT logging messageBody or encryptedMessage content
-  console.log('[BEAP Email] Sending package:', {
+  const sendPayload = {
     to: toAddress,
-    encoding: pkg.header.encoding,
-    filename: emailContract.attachments[0]?.name,
     subject: emailContract.subject,
-    bodyLength: emailContract.body.length,
-    // SECURITY: Never log body content or encryptedMessage
-  })
+    body: emailContract.body,
+    attachments: emailContract.attachments
+  }
 
-  // Simulate email send
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // Try real email send via Electron IPC (window.email) or extension background (chrome.runtime)
+  let sendResult: { ok: boolean; error?: string } | null = null
 
-  const recipientLabel = config.recipientMode === 'private'
-    ? `${config.selectedRecipient?.receiver_display_name} (${config.selectedRecipient?.receiver_fingerprint_short})`
-    : toAddress
-
-  return {
-    success: true,
-    action: 'sent',
-    message: `BEAP™ ${pkg.header.encoding} package sent to ${recipientLabel}`,
-    details: {
-      to: toAddress,
-      filename: emailContract.attachments[0]?.name
+  if (typeof window !== 'undefined' && typeof (window as any).email?.sendBeapEmail === 'function') {
+    try {
+      sendResult = await (window as any).email.sendBeapEmail(sendPayload)
+    } catch (err) {
+      sendResult = { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
+  } else if (typeof (globalThis as any).chrome !== 'undefined' && (globalThis as any).chrome?.runtime?.sendMessage) {
+    try {
+      sendResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        ;(globalThis as any).chrome.runtime.sendMessage(
+          { type: 'EMAIL_SEND_BEAP', ...sendPayload },
+          (response: { ok?: boolean; error?: string } | undefined) => {
+            resolve(response ? { ok: !!response.ok, error: response.error } : { ok: false, error: 'No response' })
+          }
+        )
+      })
+    } catch (err) {
+      sendResult = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  if (sendResult?.ok) {
+    const recipientLabel = config.recipientMode === 'private'
+      ? `${config.selectedRecipient?.receiver_display_name} (${config.selectedRecipient?.receiver_fingerprint_short})`
+      : toAddress
+    return {
+      success: true,
+      action: 'sent',
+      message: `BEAP™ ${pkg.header.encoding} package sent to ${recipientLabel}`,
+      details: { to: toAddress, filename: emailContract.attachments[0]?.name }
+    }
+  }
+
+  // Fallback: email not available — download instead
+  const downloadResult = await executeDownloadAction(pkg, config)
+  return {
+    ...downloadResult,
+    message: sendResult?.error
+      ? `Email not available (${sendResult.error}) — downloading instead`
+      : 'Email not available — downloading instead'
   }
 }
 
@@ -1623,6 +2049,60 @@ export async function executeDownloadAction(
 }
 
 /**
+ * P2P action - Send package via P2P relay
+ */
+export async function executeP2PAction(
+  pkg: BeapPackage,
+  config: BeapPackageConfig
+): Promise<DeliveryResult> {
+  const recipient = config.selectedRecipient
+  const handshakeId = recipient && 'handshake_id' in recipient
+    ? (recipient as { handshake_id: string }).handshake_id
+    : null
+  const p2pEndpoint = recipient && 'p2pEndpoint' in recipient
+    ? (recipient as { p2pEndpoint?: string | null }).p2pEndpoint
+    : null
+  if (!handshakeId) {
+    return {
+      success: false,
+      action: 'sent',
+      message: 'P2P delivery requires a handshake recipient'
+    }
+  }
+  if (!p2pEndpoint || typeof p2pEndpoint !== 'string' || p2pEndpoint.trim().length === 0) {
+    return {
+      success: false,
+      action: 'sent',
+      message: 'Recipient has no P2P endpoint'
+    }
+  }
+  try {
+    const { sendBeapViaP2P } = await import('../../handshake/handshakeRpc')
+    const packageJson = JSON.stringify(pkg)
+    const result = await sendBeapViaP2P(handshakeId, packageJson)
+    if (result?.success) {
+      return {
+        success: true,
+        action: 'sent',
+        message: 'BEAP™ package sent via P2P'
+      }
+    }
+    return {
+      success: false,
+      action: 'sent',
+      message: result?.error ?? 'P2P delivery failed'
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'P2P delivery failed'
+    return {
+      success: false,
+      action: 'sent',
+      message: msg
+    }
+  }
+}
+
+/**
  * Execute the appropriate action based on delivery method
  */
 export async function executeDeliveryAction(
@@ -1635,7 +2115,7 @@ export async function executeDeliveryAction(
     return {
       success: false,
       action: config.deliveryMethod === 'email' ? 'sent' : 
-              config.deliveryMethod === 'messenger' ? 'copied' : 'downloaded',
+              config.deliveryMethod === 'p2p' ? 'sent' : 'downloaded',
       message: buildResult.error || 'Failed to build package'
     }
   }
@@ -1646,10 +2126,10 @@ export async function executeDeliveryAction(
   switch (config.deliveryMethod) {
     case 'email':
       return executeEmailAction(pkg, config)
-    case 'messenger':
-      return executeMessengerAction(pkg, config)
     case 'download':
       return executeDownloadAction(pkg, config)
+    case 'p2p':
+      return executeP2PAction(pkg, config)
     default:
       return {
         success: false,

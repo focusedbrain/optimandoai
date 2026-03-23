@@ -108,6 +108,7 @@ export function setQsoFillActive(active: boolean): void {
 function devWriteCanary(): void {
   // Only enforce in dev builds — production must never throw here
   try {
+    // @ts-expect-error Vite injects import.meta.env at build time; not in TS types for content scripts
     if (!import.meta.env?.DEV) return
   } catch {
     return

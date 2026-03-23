@@ -13,9 +13,10 @@
  * @version 1.1.0
  */
 
-import React, { useRef, useState, useCallback } from 'react'
+import React, { useRef, useState, useCallback, useEffect } from 'react'
 import type { CapsuleState, CapsuleAttachment, CapsuleSessionRef, CapabilityClass } from '../canonical-types'
 import { processAttachmentForParsing, isParseableFormat } from '../parserService'
+import { VisionFallbackButton } from './VisionFallbackButton'
 
 interface CapsuleSectionProps {
   capsule: CapsuleState
@@ -53,6 +54,8 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
   const inputBorder = isProfessional ? 'rgba(15,23,42,0.15)' : 'rgba(255,255,255,0.15)'
   
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Store base64 per attachment for Vision AI fallback when parsing fails
+  const attachmentDataMap = useRef<Map<string, string>>(new Map())
   
   // Track parsing status per attachment
   const [parsingAttachments, setParsingAttachments] = useState<Set<string>>(new Set())
@@ -91,6 +94,7 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
     try {
       // Read file as base64
       const base64Data = await readFileAsBase64(file)
+      attachmentDataMap.current.set(attachment.id, base64Data)
       
       // Call parser service
       const result = await processAttachmentForParsing(attachment, base64Data)
@@ -118,6 +122,14 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
     }
   }, [readFileAsBase64, onUpdateAttachment])
   
+  // Clean up base64 cache when attachments are removed
+  useEffect(() => {
+    const currentIds = new Set(capsule.attachments.map(a => a.id))
+    for (const id of attachmentDataMap.current.keys()) {
+      if (!currentIds.has(id)) attachmentDataMap.current.delete(id)
+    }
+  }, [capsule.attachments])
+  
   // Handle file selection
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -132,11 +144,12 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
         originalName: file.name,
         originalSize: file.size,
         originalType: file.type,
-        semanticContent: null, // Will be extracted by parser
+        semanticContent: null,
         semanticExtracted: false,
         encryptedRef: `encrypted_${crypto.randomUUID()}`,
-        encryptedHash: '', // Will be computed
+        encryptedHash: '',
         previewRef: null,
+        rasterProof: null,
         isMedia,
         hasTranscript: false
       }
@@ -284,6 +297,26 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
                       }
                     </div>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {att.originalType?.toLowerCase() === 'application/pdf' &&
+                     !att.semanticExtracted &&
+                     !parsingAttachments.has(att.id) &&
+                     attachmentDataMap.current.get(att.id) &&
+                     onUpdateAttachment && (
+                      <VisionFallbackButton
+                        attachment={att}
+                        dataBase64={attachmentDataMap.current.get(att.id)!}
+                        onSuccess={(text) => {
+                          onUpdateAttachment(att.id, { semanticContent: text, semanticExtracted: true })
+                          setParseErrors(prev => {
+                            const next = { ...prev }
+                            delete next[att.id]
+                            return next
+                          })
+                        }}
+                        theme={theme === 'professional' ? 'professional' : theme === 'dark' ? 'dark' : 'default'}
+                      />
+                    )}
                   <button
                     onClick={() => onRemoveAttachment(att.id)}
                     style={{
@@ -297,6 +330,7 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
                   >
                     ×
                   </button>
+                  </div>
                 </div>
               ))}
             </div>

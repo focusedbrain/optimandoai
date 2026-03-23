@@ -1,32 +1,22 @@
 import { useEffect, useState, useCallback } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
+import HandshakeView from './components/HandshakeView'
+import HybridSearch from './components/HybridSearch'
+import HandshakeInitiateModal from './components/HandshakeInitiateModal'
+import SettingsView from './components/SettingsView'
+import EmailInboxView from './components/EmailInboxView'
+import EmailInboxBulkView from './components/EmailInboxBulkView'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
+import './components/handshakeViewTypes'
 
-// Type declaration for the Analysis Dashboard preload API
-declare global {
-  interface Window {
-    analysisDashboard?: {
-      onOpen: (callback: (rawPayload: unknown) => void) => () => void
-      onThemeChange: (callback: (theme: string) => void) => () => void
-      requestTheme: () => void
-      setTheme: (theme: string) => void
-      openBeapInbox: () => void
-    }
-  }
-}
-
-// Extension theme types: 'pro' (purple), 'dark', 'standard' (light/white - default)
+type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
-// Map extension theme to CSS data-ui-theme attribute
 function mapThemeToCss(theme: ExtensionTheme): string {
-  // 'pro' is purple theme, 'dark' stays dark, 'standard' is light (default)
   return theme
 }
 
-// WR Desk Logo Component - using original PNG logo
-// Use relative path for Electron file:// protocol compatibility
 function WRCodeLogo({ size = 220 }: { size?: number }) {
   return (
     <img 
@@ -41,7 +31,6 @@ function WRCodeLogo({ size = 220 }: { size?: number }) {
   )
 }
 
-// Helper to normalize theme string to ExtensionTheme
 function normalizeTheme(theme: string): ExtensionTheme {
   let mapped = theme.toLowerCase()
   if (mapped === 'default') return 'pro'
@@ -49,57 +38,19 @@ function normalizeTheme(theme: string): ExtensionTheme {
   return (['pro', 'dark', 'standard'].includes(mapped) ? mapped : 'standard') as ExtensionTheme
 }
 
-// BEAP Inbox button component - opens the WRChat popup with BEAP Messages preselected
-function BeapInboxButton() {
-  const handleClick = useCallback(() => {
-    console.log('[BEAP_INBOX] Opening BEAP Inbox popup')
-    window.analysisDashboard?.openBeapInbox()
-  }, [])
-
-  return (
-    <button
-      className="beap-inbox-btn"
-      onClick={handleClick}
-      title="Open BEAP Inbox"
-    >
-      <span className="beap-inbox-btn__label">BEAP™ Inbox</span>
-    </button>
-  )
-}
-
-// Theme selector component - allows manual theme changes
-function ThemeSelector({ value, onChange }: { value: ExtensionTheme, onChange: (v: ExtensionTheme) => void }) {
-  // Ensure value is valid (value is already ExtensionTheme, but ensure it's one of the valid ones)
-  const safeValue = (['standard', 'pro', 'dark'].includes(value) ? value : 'standard') as ExtensionTheme
-  
-  return (
-    <div className="theme-switcher">
-      <span className="theme-switcher__label">Theme</span>
-      <select
-        key={safeValue} // Force re-render when value changes
-        value={safeValue}
-        onChange={(e) => {
-          const newTheme = e.target.value as ExtensionTheme
-          console.log('[THEME_SELECTOR] Theme changed to:', newTheme)
-          onChange(newTheme)
-        }}
-        className="theme-switcher__select"
-        aria-label="Theme selection"
-      >
-        <option value="standard">Standard</option>
-        <option value="pro">Pro</option>
-        <option value="dark">Dark</option>
-      </select>
-    </div>
-  )
-}
-
 function App() {
-  // Extension theme state - synced from extension via main process (default: standard)
   const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
+  const [activeView, setActiveView] = useState<DashboardView>('analysis')
+  const [showInitiateModal, setShowInitiateModal] = useState(false)
+  const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
+  const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
+  const [inboxBulkMode, setInboxBulkMode] = useState(false)
+  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string; status?: string }>>([])
 
-  // Apply theme to document
   useEffect(() => {
     const root = document.documentElement
     const cssTheme = mapThemeToCss(extensionTheme)
@@ -107,11 +58,9 @@ function App() {
     console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
   }, [extensionTheme])
 
-  // Listen for theme changes from extension via main process
   useEffect(() => {
     const cleanup = window.analysisDashboard?.onThemeChange((theme: string) => {
       console.log('[APP] Theme changed from extension:', theme)
-      // Map old theme names for backward compatibility
       let mappedTheme = theme
       if (mappedTheme === 'default') mappedTheme = 'pro'
       if (mappedTheme === 'professional') mappedTheme = 'standard'
@@ -119,16 +68,13 @@ function App() {
         setExtensionTheme(mappedTheme as ExtensionTheme)
       }
     })
-    // Request current theme on mount
     window.analysisDashboard?.requestTheme()
     return () => { cleanup?.() }
   }, [])
 
-  // Handle Analysis Dashboard open request from main process
   const handleOpenAnalysisDashboard = useCallback((rawPayload: unknown) => {
     const payload = sanitizeAnalysisOpenPayload(rawPayload)
     console.log('[APP] OPEN_ANALYSIS_DASHBOARD received, sanitized:', payload)
-    // Extract theme from payload if provided
     if (payload && typeof payload === 'object' && 'theme' in payload) {
       const theme = (payload as any).theme
       if (typeof theme === 'string') {
@@ -136,41 +82,174 @@ function App() {
         setExtensionTheme(normalized)
       }
     }
+    setActiveView('analysis')
     setDeepLinkPayload(payload)
   }, [])
 
-  // Listen for OPEN_ANALYSIS_DASHBOARD from main process
   useEffect(() => {
     const cleanup = window.analysisDashboard?.onOpen(handleOpenAnalysisDashboard)
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
-  // Handle theme change from selector - update immediately and sync to main process
-  const handleThemeChange = useCallback((newTheme: ExtensionTheme) => {
-    setExtensionTheme(newTheme)
-    // Sync to main process for persistence and extension sync
-    window.analysisDashboard?.setTheme(newTheme)
+  const handleDeepLinkConsumed = useCallback(() => setDeepLinkPayload(null), [])
+
+  // Clear selected message and attachment when switching to views that don't support message focus
+  useEffect(() => {
+    if (activeView === 'analysis' || activeView === 'settings') {
+      setSelectedMessageId(null)
+      setSelectedAttachmentId(null)
+    }
+  }, [activeView])
+
+  // Load email accounts and listen for onAccountConnected
+  useEffect(() => {
+    async function loadEmailAccounts() {
+      if (typeof window.emailAccounts?.listAccounts !== 'function') return
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res?.data) {
+          setEmailAccounts(
+            res.data.map((a: { id: string; email: string }) => ({ id: a.id, email: a.email }))
+          )
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    loadEmailAccounts()
+    const unsub = window.emailAccounts?.onAccountConnected?.(async (data?: { provider?: string; email?: string }) => {
+      const res = await window.emailAccounts?.listAccounts?.()
+      if (res?.ok && res?.data && res.data.length > 0 && window.emailInbox) {
+        const accounts = res.data as Array<{ id: string; email: string; status?: string }>
+        const match = data?.email
+          ? accounts.find((a) => a.email?.toLowerCase() === data.email?.toLowerCase())
+          : accounts[accounts.length - 1]
+        if (match?.id) {
+          await window.emailInbox.toggleAutoSync(match.id, true)
+          await window.emailInbox.syncAccount(match.id)
+        }
+      }
+      await loadEmailAccounts()
+    })
+    return () => unsub?.()
   }, [])
 
   return (
     <div className="app-root">
-      {/* Minimal Header Bar */}
       <header className="app-header">
         <div className="app-header__brand">
           <WRCodeLogo size={110} />
-          <span className="app-header__subtitle">Analysis Dashboard</span>
         </div>
-        <div className="app-header__spacer" />
-        <BeapInboxButton />
-        <ThemeSelector value={extensionTheme} onChange={handleThemeChange} />
+        <nav className="app-header__nav">
+          <button
+            className={`nav-tab${activeView === 'analysis' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('analysis')}
+          >
+            Analysis
+          </button>
+          <button
+            className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('handshakes')}
+          >
+            Handshakes
+          </button>
+          <div
+            role="button"
+            tabIndex={0}
+            className={`nav-tab${activeView === 'beap-inbox' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('beap-inbox')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveView('beap-inbox') } }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            Inbox
+            <label
+              onClick={(e) => e.stopPropagation()}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}
+              title={inboxBulkMode ? 'Switch to normal inbox' : 'Switch to bulk inbox'}
+            >
+              ⚡
+              <input
+                type="checkbox"
+                checked={inboxBulkMode}
+                onChange={(e) => setInboxBulkMode(e.target.checked)}
+              />
+            </label>
+          </div>
+        </nav>
+        <HybridSearch
+          activeView={activeView}
+          selectedHandshakeId={selectedHandshakeId}
+          selectedHandshakeEmail={selectedHandshakeEmail}
+          selectedDocumentId={selectedDocumentId}
+          selectedMessageId={selectedMessageId}
+          selectedAttachmentId={selectedAttachmentId}
+          onClearMessageSelection={() => {
+            setSelectedMessageId(null)
+            setSelectedAttachmentId(null)
+          }}
+        />
       </header>
 
-      {/* Full-width Analysis Canvas */}
       <main className="app-main">
-        <AnalysisCanvas 
-          deepLinkPayload={deepLinkPayload ?? undefined}
-          onDeepLinkConsumed={() => setDeepLinkPayload(null)}
-        />
+        {activeView === 'handshakes' ? (
+          <HandshakeView
+            onNewHandshake={() => setShowInitiateModal(true)}
+            selectedHandshakeId={selectedHandshakeId}
+            selectedDocumentId={selectedDocumentId}
+            onHandshakeScopeChange={(id, email) => {
+              setSelectedHandshakeId(id)
+              setSelectedHandshakeEmail(email ?? null)
+              setSelectedDocumentId(null)
+              setSelectedMessageId(null)
+              setSelectedAttachmentId(null)
+            }}
+            onDocumentSelect={setSelectedDocumentId}
+            selectedMessageId={selectedMessageId}
+            onSelectMessage={setSelectedMessageId}
+            selectedAttachmentId={selectedAttachmentId}
+            onSelectAttachment={setSelectedAttachmentId}
+          />
+        ) : activeView === 'beap-inbox' ? (
+          inboxBulkMode ? (
+            <EmailInboxBulkView
+              accounts={emailAccounts}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={(id) => {
+                setSelectedMessageId(id)
+                if (!id) setSelectedAttachmentId(null)
+              }}
+              selectedAttachmentId={selectedAttachmentId}
+              onSelectAttachment={setSelectedAttachmentId}
+            />
+          ) : (
+            <EmailInboxView
+              accounts={emailAccounts}
+              selectedMessageId={selectedMessageId}
+              onSelectMessage={(id) => {
+                setSelectedMessageId(id)
+                if (!id) setSelectedAttachmentId(null)
+              }}
+              selectedAttachmentId={selectedAttachmentId}
+              onSelectAttachment={setSelectedAttachmentId}
+            />
+          )
+        ) : activeView === 'settings' ? (
+          <SettingsView />
+        ) : (
+          <AnalysisCanvas 
+            deepLinkPayload={deepLinkPayload ?? undefined}
+            onDeepLinkConsumed={handleDeepLinkConsumed}
+          />
+        )}
+        {showInitiateModal && (
+          <HandshakeInitiateModal
+            onClose={() => setShowInitiateModal(false)}
+            onSuccess={() => {
+              setShowInitiateModal(false)
+              window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
+            }}
+          />
+        )}
       </main>
     </div>
   )

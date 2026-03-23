@@ -198,12 +198,10 @@ export function isPdfFile(mimeType: string, filename?: string): boolean {
  */
 export function getSupportedExtractionTypes(): string[] {
   return [
-    'application/pdf'
-    // TODO: Add more types as needed:
-    // 'application/msword',
-    // 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    // 'text/plain',
-    // 'text/csv'
+    'application/pdf',
+    'application/vnd.beap+json',
+    'application/json',
+    'text/plain',
   ]
 }
 

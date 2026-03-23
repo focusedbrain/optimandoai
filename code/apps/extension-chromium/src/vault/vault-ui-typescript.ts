@@ -1,10 +1,12 @@
 /**
- * Pure TypeScript Vault UI - No React dependencies
+ * Pure TypeScript Vault UI - Minimal React bridge for HS Context Profiles
  * Professional black design for WRVault password manager
  */
 
+import React from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import * as vaultAPI from './api'
-import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult } from './types'
+import type { VaultItem, VaultStatus, Container, CategoryNode, StandardFieldDef, VaultTier, HandshakeBindingPolicy, HandshakeTarget, AttachEvalResult, LegacyItemCategory } from './types'
 import {
   IDENTITY_STANDARD_FIELDS, COMPANY_STANDARD_FIELDS,
   PASSWORD_STANDARD_FIELDS, AUTOMATION_SECRET_STANDARD_FIELDS, HANDSHAKE_CONTEXT_STANDARD_FIELDS,
@@ -12,14 +14,80 @@ import {
   CATEGORY_UI_MAP, RECORD_TYPE_DISPLAY, RECORD_TYPE_MIN_TIER,
   DEFAULT_BINDING_POLICY,
   canAccessCategory, getCategoryOptionsForTier, ALL_ITEM_CATEGORIES,
-  canAttachContext,
+  canAttachContext, canAccessRecordType,
 } from './types'
+// HsContextProfileList is lazy-loaded on first navigation to HS Context.
+// This keeps the initial WRVault chunk lean — the full editor + document upload
+// code is only fetched when the user actually opens the HS Context section.
 
 // ---------------------------------------------------------------------------
 // Module-level tier state — set once during vault init, used everywhere.
 // Defaults to 'free' (fail-closed).
 // ---------------------------------------------------------------------------
 let currentVaultTier: VaultTier = 'free'
+
+// ---------------------------------------------------------------------------
+// HS Context Profiles — React bridge for Publisher+ structured editor
+// ---------------------------------------------------------------------------
+let hsContextProfileListRoot: Root | null = null
+
+/** Publisher+ users get the structured HS Context editor; lower tiers use legacy. */
+function canUseHsContextProfiles(): boolean {
+  return canAccessRecordType(currentVaultTier, 'handshake_context', 'share')
+}
+
+function unmountHsContextProfileList(): void {
+  if (hsContextProfileListRoot) {
+    try {
+      hsContextProfileListRoot.unmount()
+    } catch { /* ignore */ }
+    hsContextProfileListRoot = null
+  }
+}
+
+/** Mount HsContextProfileList in the vault items area. Replaces list content; sidebar stays. */
+async function mountHsContextProfileListInListArea(container: HTMLElement, options?: { initialView?: 'list' | 'create' }): Promise<void> {
+  unmountHsContextProfileList()
+  const listDiv = container.querySelector('#vault-items-list') as HTMLElement
+  if (!listDiv) return
+  listDiv.innerHTML = '<div style="padding:32px;text-align:center;color:var(--wrv-text-3);font-size:13px;">Loading…</div>'
+  const mountPoint = document.createElement('div')
+  mountPoint.style.cssText = 'height:100%;display:flex;flex-direction:column;overflow:hidden;'
+  const { HsContextProfileList } = await import('./hsContext/HsContextProfileList')
+  listDiv.innerHTML = ''
+  listDiv.appendChild(mountPoint)
+  hsContextProfileListRoot = createRoot(mountPoint)
+  hsContextProfileListRoot.render(
+    React.createElement(HsContextProfileList, {
+      theme: detectVaultTheme() === 'dark' ? 'dark' : 'standard',
+      initialView: options?.initialView ?? 'list',
+    }),
+  )
+}
+
+/** Mount HsContextProfileList replacing the full container (for add flow). Includes Back button. */
+async function mountHsContextProfileListFullReplace(container: HTMLElement, savedContent: string, initialView: 'list' | 'create'): Promise<void> {
+  unmountHsContextProfileList()
+  container.innerHTML = '<div style="padding:32px;text-align:center;color:var(--wrv-text-3);font-size:13px;">Loading…</div>'
+  const mountPoint = document.createElement('div')
+  mountPoint.style.cssText = 'height:100%;overflow-y:auto;padding:24px;color:var(--wrv-text);'
+  const { HsContextProfileList } = await import('./hsContext/HsContextProfileList')
+  container.innerHTML = ''
+  container.appendChild(mountPoint)
+  const restore = () => {
+    unmountHsContextProfileList()
+    container.innerHTML = savedContent
+    restoreDashboardAfterDialogClose(container)
+  }
+  hsContextProfileListRoot = createRoot(mountPoint)
+  hsContextProfileListRoot.render(
+    React.createElement(HsContextProfileList, {
+      theme: detectVaultTheme() === 'dark' ? 'dark' : 'standard',
+      initialView,
+      onBackToDashboard: restore,
+    }),
+  )
+}
 
 // =============================================================================
 // Theme-aware vault styling
@@ -150,12 +218,12 @@ function applyVaultTheme(root: HTMLElement): VaultThemeName {
           color: #0f1419 !important;
           background: #ffffff !important;
         }
-        #wrvault-overlay button {
+        /* Dark text only on light-background buttons */
+        #wrvault-overlay button:not(.wrv-btn-primary) {
           color: var(--wrv-text) !important;
         }
-        #wrvault-overlay #vault-unlock-btn,
-        #wrvault-overlay #vault-create-btn,
-        #wrvault-overlay .wrv-add-data-btn {
+        /* Dark-background primary buttons: always white text for accessibility */
+        #wrvault-overlay .wrv-btn-primary {
           color: #ffffff !important;
         }
       `
@@ -363,7 +431,7 @@ export function openVaultLightbox() {
   // Initialize vault UI
   initVaultUI(mainContent)
 
-  console.log('[VAULT] ✅ WRVault lightbox opened with TypeScript UI')
+  console.log('[VAULT_UI_MOUNT] WRVault overlay mounted')
 }
 
 // Initialize Vault UI - Pure TypeScript implementation
@@ -399,6 +467,7 @@ async function initVaultUI(container: HTMLElement) {
     } else {
       renderCreateVaultScreen(container)
     }
+    console.log('[VAULT_UI_MOUNT] first stable render')
   } catch (err: any) {
     console.error('[VAULT UI] Init error:', err)
     console.error('[VAULT UI] Error stack:', err.stack)
@@ -423,7 +492,7 @@ async function initVaultUI(container: HTMLElement) {
         </div>
         
         <div style="max-width:800px;margin:0 auto;">
-          <button id="vault-retry-connection" style="
+          <button id="vault-retry-connection" class="wrv-btn-primary" style="
             margin-bottom:20px;
             padding:12px 24px;
             background:var(--wrv-btn-primary);
@@ -441,7 +510,7 @@ async function initVaultUI(container: HTMLElement) {
             <div style="font-size:11px;color:var(--wrv-text-2);font-family:monospace;white-space:pre-wrap;max-height:400px;overflow-y:auto;padding:12px;background:var(--wrv-bg-input);border-radius:4px;margin-top:12px;">
               ${logsText || 'No debug logs available'}
             </div>
-            <button onclick="navigator.clipboard.writeText(\`Error: ${(err.message || err).replace(/`/g, '\\`')}\n\nStack:\n${(err.stack || '').replace(/`/g, '\\`')}\n\nDebug Logs:\n${logsText.replace(/`/g, '\\`')}\`)" style="margin-top:12px;padding:8px 16px;background:var(--wrv-accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">📋 Copy All Logs</button>
+            <button class="wrv-btn-primary" onclick="navigator.clipboard.writeText(\`Error: ${(err.message || err).replace(/`/g, '\\`')}\n\nStack:\n${(err.stack || '').replace(/`/g, '\\`')}\n\nDebug Logs:\n${logsText.replace(/`/g, '\\`')}\`)" style="margin-top:12px;padding:8px 16px;background:var(--wrv-accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">📋 Copy All Logs</button>
           </details>
         </div>
       </div>
@@ -577,7 +646,7 @@ function renderCreateVaultScreen(container: HTMLElement) {
         <div id="vault-create-error" style="display:none;background:rgba(255,59,48,0.1);border:1px solid var(--wrv-danger-border);padding:12px;border-radius:8px;margin-bottom:24px;color:var(--wrv-danger);font-size:13px;clear:both;"></div>
         
         <div style="clear:both;margin-top:40px;margin-bottom:0;">
-          <button id="vault-create-btn" disabled style="
+          <button id="vault-create-btn" class="wrv-btn-primary" disabled style="
             width:100%;
             padding:14px;
             background:var(--wrv-btn-primary);
@@ -754,7 +823,7 @@ function renderCreateVaultScreen(container: HTMLElement) {
               <li>Review and update your backup strategy periodically</li>
             </ul>
           </div>
-          <button id="vault-continue-btn" style="
+          <button id="vault-continue-btn" class="wrv-btn-primary" style="
             padding:14px 32px;
             background:var(--wrv-btn-primary);
             border:none;
@@ -903,7 +972,7 @@ async function renderUnlockScreen(container: HTMLElement) {
           ${connectionError ? `⚠️ Connection issue: ${connectionError}. You can still try to unlock if Electron is running.` : ''}
         </div>
         
-        <button id="vault-unlock-btn" style="
+        <button id="vault-unlock-btn" class="wrv-btn-primary" style="
           width:100%;
           padding:14px;
           background:var(--wrv-btn-primary);
@@ -1001,7 +1070,7 @@ function buildSidebarCategoriesHTML(tier: VaultTier): string {
   let html = ''
 
   // --- Active item categories ---
-  const activeCats: Array<{ cat: string; accessible: boolean; minTier: string }> = []
+  const activeCats: Array<{ cat: LegacyItemCategory; accessible: boolean; minTier: string }> = []
   for (const cat of ALL_ITEM_CATEGORIES) {
     const uiInfo = CATEGORY_UI_MAP[cat]
     if (!uiInfo) continue
@@ -1086,7 +1155,7 @@ function renderVaultDashboard(container: HTMLElement) {
             color:var(--wrv-text);
             font-size:14px;
           "/>
-          <button id="vault-add-btn" class="wrv-add-data-btn" style="
+          <button id="vault-add-btn" class="wrv-add-data-btn wrv-btn-primary" style="
             padding:10px 20px;
             background:var(--wrv-btn-primary);
             border:none;
@@ -1206,7 +1275,12 @@ function renderVaultDashboard(container: HTMLElement) {
     } else if (action === 'view-handshake-context') {
       loadHandshakeContextList(container)
     } else if (action === 'add-handshake-context') {
-      renderHandshakeContextDialog(container)
+      if (canUseHsContextProfiles()) {
+        const savedContent = container.innerHTML
+        mountHsContextProfileListFullReplace(container, savedContent, 'create')
+      } else {
+        renderHandshakeContextDialog(container)
+      }
     } else if (action === 'add-secret') {
       renderAddDataDialog(container, 'automation_secret')
     } else if (action === 'add-password') {
@@ -1272,6 +1346,7 @@ function renderVaultDashboard(container: HTMLElement) {
 }
 
 async function loadVaultItemsByContainer(container: HTMLElement, containerType: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1311,6 +1386,7 @@ async function renderItemsList(listDiv: HTMLElement, items: any[]) {
 }
 
 async function loadVaultItems(container: HTMLElement, category: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1377,9 +1453,9 @@ function addAddButtonsToTree(container: HTMLElement) {
     personSubcategories.insertBefore(addIdentityBtn, personSubcategories.querySelector('#person-containers'))
   }
   
-  // Company category
+  // Company category — only show Add button when user can write (Publisher+)
   const companySubcategories = container.querySelector('.vault-subcategories[data-parent="company"]')
-  if (companySubcategories && !companySubcategories.querySelector('[data-action="add-company"]')) {
+  if (companySubcategories && !companySubcategories.querySelector('[data-action="add-company"]') && canAccessCategory(currentVaultTier, 'company', 'write')) {
     const addCompanyBtn = document.createElement('div')
     addCompanyBtn.className = 'vault-subcategory-btn'
     addCompanyBtn.setAttribute('data-action', 'add-company')
@@ -1436,6 +1512,7 @@ function formatBytes(bytes: number): string {
 
 /** Load and render the document list in the main content area. */
 async function loadDocumentsList(parentContainer: HTMLElement) {
+  unmountHsContextProfileList()
   const listDiv = parentContainer.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1678,11 +1755,11 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
         padding:10px 20px;border-radius:8px;
         color:var(--wrv-text-2);font-size:13px;cursor:pointer;
       ">Cancel</button>
-      <button id="doc-upload-submit" disabled style="
+      <button id="doc-upload-submit" class="wrv-btn-primary" disabled style="
         background:var(--wrv-accent, #8b5cf6);
         border:none;
         padding:10px 24px;border-radius:8px;
-        color:var(--wrv-text);font-size:13px;font-weight:600;cursor:pointer;
+        color:#ffffff;font-size:13px;font-weight:600;cursor:pointer;
         opacity:0.5;
       ">Upload & Encrypt</button>
     </div>
@@ -1797,8 +1874,14 @@ function renderDocumentUploadDialog(parentContainer: HTMLElement) {
 
 /**
  * Load and render the list of handshake_context items.
+ * Publisher+ users get the structured HS Context Profiles editor; lower tiers get legacy vault items list.
  */
 async function loadHandshakeContextList(parentContainer: HTMLElement) {
+  if (canUseHsContextProfiles()) {
+    await mountHsContextProfileListInListArea(parentContainer, { initialView: 'list' })
+    return
+  }
+  unmountHsContextProfileList()
   const listDiv = parentContainer.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
 
@@ -1812,7 +1895,7 @@ async function loadHandshakeContextList(parentContainer: HTMLElement) {
           <div style="font-size:36px;margin-bottom:12px;">🤝</div>
           <div style="font-size:14px;margin-bottom:6px;">No handshake context items yet.</div>
           <div style="font-size:12px;color:var(--wrv-text-3);margin-bottom:16px;">Store data to attach to handshakes — personalized offers, user manuals, support profiles.</div>
-          <button id="hc-empty-add-btn" style="padding:8px 20px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">+ Add Context Item</button>
+          <button id="hc-empty-add-btn" class="wrv-btn-primary" style="padding:8px 20px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">+ Add Context Item</button>
         </div>`
       listDiv.querySelector('#hc-empty-add-btn')?.addEventListener('click', () => {
         renderHandshakeContextDialog(parentContainer)
@@ -1832,7 +1915,7 @@ async function loadHandshakeContextList(parentContainer: HTMLElement) {
     let html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <h3 style="margin:0;font-size:15px;color:var(--wrv-text);">🤝 HS Context Items (${items.length})</h3>
-        <button id="hc-list-add-btn" style="padding:6px 16px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">+ Add Context</button>
+        <button id="hc-list-add-btn" class="wrv-btn-primary" style="padding:6px 16px;background:var(--wrv-btn-primary);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;">+ Add Context</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;">`
 
@@ -2078,7 +2161,7 @@ async function renderHandshakeContextDialog(parentContainer: HTMLElement, editIt
     <!-- Actions -->
     <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button id="hc-dialog-cancel" style="padding:10px 20px;background:var(--wrv-bg-card);border:1px solid var(--wrv-border);border-radius:8px;color:var(--wrv-text-2);cursor:pointer;font-size:13px;">Cancel</button>
-      <button id="hc-dialog-save" style="padding:10px 24px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">${isEdit ? 'Save Changes' : 'Create Context Item'}</button>
+      <button id="hc-dialog-save" class="wrv-btn-primary" style="padding:10px 24px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">${isEdit ? 'Save Changes' : 'Create Context Item'}</button>
     </div>
 
     <div id="hc-dialog-status" style="display:none;margin-top:12px;padding:10px;border-radius:8px;font-size:12px;text-align:center;"></div>
@@ -2234,7 +2317,7 @@ function renderAttachEvalDialog(parentContainer: HTMLElement, itemId: string) {
       Step-up authentication completed
     </label>
 
-    <button id="eval-run-btn" style="width:100%;padding:10px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Evaluate</button>
+    <button id="eval-run-btn" class="wrv-btn-primary" style="width:100%;padding:10px;background:var(--wrv-btn-primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Evaluate</button>
 
     <div id="eval-result" style="display:none;margin-top:16px;"></div>
   `
@@ -2346,6 +2429,7 @@ async function loadContainersIntoTree(container: HTMLElement) {
 
 // Load items for a specific container
 async function loadContainerItems(container: HTMLElement, containerId: string) {
+  unmountHsContextProfileList()
   const listDiv = container.querySelector('#vault-items-list') as HTMLElement
   if (!listDiv) return
   
@@ -2547,10 +2631,44 @@ function renderListItemRow(item: VaultItem): string {
   
   // For non-password items, show minimal view with field names
   if (item.category !== 'password') {
+    const canWrite = canAccessCategory(currentVaultTier, item.category as LegacyItemCategory, 'write')
+    // Publisher-gated categories (company, handshake_context): show lock + PUBLISHER badge when !canWrite (same as sidebar)
+    const isPublisherGated = (item.category === 'company' || item.category === 'handshake_context') && !canWrite
+    const publisherBadgeHtml = isPublisherGated
+      ? `<span style="display:flex;align-items:center;gap:6px;flex-shrink:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--wrv-text-3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span style="font-size:9px;font-weight:600;letter-spacing:0.3px;background:rgba(var(--wrv-accent-rgb),0.10);padding:2px 5px;border-radius:3px;color:var(--wrv-text-3);text-transform:uppercase;">Publisher</span></span>`
+      : ''
     // Show up to 3 fields with their names
     const displayFields = item.fields.slice(0, 3)
     const hasMoreFields = item.fields.length > 3
-    
+    const actionButtons = canWrite
+      ? `
+            <button class="vault-item-edit-btn" style="
+              background:rgba(var(--wrv-accent-rgb),0.15);
+              border:1px solid rgba(var(--wrv-accent-rgb),0.3);
+              padding:7px 16px;
+              border-radius:6px;
+              color:var(--wrv-accent);
+              font-size:12px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.15s;
+              white-space:nowrap;
+            " onmouseenter="this.style.background='rgba(var(--wrv-accent-rgb),0.25)'" onmouseleave="this.style.background='rgba(var(--wrv-accent-rgb),0.15)'">Edit</button>
+            <button class="vault-item-delete-btn" style="
+              background:var(--wrv-danger-bg);
+              border:1px solid var(--wrv-danger-border);
+              padding:7px 16px;
+              border-radius:6px;
+              color:var(--wrv-danger);
+              font-size:12px;
+              font-weight:500;
+              cursor:pointer;
+              transition:all 0.15s;
+              white-space:nowrap;
+            " onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'">Delete</button>
+          `
+      : publisherBadgeHtml
+
     return `
       <div class="vault-list-item" data-item-id="${item.id}" data-container-id="${item.container_id || ''}" data-category="${item.category}" style="
         background:var(--wrv-bg-card);
@@ -2589,31 +2707,8 @@ function renderListItemRow(item: VaultItem): string {
               ` : '<div style="font-size:13px;color:var(--wrv-text-3);">No fields</div>'}
             </div>
           </div>
-          <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0;padding-top:2px;">
-            <button class="vault-item-edit-btn" style="
-              background:rgba(var(--wrv-accent-rgb),0.15);
-              border:1px solid rgba(var(--wrv-accent-rgb),0.3);
-              padding:7px 16px;
-              border-radius:6px;
-              color:var(--wrv-accent);
-              font-size:12px;
-              font-weight:500;
-              cursor:pointer;
-              transition:all 0.15s;
-              white-space:nowrap;
-            " onmouseenter="this.style.background='rgba(var(--wrv-accent-rgb),0.25)'" onmouseleave="this.style.background='rgba(var(--wrv-accent-rgb),0.15)'">Edit</button>
-            <button class="vault-item-delete-btn" style="
-              background:var(--wrv-danger-bg);
-              border:1px solid var(--wrv-danger-border);
-              padding:7px 16px;
-              border-radius:6px;
-              color:var(--wrv-danger);
-              font-size:12px;
-              font-weight:500;
-              cursor:pointer;
-              transition:all 0.15s;
-              white-space:nowrap;
-            " onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'">Delete</button>
+          <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0;padding-top:2px;flex-direction:column;align-items:flex-end;">
+            ${actionButtons}
           </div>
         </div>
       </div>
@@ -2988,16 +3083,51 @@ function renderItemCard(item: VaultItem): string {
   `
 }
 
+/** Parse payment fields from a VaultItem into structured payment methods (for edit dialog population). */
+function parsePaymentMethodsFromItem(item: VaultItem): Array<{ type: string; iban?: string; bic?: string; bank_name?: string; account_holder?: string; cc_number?: string; cc_holder?: string; cc_expiry?: string; cc_cvv?: string; paypal_email?: string }> {
+  const getVal = (key: string) => (item.fields?.find((f) => f.key === key)?.value ?? '').trim()
+  const methods: Array<Record<string, string>> = []
+  let idx = 1
+  while (true) {
+    const prefix = idx === 1 ? 'payment_' : `payment_${idx}_`
+    const iban = getVal(prefix + 'iban')
+    const bic = getVal(prefix + 'bic')
+    const bankName = getVal(prefix + 'bank_name')
+    const accountHolder = getVal(prefix + 'account_holder')
+    const ccNumber = getVal(prefix + 'cc_number')
+    const ccHolder = getVal(prefix + 'cc_holder')
+    const ccExpiry = getVal(prefix + 'cc_expiry')
+    const ccCvv = getVal(prefix + 'cc_cvv')
+    const paypalEmail = getVal(prefix + 'paypal_email')
+    if (iban || bic || bankName || accountHolder) {
+      methods.push({ type: 'bank_account', iban, bic, bank_name: bankName, account_holder: accountHolder })
+    } else if (ccNumber || ccHolder || ccExpiry || ccCvv) {
+      methods.push({ type: 'credit_card', cc_number: ccNumber, cc_holder: ccHolder, cc_expiry: ccExpiry, cc_cvv: ccCvv })
+    } else if (paypalEmail) {
+      methods.push({ type: 'paypal', paypal_email: paypalEmail })
+    } else {
+      break
+    }
+    idx++
+  }
+  return methods
+}
+
 // Render Add Data Dialog
-function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context') {
+function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'automation_secret' | 'password' | 'identity' | 'company' | 'custom' | 'document' | 'handshake_context', editItem?: VaultItem) {
   // Documents use their own dedicated upload dialog — redirect immediately.
   if (preselectedCategory === 'document') {
     renderDocumentUploadDialog(container)
     return
   }
-  // Handshake context uses its own dialog with binding policy fields.
+  // Handshake context: Publisher+ get structured editor; lower tiers get legacy dialog.
   if (preselectedCategory === 'handshake_context') {
-    renderHandshakeContextDialog(container)
+    if (canUseHsContextProfiles()) {
+      const savedContent = container.innerHTML
+      mountHsContextProfileListFullReplace(container, savedContent, 'create')
+    } else {
+      renderHandshakeContextDialog(container)
+    }
     return
   }
   // Render the Add Data form inline inside the vault's main content area.
@@ -3096,7 +3226,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
           cursor:pointer;
           transition:all 0.15s;
         ">Cancel</button>
-        <button id="vault-add-data-save" style="
+        <button id="vault-add-data-save" class="wrv-btn-primary" style="
           padding:10px 20px;
           background:var(--wrv-btn-primary);
           border:none;
@@ -3678,7 +3808,7 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
     if (addPaymentMethodBtn && paymentMethodsList) {
       let paymentCounter = 0
 
-      const addPaymentEntry = (presetType?: string) => {
+      const addPaymentEntry = (presetType?: string, initialData?: Record<string, string>) => {
         paymentCounter++
         const idx = paymentCounter
         const entry = document.createElement('div')
@@ -3784,9 +3914,33 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
         renderPaymentFields(typeSelect.value)
         typeSelect.addEventListener('change', () => renderPaymentFields(typeSelect.value))
         entry.querySelector('.remove-payment-method')?.addEventListener('click', () => entry.remove())
+
+        if (initialData) {
+          typeSelect.value = initialData.type || typeSelect.value
+          renderPaymentFields(typeSelect.value)
+          const setInput = (sel: string, val: string) => {
+            const el = entry.querySelector(sel) as HTMLInputElement
+            if (el && val) el.value = val
+          }
+          setInput('.pay-iban', initialData.iban ?? '')
+          setInput('.pay-bic', initialData.bic ?? '')
+          setInput('.pay-bank-name', initialData.bank_name ?? '')
+          setInput('.pay-account-holder', initialData.account_holder ?? '')
+          setInput('.pay-cc-number', initialData.cc_number ?? '')
+          setInput('.pay-cc-holder', initialData.cc_holder ?? '')
+          setInput('.pay-cc-expiry', initialData.cc_expiry ?? '')
+          setInput('.pay-cc-cvv', initialData.cc_cvv ?? '')
+          setInput('.pay-paypal-email', initialData.paypal_email ?? '')
+        }
       }
 
       addPaymentMethodBtn.addEventListener('click', () => addPaymentEntry())
+
+      // Pre-populate payment methods when editing
+      if (editItem && (editItem.category === 'identity' || editItem.category === 'company')) {
+        const methods = parsePaymentMethodsFromItem(editItem)
+        methods.forEach((m) => addPaymentEntry(m.type, m as Record<string, string>))
+      }
     }
   }
   
@@ -3803,7 +3957,11 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
       return
     }
     if (selectedCategory === 'handshake_context') {
-      renderHandshakeContextDialog(container)
+      if (canUseHsContextProfiles()) {
+        mountHsContextProfileListFullReplace(container, savedContent, 'create')
+      } else {
+        renderHandshakeContextDialog(container)
+      }
       return
     }
     if (selectedCategory) {
@@ -4091,8 +4249,8 @@ function renderAddDataDialog(container: HTMLElement, preselectedCategory?: 'auto
 
 // Render Edit Data Dialog (similar to Add Data Dialog but pre-filled)
 function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
-  // Reuse the add dialog function but with pre-filled data
-  renderAddDataDialog(container, item.category as any)
+  // Reuse the add dialog function but with pre-filled data (pass item for payment population)
+  renderAddDataDialog(container, item.category as any, item)
   
   // Wait for dialog to be rendered, then fill in the data
   setTimeout(() => {
@@ -4187,6 +4345,39 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
             }
           })
           
+          // Collect payment method fields (identity / company) — same as create flow
+          const paymentEntries = addDialog.querySelectorAll('.payment-method-entry')
+          let paymentIdx = 0
+          paymentEntries.forEach((entry) => {
+            paymentIdx++
+            const typeSelect = entry.querySelector('.payment-type-select') as HTMLSelectElement
+            const payType = typeSelect?.value || 'bank_account'
+            const prefix = paymentIdx > 1 ? `payment_${paymentIdx}_` : 'payment_'
+
+            if (payType === 'bank_account') {
+              const iban = (entry.querySelector('.pay-iban') as HTMLInputElement)?.value.trim()
+              const bic = (entry.querySelector('.pay-bic') as HTMLInputElement)?.value.trim()
+              const bankName = (entry.querySelector('.pay-bank-name') as HTMLInputElement)?.value.trim()
+              const holder = (entry.querySelector('.pay-account-holder') as HTMLInputElement)?.value.trim()
+              if (iban) fields.push({ key: `${prefix}iban`, value: iban, encrypted: true, type: 'text', explanation: 'IBAN – International Bank Account Number' })
+              if (bic) fields.push({ key: `${prefix}bic`, value: bic, encrypted: false, type: 'text', explanation: 'BIC / SWIFT code' })
+              if (bankName) fields.push({ key: `${prefix}bank_name`, value: bankName, encrypted: false, type: 'text', explanation: 'Bank or financial institution name' })
+              if (holder) fields.push({ key: `${prefix}account_holder`, value: holder, encrypted: false, type: 'text', explanation: 'Name on the bank account' })
+            } else if (payType === 'credit_card') {
+              const ccNum = (entry.querySelector('.pay-cc-number') as HTMLInputElement)?.value.trim()
+              const ccHolder = (entry.querySelector('.pay-cc-holder') as HTMLInputElement)?.value.trim()
+              const ccExpiry = (entry.querySelector('.pay-cc-expiry') as HTMLInputElement)?.value.trim()
+              const ccCvv = (entry.querySelector('.pay-cc-cvv') as HTMLInputElement)?.value.trim()
+              if (ccNum) fields.push({ key: `${prefix}cc_number`, value: ccNum, encrypted: true, type: 'password', explanation: 'Credit / debit card number' })
+              if (ccHolder) fields.push({ key: `${prefix}cc_holder`, value: ccHolder, encrypted: false, type: 'text', explanation: 'Cardholder name' })
+              if (ccExpiry) fields.push({ key: `${prefix}cc_expiry`, value: ccExpiry, encrypted: true, type: 'text', explanation: 'Card expiry date (MM/YY)' })
+              if (ccCvv) fields.push({ key: `${prefix}cc_cvv`, value: ccCvv, encrypted: true, type: 'password', explanation: 'Card verification value (CVV/CVC)' })
+            } else if (payType === 'paypal') {
+              const ppEmail = (entry.querySelector('.pay-paypal-email') as HTMLInputElement)?.value.trim()
+              if (ppEmail) fields.push({ key: `${prefix}paypal_email`, value: ppEmail, encrypted: false, type: 'email', explanation: 'PayPal account email' })
+            }
+          })
+
           // Collect custom fields
           const customFieldsContainer = addDialog.querySelector('#vault-custom-fields') as HTMLElement
           if (customFieldsContainer) {
@@ -4220,7 +4411,9 @@ function renderEditDataDialog(container: HTMLElement, item: VaultItem) {
             domain: category === 'password' ? (addDialog.querySelector('#field-url') as HTMLInputElement)?.value.trim() : undefined
           })
           
-          // Restore dashboard and refresh
+          // Show success feedback (temporary toast, same as create flow)
+          const updateMsg = category === 'company' ? 'Company Data has been updated successfully' : category === 'identity' ? 'Identity has been updated successfully' : category === 'password' ? 'Password has been updated successfully' : 'Data has been updated successfully'
+          showSuccessNotification(updateMsg)
           
           // Refresh the view
           if (item.container_id) {

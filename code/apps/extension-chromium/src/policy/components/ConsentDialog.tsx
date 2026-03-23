@@ -9,6 +9,21 @@ import { useState } from 'react'
 import type { CanonicalPolicy } from '../schema'
 import { getDeniedCapabilities, type PolicyDenial } from '../engine'
 import { RiskLabel } from './RiskLabel'
+import {
+  getThemeTokens,
+  overlayStyle,
+  panelStyle,
+  headerStyle,
+  headerTitleStyle,
+  headerMainTitleStyle,
+  headerSubtitleStyle,
+  closeButtonStyle,
+  bodyStyle,
+  cardStyle,
+  secondaryButtonStyle,
+  primaryButtonStyle,
+  notificationStyle,
+} from '../../shared/ui/lightboxTheme'
 
 interface ConsentDialogProps {
   capsulePolicy: CanonicalPolicy
@@ -43,11 +58,10 @@ export function ConsentDialog({
   const [selectedScope, setSelectedScope] = useState<ConsentScope>('once')
   const [selectedDenials, setSelectedDenials] = useState<Set<number>>(new Set())
 
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'
+  const t = getThemeTokens(theme)
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
 
   // Get denied capabilities
   const denials = getDeniedCapabilities(capsulePolicy, effectivePolicy)
@@ -90,248 +104,122 @@ export function ConsentDialog({
   ]
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999999,
-        padding: '20px',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: '520px',
-          background: isDark ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-          borderRadius: '16px',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          border: `1px solid ${borderColor}`,
-          overflow: 'hidden',
-        }}
-      >
+    <div style={overlayStyle(t)}>
+      <div style={panelStyle(t)}>
         {/* Header */}
-        <div style={{
-          padding: '20px 24px',
-          borderBottom: `1px solid ${borderColor}`,
-          background: isDark ? 'rgba(234, 179, 8, 0.1)' : 'rgba(234, 179, 8, 0.05)',
-        }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '12px',
-            marginBottom: '8px',
-          }}>
-            <span style={{ fontSize: '24px' }}>🔔</span>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: textColor }}>
-              Permission Request
-            </h2>
+        <div style={headerStyle(t)}>
+          <div style={headerTitleStyle()}>
+            <span style={{ fontSize: '22px', flexShrink: 0 }}>🔔</span>
+            <div>
+              <p style={headerMainTitleStyle()}>Permission Request</p>
+              <p style={headerSubtitleStyle()}>
+                <strong style={{ color: '#fbbf24' }}>{senderName}</strong> is requesting additional permissions
+              </p>
+            </div>
           </div>
-          <p style={{ margin: 0, color: mutedColor, fontSize: '14px' }}>
-            <strong style={{ color: '#eab308' }}>{senderName}</strong> is requesting additional permissions
-          </p>
         </div>
 
-        {/* Requested Permissions */}
-        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${borderColor}` }}>
-          <div style={{ 
-            fontSize: '12px', 
-            color: mutedColor, 
-            marginBottom: '12px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-          }}>
-            Requested Permissions
-          </div>
+        {/* Content */}
+        <div style={bodyStyle(t)}>
+          <div style={{ maxWidth: '620px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Permissions */}
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Requested Permissions
+              </div>
+              {denials.length === 0 ? (
+                <div style={notificationStyle('success')}>✓ No additional permissions required</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {denials.map((denial, i) => (
+                    <label
+                      key={i}
+                      style={{
+                        ...cardStyle(t),
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                        cursor: 'pointer',
+                        background: selectedDenials.has(i) || selectedDenials.size === 0 ? 'rgba(234,179,8,0.1)' : t.cardBg,
+                        border: `1px solid ${selectedDenials.has(i) || selectedDenials.size === 0 ? 'rgba(234,179,8,0.35)' : t.border}`,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDenials.has(i) || selectedDenials.size === 0}
+                        onChange={() => toggleDenial(i)}
+                        style={{ marginTop: '2px', accentColor: '#eab308' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500, color: textColor, fontSize: '13px', marginBottom: '2px' }}>
+                          {formatCapability(denial.capability)}
+                        </div>
+                        <div style={{ fontSize: '12px', color: mutedColor }}>{denial.reason}</div>
+                      </div>
+                      <span style={{ padding: '2px 6px', fontSize: '10px', fontWeight: 600, borderRadius: '4px', background: 'rgba(234,179,8,0.2)', color: '#eab308', textTransform: 'uppercase' }}>
+                        {denial.domain}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {denials.length === 0 ? (
-            <div style={{ 
-              padding: '16px', 
-              background: 'rgba(34, 197, 94, 0.1)',
-              borderRadius: '8px',
-              color: '#22c55e',
-              fontSize: '14px',
-            }}>
-              ✓ No additional permissions required
+            {/* Scope Selection */}
+            {denials.length > 0 && (
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: mutedColor, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Duration
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {scopes.map(scope => (
+                    <button
+                      key={scope.id}
+                      onClick={() => setSelectedScope(scope.id)}
+                      style={{
+                        padding: '12px',
+                        background: selectedScope === scope.id ? 'rgba(139,92,246,0.15)' : 'transparent',
+                        border: `1px solid ${selectedScope === scope.id ? t.accentColor : t.border}`,
+                        borderRadius: '9px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                        <span>{scope.icon}</span>
+                        <span style={{ fontWeight: 600, color: selectedScope === scope.id ? t.accentColor : textColor, fontSize: '13px' }}>
+                          {scope.label}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: mutedColor }}>{scope.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Risk Warning */}
+            {denials.some(d => d.capability === 'allowDynamicContent' || d.capability === 'allowBulkExport' || d.capability === 'credentials') && (
+              <div style={{ ...notificationStyle('error'), display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>⚠️</span>
+                <span>This request includes high-risk permissions. Proceed with caution.</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+              <button onClick={onDeny} style={secondaryButtonStyle(t)}>Deny</button>
+              <button
+                onClick={handleApprove}
+                disabled={denials.length === 0}
+                style={primaryButtonStyle(t, denials.length === 0)}
+              >
+                {denials.length > 0 ? 'Allow' : 'Continue'}
+              </button>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {denials.map((denial, i) => (
-                <label
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'start',
-                    gap: '10px',
-                    padding: '12px',
-                    background: selectedDenials.has(i) || selectedDenials.size === 0 
-                      ? 'rgba(234, 179, 8, 0.1)' 
-                      : cardBg,
-                    border: `1px solid ${
-                      selectedDenials.has(i) || selectedDenials.size === 0 
-                        ? 'rgba(234, 179, 8, 0.3)' 
-                        : borderColor
-                    }`,
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedDenials.has(i) || selectedDenials.size === 0}
-                    onChange={() => toggleDenial(i)}
-                    style={{ marginTop: '2px', accentColor: '#eab308' }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ 
-                      fontWeight: 500, 
-                      color: textColor, 
-                      fontSize: '13px',
-                      marginBottom: '2px',
-                    }}>
-                      {formatCapability(denial.capability)}
-                    </div>
-                    <div style={{ fontSize: '12px', color: mutedColor }}>
-                      {denial.reason}
-                    </div>
-                  </div>
-                  <span style={{
-                    padding: '2px 6px',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    background: 'rgba(234, 179, 8, 0.2)',
-                    color: '#eab308',
-                    textTransform: 'uppercase',
-                  }}>
-                    {denial.domain}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
-
-        {/* Scope Selection */}
-        {denials.length > 0 && (
-          <div style={{ padding: '20px 24px', borderBottom: `1px solid ${borderColor}` }}>
-            <div style={{ 
-              fontSize: '12px', 
-              color: mutedColor, 
-              marginBottom: '12px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Duration
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              {scopes.map(scope => (
-                <button
-                  key={scope.id}
-                  onClick={() => setSelectedScope(scope.id)}
-                  style={{
-                    padding: '12px',
-                    background: selectedScope === scope.id 
-                      ? isDark ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.1)'
-                      : 'transparent',
-                    border: `1px solid ${selectedScope === scope.id ? '#8b5cf6' : borderColor}`,
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '6px',
-                    marginBottom: '4px',
-                  }}>
-                    <span>{scope.icon}</span>
-                    <span style={{ 
-                      fontWeight: 600, 
-                      color: selectedScope === scope.id ? '#8b5cf6' : textColor,
-                      fontSize: '13px',
-                    }}>
-                      {scope.label}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>
-                    {scope.description}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div style={{
-          padding: '16px 24px',
-          display: 'flex',
-          gap: '12px',
-          justifyContent: 'flex-end',
-        }}>
-          <button
-            onClick={onDeny}
-            style={{
-              padding: '10px 20px',
-              background: 'transparent',
-              border: `1px solid ${borderColor}`,
-              borderRadius: '8px',
-              color: textColor,
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            Deny
-          </button>
-          <button
-            onClick={handleApprove}
-            disabled={denials.length === 0}
-            style={{
-              padding: '10px 20px',
-              background: denials.length > 0 ? '#8b5cf6' : '#6b7280',
-              border: 'none',
-              borderRadius: '8px',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: denials.length > 0 ? 'pointer' : 'not-allowed',
-              opacity: denials.length > 0 ? 1 : 0.6,
-            }}
-          >
-            {denials.length > 0 ? 'Allow' : 'Continue'}
-          </button>
-        </div>
-
-        {/* Risk Warning */}
-        {denials.some(d => 
-          d.capability === 'allowDynamicContent' || 
-          d.capability === 'allowBulkExport' ||
-          d.capability === 'credentials'
-        ) && (
-          <div style={{
-            padding: '12px 24px',
-            background: 'rgba(239, 68, 68, 0.1)',
-            borderTop: '1px solid rgba(239, 68, 68, 0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}>
-            <span>⚠️</span>
-            <span style={{ fontSize: '12px', color: '#ef4444' }}>
-              This request includes high-risk permissions. Proceed with caution.
-            </span>
-          </div>
-        )}
       </div>
     </div>
   )

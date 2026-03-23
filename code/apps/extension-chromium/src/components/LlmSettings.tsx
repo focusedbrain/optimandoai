@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { electronRpc, type RpcMethod } from '../rpc/electronRpc'
+import { getThemeTokens } from '../shared/ui/lightboxTheme'
 
 // Types
 interface HardwareInfo {
@@ -177,15 +178,15 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       
       // Try to fetch data, but don't block on errors
       const [hwRes, statusRes, catalogRes] = await Promise.all([
-        api.getHardware().catch(e => {
+        api.getHardware().catch((e: Error) => {
           console.warn('[LlmSettings] Hardware API failed:', e.message)
           return { ok: false, error: e.message }
         }),
-        api.getStatus().catch(e => {
+        api.getStatus().catch((e: Error) => {
           console.warn('[LlmSettings] Status API failed:', e.message)
           return { ok: false, error: e.message }
         }),
-        api.getCatalog().catch(e => {
+        api.getCatalog().catch((e: Error) => {
           console.warn('[LlmSettings] Catalog API failed:', e.message)
           return { ok: false, error: e.message }
         })
@@ -358,9 +359,10 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     loadEstimates()
   }, [hardware, modelCatalog])
   
-  // Theme colors - always use light text since lightbox has dark background
-  const textColor = theme === 'professional' ? '#1f2937' : '#e5e5e5'
-  const bgPrimary = 'rgba(255,255,255,0.08)'
+  // Theme colors from unified token system
+  const tt = getThemeTokens(theme ?? 'default')
+  const textColor = tt.text
+  const bgPrimary = tt.cardBg
   
   return (
     <div style={{ padding: '10px', color: textColor }}>
@@ -782,7 +784,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={!!installing || (status && (!status.installed || !status.running))}
+            disabled={!!installing || !!(status && (!status.installed || !status.running))}
             style={{
               width: '100%',
               padding: '8px',
@@ -860,7 +862,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           
           <button
             onClick={handleInstallModel}
-            disabled={!selectedModel || !!installing || (status && (!status.installed || !status.running))}
+            disabled={!selectedModel || !!installing || !!(status && (!status.installed || !status.running))}
             style={{
               width: '100%',
               padding: '10px 12px',

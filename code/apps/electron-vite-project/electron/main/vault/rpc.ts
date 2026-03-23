@@ -9,6 +9,8 @@
 
 import { vaultService } from './service'
 import type { VaultTier } from './types'
+import { getOrCreateEmbeddingService, processEmbeddingQueue } from '../handshake/embeddings'
+import { migrateHandshakeTables } from '../handshake/db'
 
 // Export vaultService for HTTP API handlers
 export { vaultService }
@@ -73,6 +75,52 @@ function persistHAState(): void {
 }
 
 /**
+ * Set up embedding service ref and start processing the embedding queue.
+ * Called after vault unlock so semantic search and embedding indexing work.
+ * @param vs - VaultService instance
+ * @param handshakeDb - Optional handshake DB (ledger or vault). If provided, used for processEmbeddingQueue; otherwise uses vault DB.
+ */
+export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: any): void {
+  try {
+    const embeddingService = getOrCreateEmbeddingService()
+    const getDb = () => {
+      try {
+        return vs.getHsProfileDb?.() ?? null
+      } catch {
+        return null
+      }
+    }
+    ;(globalThis as any).__og_vault_service_ref = {
+      getDb,
+      getEmbeddingService: () => embeddingService,
+      getStatus: () => vs.getStatus(),
+      resolveHsProfilesForHandshake: vs.resolveHsProfilesForHandshake?.bind(vs),
+    }
+    const db = handshakeDb ?? getDb()
+    if (db) {
+      migrateHandshakeTables(db)
+      setImmediate(() => {
+        processEmbeddingQueue(db, embeddingService).then(
+          ({ processed, failed, skipped }) => {
+            if (processed > 0 || failed > 0 || skipped > 0) {
+              console.log('[Embedding] Queue processed:', { processed, failed, skipped })
+            }
+          },
+          (err) => console.error('[Embedding] Queue processing failed:', err?.message ?? err),
+        )
+      })
+    }
+  } catch (err: any) {
+    console.error('[VAULT RPC] setupEmbeddingServiceRef failed:', err?.message ?? err)
+  }
+}
+
+/** Clear embedding service ref when vault locks. */
+export function clearEmbeddingServiceRef(): void {
+  ;(globalThis as any).__og_vault_service_ref = null
+}
+
+/**
  * Handle vault RPC calls from WebSocket.
  *
  * @param method  RPC method name (e.g. 'vault.getItem')
@@ -104,10 +152,12 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
       case 'vault.unlock': {
         const parsed = UnlockVaultRequestSchema.parse(params)
         const token = await vaultService.unlock(parsed.masterPassword, parsed.vaultId || 'default')
+        setupEmbeddingServiceRef(vaultService)
         return { success: true, token, sessionToken: vaultService.getSessionToken() }
       }
 
       case 'vault.lock': {
+        clearEmbeddingServiceRef()
         vaultService.lock()
         return { success: true, message: 'Vault locked' }
       }
@@ -269,6 +319,197 @@ export async function handleVaultRPC(method: string, params: any, tier: VaultTie
           console.log(`[VAULT RPC] HA Mode unlock failed: ${result.error}`)
         }
         return { success: result.success, haState: result.newState, error: result.error }
+      }
+
+      // ==============================================
+      // HS Context Profiles — Publisher/Enterprise only
+      // ==============================================
+
+      case 'vault.hsProfiles.list': {
+        const includeArchived = params?.includeArchived === true
+        const profiles = vaultService.listHsProfiles(tier, includeArchived)
+        return { success: true, profiles }
+      }
+
+      case 'vault.hsProfiles.get': {
+        const { profileId } = params as { profileId: string }
+        const profile = vaultService.getHsProfile(tier, profileId)
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.create': {
+        const { name, description, scope, tags, fields, custom_fields } = params as any
+        const profile = vaultService.createHsProfile(tier, { name, description, scope, tags, fields, custom_fields })
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.update': {
+        const { profileId, name, description, scope, tags, fields, custom_fields } = params as any
+        const profile = vaultService.updateHsProfile(tier, profileId, { name, description, scope, tags, fields, custom_fields })
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.archive': {
+        const { profileId } = params as { profileId: string }
+        vaultService.archiveHsProfile(tier, profileId)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.delete': {
+        const { profileId } = params as { profileId: string }
+        vaultService.deleteHsProfile(tier, profileId)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.duplicate': {
+        const { profileId } = params as { profileId: string }
+        const profile = vaultService.duplicateHsProfile(tier, profileId)
+        return { success: true, profile }
+      }
+
+      case 'vault.hsProfiles.uploadDocument': {
+        const { profileId, filename, mimeType, contentBase64, sensitive, label, documentType } = params as any
+        if (!contentBase64) return { success: false, error: 'contentBase64 is required' }
+        const content = Buffer.from(contentBase64, 'base64')
+        const doc = await vaultService.uploadHsProfileDocument(tier, profileId, filename, mimeType ?? 'application/pdf', content, !!sensitive, label ?? null, documentType ?? null)
+        return { success: true, document: doc }
+      }
+
+      case 'vault.hsProfiles.updateDocumentMeta': {
+        const { documentId, label, document_type } = params as any
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        vaultService.updateHsProfileDocumentMeta(tier, documentId, { label, document_type })
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.deleteDocument': {
+        const { documentId } = params as { documentId: string }
+        vaultService.deleteHsProfileDocument(tier, documentId)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.getOwnerDocumentContent': {
+        // Owner-direct download — no consent warning required (they hold the vault).
+        const { documentId: ownerDocId } = params as { documentId: string }
+        if (!ownerDocId) return { success: false, error: 'documentId is required' }
+        try {
+          const result = await vaultService.getOwnerDocumentContent(tier, ownerDocId)
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        } catch (e: any) {
+          return { success: false, error: e?.message ?? 'Failed to retrieve document' }
+        }
+      }
+
+      case 'vault.hsProfiles.getDocumentPageCount': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const count = vaultService.getDocumentPageCount(tier, documentId)
+        return { success: true, count }
+      }
+
+      case 'vault.hsProfiles.getDocumentPage': {
+        const { documentId, pageNumber } = params as { documentId: string; pageNumber: number }
+        if (!documentId || typeof pageNumber !== 'number') return { success: false, error: 'documentId and pageNumber are required' }
+        const text = vaultService.getDocumentPage(tier, documentId, pageNumber)
+        return { success: true, text }
+      }
+
+      case 'vault.hsProfiles.getDocumentPageList': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const pages = vaultService.getDocumentPageList(tier, documentId)
+        return { success: true, pages }
+      }
+
+      case 'vault.hsProfiles.getDocumentFullText': {
+        const { documentId } = params as { documentId: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const text = vaultService.getDocumentFullText(tier, documentId)
+        return { success: true, text }
+      }
+
+      case 'vault.hsProfiles.searchDocumentPages': {
+        const { documentId, query } = params as { documentId: string; query: string }
+        if (!documentId) return { success: false, error: 'documentId is required' }
+        const matches = vaultService.searchDocumentPages(tier, documentId, query ?? '')
+        return { success: true, matches }
+      }
+
+      case 'vault.hsProfiles.requestOriginalDocument': {
+        const { documentId, acknowledgedWarning, handshakeId, actorUserId } = params as {
+          documentId: string
+          acknowledgedWarning: boolean
+          handshakeId?: string | null
+          actorUserId: string
+        }
+        if (!documentId || typeof actorUserId !== 'string') {
+          return { success: false, error: 'documentId and actorUserId are required' }
+        }
+        const result = await vaultService.requestOriginalDocumentContent(tier, documentId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        if (result.success) {
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        }
+        return { success: false, error: result.error, approved: result.approved }
+      }
+
+      case 'vault.hsProfiles.requestLinkOpenApproval': {
+        const { linkEntityId, acknowledgedWarning, handshakeId, actorUserId } = params as {
+          linkEntityId: string
+          acknowledgedWarning: boolean
+          handshakeId?: string | null
+          actorUserId: string
+        }
+        if (!linkEntityId || typeof actorUserId !== 'string') {
+          return { success: false, error: 'linkEntityId and actorUserId are required' }
+        }
+        const result = vaultService.requestLinkOpenApproval(linkEntityId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        return result.approved ? { success: true, approved: true } : { success: false, error: result.error, approved: false }
+      }
+
+      // ── BYOK API Key management ─────────────────────────────────────────────
+
+      case 'vault.settings.saveAnthropicApiKey': {
+        const { apiKey } = params as { apiKey: string }
+        if (!apiKey || typeof apiKey !== 'string') {
+          return { success: false, error: 'apiKey is required' }
+        }
+        // Validates the key against Anthropic before storing; throws with
+        // a user-friendly message if the key is invalid.
+        await vaultService.saveAnthropicApiKey(tier, apiKey)
+        return { success: true }
+      }
+
+      case 'vault.settings.hasAnthropicApiKey': {
+        const hasKey = vaultService.hasAnthropicApiKey(tier)
+        return { success: true, hasKey }
+      }
+
+      case 'vault.settings.removeAnthropicApiKey': {
+        vaultService.removeAnthropicApiKey(tier)
+        return { success: true }
+      }
+
+      case 'vault.hsProfiles.retryExtractionWithVision': {
+        const { documentId: visionDocId } = params as { documentId: string }
+        if (!visionDocId) return { success: false, error: 'documentId is required' }
+        const visionResult = await vaultService.retryDocumentWithVision(tier, visionDocId)
+        return { success: true, status: visionResult.status }
       }
 
       default:

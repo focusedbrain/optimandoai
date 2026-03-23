@@ -283,7 +283,7 @@ export function importFromGmail(params: {
 }, handshakeRegistry: HandshakeRegistry | null): PackageRegistrationResult {
   return registerPackageFromChannel({
     envelope_data: {
-      sender_fingerprint: senderFingerprint,
+      sender_fingerprint: params.senderFingerprint,
       recipient_fingerprint: null,
       signature: null,
       timestamp: params.timestamp
@@ -296,9 +296,6 @@ export function importFromGmail(params: {
     subject: params.subject,
     preview: params.preview
   }, handshakeRegistry)
-  
-  // Fix: use params.senderFingerprint
-  function senderFingerprint() { return params.senderFingerprint }
 }
 
 /**

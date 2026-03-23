@@ -1,6 +1,4 @@
-export * from './storage';
-export * from './components';
-export const APP_NAME = "OpenGiraffe Orchestrator";
+export const APP_NAME = "WR Desk™ Orchestrator";
 
 // Security utilities
 export {
@@ -13,3 +11,7 @@ export {
 
 // Vault capabilities (record types, tier gating, display metadata)
 export * from './vault/vaultCapabilities';
+
+// Handshake context governance (fine-grained policy model)
+export * from './handshake/contextGovernance';
+export * from './handshake/types';

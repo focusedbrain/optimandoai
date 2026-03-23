@@ -17,7 +17,7 @@
 
 import { randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 import { createRequire } from 'module'
-import { zeroize, buildAAD } from './crypto'
+import { zeroize } from './crypto'
 
 const require = createRequire(import.meta.url)
 

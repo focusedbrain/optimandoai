@@ -301,6 +301,29 @@ export const DEFAULT_POLICY_OVERVIEW: PolicyOverview = {
 }
 
 // =============================================================================
+// Runtime Configuration
+// =============================================================================
+
+/**
+ * WRGuard runtime configuration toggles
+ */
+export interface RuntimeConfig {
+  protectionEnabled: boolean
+  logBlockedEvents: boolean
+  showNotifications: boolean
+  autoQuarantine: boolean
+  strictMode: boolean
+}
+
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+  protectionEnabled: true,
+  logBlockedEvents: true,
+  showNotifications: true,
+  autoQuarantine: false,
+  strictMode: false,
+}
+
+// =============================================================================
 // WRGuard Configuration State
 // =============================================================================
 
@@ -313,6 +336,9 @@ export interface WRGuardConfig {
   
   /** Protected sites list */
   protectedSites: ProtectedSite[]
+  
+  /** Runtime configuration toggles */
+  runtimeConfig: RuntimeConfig
   
   /** Policy overview (read-only) */
   policyOverview: PolicyOverview
@@ -334,12 +360,14 @@ export interface WRGuardConfig {
 export type WRGuardSection = 
   | 'providers'
   | 'protected-sites'
+  | 'handshakes'
   | 'policies'
   | 'runtime-controls'
 
 export const WRGUARD_SECTIONS: { id: WRGuardSection; label: string; icon: string }[] = [
   { id: 'providers', label: 'Email Providers', icon: '📧' },
   { id: 'protected-sites', label: 'Protected Sites', icon: '🛡️' },
+  { id: 'handshakes', label: 'Handshakes', icon: '🤝' },
   { id: 'policies', label: 'Policies', icon: '📋' },
   { id: 'runtime-controls', label: 'Runtime Controls', icon: '⚙️' }
 ]

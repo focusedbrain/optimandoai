@@ -149,6 +149,8 @@ export function buildFieldMap(fields: Field[], category: string): Map<FieldKind,
     if (!kind) continue
     const value = (field.value ?? '').trim()
     if (!value) continue
+    // Use first IBAN only (payment_iban, payment_2_iban, etc. — prefer payment_iban)
+    if (kind === 'company.iban' && map.has('company.iban')) continue
     map.set(kind, value)
   }
 

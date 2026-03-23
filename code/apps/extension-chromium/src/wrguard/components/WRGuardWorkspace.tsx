@@ -7,13 +7,15 @@
  * @version 1.0.0
  */
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
+import { pickDefaultEmailAccountRowId } from '../../shared/email/pickDefaultAccountRow'
 import { useWRGuardStore } from '../useWRGuardStore'
 import { WRGUARD_SECTIONS, WRGuardSection } from '../types'
 import { EmailProvidersSection, EmailAccount } from './EmailProvidersSection'
 import { ProtectedSitesSection } from './ProtectedSitesSection'
 import { PoliciesOverviewSection } from './PoliciesOverviewSection'
 import { RuntimeControlsSection } from './RuntimeControlsSection'
+import { HandshakeManagementPanel } from '../../handshake/components/HandshakeManagementPanel'
 
 interface WRGuardWorkspaceProps {
   theme: 'pro' | 'dark' | 'standard'
@@ -25,6 +27,10 @@ interface WRGuardWorkspaceProps {
   onConnectEmail?: () => void
   onDisconnectEmail?: (id: string) => void
   onSelectEmailAccount?: (id: string) => void
+  /** Navigate to BEAP inbox and select a message. Used when "View in Inbox" is clicked from handshake messages. */
+  onViewInInbox?: (messageId: string) => void
+  /** Config for BeapMessageDetailPanel reply composer (sender fingerprint, etc.). */
+  replyComposerConfig?: import('../../beap-messages/hooks/useReplyComposer').UseReplyComposerConfig
 }
 
 export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
@@ -35,7 +41,9 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   selectedEmailAccountId = null,
   onConnectEmail = () => {},
   onDisconnectEmail = () => {},
-  onSelectEmailAccount = () => {}
+  onSelectEmailAccount = () => {},
+  onViewInInbox,
+  replyComposerConfig,
 }) => {
   const isStandard = theme === 'standard'
   const textColor = isStandard ? '#0f172a' : 'white'
@@ -45,6 +53,10 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   const headerBg = isStandard ? '#ffffff' : 'rgba(255,255,255,0.05)'
   
   const { activeSection, setActiveSection, initialize, initialized } = useWRGuardStore()
+  const defaultEmailAccountRowId = useMemo(
+    () => pickDefaultEmailAccountRowId(emailAccounts),
+    [emailAccounts],
+  )
   
   // Initialize WRGuard on mount
   useEffect(() => {
@@ -73,6 +85,15 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
         )
       case 'protected-sites':
         return <ProtectedSitesSection theme={theme} />
+      case 'handshakes':
+        return (
+          <HandshakeManagementPanel
+            fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
+            theme={isStandard ? 'professional' : 'default'}
+            onViewInInbox={onViewInInbox}
+            replyComposerConfig={replyComposerConfig}
+          />
+        )
       case 'policies':
         return <PoliciesOverviewSection theme={theme} onOpenAdvancedSettings={onOpenAdvancedSettings} />
       case 'runtime-controls':

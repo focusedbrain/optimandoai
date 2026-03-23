@@ -176,7 +176,7 @@ export const PoliciesOverviewSection: React.FC<PoliciesOverviewSectionProps> = (
       
       {/* Attachment Handling */}
       <PolicyCard
-        icon="📎"
+        icon="📁"
         title="Attachment Handling"
         summary={policyOverview.attachments.summary}
         details={

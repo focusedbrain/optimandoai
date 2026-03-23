@@ -1,8 +1,10 @@
 /**
  * Base Email Provider
- * 
- * Abstract interface that all email providers must implement.
- * This provides a common abstraction over Gmail, Microsoft Graph, and IMAP.
+ *
+ * Abstract interface that all email providers must implement (Gmail, Microsoft Graph, IMAP).
+ *
+ * **Domain layering:** static capability flags and sync-target modeling live under
+ * `main/email/domain/`; this interface is the **runtime adapter** for one `EmailAccountConfig` row.
  */
 
 import { 
@@ -11,6 +13,11 @@ import {
   SendEmailPayload,
   SendResult
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+  OrchestratorRemoteApplyContext,
+} from '../domain/orchestratorRemoteTypes'
 
 /**
  * Raw email message from provider (before sanitization)
@@ -167,6 +174,21 @@ export interface IEmailProvider {
     messages: RawEmailMessage[]
     newSyncState: string
   }>
+
+  /**
+   * Apply a WR Desk orchestrator lifecycle step on the **origin mailbox** (archive / pending review / pending delete).
+   * Implemented per provider (Gmail labels, Graph folders, IMAP MOVE). Optional — gateway no-ops when missing.
+   */
+  applyOrchestratorRemoteOperation?(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+    context?: OrchestratorRemoteApplyContext,
+  ): Promise<OrchestratorRemoteApplyResult>
+
+  /**
+   * Delete/trash a message on the remote mailbox (IMAP: optional context for locate-before-move).
+   */
+  deleteMessage?(messageId: string, context?: OrchestratorRemoteApplyContext): Promise<void>
 }
 
 /**

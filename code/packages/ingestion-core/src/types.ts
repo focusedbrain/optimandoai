@@ -1,0 +1,165 @@
+/**
+ * BEAP™ Ingestion Core — Type Definitions
+ *
+ * Zero dependencies on Electron, DB, or app-specific state.
+ */
+
+// ── Source Classification ──
+
+export type SourceType = 'email' | 'file_upload' | 'api' | 'extension' | 'internal' | 'p2p' | 'p2p_relay' | 'relay_pull' | 'coordination_service' | 'coordination_ws';
+
+export type OriginClassification = 'external' | 'internal';
+
+export type InputClassification =
+  | 'beap_capsule_present'
+  | 'beap_capsule_malformed'
+  | 'plain_external_content';
+
+// ── Provenance Metadata ──
+
+export interface ProvenanceMetadata {
+  readonly source_type: SourceType;
+  readonly origin_classification: OriginClassification;
+  readonly ingested_at: string;
+  readonly transport_metadata: TransportMetadata;
+  readonly input_classification: InputClassification;
+  readonly raw_input_hash: string;
+  readonly ingestor_version: string;
+}
+
+export interface TransportMetadata {
+  readonly channel_id?: string;
+  readonly message_id?: string;
+  readonly sender_address?: string;
+  readonly recipient_address?: string;
+  readonly received_headers?: ReadonlyArray<string>;
+  readonly mime_type?: string;
+  readonly content_length?: number;
+  readonly source_ip?: string;
+}
+
+// ── Raw Input ──
+
+export interface RawInput {
+  readonly body: string | Buffer;
+  readonly headers?: Record<string, string>;
+  readonly mime_type?: string;
+  readonly filename?: string;
+  readonly attachments?: ReadonlyArray<RawAttachment>;
+}
+
+export interface RawAttachment {
+  readonly filename: string;
+  readonly mime_type: string;
+  readonly content: string | Buffer;
+}
+
+// ── Candidate Capsule (Ingestor output) ──
+
+export interface CandidateCapsuleEnvelope {
+  readonly __brand: 'CandidateCapsule';
+  readonly provenance: ProvenanceMetadata;
+  readonly raw_payload: unknown;
+  readonly ingestion_error_flag: boolean;
+  readonly ingestion_error_details?: string;
+}
+
+// ── Validated Capsule (Validator output) ──
+
+export interface ValidatedCapsule {
+  readonly __brand: 'ValidatedCapsule';
+  readonly provenance: ProvenanceMetadata;
+  readonly capsule: ValidatedCapsulePayload;
+  readonly validated_at: string;
+  readonly validator_version: string;
+  readonly schema_version: number;
+}
+
+export type ContentTypeDiscriminator = 'handshake_capsule' | 'beap_message_package';
+
+export interface ValidatedCapsulePayload {
+  readonly capsule_type: CapsuleType;
+  /** Discriminator: handshake capsules vs BEAP message packages (qBEAP/pBEAP). */
+  readonly content_type?: ContentTypeDiscriminator;
+  readonly handshake_id?: string;
+  readonly schema_version: number;
+  readonly sender_public_key?: string;
+  readonly sender_signature?: string;
+  readonly countersigned_hash?: string;
+  readonly [key: string]: unknown;
+}
+
+export type CapsuleType =
+  | 'initiate'
+  | 'accept'
+  | 'refresh'
+  | 'revoke'
+  | 'context_sync'
+  | 'internal_draft'
+  | 'message_package';
+
+// ── BEAP Detection ──
+
+export type DetectionMethod = 'mime_type' | 'header_marker' | 'json_structure' | 'attachment_metadata';
+
+export type BeapDetectionResult =
+  | { readonly detected: true; readonly raw_capsule_json: unknown; readonly detection_method: DetectionMethod; readonly is_message_package?: true }
+  | { readonly detected: false; readonly malformed: boolean; readonly detection_error?: string };
+
+// ── Validation Result ──
+
+export type ValidationResult =
+  | { readonly success: true; readonly validated: ValidatedCapsule }
+  | { readonly success: false; readonly reason: ValidationReasonCode; readonly details: string };
+
+export type ValidationReasonCode =
+  | 'SCHEMA_VERSION_UNSUPPORTED'
+  | 'MISSING_REQUIRED_FIELD'
+  | 'INVALID_ENUM_VALUE'
+  | 'STRUCTURAL_INTEGRITY_FAILURE'
+  | 'HASH_BINDING_MISMATCH'
+  | 'CRYPTOGRAPHIC_FIELD_MISSING'
+  | 'PAYLOAD_SIZE_EXCEEDED'
+  | 'MALFORMED_JSON'
+  | 'INGESTION_ERROR_PROPAGATED'
+  | 'INTERNAL_VALIDATION_ERROR'
+  | 'HASH_INTEGRITY_FAILURE'
+  | 'CONTEXT_INTEGRITY_FAILURE';
+
+// ── Distribution ──
+
+export type DistributionTarget =
+  | 'handshake_pipeline'
+  | 'sandbox_sub_orchestrator'
+  | 'quarantine'
+  | 'message_relay';
+
+export interface DistributionDecision {
+  readonly target: DistributionTarget;
+  readonly validated_capsule: ValidatedCapsule;
+  readonly reason: string;
+}
+
+// ── Constants ──
+
+export const INGESTION_CONSTANTS = {
+  INGESTOR_VERSION: '1.0.0',
+  VALIDATOR_VERSION: '1.0.0',
+  PIPELINE_VERSION: '1.0.0',
+  SUPPORTED_SCHEMA_VERSIONS: [1, 2] as readonly number[],
+  MAX_PAYLOAD_BYTES: 10 * 1024 * 1024,
+  MAX_RAW_INPUT_BYTES: 15 * 1024 * 1024,
+  MAX_JSON_DEPTH: 50,
+  MAX_FIELDS: 500,
+  MAX_STRING_LENGTH: 5 * 1024 * 1024,
+  PIPELINE_TIMEOUT_MS: 10_000,
+  ALLOWED_CONTENT_TYPES: [
+    'application/json',
+    'application/vnd.beap+json',
+    'application/beap',
+    'text/plain',
+    'message/rfc822',
+    'multipart/mixed',
+    'application/octet-stream',
+  ] as readonly string[],
+} as const;

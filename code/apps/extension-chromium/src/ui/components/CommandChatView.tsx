@@ -32,6 +32,14 @@ interface CommandChatViewProps {
   isLoading?: boolean
   /** Custom class name */
   className?: string
+  /** When provided, shows model selector dropdown (popup/docked Command Chat) */
+  availableModels?: Array<{ name: string; size?: string }>
+  /** Currently selected model name */
+  activeLlmModel?: string
+  /** Callback when user selects a model */
+  onModelSelect?: (name: string) => void
+  /** Callback to refresh models (e.g. when opening dropdown) */
+  onRefreshModels?: () => Promise<void>
 }
 
 export const CommandChatView: React.FC<CommandChatViewProps> = ({
@@ -40,12 +48,33 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
   onSend,
   modelName = 'Local',
   isLoading = false,
-  className = ''
+  className = '',
+  availableModels = [],
+  activeLlmModel,
+  onModelSelect,
+  onRefreshModels
 }) => {
   const { mode, composerMode, setComposerMode } = useUIStore()
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputText, setInputText] = useState('')
   const [showAIAssist, setShowAIAssist] = useState(false)
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const modelDropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close model dropdown when clicking outside
+  useEffect(() => {
+    if (!showModelDropdown) return
+    const handleClick = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false)
+      }
+    }
+    const t = setTimeout(() => document.addEventListener('click', handleClick), 0)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('click', handleClick)
+    }
+  }, [showModelDropdown])
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -122,8 +151,8 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
         // Log audit event
         await logImportEvent(result.messageId, 'download', {})
         
-        // Show success toast
-        setToastMessage('BEAP™ Message imported to Inbox (pending verification).')
+        // Show success toast (auto-verified, message is in inbox)
+        setToastMessage('BEAP™ Message imported and verified. Check your inbox.')
         setTimeout(() => setToastMessage(null), 4000)
       } else {
         // Show error toast
@@ -359,7 +388,19 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
               flexShrink: 0
             }}
           >
-            {isUploading ? '⏳' : '📎'}
+            {isUploading ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            )}
           </button>
           
           <textarea
@@ -372,20 +413,112 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
             disabled={isLoading}
           />
           
-          <div style={styles.sendWrapper}>
-            <button
-              onClick={handleSend}
-              disabled={isLoading || !inputText.trim()}
-              style={{
-                ...styles.sendButton,
-                opacity: (isLoading || !inputText.trim()) ? 0.7 : 1
-              }}
-            >
-              <span style={styles.sendText}>{isLoading ? '...' : buttonLabel}</span>
-              {showModelInButton && (
-                <span style={styles.sendModel}>{modelName}</span>
-              )}
-            </button>
+          <div ref={modelDropdownRef} style={{ ...styles.sendWrapper, position: 'relative' as const }}>
+            {(onModelSelect != null && onRefreshModels != null) ? (
+              <>
+                <button
+                  onClick={handleSend}
+                  disabled={isLoading || !inputText.trim()}
+                  style={{
+                    ...styles.sendButton,
+                    opacity: (isLoading || !inputText.trim()) ? 0.7 : 1,
+                    borderTopRightRadius: 0,
+                    borderBottomRightRadius: 0,
+                    borderRight: 'none'
+                  }}
+                >
+                  <span style={styles.sendText}>{isLoading ? '...' : buttonLabel}</span>
+                  <span style={styles.sendModel}>{activeLlmModel || availableModels[0]?.name || 'No model'}</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    const next = !showModelDropdown
+                    if (next && onRefreshModels) await onRefreshModels()
+                    setShowModelDropdown(next)
+                  }}
+                  disabled={isLoading}
+                  title="Select model"
+                  style={{
+                    ...styles.sendButton,
+                    opacity: isLoading ? 0.7 : 1,
+                    borderTopLeftRadius: 0,
+                    borderBottomLeftRadius: 0,
+                    borderLeft: '1px solid rgba(0,0,0,0.1)',
+                    padding: '4px 10px',
+                    minWidth: '36px'
+                  }}
+                >
+                  ▾
+                </button>
+                {showModelDropdown && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      right: 0,
+                      marginBottom: '6px',
+                      background: effectiveTheme === 'standard' ? '#ffffff' : '#1e293b',
+                      border: effectiveTheme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '10px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+                      zIndex: 1000,
+                      minWidth: '180px',
+                      maxHeight: '220px',
+                      overflowY: 'auto' as const
+                    }}
+                  >
+                    <div style={{
+                      padding: '8px 12px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: effectiveTheme === 'standard' ? '#475569' : 'rgba(255,255,255,0.7)',
+                      borderBottom: effectiveTheme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                      SELECT MODEL
+                    </div>
+                    {availableModels.length === 0 && (
+                      <div style={{
+                        padding: '10px 12px',
+                        fontSize: '11px',
+                        color: effectiveTheme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)'
+                      }}>
+                        No models available. Install models in LLM Settings.
+                      </div>
+                    )}
+                    {availableModels.map((m) => (
+                      <div
+                        key={m.name}
+                        onClick={() => { onModelSelect(m.name); setShowModelDropdown(false) }}
+                        style={{
+                          padding: '10px 12px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          color: effectiveTheme === 'standard' ? '#0f172a' : 'inherit',
+                          background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
+                          borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent'
+                        }}
+                      >
+                        {m.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={isLoading || !inputText.trim()}
+                style={{
+                  ...styles.sendButton,
+                  opacity: (isLoading || !inputText.trim()) ? 0.7 : 1
+                }}
+              >
+                <span style={styles.sendText}>{isLoading ? '...' : buttonLabel}</span>
+                {showModelInButton && (
+                  <span style={styles.sendModel}>{modelName}</span>
+                )}
+              </button>
+            )}
 
             {/* AI Assist Popover */}
             <AIAssistPopover

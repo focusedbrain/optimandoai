@@ -1,0 +1,10 @@
+# Coordination relay Docker build: exclude host artifacts
+# Host node_modules and dist must never enter container — native modules compile inside
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+
+# Exclude apps to avoid electron postinstall (rebuilds better-sqlite3 for Electron)
+apps/

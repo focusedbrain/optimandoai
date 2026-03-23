@@ -153,6 +153,15 @@ export interface CapsulePayloadEnc {
 // Constants
 // =============================================================================
 
+/**
+ * TypeScript 5.x narrows Uint8Array<ArrayBufferLike> which is incompatible
+ * with WebCrypto's BufferSource (expects ArrayBuffer, not SharedArrayBuffer).
+ * This helper performs a safe identity cast.
+ */
+function asBufferSource(buf: Uint8Array): BufferSource {
+  return buf as unknown as BufferSource
+}
+
 const NONCE_LENGTH = 12 // 96 bits for AES-GCM
 const SALT_LENGTH = 16 // 128 bits
 const KEY_LENGTH = 32 // 256 bits
@@ -277,15 +286,26 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Convert base64 string to Uint8Array
+ * Convert base64 string to Uint8Array.
+ * Throws with a clear error if input is not valid base64 (e.g. null, empty, or malformed).
  */
 export function fromBase64(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
+  if (typeof base64 !== 'string' || base64.length === 0) {
+    throw new Error('Invalid base64 input: expected non-empty string')
   }
-  return bytes
+  try {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
+  } catch (e) {
+    throw new Error(
+      `Invalid base64 input: the string to be decoded is not correctly encoded. ` +
+      `Original: ${e instanceof Error ? e.message : String(e)}`
+    )
+  }
 }
 
 /**
@@ -306,7 +326,7 @@ export function bytesToString(bytes: Uint8Array): string {
  * Compute SHA-256 hash of bytes
  */
 export async function sha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', asBufferSource(data))
   const hashArray = new Uint8Array(hashBuffer)
   return Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('')
 }
@@ -411,6 +431,12 @@ interface EnvelopeHeaderForAAD {
     } | false
   }
   sizeLimits?: Record<string, unknown>
+  /**
+   * Processing Event offer (A.3.054.9.1).
+   * Included in AAD so any post-build tampering is detected at decryption time.
+   * Structural type kept loose here to avoid circular import with processingEvents.ts.
+   */
+  processingEvents?: Record<string, unknown>
   // Excluded from AAD:
   // - receiver_binding (contains mutable display_name)
   // - signing (added after encryption, not available for AAD)
@@ -469,7 +495,7 @@ export function buildEnvelopeAadFields(header: EnvelopeHeaderForAAD): Record<str
     }
     
     // PQ metadata (if active)
-    if (header.crypto.pq && header.crypto.pq !== false) {
+    if (header.crypto.pq) {
       (aadFields.crypto as Record<string, unknown>).pq = {
         required: header.crypto.pq.required,
         kem: header.crypto.pq.kem,
@@ -482,7 +508,14 @@ export function buildEnvelopeAadFields(header: EnvelopeHeaderForAAD): Record<str
   if (header.sizeLimits !== undefined) {
     aadFields.sizeLimits = header.sizeLimits
   }
-  
+
+  // Processing Event offer (A.3.054.9.1): governance metadata, AAD-bound
+  // Including this in AAD ensures any post-build tampering of the declared
+  // processing intent is detected as an AEAD authentication failure.
+  if (header.processingEvents !== undefined) {
+    aadFields.processingEvents = header.processingEvents
+  }
+
   return aadFields
 }
 
@@ -517,25 +550,23 @@ export async function hkdfSha256(
   info: string,
   length: number = KEY_LENGTH
 ): Promise<Uint8Array> {
-  // Import IKM as raw key material
   const ikmKey = await crypto.subtle.importKey(
     'raw',
-    ikm,
+    asBufferSource(ikm),
     { name: 'HKDF' },
     false,
     ['deriveBits']
   )
 
-  // Derive bits using HKDF
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: salt,
-      info: stringToBytes(info)
+      salt: asBufferSource(salt),
+      info: asBufferSource(stringToBytes(info))
     },
     ikmKey,
-    length * 8 // bits
+    length * 8
   )
 
   return new Uint8Array(derivedBits)
@@ -605,7 +636,7 @@ async function deriveHandshakeSecret_DEPRECATED(
   
   const combined = `BEAP-MVP:${handshakeId}:${senderFingerprint}`
   const combinedBytes = stringToBytes(combined)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', combinedBytes)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', asBufferSource(combinedBytes))
   return new Uint8Array(hashBuffer)
 }
 
@@ -619,7 +650,7 @@ async function deriveHandshakeSecret_DEPRECATED(
 export async function deriveBeapKeys(
   sharedSecret: Uint8Array,
   envelopeSalt: Uint8Array
-): Promise<{ capsuleKey: Uint8Array; artefactKey: Uint8Array }> {
+): Promise<{ capsuleKey: Uint8Array; artefactKey: Uint8Array; innerEnvelopeKey: Uint8Array }> {
   const capsuleKey = await hkdfSha256(
     sharedSecret,
     envelopeSalt,
@@ -633,8 +664,26 @@ export async function deriveBeapKeys(
     'BEAP v1 artefact',
     KEY_LENGTH
   )
+
+  /**
+   * Inner envelope key — derived from the same shared secret with a distinct
+   * HKDF info label ('BEAP v2 inner-envelope').
+   *
+   * Used exclusively for AES-256-GCM encryption of InnerEnvelopeMetadata
+   * (A.3.055 Stage 4). Distinct label prevents any key-reuse between the
+   * capsule, artefact, and inner-envelope domains.
+   *
+   * Added in v2.0 envelope format. Returning it here is additive and does
+   * not affect existing callers that only destructure capsuleKey/artefactKey.
+   */
+  const innerEnvelopeKey = await hkdfSha256(
+    sharedSecret,
+    envelopeSalt,
+    'BEAP v2 inner-envelope',
+    KEY_LENGTH
+  )
   
-  return { capsuleKey, artefactKey }
+  return { capsuleKey, artefactKey, innerEnvelopeKey }
 }
 
 // =============================================================================
@@ -662,24 +711,22 @@ export async function aeadEncrypt(
   // Generate random nonce
   const nonce = randomBytes(NONCE_LENGTH)
   
-  // Import key
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    asBufferSource(key),
     { name: 'AES-GCM' },
     false,
     ['encrypt']
   )
   
-  // Encrypt with AES-GCM
   const ciphertextBuffer = await crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv: nonce,
-      additionalData: aad
+      iv: asBufferSource(nonce),
+      additionalData: aad ? asBufferSource(aad) : undefined
     },
     cryptoKey,
-    plaintext
+    asBufferSource(plaintext)
   )
   
   return {
@@ -708,24 +755,22 @@ export async function aeadDecrypt(
   const nonceBytes = fromBase64(nonce)
   const ciphertextBytes = fromBase64(ciphertext)
   
-  // Import key
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    key,
+    asBufferSource(key),
     { name: 'AES-GCM' },
     false,
     ['decrypt']
   )
   
-  // Decrypt with AES-GCM
   const plaintextBuffer = await crypto.subtle.decrypt(
     {
       name: 'AES-GCM',
-      iv: nonceBytes,
-      additionalData: aad
+      iv: asBufferSource(nonceBytes),
+      additionalData: aad ? asBufferSource(aad) : undefined
     },
     cryptoKey,
-    ciphertextBytes
+    asBufferSource(ciphertextBytes)
   )
   
   return new Uint8Array(plaintextBuffer)
@@ -1319,7 +1364,7 @@ import * as ed from '@noble/ed25519'
 // This is required for browser environments
 ed.etc.sha512Sync = undefined // Disable sync (we use async)
 ed.etc.sha512Async = async (message: Uint8Array): Promise<Uint8Array> => {
-  const hash = await crypto.subtle.digest('SHA-512', message)
+  const hash = await crypto.subtle.digest('SHA-512', asBufferSource(message))
   return new Uint8Array(hash)
 }
 
@@ -1461,6 +1506,51 @@ export async function sha256Hex(data: Uint8Array): Promise<string> {
  */
 export async function sha256String(str: string): Promise<string> {
   return sha256(stringToBytes(str))
+}
+
+/**
+ * Compute HMAC-SHA256 over data using the given key.
+ *
+ * Used for deterministic, non-disclosing eligibility material generation.
+ * Returns 32 raw bytes of authentication tag.
+ *
+ * @param key  - HMAC key bytes
+ * @param data - Data to authenticate
+ * @returns 32-byte HMAC-SHA256 tag
+ */
+export async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    asBufferSource(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const tag = await crypto.subtle.sign('HMAC', cryptoKey, asBufferSource(data))
+  return new Uint8Array(tag)
+}
+
+/**
+ * Constant-time comparison of two byte arrays.
+ *
+ * Per A.3.055 Stage 0 (Normative): eligibility checks MUST be constant-behavior
+ * with no timing side channels. This function runs in O(n) time regardless of
+ * where the first byte difference occurs.
+ *
+ * Returns true only if both arrays have the same length AND every byte is equal.
+ */
+export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {
+    // Still iterate to avoid length-leaking timing
+    let _ = 0
+    for (let i = 0; i < a.length; i++) _ |= a[i]
+    return false
+  }
+  let diff = 0
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i]
+  }
+  return diff === 0
 }
 
 /**
@@ -1621,32 +1711,116 @@ export async function computeSigningData(
 }
 
 // =============================================================================
-// Ephemeral Signing Key Storage (MVP)
+// Persistent Signing Key Storage (via SigningKeyVault)
 // =============================================================================
 
-// In-memory key storage for MVP
-// PRODUCTION: Store in vault with proper key management
-let _ephemeralSigningKey: Ed25519KeyPair | null = null
+// Session-level cache: avoids repeated async storage reads within a single
+// service-worker lifetime while still persisting across restarts.
+let _cachedSigningKey: Ed25519KeyPair | null = null
 
 /**
- * Get or generate the ephemeral signing key
- * 
- * MVP: Stores key in memory (lost on extension reload)
- * PRODUCTION: Should store in secure vault
+ * Get or create the Ed25519 signing key pair.
+ *
+ * Delegates to `signingKeyVault.getOrCreateSigningKeyPair()` which stores the
+ * key encrypted in `chrome.storage.local`. The key survives extension reloads
+ * and browser restarts, giving stable identity across sessions.
+ *
+ * Session-level memory cache: after the first successful vault read, the key is
+ * cached in `_cachedSigningKey` for the lifetime of the current service-worker
+ * process to avoid repeated storage I/O on every sign call.
+ *
+ * Fallback: if the vault is unavailable for any reason, falls back to the
+ * previous in-memory ephemeral behaviour so that signing is never hard-blocked.
  */
 export async function getSigningKeyPair(): Promise<Ed25519KeyPair> {
-  if (!_ephemeralSigningKey) {
-    _ephemeralSigningKey = await generateEd25519KeyPair()
-    console.log('[BEAP Crypto] Generated ephemeral signing key:', _ephemeralSigningKey.keyId)
+  // Return session cache if available.
+  if (_cachedSigningKey) return _cachedSigningKey
+
+  try {
+    // Dynamically import the vault to avoid a circular dependency (signingKeyVault
+    // imports from @noble/ed25519 and uses WebCrypto directly; beapCrypto also
+    // uses @noble/ed25519, but the dynamic import breaks the circular chain).
+    const { getOrCreateSigningKeyPair } = await import('./signingKeyVault')
+    const persisted = await getOrCreateSigningKeyPair()
+
+    // Adapt PersistedEd25519KeyPair → Ed25519KeyPair (same shape, extra fields ignored).
+    _cachedSigningKey = {
+      privateKey: persisted.privateKey,
+      publicKey: persisted.publicKey,
+      keyId: persisted.keyId,
+    }
+
+    return _cachedSigningKey
+  } catch (err) {
+    // Vault unavailable (e.g. storage permission issue, CSP in sandbox context).
+    // Fall through to ephemeral generation so signing is never hard-blocked.
+    console.warn(
+      '[BEAP Crypto] SigningKeyVault unavailable — falling back to ephemeral key.',
+      err
+    )
   }
-  return _ephemeralSigningKey
+
+  // Ephemeral fallback (original MVP behaviour).
+  _cachedSigningKey = await generateEd25519KeyPair()
+  console.log('[BEAP Crypto] Generated ephemeral (non-persistent) signing key:', _cachedSigningKey.keyId)
+  return _cachedSigningKey
 }
 
 /**
- * Clear the ephemeral signing key (for testing)
+ * Clear the session-level signing key cache.
+ *
+ * Forces the next `getSigningKeyPair()` call to re-read from the vault.
+ * Used after key rotation and in tests.
  */
 export function clearSigningKeyPair(): void {
-  _ephemeralSigningKey = null
+  _cachedSigningKey = null
+}
+
+/**
+ * Detect whether a session-level signing key is cached in memory and, if no
+ * persistent key exists yet, migrate it to the vault.
+ *
+ * This is the migration path for users upgrading from the MVP ephemeral-key
+ * implementation. Call it once at extension startup (e.g. in `background.ts`
+ * or a first-run hook) to ensure identity continuity:
+ *
+ *   - If an ephemeral key is cached in `_cachedSigningKey` AND no vault entry
+ *     exists → persist the ephemeral key so the identity is not lost on the
+ *     next reload.
+ *   - If a vault entry already exists → no-op (vault key takes precedence).
+ *   - If neither exists → no-op (a new persistent key will be generated on
+ *     first use via `getSigningKeyPair()`).
+ *
+ * Returns a MigrationResult-compatible object (migrated flag + keyId) so
+ * callers can log or surface the outcome.
+ */
+export async function detectAndMigrateEphemeralKey(): Promise<{
+  migrated: boolean
+  keyId: string | null
+}> {
+  // Only attempt migration if we have an in-session cached key to migrate.
+  if (!_cachedSigningKey) {
+    return { migrated: false, keyId: null }
+  }
+
+  try {
+    const { migrateEphemeralSigningKey } = await import('./signingKeyVault')
+    const result = await migrateEphemeralSigningKey(_cachedSigningKey)
+
+    if (result.migrated) {
+      // Update the session cache to match the persisted key (timestamps are now set).
+      // The key material (privateKey/publicKey/keyId) is unchanged.
+      console.log(
+        '[BEAP Crypto] Ephemeral signing key migrated to persistent vault. keyId:',
+        result.keyId
+      )
+    }
+
+    return result
+  } catch (err) {
+    console.warn('[BEAP Crypto] detectAndMigrateEphemeralKey failed:', err)
+    return { migrated: false, keyId: _cachedSigningKey?.keyId ?? null }
+  }
 }
 
 // =============================================================================
@@ -1683,8 +1857,30 @@ export class PQNotAvailableError extends Error {
   }
 }
 
-// Electron API base URL for PQ operations
-const ELECTRON_PQ_BASE_URL = 'http://127.0.0.1:17179'
+// Electron API base URL for PQ operations (must match main HTTP server port 51248)
+const ELECTRON_PQ_BASE_URL = 'http://127.0.0.1:51248'
+
+// Optional provider for auth headers (X-Launch-Secret) — set by extension init
+let _pqAuthHeadersProvider: (() => Promise<Record<string, string>>) | null = null
+
+/**
+ * Set the provider for PQ API auth headers. Called by extension init (sidepanel/popup).
+ * The provider should return { 'X-Launch-Secret': launchSecret } from the background.
+ */
+export function setPqAuthHeadersProvider(provider: (() => Promise<Record<string, string>>) | null): void {
+  _pqAuthHeadersProvider = provider
+}
+
+async function _getPqHeaders(): Promise<Record<string, string>> {
+  if (_pqAuthHeadersProvider) {
+    try {
+      return await _pqAuthHeadersProvider()
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
 
 // Cache for PQ availability status (to avoid repeated HTTP calls)
 let _pqAvailabilityCache: { available: boolean; checkedAt: number } | null = null
@@ -1721,8 +1917,11 @@ export function pqKemSupported(): boolean {
  */
 export async function pqKemSupportedAsync(): Promise<boolean> {
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/status`, {
       method: 'GET',
+      headers,
       signal: AbortSignal.timeout(5000)
     })
     
@@ -1761,9 +1960,11 @@ export async function pqKemGenerateKeyPair(): Promise<{
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/keypair`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       signal: AbortSignal.timeout(10000)
     })
     
@@ -1811,9 +2012,11 @@ export async function pqEncapsulate(peerPublicKeyB64: string): Promise<PQEncapsu
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/encapsulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ peerPublicKeyB64 }),
       signal: AbortSignal.timeout(10000)
     })
@@ -1862,9 +2065,11 @@ export async function pqDecapsulate(kemCiphertextB64: string, secretKeyB64: stri
   }
   
   try {
+    const extraHeaders = await _getPqHeaders()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
     const response = await fetch(`${ELECTRON_PQ_BASE_URL}/api/crypto/pq/mlkem768/decapsulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ ciphertextB64: kemCiphertextB64, secretKeyB64 }),
       signal: AbortSignal.timeout(10000)
     })

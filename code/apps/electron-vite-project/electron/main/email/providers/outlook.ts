@@ -23,8 +23,17 @@ import {
   SendEmailPayload, 
   SendResult 
 } from '../types'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+} from '../domain/orchestratorRemoteTypes'
+import {
+  resolveOrchestratorRemoteNames,
+  REMOTE_DELETION_TARGETS,
+} from '../domain/mailboxLifecycleMapping'
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
+import { getCredentialsForOAuth } from '../credentials'
 
 /**
  * Microsoft Graph API scopes
@@ -50,7 +59,7 @@ function getOutlookOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials for Outlook
  */
-function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string; tenantId?: string } | null {
+export function loadOutlookOAuthConfig(): { clientId: string; clientSecret?: string; tenantId?: string } | null {
   try {
     const configPath = getOutlookOAuthConfigPath()
     console.log('[Outlook] Loading OAuth config from:', configPath)
@@ -90,6 +99,7 @@ export class OutlookProvider extends BaseEmailProvider {
   private accessToken: string | null = null
   private refreshToken: string | null = null
   private tokenExpiresAt: number = 0
+  private orchestratorFolderCache: Map<string, string> = new Map()
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -115,6 +125,7 @@ export class OutlookProvider extends BaseEmailProvider {
     this.tokenExpiresAt = 0
     this.connected = false
     this.config = null
+    this.orchestratorFolderCache.clear()
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -151,64 +162,79 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    // Build query parameters
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
+    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
+    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+
     const params = new URLSearchParams()
-    params.append('$top', String(options?.limit || 50))
+    params.append('$top', String(pageTop))
     params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
-    
-    // Build filter array
+
     const filters: string[] = []
-    
+
     if (options?.unreadOnly) {
       filters.push('isRead eq false')
     }
-    
+
     if (options?.flaggedOnly) {
       filters.push("flag/flagStatus eq 'flagged'")
     }
-    
+
     if (options?.hasAttachments) {
       filters.push('hasAttachments eq true')
     }
-    
+
     if (options?.fromDate) {
       filters.push(`receivedDateTime ge ${options.fromDate}`)
     }
-    
+
     if (options?.toDate) {
       filters.push(`receivedDateTime le ${options.toDate}`)
     }
-    
-    // For search - use simpler approach without $search (more reliable)
-    // Microsoft Graph $search can be unreliable, so we fetch messages and filter client-side
+
     const useClientFilter = !!(options?.from || options?.subject)
-    
+
     if (filters.length > 0) {
       params.append('$filter', filters.join(' and '))
     }
-    
-    // Always order by date when not using search
+
     if (!options?.search) {
       params.append('$orderby', 'receivedDateTime desc')
     }
-    
-    // Only use $search for full-text search, not for from/subject
+
     if (options?.search) {
       params.append('$search', `"${options.search}"`)
     }
-    
+
     const folderId = folder || 'inbox'
     const requestUrl = `/me/mailFolders/${folderId}/messages?${params.toString()}`
-    
-    const response = await this.graphApiRequest('GET', requestUrl)
-    
-    let messages = response.value || []
-    
-    // Client-side filtering for from/subject (more reliable than Graph $search)
+
+    const collected: any[] = []
+    let response = await this.graphApiRequest('GET', requestUrl)
+    let page = response.value || []
+    collected.push(...page)
+
+    if (syncAll) {
+      let nextLink: string | undefined = response['@odata.nextLink']
+      while (nextLink && collected.length < maxTotal) {
+        response = await this.graphApiRequestAbsolute('GET', nextLink)
+        page = response.value || []
+        if (!page.length) break
+        for (const msg of page) {
+          if (collected.length >= maxTotal) break
+          collected.push(msg)
+        }
+        nextLink = response['@odata.nextLink']
+      }
+    }
+
+    let messages = collected
+
     if (useClientFilter && messages.length > 0) {
       const fromFilter = options?.from?.toLowerCase()
       const subjectFilter = options?.subject?.toLowerCase()
-      
+
       messages = messages.filter((msg: any) => {
         let match = true
         if (fromFilter) {
@@ -223,7 +249,7 @@ export class OutlookProvider extends BaseEmailProvider {
         return match
       })
     }
-    
+
     return messages.map((msg: any) => this.parseOutlookMessage(msg, folder))
   }
   
@@ -295,10 +321,79 @@ export class OutlookProvider extends BaseEmailProvider {
       }
     })
   }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
+      destinationId: REMOTE_DELETION_TARGETS.outlook.deletedItemsFolderId,
+    })
+  }
+
+  /**
+   * Microsoft Graph mapping:
+   * - **archive** — move to well-known `archive` folder.
+   * - **pending_review** / **pending_delete** — child folders under Inbox (created on demand).
+   */
+  async applyOrchestratorRemoteOperation(
+    messageId: string,
+    operation: OrchestratorRemoteOperation,
+    _context?: import('../domain/orchestratorRemoteTypes').OrchestratorRemoteApplyContext,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    try {
+      if (!this.config) {
+        return { ok: false, error: 'Not connected' }
+      }
+      const names = resolveOrchestratorRemoteNames(this.config)
+      let destId: string
+      if (operation === 'archive') {
+        const arch = await this.graphApiRequest('GET', '/me/mailFolders/archive?$select=id')
+        destId = arch.id
+      } else if (operation === 'pending_review') {
+        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingReviewFolder)
+      } else if (operation === 'pending_delete') {
+        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingDeleteFolder)
+      } else {
+        return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
+      }
+
+      await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
+        destinationId: destId,
+      })
+      return { ok: true }
+    } catch (e: any) {
+      const msg = e?.message || String(e)
+      if (/same folder|already been moved|item not found|not found/i.test(msg)) {
+        return { ok: true, skipped: true }
+      }
+      return { ok: false, error: msg }
+    }
+  }
+
+  private async ensureOutlookOrchestratorChildFolder(displayName: string): Promise<string> {
+    const hit = this.orchestratorFolderCache.get(displayName)
+    if (hit) return hit
+
+    const inbox = await this.graphApiRequest('GET', '/me/mailFolders/inbox?$select=id')
+    const inboxId = inbox.id as string
+    const kids = await this.graphApiRequest(
+      'GET',
+      `/me/mailFolders/${inboxId}/childFolders?$select=id,displayName&$top=200`,
+    )
+    const found = (kids.value || []).find((f: any) => f.displayName === displayName)
+    if (found?.id) {
+      this.orchestratorFolderCache.set(displayName, found.id)
+      return found.id
+    }
+    const created = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
+      displayName,
+    })
+    if (!created?.id) throw new Error('Graph folder create returned no id')
+    this.orchestratorFolderCache.set(displayName, created.id)
+    return created.id
+  }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
     try {
-      const message = {
+      const message: Record<string, unknown> = {
         subject: payload.subject,
         body: {
           contentType: 'Text',
@@ -310,6 +405,14 @@ export class OutlookProvider extends BaseEmailProvider {
         ccRecipients: payload.cc?.map(email => ({
           emailAddress: { address: email }
         })) || []
+      }
+      if (payload.attachments?.length) {
+        message.attachments = payload.attachments.map(a => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: a.filename,
+          contentType: a.mimeType || 'application/octet-stream',
+          contentBytes: a.contentBase64
+        }))
       }
       
       await this.graphApiRequest('POST', '/me/sendMail', {
@@ -341,7 +444,7 @@ export class OutlookProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
-    const oauthConfig = loadOutlookOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('outlook')
     if (!oauthConfig) {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
     }
@@ -473,9 +576,22 @@ export class OutlookProvider extends BaseEmailProvider {
       if (oauthConfig.clientSecret) {
         postParams.client_secret = oauthConfig.clientSecret
       }
-      
+
       const postData = new URLSearchParams(postParams).toString()
-      
+      const tokenUrl = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`
+
+      // TEMPORARY DEBUG - remove after debugging
+      console.log('=== OUTLOOK TOKEN EXCHANGE DEBUG ===')
+      console.log('Token URL:', tokenUrl)
+      console.log('Client ID:', oauthConfig.clientId)
+      console.log('Client Secret (first 4 chars):', oauthConfig.clientSecret ? oauthConfig.clientSecret.substring(0, 4) + '...' : '(none)')
+      console.log('Tenant ID:', tenant)
+      console.log('Redirect URI:', redirectUri)
+      console.log('Grant type:', 'authorization_code')
+      console.log('Code (first 10 chars):', code?.substring(0, 10) + '...')
+      console.log('Scopes:', OUTLOOK_SCOPES.join(' '))
+      console.log('=== END DEBUG ===')
+
       const options = {
         hostname: 'login.microsoftonline.com',
         path: `/${tenant}/oauth2/v2.0/token`,
@@ -485,11 +601,24 @@ export class OutlookProvider extends BaseEmailProvider {
           'Content-Length': Buffer.byteLength(postData)
         }
       }
-      
+
       const req = https.request(options, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          // TEMPORARY DEBUG - remove after debugging
+          try {
+            const responseBody = JSON.parse(data)
+            console.log('=== OUTLOOK TOKEN RESPONSE ===')
+            console.log('Status:', res.statusCode)
+            console.log('Body:', JSON.stringify(responseBody))
+            console.log('=== END RESPONSE ===')
+          } catch {
+            console.log('=== OUTLOOK TOKEN RESPONSE ===')
+            console.log('Status:', res.statusCode)
+            console.log('Body (raw):', data)
+            console.log('=== END RESPONSE ===')
+          }
           try {
             const json = JSON.parse(data)
             if (json.error) {
@@ -523,7 +652,7 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = loadOutlookOAuthConfig()
+    const oauthConfig = await getCredentialsForOAuth('outlook')
     if (!oauthConfig || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
@@ -591,6 +720,61 @@ export class OutlookProvider extends BaseEmailProvider {
     })
   }
   
+  /** Follow `@odata.nextLink` from list responses (full URL from Graph). */
+  private async graphApiRequestAbsolute(method: string, absoluteUrl: string, body?: any): Promise<any> {
+    if (this.isTokenExpired() && this.refreshToken) {
+      await this.refreshAccessToken()
+    }
+    let hostname = 'graph.microsoft.com'
+    let path = ''
+    try {
+      const u = new URL(absoluteUrl)
+      hostname = u.hostname || hostname
+      path = (u.pathname || '') + (u.search || '')
+    } catch {
+      throw new Error('Invalid Graph nextLink URL')
+    }
+
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname,
+        path,
+        method,
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+      }
+
+      const req = https.request(options, (res) => {
+        let data = ''
+        res.on('data', (chunk) => {
+          data += chunk
+        })
+        res.on('end', () => {
+          try {
+            const json = data ? JSON.parse(data) : {}
+            if (json.error) {
+              reject(new Error(json.error.message || 'API error'))
+            } else {
+              resolve(json)
+            }
+          } catch (err) {
+            reject(err)
+          }
+        })
+      })
+
+      req.on('error', reject)
+
+      if (body) {
+        req.write(JSON.stringify(body))
+      }
+
+      req.end()
+    })
+  }
+
   private async graphApiRequest(method: string, endpoint: string, body?: any): Promise<any> {
     if (this.isTokenExpired() && this.refreshToken) {
       await this.refreshAccessToken()

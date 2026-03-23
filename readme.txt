@@ -59,7 +59,7 @@ Audit Trail: This ensures that the establishment of the WR Desk™ Canon and its
 
 License Scope (Zenodo Snapshot)
 
-This record contains Annex I - Protocol Enforcement Mechanics is licensed under the same license terms as WRDesk™, BEAP™, and PoAE™,
+This record contains Annex I - Protocol Enforcement Mechanics - v5 is licensed under the same license terms as WRDesk™, BEAP™, and PoAE™,
 as defined in the primary WRDesk™ repository, including but not limited to
 related annexes and normative documents forming part of the same system.
 

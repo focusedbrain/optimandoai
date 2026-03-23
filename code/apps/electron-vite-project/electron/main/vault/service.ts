@@ -60,6 +60,40 @@ import { readFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 
 import { dirname } from 'path'
 
 import { atomicWriteFileSync } from './atomicWrite'
+import {
+  listProfiles,
+  getProfile,
+  createProfile,
+  updateProfile,
+  archiveProfile,
+  deleteProfile,
+  duplicateProfile,
+  uploadProfileDocument,
+  updateProfileDocumentMeta,
+  deleteProfileDocument,
+  resolveProfilesForHandshake,
+  getProfileDocumentContent,
+  retryDocumentWithVision,
+  getDocumentPageCount,
+  getDocumentPage,
+  getDocumentPageList,
+  getDocumentFullText,
+  searchDocumentPages,
+  type DocumentPageInfo,
+  type DocumentSearchMatch,
+} from './hsContextProfileService'
+import type { CreateProfileInput, UpdateProfileInput } from './hsContextProfileService'
+import {
+  saveAnthropicApiKey as _saveAnthropicApiKey,
+  getAnthropicApiKeyAsync as _getAnthropicApiKeyAsync,
+  hasAnthropicApiKey as _hasAnthropicApiKey,
+  removeAnthropicApiKey as _removeAnthropicApiKey,
+  validateAnthropicApiKey as _validateAnthropicApiKey,
+} from './vaultApiKeyService'
+import {
+  requestOriginalDocumentContent as _requestOriginalDocumentContent,
+  requestLinkOpenApproval as _requestLinkOpenApproval,
+} from './hsContextAccessService'
 
 export class VaultService {
   private db: any | null = null
@@ -1200,6 +1234,214 @@ export class VaultService {
     this.ensureUnlocked()
     this.updateActivity()
     return updateDocumentMeta(this.db!, tier, documentId, updates)
+  }
+
+  // ==========================================================================
+  // HS Context Profiles
+  // ==========================================================================
+
+  listHsProfiles(tier: VaultTier, includeArchived = false) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return listProfiles(this.db!, tier, includeArchived)
+  }
+
+  getHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getProfile(this.db!, tier, profileId)
+  }
+
+  createHsProfile(tier: VaultTier, input: CreateProfileInput) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return createProfile(this.db!, tier, input)
+  }
+
+  updateHsProfile(tier: VaultTier, profileId: string, updates: UpdateProfileInput) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return updateProfile(this.db!, tier, profileId, updates)
+  }
+
+  archiveHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return archiveProfile(this.db!, tier, profileId)
+  }
+
+  deleteHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return deleteProfile(this.db!, tier, profileId)
+  }
+
+  duplicateHsProfile(tier: VaultTier, profileId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return duplicateProfile(this.db!, tier, profileId)
+  }
+
+  async uploadHsProfileDocument(
+    tier: VaultTier,
+    profileId: string,
+    filename: string,
+    mimeType: string,
+    content: Buffer,
+    sensitive = false,
+    label?: string | null,
+    documentType?: string | null,
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return uploadProfileDocument(this.db!, tier, this.session!.kek, profileId, filename, mimeType, content, sensitive, label, documentType)
+  }
+
+  updateHsProfileDocumentMeta(
+    tier: VaultTier,
+    documentId: string,
+    updates: { label?: string | null; document_type?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return updateProfileDocumentMeta(this.db!, tier, documentId, updates)
+  }
+
+  deleteHsProfileDocument(tier: VaultTier, documentId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return deleteProfileDocument(this.db!, tier, documentId)
+  }
+
+  resolveHsProfilesForHandshake(tier: VaultTier, profileIds: string[]) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return resolveProfilesForHandshake(this.db!, tier, profileIds)
+  }
+
+  async requestOriginalDocumentContent(
+    tier: VaultTier,
+    documentId: string,
+    actorUserId: string,
+    options: { acknowledgedWarning: boolean; handshakeId?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return _requestOriginalDocumentContent(this.db!, tier, this.session!.kek, documentId, actorUserId, options)
+  }
+
+  /**
+   * Owner-direct document download. The vault owner uploaded the file so no
+   * consent warning is required — they already hold the KEK.
+   * Distinct from requestOriginalDocumentContent which gates access for
+   * external receivers via a mandatory warning acknowledgement.
+   */
+  async getOwnerDocumentContent(tier: VaultTier, documentId: string) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getProfileDocumentContent(this.db!, tier, this.session!.kek, documentId)
+  }
+
+  getDocumentPageCount(tier: VaultTier, documentId: string): number {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPageCount(this.db!, tier, documentId)
+  }
+
+  getDocumentPage(tier: VaultTier, documentId: string, pageNumber: number): string | null {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPage(this.db!, tier, documentId, pageNumber)
+  }
+
+  getDocumentPageList(tier: VaultTier, documentId: string): DocumentPageInfo[] {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentPageList(this.db!, tier, documentId)
+  }
+
+  getDocumentFullText(tier: VaultTier, documentId: string): string | null {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return getDocumentFullText(this.db!, tier, documentId)
+  }
+
+  searchDocumentPages(tier: VaultTier, documentId: string, query: string): DocumentSearchMatch[] {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return searchDocumentPages(this.db!, tier, documentId, query)
+  }
+
+  // ── BYOK API Key management ────────────────────────────────────────────────
+
+  /** Save (or update) the Anthropic API key, encrypted with the vault KEK. */
+  async saveAnthropicApiKey(tier: VaultTier, apiKey: string): Promise<void> {
+    this.ensureUnlocked()
+    this.updateActivity()
+    // Validate before storing — throws with a user-friendly message on failure
+    const validation = await _validateAnthropicApiKey(apiKey)
+    if (!validation.valid) {
+      throw new Error(validation.error ?? 'Invalid API key')
+    }
+    await _saveAnthropicApiKey(this.db!, this.session!.kek, apiKey)
+  }
+
+  /** Returns true if an Anthropic API key is saved (does not decrypt it). */
+  hasAnthropicApiKey(_tier: VaultTier): boolean {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return _hasAnthropicApiKey(this.db!)
+  }
+
+  /** Delete the stored Anthropic API key. */
+  removeAnthropicApiKey(_tier: VaultTier): void {
+    this.ensureUnlocked()
+    this.updateActivity()
+    _removeAnthropicApiKey(this.db!)
+  }
+
+  /**
+   * Retry Vision API extraction for a previously-failed document.
+   * Retrieves the stored API key, decrypts the PDF blob, and fires
+   * the Vision job asynchronously. Returns immediately with status='pending'.
+   */
+  async retryDocumentWithVision(tier: VaultTier, documentId: string): Promise<{ status: 'pending' }> {
+    this.ensureUnlocked()
+    this.updateActivity()
+    const apiKey = await _getAnthropicApiKeyAsync(this.db!, this.session!.kek)
+    if (!apiKey) {
+      throw new Error('No Anthropic API key configured. Please add your API key first.')
+    }
+    await retryDocumentWithVision(this.db!, tier, this.session!.kek, documentId, apiKey)
+    return { status: 'pending' }
+  }
+
+  /**
+   * Get Anthropic API key for inbox PDF Vision fallback (BYOK).
+   * Returns null if vault is locked or no key is configured.
+   */
+  async getAnthropicApiKeyForInbox(): Promise<string | null> {
+    if (!this.session?.kek || !this.db) return null
+    try {
+      return await _getAnthropicApiKeyAsync(this.db, this.session.kek)
+    } catch {
+      return null
+    }
+  }
+
+  requestLinkOpenApproval(
+    linkEntityId: string,
+    actorUserId: string,
+    options: { acknowledgedWarning: boolean; handshakeId?: string | null },
+  ) {
+    this.ensureUnlocked()
+    this.updateActivity()
+    return _requestLinkOpenApproval(this.db!, linkEntityId, actorUserId, options)
+  }
+
+  getHsProfileDb() {
+    this.ensureUnlocked()
+    return this.db!
   }
 
   // ==========================================================================

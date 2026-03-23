@@ -19,7 +19,7 @@ export type BeapFolder = 'inbox' | 'outbox' | 'archived' | 'rejected'
 /**
  * Delivery method for a message
  */
-export type BeapDeliveryMethod = 'email' | 'messenger' | 'download' | 'chat' | 'unknown'
+export type BeapDeliveryMethod = 'email' | 'messenger' | 'download' | 'p2p' | 'chat' | 'unknown'
 
 /**
  * Direction of message
@@ -153,6 +153,19 @@ export interface BeapMessageUI {
   
   /** Raw incoming message reference (for re-verification) */
   incomingMessageRef?: string
+
+  /**
+   * Validated capsule data (present after Stage 5 sandbox verification succeeds).
+   *
+   * This is the ONLY form of capsule content that reaches the UI — it has
+   * been sanitised by the sandbox isolation boundary (Stage 5, Annex I §I.2).
+   * Derived key material, raw ciphertext, and internal pipeline details
+   * are never present in this object.
+   *
+   * Consumers MUST check `decryptedData.authorizedProcessing.decision === 'AUTHORIZED'`
+   * before using capsule content for any processing or rendering.
+   */
+  decryptedData?: import('./sandbox').SanitisedDecryptedPackage
 }
 
 /**
@@ -342,6 +355,7 @@ export const DELIVERY_METHOD_CONFIG: Record<BeapDeliveryMethod, { label: string;
   email: { label: 'Email', icon: '📧' },
   messenger: { label: 'Messenger', icon: '💬' },
   download: { label: 'Download', icon: '💾' },
+  p2p: { label: 'P2P', icon: '🔗' },
   chat: { label: 'Chat', icon: '🗨️' },
   unknown: { label: 'Unknown', icon: '❓' }
 }

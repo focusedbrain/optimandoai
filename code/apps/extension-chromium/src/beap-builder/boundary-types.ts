@@ -240,7 +240,7 @@ export const EGRESS_DESTINATION_TYPES: { value: EgressDestinationType; label: st
   { value: 'api', label: 'API', icon: '🔌' },
   { value: 'web', label: 'Web', icon: '🌐' },
   { value: 'p2p', label: 'P2P', icon: '🔗' },
-  { value: 'other', label: 'Other', icon: '📎' }
+  { value: 'other', label: 'Other', icon: '📁' }
 ]
 
 export const INGRESS_SOURCE_TYPES: { value: IngressSourceType; label: string; icon: string }[] = [
@@ -248,7 +248,7 @@ export const INGRESS_SOURCE_TYPES: { value: IngressSourceType; label: string; ic
   { value: 'api', label: 'API', icon: '🔌' },
   { value: 'file', label: 'File', icon: '📁' },
   { value: 'user_input', label: 'User Input', icon: '⌨️' },
-  { value: 'other', label: 'Other', icon: '📎' }
+  { value: 'other', label: 'Other', icon: '📁' }
 ]
 
 // =============================================================================

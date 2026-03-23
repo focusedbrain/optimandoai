@@ -1,19 +1,27 @@
 /**
  * Handshake Module
- * 
- * BEAP™ handshake with cryptographic fingerprints.
+ *
+ * BEAP handshake management — backed by the Electron pipeline via RPC.
  */
 
-// Types
+// New backend-backed types
+export * from './rpcTypes'
+
+// New RPC client
+export * from './handshakeRpc'
+
+// New hook (reads from backend RPC)
+export { useHandshakes } from './useHandshakes'
+export { usePendingP2PBeapIngestion } from './usePendingP2PBeapIngestion'
+export { usePendingPlainEmailIngestion } from './usePendingPlainEmailIngestion'
+
+// Legacy types (kept for non-handshake uses like fingerprint utilities)
 export * from './types'
 
 // Utilities
 export * from './fingerprint'
 
-// Payload Serialization & Parsing
-export * from './handshakePayload'
-
-// Handshake Service (identity + payload creation)
+// Handshake Service (identity — getOurIdentity for fingerprint display)
 export * from './handshakeService'
 
 // Microcopy
@@ -21,7 +29,4 @@ export * from './microcopy'
 
 // Components
 export * from './components'
-
-// Store hooks
-export { useFullAutoStatus } from './useHandshakeStore'
 

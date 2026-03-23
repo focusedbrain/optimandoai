@@ -1,10 +1,10 @@
 import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
-import { ensureSession, updateSessionFromTokens, clearSession } from '../src/auth/session'
+import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
 import { 
   resolveTier,
-  DEFAULT_TIER,
+  UNKNOWN_TIER,
   type Tier
 } from '../src/auth/capabilities'
 
@@ -24,10 +24,16 @@ function logoutFast(): void {
   lockVaultIfLoaded()
   console.log(`[AUTH][t+${Date.now() - t0}ms] Vault lock requested`)
 
+  // 1b. Close handshake ledger — discards the session-derived key from memory
+  closeLedger()
+  console.log(`[AUTH][t+${Date.now() - t0}ms] Handshake ledger closed`)
+
   // 2. Set auth state to locked (blocks all privileged actions)
   hasValidSession = false
-  currentTier = DEFAULT_TIER
-  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false`)
+  currentTier = UNKNOWN_TIER
+  lastKnownGoodTier = null
+  lastEntitlementRefreshAt = null
+  console.log(`[AUTH][t+${Date.now() - t0}ms] hasValidSession = false, lastKnownGoodTier and lastEntitlementRefreshAt cleared`)
   
   // 3. Clear in-memory tokens (sync, fast)
   clearSession()
@@ -85,31 +91,99 @@ let hasValidSession = false  // Set after startup session check
 
 // Display-only cache — used for tray menus, IPC status, and auth responses.
 // NEVER use this for security-gated decisions (vault routes, capability checks).
-// Those MUST call resolveRequestTier() to get the authoritative tier per-request.
-let currentTier: Tier = 'free'
+// Those MUST call getEffectiveTier() to get the authoritative tier per-request.
+let currentTier: Tier = UNKNOWN_TIER
+
+// Last known good tier — used when session is temporarily missing (refresh failure, etc.).
+// Cleared on logout. Never use 'free' as error fallback.
+let lastKnownGoodTier: Tier | null = null
+
+// Timestamp of last successful entitlement refresh from Keycloak.
+// Used to decide when to force-refresh before /api/vault/status.
+let lastEntitlementRefreshAt: number | null = null
+
+const ENTITLEMENT_REFRESH_INTERVAL_MS = 60_000
 
 /**
- * Resolve the authoritative tier for the current request.
- *
- * Reads the LATEST JWT claims from the session module (refreshed automatically
- * when the token is near expiry), extracts `wrdesk_plan` / `roles`, and resolves
- * the tier via the canonical `resolveTier()` function.
- *
- * Must be called inside every security-gated route handler — never rely on
- * the module-level `currentTier` cache for access control.
+ * Refresh entitlements from Keycloak (single source of truth).
+ * Calls ensureSession(force), derives tier, updates currentTier, lastKnownGoodTier, lastEntitlementRefreshAt.
+ * On failure: returns lastKnownGoodTier ?? unknown (never 'free').
+ */
+async function refreshEntitlements(force = true, source = 'caller'): Promise<Tier> {
+  console.log(`[ENTITLEMENT_REFRESH] refresh begin (force=${force}, source=${source})`)
+  try {
+    const session = await ensureSession(force)
+    if (!session.accessToken || !session.userInfo) {
+      const fallback = lastKnownGoodTier ?? UNKNOWN_TIER
+      console.log(`[ENTITLEMENT_REFRESH] refresh failure: session missing — using ${lastKnownGoodTier != null ? 'lastKnownGoodTier' : 'unknown'}:`, fallback)
+      return fallback
+    }
+    const tier = session.userInfo.canonical_tier ?? resolveTier(
+      session.userInfo.wrdesk_plan,
+      session.userInfo.roles || [],
+      session.userInfo.sso_tier,
+    )
+    const isValidTier = tier != null && tier !== UNKNOWN_TIER
+    currentTier = tier
+    if (isValidTier) {
+      lastKnownGoodTier = tier
+      lastEntitlementRefreshAt = Date.now()
+      console.log(`[ENTITLEMENT_REFRESH] refresh success: tier=${tier}, lastKnownGoodTier updated, lastEntitlementRefreshAt set`)
+    } else {
+      lastEntitlementRefreshAt = Date.now()
+      console.log(`[ENTITLEMENT_REFRESH] refresh success: tier=${tier ?? 'unknown'}, lastKnownGoodTier unchanged`)
+    }
+    return tier
+  } catch (err: any) {
+    const fallback = lastKnownGoodTier ?? UNKNOWN_TIER
+    console.log(`[ENTITLEMENT_REFRESH] refresh failure:`, err?.message || err, `— using ${lastKnownGoodTier != null ? 'lastKnownGoodTier' : 'unknown'}:`, fallback)
+    return fallback
+  }
+}
+
+/**
+ * Single entry point for tier for all vault routes and status paths.
+ * When refreshIfStale is true and lastEntitlementRefreshAt is null or older than 60s,
+ * forces a Keycloak refresh first. Otherwise uses cached session/state.
+ */
+async function getEffectiveTier(options?: { refreshIfStale?: boolean; caller?: string }): Promise<Tier> {
+  const { refreshIfStale = false, caller = 'caller' } = options ?? {}
+  const stale = lastEntitlementRefreshAt == null || (Date.now() - lastEntitlementRefreshAt) > ENTITLEMENT_REFRESH_INTERVAL_MS
+  if (refreshIfStale && stale) {
+    return refreshEntitlements(true, caller)
+  }
+  return resolveRequestTier()
+}
+
+/**
+ * Resolve tier from session (no forced refresh).
+ * Used internally by getEffectiveTier when not stale.
  */
 async function resolveRequestTier(): Promise<Tier> {
   const session = await ensureSession()
   if (!session.accessToken || !session.userInfo) {
-    console.log('[TIER] resolveRequestTier: no session or userInfo — defaulting to', DEFAULT_TIER)
-    return DEFAULT_TIER
+    if (lastKnownGoodTier != null) {
+      console.log('[ENTITLEMENT] resolveRequestTier: session missing — returning lastKnownGoodTier:', lastKnownGoodTier)
+      return lastKnownGoodTier
+    }
+    console.log('[ENTITLEMENT] resolveRequestTier: session missing, no lastKnownGoodTier — returning unknown')
+    return UNKNOWN_TIER
   }
-  const plan = session.userInfo.wrdesk_plan
-  const roles = session.userInfo.roles || []
-  const tier = resolveTier(plan, roles)
-  console.log('[TIER] resolveRequestTier: wrdesk_plan=' + (plan || '(none)') + ', roleCount=' + roles.length + ', resolved=' + tier)
-  // Update the display cache so tray/status stay reasonably fresh
-  currentTier = tier
+  // Use canonical tier (computed once during session creation); fallback for legacy sessions
+  const tier = session.userInfo.canonical_tier ?? resolveTier(
+    session.userInfo.wrdesk_plan,
+    session.userInfo.roles || [],
+    session.userInfo.sso_tier,
+  )
+  const isValidTier = tier != null && tier !== UNKNOWN_TIER
+  if (isValidTier) {
+    currentTier = tier
+    lastKnownGoodTier = tier
+    console.log('[ENTITLEMENT] Valid tier confirmed from session:', tier, '— updated currentTier and lastKnownGoodTier')
+  } else {
+    currentTier = tier
+    console.log('[TIER] resolveRequestTier: canonical_tier=' + (tier || '(none)'))
+  }
   return tier
 }
 
@@ -146,7 +220,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { execSync } from 'node:child_process'
-import { WebSocketServer } from 'ws'
+import WebSocket, { WebSocketServer } from 'ws'
 import express from 'express'
 import * as http from 'node:http'
 import * as net from 'net'
@@ -192,23 +266,31 @@ async function checkStartupSession(): Promise<boolean> {
       console.log('[AUTH] Session valid - user:', session.userInfo?.displayName || session.userInfo?.email || 'unknown')
       hasValidSession = true
       
-      // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
-      const roles = session.userInfo?.roles || []
-      const plan = session.userInfo?.wrdesk_plan
-      currentTier = resolveTier(plan, roles)
-      console.log('[AUTH] Tier set:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
+      // Use canonical tier from session
+      const tier = session.userInfo?.canonical_tier ?? resolveTier(
+        session.userInfo?.wrdesk_plan,
+        session.userInfo?.roles || [],
+        session.userInfo?.sso_tier,
+      )
+      currentTier = tier
+      if (tier != null && tier !== UNKNOWN_TIER) {
+        lastKnownGoodTier = tier
+        console.log('[ENTITLEMENT] Valid tier confirmed at startup:', tier, '— updated lastKnownGoodTier')
+      } else {
+        console.log('[AUTH] Tier set:', currentTier)
+      }
       
       return true
     } else {
       console.log('[AUTH] No valid session found')
       hasValidSession = false
-      currentTier = DEFAULT_TIER
+      currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
       return false
     }
   } catch (err) {
     console.error('[AUTH] Session check failed:', err instanceof Error ? err.message : String(err))
     hasValidSession = false
-    currentTier = DEFAULT_TIER
+    currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
     return false
   }
 }
@@ -223,23 +305,39 @@ async function openDashboardWindow(): Promise<void> {
   console.log('[AUTH] Opening dashboard window...')
   
   if (win && !win.isDestroyed()) {
-    // Window exists - show and focus
-    console.log('[AUTH] Dashboard window exists - showing and focusing')
-    if (win.isMinimized()) {
-      win.restore()
-    }
-    win.show()
-    win.focus()
-  } else {
+    // Window exists — destroy and recreate to avoid blank canvas when opened from extension.
+    // Hidden windows can have suspended/discarded renderers; reload was unreliable.
+    console.log('[AUTH] Dashboard window exists - destroying and recreating for fresh load')
+    win.destroy()
+    win = null
+  }
+  if (!win || win.isDestroyed()) {
     // Create new window
     console.log('[AUTH] Creating new dashboard window')
     await createWindow()
     if (win) {
-      win.show()
-      win.focus()
+      // Wait for renderer to finish loading before showing — prevents blank white flash
+      // on all platforms, but especially important on Linux/Wayland.
+      await new Promise<void>((resolve) => {
+        if (!win || win.isDestroyed()) { resolve(); return }
+        if (!win.webContents.isLoading()) {
+          resolve()
+        } else {
+          win.webContents.once('did-finish-load', () => resolve())
+          // Safety timeout — show after 10s even if load event never fires
+          setTimeout(resolve, 10_000)
+        }
+      })
+      if (win && !win.isDestroyed()) {
+        win.show()
+        win.focus()
+        // Always send IPC so renderer shows Analysis view (extension brain icon, tray, etc.)
+        win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
+        console.log('[AUTH] Sent OPEN_ANALYSIS_DASHBOARD to new window')
+      }
       // Open DevTools AFTER showing — never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
-      if (VITE_DEV_SERVER_URL) {
+      if (win && !win.isDestroyed()) {
         win.webContents.openDevTools({ mode: 'detach' })
       }
     }
@@ -268,13 +366,35 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
     // Mark session as valid
     hasValidSession = true
     
-    // Resolve tier from wrdesk_plan claim (primary) or roles (fallback)
-    const roles = userInfo?.roles || []
-    const plan = userInfo?.wrdesk_plan
-    currentTier = resolveTier(plan, roles)
+    // Use canonical tier from session
+    const tier = userInfo?.canonical_tier ?? resolveTier(
+      userInfo?.wrdesk_plan,
+      userInfo?.roles || [],
+      userInfo?.sso_tier,
+    )
+    currentTier = tier
+    if (tier != null && tier !== UNKNOWN_TIER) {
+      lastKnownGoodTier = tier
+      console.log('[ENTITLEMENT] Valid tier confirmed at login:', tier, '— updated lastKnownGoodTier')
+    } else {
+      console.log('[AUTH] Login successful - tier:', currentTier)
+    }
     
-    console.log('[AUTH] Login successful - tier:', currentTier, 'wrdesk_plan:', plan || '(none)', 'roles:', roles.join(', ') || '(none)')
-    
+    // Open the handshake ledger for this new session
+    try {
+      if (userInfo?.sub && userInfo?.iss) {
+        const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+        openLedger(ledgerToken).then(() => {
+          console.log('[AUTH] Handshake ledger opened after login')
+          onLedgerReady?.()
+        }).catch(err => {
+          console.warn('[AUTH] Handshake ledger open after login failed:', err?.message)
+        })
+      }
+    } catch (ledgerErr) {
+      console.warn('[AUTH] Handshake ledger open skipped:', ledgerErr)
+    }
+
     // Update tray menu to reflect logged-in state
     updateTrayMenu()
     
@@ -288,7 +408,7 @@ async function requestLogin(): Promise<{ ok: boolean; error?: string; tier?: str
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[AUTH] Login failed:', message)
-    currentTier = DEFAULT_TIER
+    currentTier = lastKnownGoodTier ?? UNKNOWN_TIER
     return { ok: false, error: message }
   }
 }
@@ -370,6 +490,30 @@ function validateLaunchSecret(incoming: string): boolean {
     return false
   }
   return crypto.timingSafeEqual(LAUNCH_SECRET_BUF, inBuf)
+}
+
+// CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
+const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
+function isCorsAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false
+  if (CORS_ALLOWED_ORIGINS.has(origin)) return true
+  if (origin.startsWith('chrome-extension://')) return true
+  return false
+}
+
+function corsPnaHeaders(origin: string | undefined, requestPrivateNetwork: boolean): Record<string, string> {
+  const h: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Launch-Secret, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+  }
+  if (origin && isCorsAllowedOrigin(origin)) {
+    h['Access-Control-Allow-Origin'] = origin
+  }
+  if (requestPrivateNetwork || (origin && isCorsAllowedOrigin(origin))) {
+    h['Access-Control-Allow-Private-Network'] = 'true'
+  }
+  return h
 }
 
 /**
@@ -494,10 +638,33 @@ import { loadPresets, upsertRegion } from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { registerMiniAppHandlers } from './ipc/miniapp'
 import { handleVaultRPC } from './main/vault/rpc'
+import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
+import { sessionFromClaims } from './main/handshake/sessionFactory'
+import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
+import {
+  openLedger,
+  closeLedger,
+  getLedgerDb,
+  buildLedgerSessionToken,
+} from './main/handshake/ledger'
+import { setEmailSendFn } from './main/handshake/emailTransport'
+import { processOutboundQueue } from './main/handshake/outboundQueue'
+import { pullFromRelay } from './main/p2p/relayPull'
+import { createP2PServer } from './main/p2p/p2pServer'
+import { createCoordinationWsClient } from './main/p2p/coordinationWs'
+import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
+import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
+import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
+import { migrateHandshakeTables } from './main/handshake/db'
+import { completePendingContextSyncs, tryEnqueueContextSync } from './main/handshake/contextSyncEnqueue'
+import { setEmailFunctions } from './main/email/beapSync'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
 const emailRowPreviewData = new Map<string, { from: string; subject: string }>()
+
+/** Called when ledger opens — triggers P2P/coordination startup immediately instead of waiting for 10s poll */
+let onLedgerReady: (() => void) | null = null
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -508,7 +675,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // │ │
 // │ ├─┬ dist-electron
 // │ │ ├── main.js
-// │ │ └── preload.mjs
+// │ │ └── preload.cjs
 // │
 process.env.APP_ROOT = path.join(__dirname, '..')
 
@@ -536,12 +703,27 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 var wsVsbtBindings: Map<any, string> = (globalThis as any).__og_ws_vsbt__ || new Map();
 (globalThis as any).__og_ws_vsbt__ = wsVsbtBindings;
 
+export function broadcastToExtensions(message: Record<string, unknown>): void {
+  const json = JSON.stringify(message)
+  for (const socket of wsClients) {
+    try {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(json)
+      }
+    } catch { /* ignore */ }
+  }
+}
+
 // Current extension theme (synced from extension via WebSocket)
 // Values: 'pro' (purple), 'dark', 'standard' (white - default)
 let currentExtensionTheme: 'pro' | 'dark' | 'standard' = 'standard';
 
 // Flag to track when app is actually quitting (from tray menu "Quit")
 let isAppQuitting = false
+
+// When a Chrome extension popup is open (BEAP Inbox, Handshake), the
+// dashboard lowers its z-level so the popup can appear on top.
+let popupIsOpen = false
 
 // Set flag when app is actually quitting
 app.on('before-quit', async () => {
@@ -603,13 +785,13 @@ process.on('unhandledRejection', (reason, promise) => {
 function handleDeepLink(raw: string) {
   try {
     const url = new URL(raw)
-    // Support both old opengiraffe:// and new wrcode:// protocols for backward compatibility
-    if (url.protocol !== 'opengiraffe:' && url.protocol !== 'wrcode:') return
-    const action = url.hostname // e.g., lmgtfy, start
+    // Support opengiraffe://, wrcode://, and wrdesk:// protocols
+    if (url.protocol !== 'opengiraffe:' && url.protocol !== 'wrcode:' && url.protocol !== 'wrdesk:') return
+    const action = url.hostname // e.g., lmgtfy, start, launch
     const mode = url.searchParams.get('mode') || ''
     
-    // Handle 'start' action - only show dashboard if authenticated
-    if (action === 'start') {
+    // Handle 'start' and 'launch' actions - show dashboard if authenticated, or bring app to foreground
+    if (action === 'start' || action === 'launch') {
       console.log('[MAIN] Received start deep link')
       if (!hasValidSession) {
         console.log('[MAIN] No valid session - ignoring start deep link (stay in tray)')
@@ -647,6 +829,7 @@ Menu.setApplicationMenu(null)
 
 // Check if app was started with --hidden flag (auto-start on login)
 const startHidden = process.argv.includes('--hidden')
+const enableDevTools = process.argv.includes('--enable-devtools')
 console.log('[MAIN] Startup args:', process.argv.join(' '))
 console.log('[MAIN] Start hidden mode:', startHidden)
 
@@ -654,23 +837,45 @@ async function createWindow() {
   // Security: renderer isolation; tokens must never be exposed to renderer
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
-    title: 'WR Desk™ Analysis Dashboard',
+    title: 'WR Desk™',
     icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: process.platform !== 'linux',  // Linux has no Chromium sandbox; disable to avoid issues
       webSecurity: true,
     },
-    show: false,  // Always start hidden - visibility controlled by openDashboardWindow()
+    show: false,
     width: 1200,
     height: 800,
+    alwaysOnTop: true,
   })
-  
+
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
-  
+
+  // ── Always-on-top z-order management ──
+  // Default level is 'screen-saver' (HWND_TOPMOST on Windows) so the
+  // dashboard stays above all regular browser windows.
+  // When a Chrome extension popup is opened from the dashboard (BEAP Inbox,
+  // +New Handshake), we temporarily DISABLE alwaysOnTop so the focused
+  // Chrome popup sits on top.  The dashboard remains visible behind the
+  // popup.  When the popup closes (FOCUS_DASHBOARD), we restore
+  // 'screen-saver' level and moveTop() so the dashboard is back above
+  // all browser windows.
+  const assertAlwaysOnTop = () => {
+    try {
+      if (win && !win.isDestroyed() && win.isVisible() && !popupIsOpen) {
+        win.setAlwaysOnTop(true, 'screen-saver')
+        win.moveTop()
+      }
+    } catch {}
+  }
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.on('blur', assertAlwaysOnTop)
+  win.on('show', assertAlwaysOnTop)
+
   console.log('[MAIN] Window created (hidden by default)')
   
   // When user clicks X, hide to tray instead of quitting
@@ -687,15 +892,19 @@ async function createWindow() {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
+  // Log load failures (blank page in packaged app often caused by failed script/CSS load)
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+    console.error('[MAIN] Renderer did-fail-load:', { errorCode, errorDescription, validatedURL })
+  })
+
   if (VITE_DEV_SERVER_URL) {
     console.log('[MAIN] Loading dev server URL:', VITE_DEV_SERVER_URL)
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    const indexPath = path.join(RENDERER_DIST, 'index.html')
+    const { getRendererIndexPath } = await import('./main/platform')
+    const indexPath = getRendererIndexPath(__dirname, RENDERER_DIST, app.isPackaged)
     console.log('[MAIN] Loading production file:', indexPath)
-    console.log('[MAIN] RENDERER_DIST:', RENDERER_DIST)
-    console.log('[MAIN] __dirname:', __dirname)
-    console.log('[MAIN] APP_ROOT:', process.env.APP_ROOT)
+    console.log('[MAIN] isPackaged:', app.isPackaged, 'platform:', process.platform)
     win.loadFile(indexPath)
   }
 
@@ -729,6 +938,7 @@ async function createWindow() {
       console.log(msg)
     })
     // Handle request for desktop sources (for video recording)
+    ipcMain.removeHandler('get-desktop-sources')
     ipcMain.handle('get-desktop-sources', async (_e, opts: any) => {
       try {
         const { desktopCapturer } = await import('electron')
@@ -789,57 +999,87 @@ async function createWindow() {
         })
       }
     })
-    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
-    ipcMain.on('OPEN_BEAP_INBOX', () => {
-      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
-      
-      // Get dashboard window bounds and state to sync with popup
+    // Helper: open popup with given launchMode (dashboard-beap | dashboard-beap-draft | dashboard-email-compose)
+    const openBeapPopup = (launchMode: 'dashboard-beap' | 'dashboard-beap-draft' | 'dashboard-email-compose') => {
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
       let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
       if (win) {
         const dashBounds = win.getBounds()
-        bounds = {
-          x: dashBounds.x,
-          y: dashBounds.y,
-          width: dashBounds.width,
-          height: dashBounds.height
-        }
-        // Detect if dashboard is maximized or fullscreen
-        if (win.isFullScreen()) {
-          windowState = 'fullscreen'
-        } else if (win.isMaximized()) {
-          windowState = 'maximized'
-        }
-        console.log('[MAIN] 📐 Dashboard bounds:', bounds, 'state:', windowState)
-        
-        // Blur the dashboard window so Chrome popup can appear on top
-        try {
-          win.blur()
-        } catch {}
+        bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
+        if (win.isFullScreen()) windowState = 'fullscreen'
+        else if (win.isMaximized()) windowState = 'maximized'
       }
-      
-      // Send message to Chrome extension via WebSocket to open the popup
+      popupIsOpen = true
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(false)
+      }
       const message = JSON.stringify({
         type: 'OPEN_COMMAND_CENTER_POPUP',
         theme: currentExtensionTheme,
-        launchMode: 'dashboard-beap',
-        bounds: bounds,
-        windowState: windowState
+        launchMode,
+        bounds,
+        windowState
       })
-      let sent = false
-      wsClients.forEach((socket: any) => {
+      const client = wsClients[0]
+      if (client) {
         try {
-          socket.send(message)
-          sent = true
-          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with bounds')
+          client.send(message)
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP to extension with launchMode:', launchMode)
         } catch (e) {
           console.error('[MAIN] Error sending to extension:', e)
         }
-      })
-      if (!sent) {
+      } else {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - popup may not open')
       }
+    }
+    // Handle BEAP Inbox button from dashboard - open popup in Chrome extension
+    ipcMain.on('OPEN_BEAP_INBOX', () => {
+      console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
+      openBeapPopup('dashboard-beap')
     })
+    ipcMain.on('OPEN_BEAP_DRAFT', () => {
+      console.log('[MAIN] 📨 BEAP Draft requested from dashboard')
+      openBeapPopup('dashboard-beap-draft')
+    })
+    ipcMain.on('OPEN_EMAIL_COMPOSE', () => {
+      console.log('[MAIN] 📨 Email Compose requested from dashboard')
+      openBeapPopup('dashboard-email-compose')
+    })
+
+    ipcMain.on('OPEN_HANDSHAKE_REQUEST', () => {
+      console.log('[MAIN] 📨 Handshake Request popup requested from dashboard')
+      let bounds = { x: 100, y: 100, width: 520, height: 720 }
+      let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
+      if (win) {
+        const dashBounds = win.getBounds()
+        bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
+        if (win.isFullScreen()) windowState = 'fullscreen'
+        else if (win.isMaximized()) windowState = 'maximized'
+      }
+      popupIsOpen = true
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(false)
+      }
+      const message = JSON.stringify({
+        type: 'OPEN_COMMAND_CENTER_POPUP',
+        theme: currentExtensionTheme,
+        launchMode: 'dashboard-handshake-request',
+        bounds: bounds,
+        windowState: windowState
+      })
+      const client = wsClients[0]
+      if (client) {
+        try {
+          client.send(message)
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP (handshake-request) to extension')
+        } catch (e) {
+          console.error('[MAIN] Error sending to extension:', e)
+        }
+      } else {
+        console.log('[MAIN] ⚠️ No WebSocket clients connected - handshake popup may not open')
+      }
+    })
+
     ipcMain.on('overlay-cmd', async (_e, msg: any) => {
       try {
         console.log('[MAIN] Overlay command received:', msg?.action)
@@ -1118,7 +1358,15 @@ async function createWindow() {
         
         if (activeAccounts.length > 0) {
           // Already connected - show info and option to manage
-          const accountList = activeAccounts.map(a => `• ${a.provider === 'microsoft365' ? 'Outlook' : a.provider}: ${a.email || a.displayName}`).join('\n')
+          const accountList = activeAccounts.map((a) => {
+            const label =
+              a.provider === 'microsoft365'
+                ? 'Microsoft 365 / Outlook'
+                : a.provider === 'imap'
+                  ? 'Custom email (IMAP)'
+                  : a.provider
+            return `• ${label}: ${a.email || a.displayName}`
+          }).join('\n')
           const result = await dialog.showMessageBox({
             type: 'info',
             title: 'Email Connected',
@@ -1144,7 +1392,7 @@ async function createWindow() {
           type: 'info',
           title: 'Connect Email',
           message: 'Set up Email Connection',
-          detail: 'To view full email content securely:\n\n1. Click the WR Chat extension icon\n2. Go to the Email section\n3. Click "Connect Email"\n4. Choose Gmail or Outlook\n\nOnce connected, full email content will be fetched via the secure API.'
+          detail: 'To view full email content securely:\n\n1. Click the WR Chat extension icon\n2. Go to the Email section\n3. Click "Connect Email"\n4. Choose Gmail, Microsoft 365 / Outlook, or Custom email (IMAP + SMTP)\n\nOnce connected, full email content will be fetched via the secure API.'
         })
         return
       } catch (err: any) {
@@ -1380,7 +1628,7 @@ async function createWindow() {
   globalShortcut.register('Alt+0', () => win?.webContents.send('hotkey', 'stop'))
 
   // Process deep link passed on first launch (Windows passes in argv)
-  const arg = process.argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
+  const arg = process.argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://') || a.startsWith('wrdesk://'))
   if (arg) handleDeepLink(arg)
 }
 
@@ -1389,8 +1637,9 @@ function createTray() {
     tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'))
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
-    tray.on('click', async () => {
-      console.log('[TRAY] Tray icon clicked')
+
+    const handleTrayActivate = async () => {
+      console.log('[TRAY] Tray icon activated')
       if (hasValidSession) {
         console.log('[TRAY] Session valid - opening dashboard')
         await openDashboardWindow()
@@ -1402,7 +1651,15 @@ function createTray() {
         }
         // requestLogin() already opens dashboard on success
       }
-    })
+    }
+
+    // On Linux, tray 'click' is unreliable — popup the context menu instead.
+    // On Windows/macOS, left-click opens the dashboard directly.
+    if (process.platform === 'linux') {
+      tray.on('click', () => tray?.popUpContextMenu())
+    } else {
+      tray.on('click', handleTrayActivate)
+    }
     // Startup toast
     try {
       new Notification({ title: 'WR Desk Orchestrator', body: 'Running in background. Use Alt+Shift+S or chat icons to capture.' }).show()
@@ -1478,21 +1735,48 @@ function updateTrayMenu() {
         type: 'checkbox' as const,
         checked: loginSettings.openAtLogin,
         enabled: !process.env.VITE_DEV_SERVER_URL, // Disable in dev mode
-        click: (menuItem) => {
+        click: async (menuItem) => {
           // Only allow changing autostart in production to prevent wrong executable registration
           if (process.env.VITE_DEV_SERVER_URL) {
             console.log('[MAIN] Cannot change autostart in dev mode')
             return
           }
           try {
-            app.setLoginItemSettings({ 
-              openAtLogin: menuItem.checked, 
+            app.setLoginItemSettings({
+              openAtLogin: menuItem.checked,
               args: ['--hidden'],
-              name: 'WR Desk' // Explicit name for Windows registry
+              name: 'WR Desk',
             })
-            const updatedSettings = app.getLoginItemSettings()
             console.log('[MAIN] Auto-start on login:', menuItem.checked ? 'enabled' : 'disabled')
-            console.log('[MAIN] Autostart enabled:', updatedSettings.openAtLogin)
+
+            // Keep Task Scheduler in sync with the user's preference
+            if (process.platform === 'win32') {
+              const { execFile } = await import('child_process')
+              const { promisify } = await import('util')
+              const execFileAsync = promisify(execFile)
+              const taskName = 'WRDeskOrchestrator'
+              if (menuItem.checked) {
+                // Re-create the task if user re-enables autostart
+                try {
+                  await execFileAsync('schtasks', [
+                    '/Create', '/F', '/TN', taskName,
+                    '/TR', `"${process.execPath}" --hidden`,
+                    '/SC', 'ONLOGON', '/DELAY', '0000:30', '/RL', 'LIMITED', '/IT',
+                  ], { windowsHide: true })
+                  console.log('[MAIN] Task Scheduler task re-created:', taskName)
+                } catch (e) {
+                  console.warn('[MAIN] Task Scheduler re-create failed (non-fatal):', e)
+                }
+              } else {
+                // Delete the task when user disables autostart
+                try {
+                  await execFileAsync('schtasks', ['/Delete', '/F', '/TN', taskName], { windowsHide: true })
+                  console.log('[MAIN] Task Scheduler task deleted:', taskName)
+                } catch (e) {
+                  console.warn('[MAIN] Task Scheduler delete failed (non-fatal):', e)
+                }
+              }
+            }
           } catch (err) {
             console.error('[MAIN] Failed to update autostart setting:', err)
           }
@@ -1523,13 +1807,18 @@ app.on('second-instance', (_e, argv) => {
   } else {
     console.log('[MAIN] No valid session or no window - staying in tray')
   }
-  // Handle opengiraffe:// and wrcode:// deep-links (backward compatibility)
-  const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://'))
+  // Handle opengiraffe://, wrcode://, and wrdesk:// deep-links (backward compatibility)
+  const arg = argv.find(a => a.startsWith('opengiraffe://') || a.startsWith('wrcode://') || a.startsWith('wrdesk://'))
   if (arg) handleDeepLink(arg)
 })
 
-// Register both protocols for backward compatibility
+// Register protocols: wrcode (primary), wrdesk (Launch WR Desk button), opengiraffe (legacy)
 app.setAsDefaultProtocolClient('wrcode')
+try {
+  app.setAsDefaultProtocolClient('wrdesk') // Used by extension "Launch WR Desk" button
+} catch (err) {
+  console.log('[MAIN] Could not register wrdesk protocol (may already be registered):', err)
+}
 try {
   app.setAsDefaultProtocolClient('opengiraffe') // Keep old protocol for backward compatibility
 } catch (err) {
@@ -1630,6 +1919,107 @@ app.on('window-all-closed', () => {
 
 console.log('[MAIN] About to call app.whenReady()')
 
+// ============================================================================
+// Cross-platform DBeaver helpers
+// ============================================================================
+
+/**
+ * Returns the platform-appropriate DBeaver data directory.
+ * - Windows: %APPDATA%\DBeaverData  (e.g. C:\Users\<user>\AppData\Roaming\DBeaverData)
+ * - macOS:   ~/Library/DBeaverData
+ * - Linux:   ~/.local/share/DBeaverData
+ */
+function getDbeaverDataPath(os: any, pathMod: any): string {
+  if (process.platform === 'win32') {
+    return process.env.APPDATA || pathMod.join(os.homedir(), 'AppData', 'Roaming')
+  }
+  if (process.platform === 'darwin') {
+    return pathMod.join(os.homedir(), 'Library', 'DBeaverData')
+  }
+  // Linux / XDG
+  return pathMod.join(process.env.XDG_DATA_HOME || pathMod.join(os.homedir(), '.local', 'share'), 'DBeaverData')
+}
+
+/**
+ * Launches DBeaver in a cross-platform way.
+ * - Windows: checks common .exe install paths, falls back to `start dbeaver`
+ * - macOS:   `open -a DBeaver`
+ * - Linux:   tries `dbeaver` in PATH
+ * Returns { ok, message, path? }
+ */
+async function launchDBeaver(
+  spawn: any,
+  exec: any,
+  pathMod: any,
+  fs: any
+): Promise<{ ok: boolean; message: string; path?: string }> {
+  if (process.platform === 'win32') {
+    const candidates = [
+      pathMod.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'),
+      'C:\\Program Files\\DBeaver\\dbeaver.exe',
+      'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
+      pathMod.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
+      pathMod.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe'),
+    ]
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          spawn(p, [], { detached: true, stdio: 'ignore' })
+          console.log('[MAIN] Launched DBeaver:', p)
+          return { ok: true, message: 'DBeaver launched', path: p }
+        }
+      } catch {}
+    }
+    // Fallback: Windows Start menu shortcut
+    return new Promise(resolve => {
+      exec('start "" dbeaver', { shell: true }, (err: any) => {
+        if (err) {
+          resolve({ ok: false, message: 'DBeaver not found. Please install it from https://dbeaver.io' })
+        } else {
+          resolve({ ok: true, message: 'DBeaver launched via Start menu' })
+        }
+      })
+    })
+  }
+
+  if (process.platform === 'darwin') {
+    return new Promise(resolve => {
+      exec('open -a DBeaver', (err: any) => {
+        if (err) {
+          resolve({ ok: false, message: 'DBeaver not found. Install it from https://dbeaver.io' })
+        } else {
+          resolve({ ok: true, message: 'DBeaver launched' })
+        }
+      })
+    })
+  }
+
+  // Linux
+  return new Promise(resolve => {
+    exec('which dbeaver', (err: any, stdout: string) => {
+      const dbeaverBin = stdout?.trim()
+      if (!err && dbeaverBin) {
+        spawn(dbeaverBin, [], { detached: true, stdio: 'ignore' })
+        resolve({ ok: true, message: 'DBeaver launched', path: dbeaverBin })
+      } else {
+        // Try common Linux install paths
+        const linuxPaths = [
+          '/usr/share/dbeaver-ce/dbeaver',
+          '/opt/dbeaver/dbeaver',
+          '/usr/local/bin/dbeaver',
+        ]
+        const found = linuxPaths.find(p => { try { return require('fs').existsSync(p) } catch { return false } })
+        if (found) {
+          spawn(found, [], { detached: true, stdio: 'ignore' })
+          resolve({ ok: true, message: 'DBeaver launched', path: found })
+        } else {
+          resolve({ ok: false, message: 'DBeaver not found. Install it from https://dbeaver.io' })
+        }
+      }
+    })
+  })
+}
+
 app.whenReady().then(async () => {
   console.log('[MAIN] ===== APP READY =====')
   try {
@@ -1725,6 +2115,1566 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: integrity:status')
 
+    // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
+    /**
+     * Returns the best available DB for handshake operations:
+     * 1. Ledger DB (already open) — preferred, vault-independent
+     * 2. Ledger DB opened on-demand using current SSO session
+     * 3. Vault DB fallback
+     * Returns null only if no session and no vault.
+     */
+    async function getHandshakeDb(): Promise<any> {
+      let db = getLedgerDb()
+      if (!db) {
+        try {
+          const userInfo = getCachedUserInfo()
+          if (userInfo?.sub && userInfo?.iss) {
+            const tok = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+            db = await openLedger(tok)
+          }
+        } catch { /* non-fatal — fall through to vault */ }
+      }
+      if (!db) {
+        const vs = (globalThis as any).__og_vault_service_ref
+        db = vs?.getDb?.() ?? vs?.db ?? null
+      }
+      return db
+    }
+
+    /**
+     * Ledger-only DB access — no vault fallback.
+     * Use for operations that must work without vault unlock: import, list, receive.
+     */
+    async function getLedgerDbOrOpen(): Promise<any> {
+      let db = getLedgerDb()
+      if (!db) {
+        try {
+          const userInfo = getCachedUserInfo()
+          if (userInfo?.sub && userInfo?.iss) {
+            const tok = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+            db = await openLedger(tok)
+          }
+        } catch { /* non-fatal */ }
+      }
+      return db ?? null
+    }
+
+    ipcMain.handle('handshake:list', async (_e, filter: any) => {
+      try {
+        // List uses Ledger only — no vault needed (handshake metadata always in Ledger)
+        const db = await getLedgerDbOrOpen()
+        if (!db) return []
+        const result = await handleHandshakeRPC('handshake.list', { filter }, db)
+        return result.records ?? []
+      } catch (err: any) {
+        console.error('[MAIN] handshake:list error:', err?.message)
+        return []
+      }
+    })
+
+    ipcMain.handle('handshake:submitCapsule', async (_e, jsonString: string) => {
+      try {
+        // Get the SSO session — try refreshing first if not available
+        let ssoSession = getCurrentSession()
+        console.log('[SUBMIT-CAPSULE] getCurrentSession():', ssoSession ? `ok (user=${ssoSession.email})` : 'null')
+        if (!ssoSession) {
+          // Try to refresh the session from stored refresh token
+          try {
+            const refreshed = await ensureSession()
+            console.log('[SUBMIT-CAPSULE] ensureSession() result: accessToken=', !!refreshed.accessToken, 'userInfo=', !!refreshed.userInfo)
+            if (refreshed.accessToken) {
+              // Re-register session info so getCurrentSession() works
+              const userInfo = getCachedUserInfo()
+              console.log('[SUBMIT-CAPSULE] getCachedUserInfo() after refresh:', userInfo ? `sub=${userInfo.sub}, email=${userInfo.email}` : 'null')
+              if (userInfo?.sub && userInfo?.email && userInfo?.iss) {
+                ssoSession = sessionFromClaims({
+                  wrdesk_user_id: userInfo.wrdesk_user_id || userInfo.sub,
+                  email: userInfo.email,
+                  iss: userInfo.iss,
+                  sub: userInfo.sub!,
+                  plan: (userInfo.wrdesk_plan as any) || 'free',
+                  canonical_tier: userInfo.canonical_tier as any,
+                  session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+                })
+                console.log('[SUBMIT-CAPSULE] ssoSession built from refresh:', !!ssoSession)
+              }
+            }
+          } catch (refreshErr) {
+            console.warn('[MAIN] handshake:submitCapsule — session refresh failed:', refreshErr)
+          }
+        }
+        console.log('[SUBMIT-CAPSULE] Final ssoSession:', ssoSession ? `ok` : 'null — returning auth error')
+        if (!ssoSession) return { success: false, error: 'No active session. Please log in first.' }
+
+        // Open the ledger lazily if it isn't open yet (e.g. startup race condition)
+        let db = getLedgerDb()
+        console.log('[SUBMIT-CAPSULE] getLedgerDb():', db ? 'ok' : 'null')
+        if (!db) {
+          try {
+            const userInfo = getCachedUserInfo()
+            if (userInfo?.sub && userInfo?.iss) {
+              const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+              db = await openLedger(ledgerToken)
+              console.log('[SUBMIT-CAPSULE] lazy openLedger():', db ? 'ok' : 'failed')
+            }
+          } catch (ledgerErr: any) {
+            console.warn('[MAIN] handshake:submitCapsule — lazy ledger open failed:', ledgerErr?.message)
+          }
+        }
+
+        // Fallback to vault DB if ledger still unavailable
+        if (!db) {
+          const vs = (globalThis as any).__og_vault_service_ref
+          db = vs?.getDb?.() ?? vs?.db ?? null
+          console.log('[SUBMIT-CAPSULE] vault DB fallback:', db ? 'ok' : 'null')
+        }
+
+        if (!db) return { success: false, error: 'Database unavailable. Handshake ledger could not be opened.' }
+
+        return await handleIngestionRPC('ingestion.ingest', {
+          rawInput: { body: jsonString, mime_type: 'application/vnd.beap+json', headers: { 'content-type': 'application/vnd.beap+json' } },
+          sourceType: 'file_upload',
+          transportMeta: { mime_type: 'application/vnd.beap+json' },
+        }, db, ssoSession)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:submitCapsule error:', err?.message)
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:importCapsule', async (_e, capsuleJson: string) => {
+      try {
+        console.log('[IMPORT] Handler called, capsuleJson length=', capsuleJson?.length ?? 0)
+        // Import uses Ledger only — no vault needed (parse, validate, persist PENDING_ACCEPT)
+        const db = await getLedgerDbOrOpen()
+        if (!db) {
+          console.warn('[IMPORT] No DB — user not logged in')
+          return { success: false, error: 'Please log in first to import handshake capsules.', reason: 'NOT_LOGGED_IN' }
+        }
+        const result = await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
+        if (result?.success) {
+          console.log('[IMPORT] Record created: PENDING_REVIEW, handshake_id=', result?.handshake_id)
+        }
+        return result
+      } catch (err: any) {
+        const errMsg = err?.message ?? String(err)
+        const errStack = err?.stack ?? ''
+        console.error('[IMPORT] Error:', errMsg, errStack)
+        // Write to file for diagnostics when console isn't available
+        try {
+          const fs = require('fs')
+          const path = require('path')
+          const logDir = path.join(process.env.USERPROFILE || process.env.HOME || '', '.opengiraffe')
+          const logFile = path.join(logDir, 'import-error.log')
+          fs.mkdirSync(logDir, { recursive: true })
+          fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${errMsg}\n${errStack}\n\n`)
+        } catch (_) { /* ignore */ }
+        return { success: false, error: errMsg, reason: 'INTERNAL_ERROR' }
+      }
+    })
+
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        // Accept requires vault unlock (signing key). If vault exists and is locked, prompt user.
+        try {
+          const { vaultService } = await import('./main/vault/rpc')
+          const status = vaultService.getStatus()
+          if (status.exists && status.locked) {
+            return {
+              success: false,
+              reason: 'VAULT_LOCKED',
+              error: 'Please unlock your vault to accept this handshake. Your signing key is needed to create a secure connection.',
+              action: 'UNLOCK_VAULT',
+            }
+          }
+        } catch { /* vault not initialized — allow (keys in ledger) */ }
+        const params: Record<string, unknown> = { handshake_id: id, sharing_mode: sharingMode, fromAccountId }
+        if (contextOpts?.context_blocks?.length) params.context_blocks = contextOpts.context_blocks
+        if (contextOpts?.profile_ids?.length) params.profile_ids = contextOpts.profile_ids
+        if (contextOpts?.profile_items?.length) params.profile_items = contextOpts.profile_items
+        if (contextOpts?.policy_selections) params.policy_selections = contextOpts.policy_selections
+        const result = await handleHandshakeRPC('handshake.accept', params, db)
+        if (!result?.success) {
+          console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))
+        }
+        return result
+      } catch (err: any) {
+        console.error('[HANDSHAKE:ACCEPT] exception:', err?.message, err)
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:decline', async (_e, id: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        return await handleHandshakeRPC('handshake.initiateRevocation', { handshakeId: id }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:delete', async (_e, id: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        return await handleHandshakeRPC('handshake.delete', { handshakeId: id }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:getPendingP2PBeapMessages', async () => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { items: [] }
+        const result = await handleHandshakeRPC('handshake.getPendingP2PBeapMessages', {}, db)
+        return { items: result?.items ?? [] }
+      } catch {
+        return { items: [] }
+      }
+    })
+
+    ipcMain.handle('handshake:ackPendingP2PBeap', async (_e, id: number) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false }
+        return await handleHandshakeRPC('handshake.ackPendingP2PBeap', { id }, db)
+      } catch {
+        return { success: false }
+      }
+    })
+
+    ipcMain.handle('handshake:getPendingPlainEmails', async () => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { items: [] }
+        const result = await handleHandshakeRPC('handshake.getPendingPlainEmails', {}, db)
+        return { items: result?.items ?? [] }
+      } catch {
+        return { items: [] }
+      }
+    })
+
+    ipcMain.handle('handshake:ackPendingPlainEmail', async (_e, id: number) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false }
+        return await handleHandshakeRPC('handshake.ackPendingPlainEmail', { id }, db)
+      } catch {
+        return { success: false }
+      }
+    })
+
+    ipcMain.handle('handshake:importBeapMessage', async (_e, packageJson: string) => {
+      try {
+        if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
+          return { success: false, error: 'Invalid package: expected non-empty string (max 512KB)' }
+        }
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, error: 'Database unavailable. Please log in first.' }
+        const { insertPendingP2PBeap } = await import('./main/handshake/db')
+        insertPendingP2PBeap(db, '__file_import__', packageJson)
+        return { success: true }
+      } catch (err: any) {
+        console.error('[BEAP:IMPORT]', err?.message)
+        return { success: false, error: err?.message ?? 'Import failed' }
+      }
+    })
+
+    // Force-revoke: bypasses state checks and directly marks the record REVOKED locally,
+    // then delivers a signed revoke capsule to the counterparty best-effort.
+    ipcMain.handle('handshake:forceRevoke', async (_e, id: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        console.log('[HANDSHAKE:FORCE_REVOKE] attempting revoke for id:', id)
+        const { revokeHandshake } = await import('./main/handshake/revocation')
+        // Check if record exists first
+        const { getHandshakeRecord } = await import('./main/handshake/db')
+        const record = getHandshakeRecord(db, id)
+        console.log('[HANDSHAKE:FORCE_REVOKE] record found:', record ? `state=${record.state}` : 'null')
+        if (!record) return { success: false, error: `Handshake ${id} not found in database` }
+        const session = getCurrentSession()
+        await revokeHandshake(db, id, 'local-user', session?.wrdesk_user_id, session ?? undefined, async () => getAccessToken() ?? null)
+        console.log('[HANDSHAKE:FORCE_REVOKE] revoke completed for id:', id)
+        return { success: true }
+      } catch (err: any) {
+        console.error('[HANDSHAKE:FORCE_REVOKE] error:', err?.message, err?.stack)
+        return { success: false, error: err?.message }
+      }
+    })
+
+    ipcMain.handle('handshake:contextBlockCount', async (_e, handshakeId: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return 0
+        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [] }, db)
+        return result?.blocks?.length ?? 0
+      } catch {
+        return 0
+      }
+    })
+    ipcMain.handle('handshake:queryContextBlocks', async (_e, handshakeId: string, purpose?: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return []
+        const result = await handleHandshakeRPC('handshake.requestContextBlocks', { handshakeId, scopes: [], purpose }, db)
+        return result?.blocks ?? []
+      } catch {
+        return []
+      }
+    })
+    ipcMain.handle('handshake:semanticSearch', async (_e, query: string, scope?: string, limit?: number) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'vault_locked' }
+        return await handleHandshakeRPC('handshake.semanticSearch', { query, scope, limit }, db)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:semanticSearch error:', err?.message)
+        return { success: false, error: err?.message ?? 'search_failed' }
+      }
+    })
+
+    ipcMain.handle('handshake:getAvailableModels', async () => {
+      try {
+        const localModels: Array<{ id: string; name: string; provider: string; type: 'local' }> = []
+        const cloudModels: Array<{ id: string; name: string; provider: string; type: 'cloud' }> = []
+
+        // 1. Fetch local models from Ollama (use OllamaManager — same path as Backend Config)
+        try {
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const installed = await ollamaManager.listModels()
+          for (const m of installed) {
+            const name = m?.name?.trim?.() || ''
+            if (!name) continue
+            localModels.push({
+              id: name,
+              name,
+              provider: 'ollama',
+              type: 'local',
+            })
+          }
+        } catch (err: any) {
+          console.warn('[MAIN] handshake:getAvailableModels Ollama:', err?.message ?? err)
+        }
+
+        // 2. Cloud models from OCR router (API keys set via POST /api/ocr/config or ocr:setCloudConfig)
+        const { ocrRouter } = await import('./main/ocr/router')
+        const providers = ocrRouter.getAvailableProviders()
+        const CLOUD_MODEL_MAP: Record<string, { id: string; name: string; provider: string }> = {
+          OpenAI: { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
+          Claude: { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' },
+          Gemini: { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
+          Grok: { id: 'grok-1', name: 'Grok', provider: 'xai' },
+        }
+        for (const p of providers) {
+          const entry = CLOUD_MODEL_MAP[p]
+          if (entry) {
+            cloudModels.push({ ...entry, type: 'cloud' })
+          }
+        }
+
+        // 3. Fallback: orchestrator (optimando-api-keys — same key as extension localStorage)
+        if (cloudModels.length === 0) {
+          try {
+            const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+            const service = getOrchestratorService()
+            const keys = await service.get<Record<string, string>>('optimando-api-keys')
+            if (keys && typeof keys === 'object') {
+              const PROVIDER_ORDER = ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const
+              for (const p of PROVIDER_ORDER) {
+                const val = keys[p]
+                if (val && typeof val === 'string' && val.trim()) {
+                  const entry = CLOUD_MODEL_MAP[p]
+                  if (entry) {
+                    cloudModels.push({ ...entry, type: 'cloud' })
+                  }
+                }
+              }
+            }
+          } catch {
+            // Orchestrator not available or key not found
+          }
+        }
+
+        return {
+          success: true,
+          models: [...localModels, ...cloudModels],
+        }
+      } catch (err: any) {
+        console.error('[MAIN] handshake:getAvailableModels error:', err?.message)
+        return { success: false, error: err?.message ?? 'failed', models: [] }
+      }
+    })
+
+    /** Generate a draft reply via LLM (no RAG). Used by BEAP "Draft with AI". */
+    ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
+      try {
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        if (models.length === 0) {
+          return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
+        }
+        const modelId = models[0].name
+        const response = await ollamaManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
+        return { success: true, answer: response?.content ?? '' }
+      } catch (err: any) {
+        console.error('[MAIN] handshake:generateDraft error:', err?.message)
+        return { success: false, error: err?.message ?? 'Draft generation failed' }
+      }
+    })
+
+    ipcMain.handle('handshake:updatePolicies', async (_e, handshakeId: string, policies: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
+        const { updateHandshakePolicySelections } = await import('./main/handshake/db')
+        updateHandshakePolicySelections(db, handshakeId, policies)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, reason: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:updateContextItemGovernance', async (
+      _e,
+      handshakeId: string,
+      blockId: string,
+      blockHash: string,
+      senderUserId: string,
+      governance: Record<string, unknown>,
+    ) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, reason: 'DB_NOT_AVAILABLE' }
+        const { updateContextBlockGovernance, updateContextStoreGovernance } = await import('./main/handshake/db')
+        const json = JSON.stringify(governance)
+        updateContextBlockGovernance(db, senderUserId, blockId, blockHash, json)
+        updateContextStoreGovernance(db, handshakeId, blockId, blockHash, json)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:setBlockVisibility', async (_e, args: {
+      sender_wrdesk_user_id: string
+      block_id: string
+      block_hash: string
+      visibility: 'public' | 'private'
+    }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'no_db' }
+        const { isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+        const vaultUnlocked = isVaultCurrentlyUnlocked()
+        if (!vaultUnlocked) return { success: false, error: 'vault_locked' }
+        db.prepare(
+          `UPDATE context_blocks SET visibility = ?
+           WHERE sender_wrdesk_user_id = ? AND block_id = ? AND block_hash = ?`
+        ).run(args.visibility, args.sender_wrdesk_user_id, args.block_id, args.block_hash)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:setBulkBlockVisibility', async (_e, args: {
+      handshake_id: string
+      visibility: 'public' | 'private'
+    }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'no_db' }
+        const { isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+        const vaultUnlocked = isVaultCurrentlyUnlocked()
+        if (!vaultUnlocked) return { success: false, error: 'vault_locked' }
+        db.prepare(
+          `UPDATE context_blocks SET visibility = ? WHERE handshake_id = ?`
+        ).run(args.visibility, args.handshake_id)
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'UPDATE_FAILED' }
+      }
+    })
+
+    ipcMain.handle('handshake:requestOriginalDocument', async (_e, documentId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+      try {
+        const session = await ensureSession()
+        const actorUserId = session.userInfo?.wrdesk_user_id ?? session.userInfo?.sub
+        if (!actorUserId) return { success: false, error: 'Authentication required' }
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status.isUnlocked) return { success: false, error: 'vault_locked' }
+        const tier = await getEffectiveTier({ refreshIfStale: true, caller: 'request-original-document' }) as import('./main/vault/types').VaultTier
+        const result = await vaultService.requestOriginalDocumentContent(tier, documentId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        if (result.success) {
+          return {
+            success: true,
+            contentBase64: result.content.toString('base64'),
+            filename: result.filename,
+            mimeType: result.mimeType,
+          }
+        }
+        return { success: false, error: result.error, approved: result.approved }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Request failed' }
+      }
+    })
+
+    ipcMain.handle('handshake:requestLinkOpenApproval', async (_e, linkEntityId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+      try {
+        const session = await ensureSession()
+        const actorUserId = session.userInfo?.wrdesk_user_id ?? session.userInfo?.sub
+        if (!actorUserId) return { success: false, error: 'Authentication required' }
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status.isUnlocked) return { success: false, error: 'vault_locked' }
+        const result = vaultService.requestLinkOpenApproval(linkEntityId, actorUserId, {
+          acknowledgedWarning: !!acknowledgedWarning,
+          handshakeId: handshakeId ?? null,
+        })
+        return result.approved ? { success: true, approved: true } : { success: false, error: result.error, approved: false }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Request failed' }
+      }
+    })
+
+    ipcMain.handle('vault:getStatus', async () => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        const vaults = status.availableVaults ?? []
+        const currentId = status.currentVaultId
+        const name = currentId ? vaults.find((v: { id: string; name: string }) => v.id === currentId)?.name ?? 'Default Vault' : null
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getStatus' })
+        const { canAccessRecordType } = await import('./main/vault/types')
+        const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
+        const userInfo = getCachedUserInfo()
+        const email = userInfo?.email ?? null
+        return {
+          isUnlocked: status.isUnlocked ?? !status.locked,
+          name: status.exists ? (name ?? 'Default Vault') : null,
+          tier: String(tier),
+          canUseHsContextProfiles,
+          email,
+        }
+      } catch {
+        return { isUnlocked: false, name: null, tier: 'unknown', canUseHsContextProfiles: false, email: null }
+      }
+    })
+
+    ipcMain.handle('vault:listHsContextProfiles', async (_e, includeArchived?: boolean) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-listHsContextProfiles' })
+        const profiles = vaultService.listHsProfiles(tier as any, includeArchived === true)
+        return { profiles }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to list HS Context Profiles')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentPageCount', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPageCount' })
+        const count = vaultService.getDocumentPageCount(tier as any, documentId)
+        return { count }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page count')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentPage', async (_e, documentId: string, pageNumber: number) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPage' })
+        const text = vaultService.getDocumentPage(tier as any, documentId, pageNumber)
+        return { text }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentPageList', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentPageList' })
+        const pages = vaultService.getDocumentPageList(tier as any, documentId)
+        return { pages }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document page list')
+      }
+    })
+
+    ipcMain.handle('vault:getDocumentFullText', async (_e, documentId: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-getDocumentFullText' })
+        const text = vaultService.getDocumentFullText(tier as any, documentId)
+        return { text }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to get document full text')
+      }
+    })
+
+    ipcMain.handle('vault:searchDocumentPages', async (_e, documentId: string, query: string) => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        const tier = await getEffectiveTier({ refreshIfStale: false, caller: 'vault-searchDocumentPages' })
+        const matches = vaultService.searchDocumentPages(tier as any, documentId, query ?? '')
+        return { matches }
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'Failed to search document pages')
+      }
+    })
+
+    ipcMain.handle('handshake:chatWithContext', async (_e, systemMessage: string, dataWrapper: string, userMessage: string) => {
+      try {
+        // Route to the LLM module if available, using the unidirectional prompt structure
+        const vs = (globalThis as any).__og_vault_service_ref
+        const llmChat = vs?.getLLMChat?.()
+        if (llmChat) {
+          const messages = [
+            { role: 'system' as const, content: systemMessage },
+            ...(dataWrapper ? [{ role: 'system' as const, content: dataWrapper }] : []),
+            { role: 'user' as const, content: userMessage },
+          ]
+          const response = await llmChat.complete(messages)
+          return typeof response === 'string' ? response : response?.content ?? 'No response.'
+        }
+        return 'LLM chat backend is not connected. Please ensure the AI service is running.'
+      } catch (err: any) {
+        return `Error: ${err?.message || 'Chat request failed.'}`
+      }
+    })
+
+    ipcMain.handle('handshake:chatWithContextRag', async (event, params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string }) => {
+      const toIPC = (o: unknown) => {
+        try { return JSON.parse(JSON.stringify(o)) } catch { return o }
+      }
+      const totalStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart)
+
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return toIPC({ success: false, error: 'vault_locked' })
+
+        const { getProvider, toEmbeddingService } = await import('./main/handshake/aiProviders')
+        const { ocrRouter } = await import('./main/ocr/router')
+        const provider = getProvider(
+          { provider: params.provider ?? 'ollama', model: params.model },
+          (p) => ocrRouter.getApiKey(p as 'OpenAI' | 'Claude' | 'Gemini' | 'Grok')
+        )
+        const hasEmbedding =
+          provider.id === 'ollama' ||
+          ('hasEmbeddingSupport' in provider && typeof (provider as any).hasEmbeddingSupport === 'function' && (provider as any).hasEmbeddingSupport())
+        const embeddingService = hasEmbedding ? toEmbeddingService(provider) : null
+
+        const filter: { relationship_id?: string; handshake_id?: string } = {}
+        const scope = params.scope ?? 'all'
+        if (typeof scope === 'string') {
+          if (scope.startsWith('hs-')) filter.handshake_id = scope
+          else if (scope.startsWith('rel-')) filter.relationship_id = scope
+        }
+
+        // Fallback scope: when no handshake selected, use most recent handshake with context
+        // so retrieval runs in a sensible default scope instead of empty filter
+        if (!filter.handshake_id && !filter.relationship_id && (scope === 'context-graph' || scope === 'all')) {
+          try {
+            const row = db.prepare(
+              `SELECT c.handshake_id FROM context_blocks c
+               INNER JOIN handshakes h ON h.handshake_id = c.handshake_id
+               WHERE h.state IN ('ACCEPTED','ACTIVE')
+               ORDER BY h.created_at DESC
+               LIMIT 1`
+            ).get() as { handshake_id: string } | undefined
+            if (row?.handshake_id) {
+              filter.handshake_id = row.handshake_id
+              console.log('[Chat] No selection: using fallback handshake', row.handshake_id)
+            }
+          } catch (e) {
+            /* ignore — proceed with empty filter */
+          }
+        }
+
+        // Structured path (no embedding needed): try first when embedding unavailable
+        const { queryClassifier, structuredLookup, structuredLookupMulti, fetchBlocksForStructuredLookup } = await import('./main/handshake/structuredQuery')
+        const classifierResult = queryClassifier(params.query ?? '')
+        const pathForFetch = classifierResult.fieldPaths?.[0] ?? classifierResult.fieldPath
+        if (classifierResult.matched && pathForFetch) {
+          const blocks = fetchBlocksForStructuredLookup(db, filter, pathForFetch)
+          if (blocks.length > 0) {
+            const structResult = classifierResult.fieldPaths && classifierResult.fieldPaths.length > 0
+              ? structuredLookupMulti(blocks, classifierResult.fieldPaths)
+              : structuredLookup(blocks, classifierResult.fieldPath!)
+            if (structResult.found && structResult.value) {
+              const src = structResult.source
+              const sources = src
+                ? [{ handshake_id: src.handshake_id, capsule_id: src.handshake_id, block_id: src.block_id, source: src.source ?? '', score: 1 }]
+                : []
+
+              // Route structured result through LLM for a natural-language answer (no raw JSON)
+              const { buildPrompt } = await import('./main/handshake/blockRetrieval')
+              const trimmedQuery = params.query?.trim() ?? ''
+              const structuredContext = `[block_id: ${src?.block_id ?? 'structured'}]\n${structResult.value}`
+              const { system, user: userPrompt } = buildPrompt(structuredContext, trimmedQuery)
+              const messages = [
+                { role: 'system' as const, content: system },
+                { role: 'user' as const, content: userPrompt },
+              ]
+
+              const doStream = params.stream === true && !!event.sender
+              const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+
+              let answer: string
+              try {
+                if (doStream) {
+                  send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
+                  answer = await provider.generateChat(messages, {
+                    model: params.model,
+                    stream: true,
+                    send,
+                  })
+                } else {
+                  answer = await provider.generateChat(messages, { model: params.model })
+                }
+              } catch (err: any) {
+                const msg = err?.message ?? 'Unknown error'
+                const isNoKey = /no_api_key|API key required/i.test(msg)
+                const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
+                const providerLower = (params.provider ?? 'ollama').toLowerCase()
+                if (isNoKey) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
+                if (isUnavailable && provider.id === 'ollama') return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
+                return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
+              }
+
+              const total_ms = elapsed()
+              return toIPC({
+                success: true,
+                answer,
+                sources,
+                streamed: doStream,
+                resultType: 'context_answer',
+              })
+            }
+          }
+        }
+
+        const { hybridSearch } = await import('./main/handshake/hybridSearch')
+        const { scoredBlocksToRetrieved, buildRagPrompt, buildPrompt } = await import('./main/handshake/blockRetrieval')
+
+        const embeddingUnavailable = !embeddingService
+        // When embedding unavailable: use keyword fallback (same as Search) so Chat can answer from lexical matches
+        let hybridResult: Awaited<ReturnType<typeof hybridSearch>>
+        if (embeddingUnavailable) {
+          const { keywordSearch } = await import('./main/handshake/keywordSearch')
+          const keywordBlocks = keywordSearch(db, (params.query ?? '').trim(), filter, 5)
+          hybridResult = {
+            mode: 'semantic',
+            blocks: keywordBlocks,
+            metrics: { classification_ms: 0, structured_ms: 0, semantic_ms: 0 },
+          }
+        } else {
+          hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
+        }
+        const { getHandshakeRecord } = await import('./main/handshake/db')
+        const {
+          parseGovernanceJson,
+          resolveEffectiveGovernance,
+          filterBlocksForCloudAI,
+        } = await import('./main/handshake/contextGovernance')
+        const { visibilityWhereClause, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+        const { logCacheHitMetrics, logAIQueryMetrics, checkAILatency, buildLatencyDebugPayload } = await import('./main/handshake/latencyInstrumentation')
+
+        const hasHandshakeScope = !!filter.handshake_id
+        const debug = params.debug === true
+        const providerLower = (params.provider ?? 'ollama').toLowerCase()
+
+        // ── Intent Detection & Domain Routing ─────────────────────────────────
+        const { classifyIntent, queryRequiresAttachmentSelection } = await import('./main/handshake/intentClassifier')
+        const { routeByIntent } = await import('./main/handshake/intentRouter')
+        const { executeStructuredSearch } = await import('./main/handshake/intentExecution')
+
+        const intentResult = classifyIntent(params.query ?? '')
+        const routerResult = routeByIntent(intentResult.intent, hasHandshakeScope)
+
+        console.log('[INTENT] Detected:', intentResult.intent, '| Domain:', routerResult.domain, '| Confidence:', intentResult.confidence)
+
+        // Attachment binding: when query implies "this attachment" but no document selected
+        // — auto-bind if exactly one attachment; otherwise return context-aware message
+        let selectedDocId = params.selectedDocumentId?.trim()
+        if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !selectedDocId && filter.handshake_id) {
+          const { visibilityWhereClause: visWhere, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visWhere('cb', vaultUnlocked)
+          const rows = db.prepare(
+            `SELECT cb.block_id, cb.payload FROM context_blocks cb WHERE cb.handshake_id = ?${visSql}`
+          ).all(filter.handshake_id, ...visParams) as Array<{ block_id: string; payload: string }>
+          // Deduplicate by document id — same doc in multiple blocks counts as one
+          const docsWithText: Array<{ id: string; block_id: string }> = []
+          const seenDocIds = new Set<string>()
+          for (const row of rows) {
+            try {
+              const parsed = JSON.parse(row.payload) as { documents?: Array<{ id?: string; extracted_text?: string | null }> }
+              const docs = parsed?.documents
+              if (Array.isArray(docs)) {
+                for (const d of docs) {
+                  if (d?.id && typeof d.extracted_text === 'string' && d.extracted_text.trim() && !seenDocIds.has(d.id)) {
+                    seenDocIds.add(d.id)
+                    docsWithText.push({ id: d.id, block_id: row.block_id })
+                  }
+                }
+              }
+            } catch { /* skip malformed payload */ }
+          }
+          if (docsWithText.length === 0) {
+            const msg = "I couldn't find an attachment in the current handshake context."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+          if (docsWithText.length === 1) {
+            selectedDocId = docsWithText[0].id
+          } else {
+            const msg = 'Please select which attachment you want me to summarize.'
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+        } else if (intentResult.intent === 'document_lookup' && queryRequiresAttachmentSelection(params.query ?? '') && !selectedDocId) {
+          // No handshake scope or no filter — cannot list attachments
+          const msg = "I couldn't find an attachment in the current handshake context."
+          const doStream = params.stream === true && event.sender
+          if (doStream) {
+            const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+            send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+            send('handshake:chatStreamToken', { token: msg })
+          }
+          return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+        }
+
+        // Attachment binding: when document selected (or auto-bound), scope retrieval to that document's content
+        if (intentResult.intent === 'document_lookup' && selectedDocId && filter.handshake_id) {
+          const { visibilityWhereClause: visWhere, isVaultCurrentlyUnlocked } = await import('./main/handshake/visibilityFilter')
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visWhere('cb', vaultUnlocked)
+          const rows = db.prepare(
+            `SELECT cb.block_id, cb.payload FROM context_blocks cb WHERE cb.handshake_id = ?${visSql}`
+          ).all(filter.handshake_id, ...visParams) as Array<{ block_id: string; payload: string }>
+          let docText: string | null = null
+          let foundBlockId: string | null = null
+          for (const row of rows) {
+            try {
+              const parsed = JSON.parse(row.payload) as { documents?: Array<{ id?: string; extracted_text?: string | null }> }
+              const docs = parsed?.documents
+              if (Array.isArray(docs)) {
+                const doc = docs.find((d) => d?.id === selectedDocId)
+                if (doc && typeof doc.extracted_text === 'string' && doc.extracted_text.trim()) {
+                  docText = doc.extracted_text.trim()
+                  foundBlockId = row.block_id
+                  break
+                }
+              }
+            } catch { /* skip malformed payload */ }
+          }
+          if (docText && foundBlockId) {
+            const { buildPrompt } = await import('./main/handshake/blockRetrieval')
+            const docContext = `[block_id: ${foundBlockId}]\n[Document content]\n${docText}`
+            const trimmedQuery = params.query?.trim() ?? ''
+            const { system, user: userPrompt } = buildPrompt(docContext, trimmedQuery)
+            const sources = [{ handshake_id: filter.handshake_id, capsule_id: filter.handshake_id, block_id: foundBlockId, source: 'received', score: 1 }]
+            const doStream = params.stream === true && event.sender
+            const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+            try {
+              if (doStream) send('handshake:chatStreamStart', { contextBlocks: [foundBlockId], sources })
+              const answer = await provider.generateChat(
+                [{ role: 'system' as const, content: system }, { role: 'user' as const, content: userPrompt }],
+                { model: params.model, stream: doStream, send: doStream ? send : undefined }
+              )
+              return toIPC({ success: true, answer, sources, streamed: doStream, resultType: 'context_answer' })
+            } catch (err: any) {
+              const msg = err?.message ?? 'Unknown error'
+              if (/no_api_key|API key required/i.test(msg)) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
+              if (/ECONNREFUSED|fetch failed|Failed to fetch/i.test(msg) && provider.id === 'ollama') return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
+              return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
+            }
+          } else {
+            const msg = "I couldn't find that document in the current handshake context. It may not have been extracted yet."
+            const doStream = params.stream === true && event.sender
+            if (doStream) {
+              const send = (ch: string, payload: unknown) => event.sender.send(ch, payload)
+              send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+              send('handshake:chatStreamToken', { token: msg })
+            }
+            return toIPC({ success: true, answer: msg, sources: [], streamed: !!doStream, resultType: 'context_answer' })
+          }
+        }
+
+        if (embeddingService && !routerResult.useRagPipeline && routerResult.forceSemanticSearch) {
+          const structResult = await executeStructuredSearch(db, params.query ?? '', filter, embeddingService, intentResult.intent)
+          const total_ms = elapsed()
+          console.log('[INTENT] Result:', structResult.domain, '| Items:', structResult.items.length, '| Latency:', structResult.latency_ms, 'ms')
+
+          const doStream = params.stream === true && event.sender
+          const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+
+          const summaryText = structResult.items.length > 0
+            ? structResult.title + '\n\n' + structResult.items.map((i, idx) => `${idx + 1}. ${i.title}: ${i.snippet}`).join('\n\n')
+            : 'No relevant context found in indexed BEAP data.'
+
+          if (doStream) {
+            send('handshake:chatStreamStart', { contextBlocks: structResult.items.map(i => i.block_id), sources: structResult.sources })
+            send('handshake:chatStreamToken', { token: summaryText })
+          }
+
+          return toIPC({
+            success: true,
+            answer: summaryText,
+            sources: structResult.sources,
+            streamed: doStream,
+            resultType: structResult.resultType,
+            structuredResult: { title: structResult.title, items: structResult.items },
+            intent: intentResult.intent,
+            domain: structResult.domain,
+            ...(debug && { latency: { query_ms_total: total_ms, intent: intentResult.intent, domain: structResult.domain } }),
+          })
+        }
+
+        // Cache lookup (only when scope is cacheable)
+        const { normalizeQuery, resolveCapsuleId, getCached, setCached } = await import('./main/handshake/queryCache')
+        const capsuleId = resolveCapsuleId(filter)
+        const normalizedQuery = normalizeQuery(params.query ?? '')
+        if (capsuleId && normalizedQuery) {
+          const cached = getCached(db, capsuleId, normalizedQuery)
+          if (cached) {
+            const total_ms = elapsed()
+            logCacheHitMetrics(total_ms)
+            return toIPC({
+              success: true,
+              answer: cached.answer,
+              sources: cached.sources,
+              cached: true,
+              ...(debug && { latency: buildLatencyDebugPayload({ query_ms_total: total_ms, cache_hit: true }) }),
+            })
+          }
+        }
+
+        const doStream = params.stream === true && event.sender
+        const send = doStream ? (ch: string, payload: unknown) => event.sender.send(ch, payload) : () => {}
+
+        // Fast-path: structured result → route through LLM for natural-language answer (no raw JSON)
+        if (hybridResult.mode === 'structured' && hybridResult.structured?.found && hybridResult.structured?.value) {
+          const src = hybridResult.structured.source
+          const structuredValue = hybridResult.structured.value
+          const sources = src
+            ? [{ handshake_id: src.handshake_id, capsule_id: src.handshake_id, block_id: src.block_id, source: src.source ?? '', score: 1 }]
+            : []
+
+          const trimmedQuery = params.query?.trim() ?? ''
+          const structuredContext = `[block_id: ${src?.block_id ?? 'structured'}]\n${structuredValue}`
+          const { system, user: userPrompt } = buildPrompt(structuredContext, trimmedQuery)
+          const messages = [
+            { role: 'system' as const, content: system },
+            { role: 'user' as const, content: userPrompt },
+          ]
+
+          let answer: string
+          try {
+            if (doStream) {
+              send('handshake:chatStreamStart', { contextBlocks: src ? [src.block_id] : [], sources })
+              answer = await provider.generateChat(messages, {
+                model: params.model,
+                stream: true,
+                send,
+              })
+            } else {
+              answer = await provider.generateChat(messages, { model: params.model })
+            }
+          } catch (err: any) {
+            const msg = err?.message ?? 'Unknown error'
+            const isNoKey = /no_api_key|API key required/i.test(msg)
+            const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
+            if (isNoKey) return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
+            if (isUnavailable && provider.id === 'ollama') return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
+            return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
+          }
+
+          const total_ms = elapsed()
+          const m = hybridResult.metrics
+          if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+          return toIPC({
+            success: true,
+            answer,
+            sources,
+            streamed: doStream,
+            ...(debug && { latency: buildLatencyDebugPayload({ query_ms_total: total_ms, classification_ms: m?.classification_ms, structured_ms: m?.structured_ms, semantic_ms: m?.semantic_ms, cache_hit: false }) }),
+          })
+        }
+
+        // Semantic path: apply governance, build prompt, call LLM
+        let searchResults = hybridResult.blocks ?? []
+        // Filter out low-relevance blocks (cosine similarity < 0.4) to avoid unrelated answers.
+        // When ALL blocks score below threshold, do NOT fall back to unfiltered results — return
+        // explicit "not enough reliable context" instead of weakly grounded answers.
+        const SEMANTIC_RELEVANCE_THRESHOLD = 0.4
+        const relevantResults = searchResults.filter(r => (r.score ?? 0) >= SEMANTIC_RELEVANCE_THRESHOLD)
+        const allFiltered = relevantResults.length === 0 && searchResults.length > 0
+        if (allFiltered) {
+          searchResults = []
+        } else if (relevantResults.length > 0) {
+          searchResults = relevantResults
+        }
+        const isCloud = ['openai', 'anthropic', 'google', 'xai'].includes(providerLower)
+
+        let governanceNote: string | null = null
+        if (isCloud && searchResults.length > 0) {
+          const vaultUnlocked = isVaultCurrentlyUnlocked()
+          const { sql: visSql, params: visParams } = visibilityWhereClause('context_blocks', vaultUnlocked)
+          const blocksWithGov: Array<{ governance?: any; [k: string]: any }> = []
+          for (const b of searchResults) {
+            const row = db.prepare(`SELECT governance_json FROM context_blocks WHERE handshake_id=? AND block_id=? AND block_hash=?${visSql}`).get(b.handshake_id, b.block_id, b.block_hash, ...visParams) as { governance_json?: string } | undefined
+            const record = getHandshakeRecord(db, b.handshake_id)
+            if (!record) continue
+            const itemGov = parseGovernanceJson(row?.governance_json)
+            const legacy = {
+              block_id: b.block_id,
+              type: b.type,
+              data_classification: b.data_classification,
+              scope_id: b.scope_id,
+              sender_wrdesk_user_id: b.sender_wrdesk_user_id,
+              publisher_id: b.sender_wrdesk_user_id,
+              source: b.source,
+            }
+            const governance = resolveEffectiveGovernance(itemGov, legacy, record, record.relationship_id)
+            blocksWithGov.push({ ...b, governance })
+          }
+          const originalCount = blocksWithGov.length
+          const filtered = filterBlocksForCloudAI(blocksWithGov, null)
+          searchResults = filtered
+          const filteredCount = originalCount - filtered.length
+          if (filteredCount > 0) {
+            governanceNote = `${filteredCount} context block(s) were excluded because their governance policy restricts cloud AI processing. Use a local model to access all results.`
+          }
+        }
+
+        const retrievedBlocks = scoredBlocksToRetrieved(searchResults)
+        // retrievalFailed = true only when embedding/vector search failed (unavailable). When we could
+        // search but found nothing (or all filtered), use retrievalFailed=false → "retrieved blocks did
+        // not contain relevant information". When embedding unavailable but keyword fallback found
+        // matches, we have context → retrievalFailed=false. When embedding unavailable and no blocks →
+        // retrievalFailed=true → "contextual search unavailable".
+        const retrievalFailed = retrievedBlocks.length === 0 && embeddingUnavailable
+        const followUpPatterns = [
+          /what\s+does\s+(this|that|it)\s+mean/i,
+          /explain\s+(this|that|it)/i,
+          /could\s+you\s+elaborate/i,
+          /clarify/i,
+          /simplify/i,
+          /in\s+simpler\s+terms/i,
+          /what\s+do\s+you\s+mean/i,
+          /\belaborate\b/i,
+          /more\s+detail/i,
+        ]
+        const isFollowUp = params.conversationContext?.lastAnswer && followUpPatterns.some((re) => re.test(params.query ?? ''))
+        const conversationContext = isFollowUp && params.conversationContext?.lastAnswer
+          ? { lastAnswer: params.conversationContext.lastAnswer }
+          : undefined
+        let { systemPrompt, userPrompt, contextBlocks: contextBlocksStr } = buildRagPrompt(retrievedBlocks, params.query ?? '', {
+          retrievalFailed,
+          conversationContext,
+        })
+
+        if (userPrompt.length > 8000) {
+          console.warn('Prompt too large, truncating')
+          userPrompt = userPrompt.slice(0, 8000)
+        }
+        console.log('[RAG] Selected provider:', provider.id)
+        console.log('[RAG] Retrieved blocks:', retrievedBlocks.length, '| Block IDs:', retrievedBlocks.map(b => b.block_id))
+        console.log('[RAG] LLM prompt size:', userPrompt.length)
+        if (debug) {
+          console.log('[RAG] Embedding generation:', embeddingUnavailable ? 'skipped (unavailable)' : 'success')
+          console.log('[RAG] Context blocks:', contextBlocksStr || '(none - retrieval failed or empty)')
+          console.log('[RAG] System prompt:', systemPrompt)
+          console.log('[RAG] User prompt:', userPrompt)
+        }
+
+        let answer = ''
+        const sources = searchResults.map(r => ({
+          handshake_id: String(r.handshake_id ?? ''),
+          capsule_id: String(r.handshake_id ?? ''),
+          block_id: String(r.block_id ?? ''),
+          source: String(r.source ?? 'sent'),
+          score: typeof r.score === 'number' && !Number.isNaN(r.score) ? r.score : 0,
+        }))
+        const contextBlocks = retrievedBlocks.map(b => String(b.block_id ?? ''))
+
+        if (doStream) {
+          send('handshake:chatStreamStart', { contextBlocks, sources })
+        }
+
+        const llmStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
+        const messages = [
+          { role: 'system' as const, content: systemPrompt },
+          { role: 'user' as const, content: userPrompt },
+        ]
+        try {
+          answer = await provider.generateChat(messages, {
+            model: params.model,
+            stream: doStream,
+            send: doStream ? send : undefined,
+          })
+        } catch (err: any) {
+          const msg = err?.message ?? 'Unknown error'
+          const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
+          const isNoKey = /no_api_key|API key required/i.test(msg)
+          console.error('[RAG] LLM execution error:', err)
+          if (isNoKey) {
+            return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
+          }
+          if (isUnavailable && provider.id === 'ollama') {
+            return toIPC({ success: false, error: 'ollama_unavailable', message: msg })
+          }
+          return toIPC({ success: false, error: 'model_execution_failed', provider: providerLower, message: msg })
+        }
+
+        const llm_ms = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - llmStart)
+        const total_ms = elapsed()
+        const m = hybridResult.metrics
+        logAIQueryMetrics({
+          structured_ms: m?.structured_ms ?? 0,
+          semantic_ms: m?.semantic_ms ?? 0,
+          llm_ms,
+          total_ms,
+          provider: providerLower,
+          classification_ms: m?.classification_ms,
+        })
+        checkAILatency(total_ms)
+
+        if (capsuleId && normalizedQuery) setCached(db, capsuleId, normalizedQuery, { answer, sources })
+        return toIPC({
+          success: true,
+          answer: doStream ? undefined : answer,
+          sources,
+          governanceNote: governanceNote ?? undefined,
+          streamed: doStream,
+          ...(debug && {
+            latency: buildLatencyDebugPayload({
+              query_ms_total: total_ms,
+              classification_ms: m?.classification_ms,
+              structured_ms: m?.structured_ms,
+              semantic_ms: m?.semantic_ms,
+              block_retrieval_ms: m?.semantic_ms,
+              llm_ms,
+              cache_hit: false,
+              provider: providerLower,
+            }),
+          }),
+        })
+      } catch (err: any) {
+        console.error('LLM execution error:', err)
+        return toIPC({
+          success: false,
+          error: 'model_execution_failed',
+          message: err?.message ?? 'Unknown error',
+        })
+      }
+    })
+
+    // email:listAccounts is registered by registerEmailHandlers() — do not duplicate here
+
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
+      try {
+        const db = await getHandshakeDb()
+        return await handleHandshakeRPC('handshake.initiate', {
+          receiverUserId: receiverEmail,
+          receiverEmail,
+          fromAccountId,
+          skipVaultContext: contextOpts?.skipVaultContext ?? false,
+          ...(contextOpts?.message ? { message: contextOpts.message } : {}),
+          ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+          ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
+          ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
+          ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
+        }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Initiation failed.' }
+      }
+    })
+
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) {
+          console.error('[MAIN] handshake:buildForDownload — getHandshakeDb() returned null; refusing export')
+          return { success: false, error: 'No active session. Please log in before exporting a handshake capsule.' }
+        }
+        return await handleHandshakeRPC('handshake.buildForDownload', {
+          receiverUserId: receiverEmail,
+          receiverEmail,
+          skipVaultContext: contextOpts?.skipVaultContext ?? true,
+          ...(contextOpts?.message ? { message: contextOpts.message } : {}),
+          ...(contextOpts?.context_blocks ? { context_blocks: contextOpts.context_blocks } : {}),
+          ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
+          ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
+          ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
+        }, db)
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Build failed.' }
+      }
+    })
+
+    ipcMain.handle('handshake:downloadCapsule', async (_e, capsuleJson: string, suggestedFilename: string) => {
+      try {
+        const { dialog } = await import('electron')
+        const fs = await import('fs')
+        const result = await dialog.showSaveDialog({
+          defaultPath: suggestedFilename,
+          filters: [{ name: 'BEAP Capsule', extensions: ['beap'] }],
+        })
+        if (result.canceled || !result.filePath) {
+          return { success: false, reason: 'cancelled' }
+        }
+        fs.writeFileSync(result.filePath, capsuleJson, 'utf-8')
+        return { success: true, filePath: result.filePath }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Save failed.' }
+      }
+    })
+
+    ipcMain.handle('vault:unlockForHandshake', async () => {
+      try {
+        const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
+        const status = vaultService.getStatus()
+        if (!status?.isUnlocked) {
+          return { success: false, reason: 'VAULT_LOCKED', needsUnlock: true }
+        }
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
+        completePendingContextSyncs(db, getCurrentSession())
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, reason: err?.message ?? 'UNKNOWN' }
+      }
+    })
+
+    ipcMain.handle('vault:unlockWithPassword', async (_e, password: string, vaultId?: string) => {
+      try {
+        if (typeof password !== 'string' || password.length === 0) {
+          return { success: false, error: 'Password is required' }
+        }
+        const { vaultService, setupEmbeddingServiceRef } = await import('./main/vault/rpc')
+        await vaultService.unlock(password, vaultId || 'default')
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
+        completePendingContextSyncs(db, getCurrentSession())
+        if (db) setImmediate(() => processOutboundQueue(db, getOidcToken).catch(() => {}))
+        try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Unlock failed' }
+      }
+    })
+
+    ipcMain.handle('p2p:getHealth', async () => {
+      const h = getP2PHealth()
+      try {
+        const db = await getHandshakeDb()
+        const cfg = getP2PConfig(db)
+        return {
+          ...h,
+          enabled: cfg.enabled,
+          relay_mode: cfg.relay_mode,
+          last_relay_pull_success: h.last_relay_pull_success,
+          last_relay_pull_failure: h.last_relay_pull_failure,
+          last_relay_pull_error: h.last_relay_pull_error,
+          relay_capsules_pulled: h.relay_capsules_pulled,
+        }
+      } catch {
+        return { ...h, enabled: true, relay_mode: 'local' }
+      }
+    })
+
+    ipcMain.handle('p2p:getQueueStatus', async (_e, handshakeId: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { status: { pending: 0, sent: 0, failed: 0 }, entries: [] }
+        const status = getQueueStatus(db, handshakeId)
+        const entries = getQueueEntries(db, handshakeId)
+        return { status, entries }
+      } catch {
+        return { status: { pending: 0, sent: 0, failed: 0 }, entries: [] }
+      }
+    })
+
+    ipcMain.handle('p2p:flushOutboundQueue', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No database' }
+        await processOutboundQueue(db, getOidcToken)
+        return { success: true }
+      } catch (err: any) {
+        console.warn('[P2P] flushOutboundQueue error:', err?.message)
+        return { success: false, error: err?.message }
+      }
+    })
+
+    // ── Relay Setup Wizard IPC ─────────────────────────────────────────────
+    ipcMain.handle('relay:generateSecret', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        const secret = crypto.randomBytes(32).toString('hex')
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_auth_secret: secret })
+        return { success: true, secret }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to generate secret' }
+      }
+    })
+
+    ipcMain.handle('relay:testConnection', async (_e, url: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      if (!u) return { success: false, error: 'URL is required' }
+      const healthUrl = u.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '') + '/health'
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        if (res.ok) return { success: true }
+        const text = await res.text()
+        return { success: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        const msg = err?.message ?? String(err)
+        if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused')) {
+          return { success: false, error: `Cannot connect to ${healthUrl}. Check that the relay container is running and port 51249 is open.` }
+        }
+        if (msg.includes('ETIMEDOUT') || msg.includes('timeout') || msg.includes('aborted')) {
+          return { success: false, error: 'Connection timed out. Check your server\'s firewall and that the relay is running.' }
+        }
+        if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+          try {
+            const host = new URL(healthUrl).hostname
+            return { success: false, error: `Cannot resolve ${host}. Check the URL.` }
+          } catch {
+            return { success: false, error: 'Cannot resolve hostname. Check the URL.' }
+          }
+        }
+        if (msg.includes('certificate') || msg.includes('SSL') || msg.includes('TLS')) {
+          return { success: false, error: 'TLS certificate error. If using self-signed certificates, see the TLS setup guide.' }
+        }
+        return { success: false, error: msg }
+      }
+    })
+
+    ipcMain.handle('relay:verifyEndToEnd', async (_e, url: string, secret: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      const s = typeof secret === 'string' ? secret.trim() : ''
+      if (!u || !s) return { success: false, results: [], error: 'URL and secret are required' }
+      const base = u.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '')
+      const healthUrl = base + '/health'
+      const registerUrl = base + '/beap/register-handshake'
+      const pullUrl = base + '/beap/pull'
+      const results: { name: string; ok: boolean; error?: string }[] = []
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const healthRes = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        results.push({ name: 'health', ok: healthRes.ok, error: healthRes.ok ? undefined : `HTTP ${healthRes.status}` })
+        if (!healthRes.ok) {
+          return { success: false, results, error: 'Relay is not reachable' }
+        }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        results.push({ name: 'health', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Relay unreachable' }
+      }
+      try {
+        const regRes = await fetch(registerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s}` },
+          body: JSON.stringify({ handshake_id: '__verify__', expected_token: '__test__', counterparty_email: 'verify@test.local' }),
+        })
+        results.push({ name: 'auth', ok: regRes.ok || regRes.status === 404, error: regRes.ok ? undefined : regRes.status === 401 ? 'Authentication failed' : `HTTP ${regRes.status}` })
+        if (regRes.status === 401) {
+          return { success: false, results, error: 'The relay rejected your credentials.' }
+        }
+      } catch (err: any) {
+        results.push({ name: 'auth', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Auth check failed' }
+      }
+      try {
+        const pullRes = await fetch(pullUrl, { method: 'GET', headers: { Authorization: `Bearer ${s}` } })
+        results.push({ name: 'pull', ok: pullRes.ok, error: pullRes.ok ? undefined : pullRes.status === 401 ? 'Authentication failed' : `HTTP ${pullRes.status}` })
+        if (pullRes.status === 401) {
+          return { success: false, results, error: 'The relay rejected your credentials.' }
+        }
+      } catch (err: any) {
+        results.push({ name: 'pull', ok: false, error: err?.message ?? String(err) })
+        return { success: false, results, error: 'Pull check failed' }
+      }
+      return { success: true, results }
+    })
+
+    ipcMain.handle('relay:activate', async (_e, config: { relay_url: string; relay_pull_url?: string }) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session. Please log in first.' }
+        const url = typeof config?.relay_url === 'string' ? config.relay_url.trim() : ''
+        if (!url) return { success: false, error: 'Relay URL is required' }
+        let pullUrl = config.relay_pull_url?.trim()
+        if (!pullUrl) {
+          if (/\/beap\/ingest\/?$/.test(url)) {
+            pullUrl = url.replace(/\/ingest\/?$/, '/pull')
+          } else {
+            const base = url.replace(/\/$/, '')
+            pullUrl = base + '/beap/pull'
+          }
+        }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_mode: 'remote', relay_url: url, relay_pull_url: pullUrl })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Activation failed' }
+      }
+    })
+
+    ipcMain.handle('relay:getSetupStatus', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { relay_mode: 'local', relay_url: null, relay_auth_secret: null }
+        const cfg = getP2PConfig(db)
+        return {
+          relay_mode: cfg.relay_mode,
+          relay_url: cfg.relay_url,
+          relay_pull_url: cfg.relay_pull_url,
+          relay_auth_secret: cfg.relay_auth_secret ? '***' : null,
+        }
+      } catch {
+        return { relay_mode: 'local', relay_url: null, relay_auth_secret: null }
+      }
+    })
+
+    ipcMain.handle('relay:deactivate', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session.' }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_mode: 'local', relay_url: null, relay_pull_url: null })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Deactivation failed' }
+      }
+    })
+
+    ipcMain.handle('relay:getSecret', async () => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, secret: null }
+        const cfg = getP2PConfig(db)
+        return { success: true, secret: cfg.relay_auth_secret ? cfg.relay_auth_secret : null }
+      } catch {
+        return { success: false, secret: null }
+      }
+    })
+
+    ipcMain.handle('relay:testTlsConnection', async (_e, url: string) => {
+      const u = typeof url === 'string' ? url.trim() : ''
+      if (!u) return { success: false, error: 'URL is required' }
+      const httpsUrl = u.replace(/^http:\/\//i, 'https://')
+      const healthUrl = httpsUrl.replace(/\/beap\/ingest\/?$/, '').replace(/\/$/, '') + '/health'
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+        clearTimeout(timeout)
+        if (res.ok) return { success: true }
+        const text = await res.text()
+        return { success: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+      } catch (err: any) {
+        clearTimeout(timeout)
+        const msg = err?.message ?? String(err)
+        if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused')) {
+          return { success: false, error: `Cannot connect to ${healthUrl}. Check that the relay container is running with TLS and port 51249 is open.` }
+        }
+        if (msg.includes('ETIMEDOUT') || msg.includes('timeout') || msg.includes('aborted')) {
+          return { success: false, error: 'Connection timed out. Check your server\'s firewall and that the relay is running.' }
+        }
+        if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo')) {
+          try {
+            const host = new URL(healthUrl).hostname
+            return { success: false, error: `Cannot resolve ${host}. Check the URL.` }
+          } catch {
+            return { success: false, error: 'Cannot resolve hostname. Check the URL.' }
+          }
+        }
+        if (msg.includes('certificate') || msg.includes('SSL') || msg.includes('TLS') || msg.includes('UNABLE_TO_VERIFY')) {
+          try {
+            const https = await import('https')
+            const fingerprint = await new Promise<string | null>((resolve) => {
+              const req = https.default.get(healthUrl, { rejectUnauthorized: false }, (res: any) => {
+                const cert = (res.socket as any).getPeerCertificate?.()
+                res.destroy()
+                if (cert && cert.fingerprint256) {
+                  resolve(cert.fingerprint256)
+                } else {
+                  resolve(null)
+                }
+              })
+              req.on('error', () => resolve(null))
+              req.setTimeout(5000, () => { req.destroy(); resolve(null) })
+            })
+            return {
+              success: false,
+              error: 'TLS certificate is not trusted (likely self-signed). Import the certificate on your system, or accept the fingerprint below.',
+              certFingerprint: fingerprint || undefined,
+            }
+          } catch {
+            return { success: false, error: 'TLS certificate error. If using self-signed certificates, download cert.pem and import it into your system trust store.' }
+          }
+        }
+        return { success: false, error: msg }
+      }
+    })
+
+    ipcMain.handle('relay:acceptCertFingerprint', async (_e, fingerprint: string) => {
+      try {
+        const db = await getHandshakeDb()
+        if (!db) return { success: false, error: 'No active session.' }
+        const fp = typeof fingerprint === 'string' ? fingerprint.trim() : ''
+        if (!fp) return { success: false, error: 'Fingerprint is required' }
+        const cfg = getP2PConfig(db)
+        upsertP2PConfig(db, { ...cfg, relay_cert_fingerprint: fp })
+        return { success: true }
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to store fingerprint' }
+      }
+    })
+
+    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/importCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus, relay:*')
+
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {
       console.log('[IPC] auth:status called')
@@ -1741,42 +3691,95 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: auth:status')
     try { process.env.WS_NO_BUFFER_UTIL = '1'; process.env.WS_NO_UTF_8_VALIDATE = '1' } catch {}
-    // Auto-start on login (Windows/macOS). Pass --hidden so it starts in background.
-    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron
+    // Auto-start on login. Pass --hidden so it starts in background.
+    // IMPORTANT: Only enable autostart in production builds to avoid registering dev electron.
+    // Linux: app.setLoginItemSettings() is unreliable; skip silently.
     const isProduction = !process.env.VITE_DEV_SERVER_URL
     try {
       if (process.platform === 'win32') {
         app.setAppUserModelId('com.wrcode.desktop')
       }
       if (isProduction && (process.platform === 'win32' || process.platform === 'darwin')) {
-        // Only register autostart for production builds (not dev mode)
-        // Check current autostart status first - don't force enable if user disabled it
         const currentSettings = app.getLoginItemSettings()
-        // Only set autostart if it's not already configured (first run)
-        // This respects user preferences if they disabled it via tray menu
-        if (currentSettings.openAtLogin === undefined || currentSettings.openAtLogin === false) {
-          // First run or explicitly disabled - set it up with --hidden flag
-          app.setLoginItemSettings({ 
-            openAtLogin: true, 
+        // wasOpenedAtLogin is true when the OS actually launched us at login.
+        // openAtLogin reflects the current registry/plist registration state.
+        const alreadyRegistered = currentSettings.openAtLogin === true
+
+        if (!alreadyRegistered) {
+          // First run: register autostart with --hidden so the app starts as a
+          // background service (tray only, no visible window) on every login.
+          app.setLoginItemSettings({
+            openAtLogin: true,
             args: ['--hidden'],
-            name: 'WR Desk' // Explicit name for Windows registry
+            name: 'WR Desk',
           })
-          const loginSettings = app.getLoginItemSettings()
-          console.log('[MAIN] Production build - autostart registered:', loginSettings.openAtLogin)
+          console.log('[MAIN] Production build - autostart registered for the first time')
+
+          // Windows-only: also register a Task Scheduler task as a belt-and-
+          // suspenders fallback.
+          if (process.platform === 'win32') {
+            registerWindowsTaskScheduler().catch(err =>
+              console.warn('[MAIN] Task Scheduler registration failed (non-fatal):', err)
+            )
+          }
         } else {
-          // Already configured - just ensure args are correct
-          app.setLoginItemSettings({ 
-            openAtLogin: true, 
-            args: ['--hidden'],
-            name: 'WR Desk'
-          })
-          console.log('[MAIN] Production build - autostart already configured, ensuring args are correct')
+          // Already registered — do NOT touch the setting so that a user who
+          // deliberately unchecked "Start on Login" in the tray menu keeps
+          // their preference across app restarts.
+          console.log('[MAIN] Production build - autostart already registered, respecting existing setting')
         }
+      } else if (isProduction && process.platform === 'linux') {
+        // Linux autostart via ~/.config/autostart .desktop file is the standard approach.
+        // app.setLoginItemSettings() is not supported on Linux.
+        console.log('[MAIN] Linux production build - autostart skipped (manage via ~/.config/autostart)')
       } else if (!isProduction) {
         console.log('[MAIN] Dev mode - skipping autostart registration to avoid wrong executable')
       }
     } catch (err) {
       console.error('[MAIN] Failed to register autostart:', err)
+    }
+
+    /**
+     * Register a Windows Task Scheduler task that launches the app at logon
+     * as a belt-and-suspenders complement to the Electron registry entry.
+     * Uses schtasks.exe (available on all Windows versions, no admin required
+     * for per-user ONLOGON tasks).
+     */
+    async function registerWindowsTaskScheduler(): Promise<void> {
+      const { execFile } = await import('child_process')
+      const { promisify } = await import('util')
+      const execFileAsync = promisify(execFile)
+
+      const taskName = 'WRDeskOrchestrator'
+      const exePath = process.execPath
+      const args = '--hidden'
+
+      // Check if task already exists
+      try {
+        await execFileAsync('schtasks', ['/Query', '/TN', taskName], { windowsHide: true })
+        console.log('[MAIN] Task Scheduler task already exists:', taskName)
+        // Update the executable path in case the app was reinstalled to a new path
+        await execFileAsync('schtasks', [
+          '/Change', '/TN', taskName,
+          '/TR', `"${exePath}" ${args}`,
+        ], { windowsHide: true })
+        return
+      } catch {
+        // Task doesn't exist — create it
+      }
+
+      await execFileAsync('schtasks', [
+        '/Create',
+        '/F',                        // overwrite if exists
+        '/TN', taskName,
+        '/TR', `"${exePath}" ${args}`,
+        '/SC', 'ONLOGON',            // trigger: at logon
+        '/DELAY', '0000:30',         // 30-second delay so the desktop is ready
+        '/RL', 'LIMITED',            // run with standard (non-admin) privileges
+        '/IT',                       // run only when user is logged in interactively
+      ], { windowsHide: true })
+
+      console.log('[MAIN] Task Scheduler task created:', taskName)
     }
     
   // ========== AUTH-GATED STARTUP ==========
@@ -1784,6 +3787,36 @@ app.whenReady().then(async () => {
   // RULE: No window at startup unless valid session exists (regardless of launch mode)
   console.log('[AUTH] ===== AUTH-GATED STARTUP =====')
   const sessionValid = await checkStartupSession()
+
+  // Keycloak-only entitlement refresh: once at startup, then every 60s
+  refreshEntitlements(true, 'startup').then(tier => {
+    console.log('[ENTITLEMENT_REFRESH] startup refresh complete, tier=', tier)
+  }).catch(err => {
+    console.log('[ENTITLEMENT_REFRESH] startup refresh failed:', err?.message || err)
+  })
+  setInterval(() => {
+    refreshEntitlements(true, 'interval').catch(() => {})
+  }, ENTITLEMENT_REFRESH_INTERVAL_MS)
+  console.log('[ENTITLEMENT_REFRESH] 60s interval started')
+
+  // Open the handshake ledger immediately if a session is already active.
+  // This ensures handshake operations work before any vault interaction.
+  if (sessionValid) {
+    try {
+      const userInfo = getCachedUserInfo()
+      if (userInfo?.sub && userInfo?.iss) {
+        const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+        openLedger(ledgerToken).then(() => {
+          console.log('[MAIN] Handshake ledger opened at startup')
+          onLedgerReady?.()
+        }).catch(err => {
+          console.warn('[MAIN] Handshake ledger open at startup failed:', err?.message)
+        })
+      }
+    } catch (err) {
+      console.warn('[MAIN] Handshake ledger startup open skipped:', err)
+    }
+  }
   
   // Create tray first (always needed for headless/background mode)
   createTray()
@@ -1794,9 +3827,13 @@ app.whenReady().then(async () => {
   //   1) User actively logs in (SSO via extension)
   //   2) User clicks tray icon (while session is valid)
   //   3) Deep link / explicit API call
-  // It does NOT auto-show on startup even if a valid session exists.
+  // Exception: on Linux, there is no Chrome extension to trigger the dashboard,
+  // so we open it automatically when a valid session exists.
   if (!sessionValid) {
     console.log('[AUTH] No valid session - running in tray only, waiting for login via extension')
+  } else if (process.platform === 'linux') {
+    console.log('[AUTH] Linux + valid session - opening dashboard automatically')
+    openDashboardWindow().catch(err => console.error('[AUTH] Auto-open failed:', err))
   } else {
     console.log('[AUTH] Valid session found - running in tray only (headless service mode)')
     // Session is valid but we don't create or show the window.
@@ -1840,11 +3877,77 @@ app.whenReady().then(async () => {
     
     // Register Email Gateway handlers
     try {
-      const { registerEmailHandlers } = await import('./main/email/ipc')
+      const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
       registerEmailHandlers()
+      const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+      const getAnthropicApiKey = async () => {
+        try {
+          const { vaultService } = await import('./main/vault/rpc')
+          return await vaultService.getAnthropicApiKeyForInbox()
+        } catch {
+          return null
+        }
+      }
+      registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
       console.error('[MAIN] Failed to register email handlers:', emailErr)
+    }
+
+    // Wire BEAP handshake → email transport bridge
+    try {
+      const { emailGateway } = await import('./main/email/gateway')
+      setEmailSendFn(emailGateway.sendEmail.bind(emailGateway))
+      setEmailFunctions(
+        emailGateway.listMessages.bind(emailGateway),
+        emailGateway.getMessage.bind(emailGateway),
+        emailGateway.listAttachments.bind(emailGateway),
+        emailGateway.extractAttachmentText.bind(emailGateway),
+      )
+
+      setSSOSessionProvider(() => {
+        try {
+          const userInfo = getCachedUserInfo()
+          if (!userInfo?.sub || !userInfo?.email || !userInfo?.iss) return undefined
+          return sessionFromClaims({
+            wrdesk_user_id: userInfo.wrdesk_user_id || userInfo.sub,
+            email: userInfo.email,
+            iss: userInfo.iss,
+            sub: userInfo.sub,
+            plan: (userInfo.wrdesk_plan as any) || 'free',
+            canonical_tier: userInfo.canonical_tier as any,
+            session_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          })
+        } catch { return undefined }
+      })
+      setOidcTokenProvider(async () => {
+        try {
+          const session = await ensureSession()
+          return session.accessToken ?? getAccessToken()
+        } catch { return null }
+      })
+
+      // Open the handshake ledger using the current SSO session.
+      // The ledger is vault-independent — it stays accessible even when the
+      // vault is locked, allowing handshake capsules to be processed at any time.
+      try {
+        const userInfo = getCachedUserInfo()
+        if (userInfo?.sub && userInfo?.iss) {
+          const ledgerToken = buildLedgerSessionToken(userInfo.wrdesk_user_id || userInfo.sub, userInfo.iss)
+          openLedger(ledgerToken).then(() => {
+            console.log('[MAIN] Handshake ledger opened for SSO session')
+            onLedgerReady?.()
+          }).catch(err => {
+            console.warn('[MAIN] Failed to open handshake ledger:', err?.message)
+          })
+        }
+      } catch (ledgerErr) {
+        console.warn('[MAIN] Handshake ledger open skipped:', ledgerErr)
+      }
+
+      console.log('[MAIN] BEAP email transport bridge wired')
+    } catch (bridgeErr) {
+      console.error('[MAIN] Failed to wire BEAP email bridge:', bridgeErr)
     }
     
     // Check if Ollama is installed and auto-start if configured
@@ -1887,8 +3990,32 @@ app.whenReady().then(async () => {
   // The full Express app is mounted on this server later (see startHttpServer).
   try {
     httpBridgeServer = http.createServer((req, res) => {
-      if (req.method === 'GET' && req.url?.split('?')[0] === '/api/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
+      const path = req.url?.split('?')[0] ?? ''
+      const origin = req.headers['origin'] as string | undefined
+      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
+
+      // OPTIONS: CORS + PNA preflight for all API routes
+      if (req.method === 'OPTIONS') {
+        if (!isCorsAllowedOrigin(origin)) {
+          res.writeHead(403)
+          res.end()
+          return
+        }
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...corsPnaHeaders(origin, requestPrivateNetwork),
+        }
+        res.writeHead(200, headers)
+        res.end()
+        return
+      }
+
+      if (req.method === 'GET' && path === '/api/health') {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...corsPnaHeaders(origin, true),
+        }
+        res.writeHead(200, headers)
         res.end(JSON.stringify({
           ok: true,
           timestamp: Date.now(),
@@ -1900,7 +4027,11 @@ app.whenReady().then(async () => {
         return
       }
       // All other routes: 503 until Express mounts
-      res.writeHead(503, { 'Content-Type': 'application/json' })
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...corsPnaHeaders(origin, true),
+      }
+      res.writeHead(503, headers)
       res.end(JSON.stringify({ ok: false, error: 'Initializing...' }))
     })
     httpBridgeServer.listen(HTTP_PORT, '127.0.0.1', () => {
@@ -2050,7 +4181,7 @@ app.whenReady().then(async () => {
             if (msg.method && msg.method.startsWith('vault.')) {
               console.log('[MAIN] Processing vault RPC:', msg.method)
               try {
-                // ── Auth gate: resolve tier from session (fail-closed) ──
+                // ── Auth gate: session required ──
                 const rpcSession = await ensureSession()
                 if (!rpcSession.accessToken) {
                   socket.send(JSON.stringify({
@@ -2060,10 +4191,10 @@ app.whenReady().then(async () => {
                   }))
                   return
                 }
-                const rpcTier = resolveTier(
-                  rpcSession.userInfo?.wrdesk_plan,
-                  rpcSession.userInfo?.roles || [],
-                )
+                // ── Central entitlement reader (same path as HTTP vault routes) ──
+                const staleBefore = lastEntitlementRefreshAt == null || (Date.now() - lastEntitlementRefreshAt) > ENTITLEMENT_REFRESH_INTERVAL_MS
+                const rpcTier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-rpc' })
+                console.log('[ENTITLEMENT_ACCESS] vault-rpc caller, tier=', rpcTier, 'triggeredRefresh=', staleBefore)
 
                 // ── vault.bind handshake (auth required, binds VSBT to this connection) ──
                 if (msg.method === 'vault.bind') {
@@ -2109,6 +4240,20 @@ app.whenReady().then(async () => {
                   wsVsbtBindings.set(socket, response.sessionToken)
                 }
 
+                // Complete pending context syncs when vault unlocks
+                if ((msg.method === 'vault.unlock' || msg.method === 'vault.create') && response.success) {
+                  setImmediate(async () => {
+                    try {
+                      const { vaultService: vs } = await import('./main/vault/rpc')
+                      const db = getLedgerDb() ?? vs.getDb?.() ?? null
+                      completePendingContextSyncs(db, getCurrentSession())
+                      if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+                      try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+                      try { win?.webContents.send('vault-status-changed') } catch { /* no window */ }
+                    } catch (e) { /* non-fatal */ }
+                  })
+                }
+
                 // Clear ALL WS bindings on vault.lock (VSBT invalidated globally)
                 if (msg.method === 'vault.lock' && response.success) {
                   wsVsbtBindings.clear()
@@ -2131,6 +4276,69 @@ app.whenReady().then(async () => {
               return // Don't process further handlers
             }
 
+            // ===== HANDSHAKE RPC HANDLING =====
+            if (msg.method && msg.method.startsWith('handshake.')) {
+              console.log('[MAIN] Processing handshake RPC:', msg.method)
+              try {
+                const vsForHandshake = (globalThis as any).__og_vault_service_ref
+                const vaultDb = vsForHandshake?.getDb?.() ?? vsForHandshake?.db ?? null
+                const ledgerDb = getLedgerDb()
+                const db = ledgerDb ?? vaultDb
+                const skipVaultContext = msg.params?.skipVaultContext === true
+                const vaultRequiredMethods = ['handshake.list', 'handshake.accept', 'handshake.refresh', 'handshake.queryStatus', 'handshake.requestContextBlocks', 'handshake.authorizeAction', 'handshake.initiateRevocation', 'handshake.delete', 'handshake.isActive']
+                if (!db && !skipVaultContext) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'No active session. Please log in first.',
+                  }))
+                  return
+                }
+                if (!db && skipVaultContext && vaultRequiredMethods.includes(msg.method)) {
+                  socket.send(JSON.stringify({
+                    id: msg.id,
+                    success: false,
+                    error: 'No active session. Please log in first.',
+                  }))
+                  return
+                }
+                const response = await handleHandshakeRPC(msg.method, msg.params, db)
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+                console.log('[MAIN] ✅ Handshake RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] ❌ Handshake RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error',
+                }))
+              }
+              return
+            }
+
+            // ===== INGESTION RPC HANDLING =====
+            if (msg.method && msg.method.startsWith('ingestion.')) {
+              console.log('[MAIN] Processing ingestion RPC:', msg.method)
+              try {
+                const ssoSession = getCurrentSession()
+                const ledgerDb = getLedgerDb()
+                const vsForIngestion = (globalThis as any).__og_vault_service_ref
+                const vaultDb = vsForIngestion?.getDb?.() ?? vsForIngestion?.db ?? null
+                const db = ledgerDb ?? vaultDb
+                const response = await handleIngestionRPC(msg.method, msg.params, db, ssoSession)
+                socket.send(JSON.stringify({ id: msg.id, ...response }))
+                console.log('[MAIN] Ingestion RPC response sent:', msg.method)
+              } catch (error: any) {
+                console.error('[MAIN] Ingestion RPC error:', error)
+                socket.send(JSON.stringify({
+                  id: msg.id,
+                  success: false,
+                  error: error.message || 'Unknown error',
+                }))
+              }
+              return
+            }
+            
             if (!msg || !msg.type) {
               console.warn('[MAIN] Message has no type or method, ignoring:', msg)
               try {
@@ -2168,6 +4376,28 @@ app.whenReady().then(async () => {
                 console.error('[MAIN] Error sending pong:', e)
               }
               return // Don't process further handlers for ping
+            }
+            // ===== FOCUS DASHBOARD HANDLER =====
+            if (msg.type === 'FOCUS_DASHBOARD') {
+              console.log('[MAIN] 🔙 FOCUS_DASHBOARD received — restoring dashboard to top')
+              popupIsOpen = false
+              if (win && !win.isDestroyed()) {
+                win.setAlwaysOnTop(true, 'screen-saver')
+                if (win.isMinimized()) win.restore()
+                win.show()
+                win.focus()
+                win.moveTop()
+              }
+              return
+            }
+            // ===== POPUP Z-ORDER HANDLERS =====
+            // While a popup is open the dashboard stays non-topmost.
+            // No z-order flashing — the popup must always remain above.
+            if (msg.type === 'POPUP_FOCUSED' || msg.type === 'POPUP_BLURRED') {
+              if (popupIsOpen && win && !win.isDestroyed()) {
+                win.setAlwaysOnTop(false)
+              }
+              return
             }
             // ===== THEME SYNC HANDLER =====
             if (msg.type === 'THEME_SYNC') {
@@ -2219,11 +4449,17 @@ app.whenReady().then(async () => {
                 // create-or-show logic and DevTools in the correct order.
                 await openDashboardWindow()
                 if (win && !win.isDestroyed()) {
-                  // Signal the renderer to switch to Analysis Dashboard view with theme
+                  // Defer IPC so renderer has time to resume when showing existing window
+                  // (fixes blank canvas when opening from extension brain icon)
                   const phase = msg.phase || 'live'
-                  win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme: currentExtensionTheme })
-                  console.log('[MAIN] ✅ Analysis Dashboard window focused, IPC sent with phase:', phase, 'theme:', currentExtensionTheme)
-                  socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' }))
+                  const theme = currentExtensionTheme
+                  setTimeout(() => {
+                    if (win && !win.isDestroyed()) {
+                      win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase, theme })
+                      console.log('[MAIN] ✅ Analysis Dashboard IPC sent (phase:', phase, 'theme:', theme, ')')
+                    }
+                    try { socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_OPENED' })) } catch {}
+                  }, 250)
                 } else {
                   console.log('[MAIN] ⚠️ Failed to create main window')
                   socket.send(JSON.stringify({ type: 'ANALYSIS_DASHBOARD_ERROR', error: 'Failed to create main window' }))
@@ -2853,51 +5089,12 @@ app.whenReady().then(async () => {
             }
             if (msg.type === 'LAUNCH_DBEAVER') {
               try {
-                const { spawn } = await import('child_process');
-                const path = await import('path');
+                const { spawn, exec } = await import('child_process');
+                const pathMod = await import('path');
                 const fs = await import('fs');
 
-                // Common DBeaver installation paths
-                const dbeaverPaths = [
-                  path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
-                  'C:\\Program Files\\DBeaver\\dbeaver.exe',
-                  'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
-                  path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
-                  path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
-                ];
-
-                let launched = false;
-                for (const dbeaverPath of dbeaverPaths) {
-                  try {
-                    if (fs.existsSync(dbeaverPath)) {
-                      console.log('[MAIN] Launching DBeaver from:', dbeaverPath);
-                      spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
-                      launched = true;
-                      try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch { }
-                      break;
-                    }
-                  } catch (err) {
-                    console.error('[MAIN] Error checking/launching DBeaver path:', dbeaverPath, err);
-                  }
-                }
-
-                if (!launched) {
-                  // Try using Windows start command as fallback
-                  try {
-                    const { exec } = await import('child_process');
-                    exec('start dbeaver', (error) => {
-                      if (error) {
-                        console.error('[MAIN] Failed to launch DBeaver:', error);
-                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: 'DBeaver not found. Please install it or open manually from Start Menu.' })) } catch { }
-                      } else {
-                        try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: true, message: 'DBeaver launched' })) } catch { }
-                      }
-                    });
-                  } catch (err) {
-                    console.error('[MAIN] Failed to launch DBeaver:', err);
-                    try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err) })) } catch { }
-                  }
-                }
+                const { ok, message } = await launchDBeaver(spawn, exec, pathMod, fs);
+                try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok, message })) } catch {}
               } catch (err: any) {
                 console.error('[MAIN] Error handling LAUNCH_DBEAVER:', err);
                 try { socket.send(JSON.stringify({ type: 'LAUNCH_DBEAVER_RESULT', ok: false, message: String(err?.message || err) })) } catch { }
@@ -2952,11 +5149,14 @@ app.whenReady().then(async () => {
                 // Update hasValidSession flag
                 hasValidSession = loggedIn
                 
-                // Re-resolve tier from fresh session claims
+                // Use canonical tier from session
                 if (loggedIn && session.userInfo) {
-                  currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+                  currentTier = session.userInfo.canonical_tier ?? resolveTier(
+                    session.userInfo.wrdesk_plan,
+                    session.userInfo.roles || [],
+                    session.userInfo.sso_tier,
+                  )
                 }
-                
                 console.log('[AUTH] AUTH_STATUS:', loggedIn ? 'logged in' : 'not logged in', 'tier:', currentTier)
                 // Include user info and tier in response for UI display
                 const response: Record<string, unknown> = { 
@@ -3025,41 +5225,46 @@ app.whenReady().then(async () => {
     // (Removed: ipcMain.handle('security:getLaunchSecret', ...) )
 
     // ========================================================================
-    // SECURITY: Strict CORS — deny all cross-origin requests.
+    // SECURITY: CORS + Private Network Access (PNA) — allow WRDesk origins only.
     //
-    // Why NO Access-Control-Allow-Origin header at all:
-    //   - The Chrome extension background script uses fetch() from its service
-    //     worker context.  Service worker fetches are NOT subject to CORS
-    //     (they are same-origin by definition to their own extension origin).
-    //   - By NOT setting any CORS headers, the browser's same-origin policy
-    //     blocks every cross-origin request from web pages.
-    //   - A website at https://evil.com fetching http://127.0.0.1:51248
-    //     will receive a CORS error because the response has no
-    //     Access-Control-Allow-Origin header.
+    // Allowed origins:
+    //   - https://wrdesk.com
+    //   - chrome-extension://* (any WRDesk extension ID)
     //
-    // The only callers are:
-    //   1. Chrome extension background (service worker fetch — not CORS)
-    //   2. Electron renderer (IPC-based — not HTTP)
-    //   3. WebSocket clients (WS protocol — not HTTP CORS)
+    // Rejects all other origins. No wildcard "*" in production.
+    //
+    // PNA: Modern Chromium blocks requests from secure contexts to localhost
+    // unless the server responds with Access-Control-Allow-Private-Network: true.
+    // Required for extension → 127.0.0.1:51248.
     // ========================================================================
     httpApp.use((req, res, next) => {
-      // Block CORS preflight outright — no origin is trusted.
+      const origin = req.headers['origin'] as string | undefined
+      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
+
+      // OPTIONS: CORS preflight + PNA preflight — do not require auth
       if (req.method === 'OPTIONS') {
-        res.status(403).end()
+        if (!isCorsAllowedOrigin(origin)) {
+          res.status(403).end()
+          return
+        }
+        const headers = corsPnaHeaders(origin, requestPrivateNetwork)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+        res.status(200).end()
         return
       }
 
-      // Reject any request that carries an Origin header from a web page.
-      // Extension service workers do NOT send an Origin header on fetch().
-      // Electron renderer should use IPC, not HTTP.
-      const origin = req.headers['origin']
-      if (origin) {
-        // Allow chrome-extension:// origins (for popup/sidepanel fetch calls)
-        if (!origin.startsWith('chrome-extension://')) {
-          console.warn(`[SECURITY] Blocked request with web Origin: ${origin} → ${req.method} ${req.path}`)
-          res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
-          return
-        }
+      // Non-OPTIONS: reject disallowed origins
+      if (origin && !isCorsAllowedOrigin(origin)) {
+        console.warn(`[SECURITY] Blocked request with disallowed Origin: ${origin} → ${req.method} ${req.path}`)
+        res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
+        return
+      }
+
+      // Attach CORS headers to response for allowed origins (for actual requests)
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Type')
+      if (origin && isCorsAllowedOrigin(origin)) {
+        const headers = corsPnaHeaders(origin, true)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
       }
 
       next()
@@ -3079,7 +5284,8 @@ app.whenReady().then(async () => {
     // or IPC — never over HTTP, never persisted.
     // ========================================================================
     const AUTH_EXEMPT_PATHS = new Set([
-      '/api/health',       // Lightweight liveness probe, returns no sensitive data
+      '/api/health',               // Lightweight liveness probe, returns no sensitive data
+      '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
     ])
 
     httpApp.use((req, res, next) => {
@@ -3403,9 +5609,19 @@ app.whenReady().then(async () => {
         }
         const session = updateSess(tokens)
         hasValidSession = true
-        const tier = resolve(session?.wrdesk_plan, session?.roles ?? [])
+        const tier = session?.canonical_tier ?? resolve(session?.wrdesk_plan, session?.roles ?? [], session?.sso_tier)
         
         updateTrayMenu()
+
+        // Open the handshake ledger for this new session
+        try {
+          if (session?.sub && session?.iss) {
+            const ledgerToken = buildLedgerSessionToken(session.wrdesk_user_id || session.sub, session.iss)
+            openLedger(ledgerToken).then(() => onLedgerReady?.()).catch(err => {
+              console.warn('[HTTP] Handshake ledger open after SSO callback failed:', err?.message)
+            })
+          }
+        } catch { /* non-fatal */ }
         
         console.log('[HTTP] SSO login successful via extension - tier:', tier)
         // Respond to the extension FIRST so it can update its UI, then open
@@ -3431,6 +5647,12 @@ app.whenReady().then(async () => {
         const result = await requestLogin()
         if (result.ok) {
           console.log('[HTTP] SSO login successful - tier:', result.tier)
+          const handshakeDb = await getHandshakeDb()
+          if (handshakeDb) {
+            processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
+              console.warn('[P2P] Queue flush after login error:', err?.message)
+            })
+          }
           res.json({ ok: true, tier: result.tier })
         } else {
           console.error('[HTTP] SSO login failed:', result.error)
@@ -3458,11 +5680,14 @@ app.whenReady().then(async () => {
         // Update hasValidSession flag based on current session state
         hasValidSession = loggedIn
         
-        // Re-resolve tier from fresh session claims
+        // Use canonical tier from session
         if (loggedIn && session.userInfo) {
-          currentTier = resolveTier(session.userInfo.wrdesk_plan, session.userInfo.roles || [])
+          currentTier = session.userInfo.canonical_tier ?? resolveTier(
+            session.userInfo.wrdesk_plan,
+            session.userInfo.roles || [],
+            session.userInfo.sso_tier,
+          )
         }
-        
         // [CHECKPOINT B] Log HTTP status response (no secrets)
         console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
         // Include user info and tier for UI display
@@ -3713,78 +5938,30 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP] POST /api/db/launch-dbeaver')
         const postgresConfig = req.body.postgresConfig || req.body.config;
-        const { spawn, execSync } = await import('child_process');
-        const path = await import('path');
+        const { spawn, exec, execSync } = await import('child_process');
+        const pathMod = await import('path');
         const fs = await import('fs');
 
-        // First, close any running DBeaver instances to ensure clean configuration
-        if (postgresConfig) {
+        // Close any running DBeaver instances before reconfiguring (Windows only)
+        if (postgresConfig && process.platform === 'win32') {
           try {
             execSync('taskkill /F /IM dbeaver.exe /T 2>nul', { stdio: 'ignore' });
             console.log('[HTTP] Closed existing DBeaver instances');
-            // Wait a bit for the process to fully close
             await new Promise(resolve => setTimeout(resolve, 1500));
           } catch (e) {
-            // Process might not be running, that's fine
             console.log('[HTTP] No DBeaver process to close or already closed');
           }
         }
 
-        // Common DBeaver installation paths
-        const dbeaverPaths = [
-          path.join(process.env.LOCALAPPDATA || '', 'DBeaver', 'dbeaver.exe'), // Most common location
-          'C:\\Program Files\\DBeaver\\dbeaver.exe',
-          'C:\\Program Files (x86)\\DBeaver\\dbeaver.exe',
-          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'dbeaver-ce', 'dbeaver.exe'),
-          path.join(process.env.APPDATA || '', 'DBeaver', 'dbeaver.exe')
-        ];
-
-        let launched = false;
-        let launchPath = '';
-
-        for (const dbeaverPath of dbeaverPaths) {
-          try {
-            if (fs.existsSync(dbeaverPath)) {
-              console.log('[HTTP] Launching DBeaver from:', dbeaverPath);
-              spawn(dbeaverPath, [], { detached: true, stdio: 'ignore' });
-              launched = true;
-              launchPath = dbeaverPath;
-              break;
-            }
-          } catch (err) {
-            console.error('[HTTP] Error checking/launching DBeaver path:', dbeaverPath, err);
-          }
-        }
+        const { ok: launched, message: launchMessage, path: launchPath } = await launchDBeaver(spawn, exec, pathMod, fs);
 
         if (!launched) {
-          // Try using Windows start command as fallback
-          try {
-            const { exec } = await import('child_process');
-            exec('start dbeaver', (error) => {
-              if (error) {
-                console.error('[HTTP] Failed to launch DBeaver:', error);
-              } else {
-                console.log('[HTTP] DBeaver launched via start command');
-              }
-            });
-            // Assume success for start command (it's async)
-            res.json({
-              ok: true,
-              message: 'DBeaver launch attempted via start command',
-              method: 'start_command'
-            });
-            return;
-          } catch (err) {
-            console.error('[HTTP] Failed to launch DBeaver:', err);
-            res.status(500).json({
-              ok: false,
-              message: 'DBeaver not found. Please install it or open manually from Start Menu.',
-              details: { error: String(err) }
-            });
-            return;
-          }
+          res.status(500).json({ ok: false, message: launchMessage });
+          return;
         }
 
+        const launchPathStr = launchPath || '';
+        
         // If PostgreSQL config is provided, also configure the connection and download drivers
         if (postgresConfig) {
           console.log('[HTTP] Configuring DBeaver connection and downloading drivers...');
@@ -3792,20 +5969,20 @@ app.whenReady().then(async () => {
             // Import the configure-dbeaver logic (we'll inline it here)
             const os = await import('os');
             const https = await import('https');
-
-            const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-            const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
+            
+            const appDataPath = getDbeaverDataPath(os, pathMod);
+            const dbeaverDataPath = pathMod.join(appDataPath, 'DBeaverData');
 
             // Download PostgreSQL JDBC driver if not already present
-            const driversDir = path.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
-            const postgresDriverDir = path.join(driversDir, 'org.postgresql', 'postgresql');
+            const driversDir = pathMod.join(dbeaverDataPath, 'drivers', 'maven', 'maven-central');
+            const postgresDriverDir = pathMod.join(driversDir, 'org.postgresql', 'postgresql');
             const driverVersion = '42.7.3';
             const driverJarName = `postgresql-${driverVersion}.jar`;
-            const driverJarPath = path.join(postgresDriverDir, driverVersion, driverJarName);
+            const driverJarPath = pathMod.join(postgresDriverDir, driverVersion, driverJarName);
 
             // Ensure driver directory exists
-            if (!fs.existsSync(path.dirname(driverJarPath))) {
-              fs.mkdirSync(path.dirname(driverJarPath), { recursive: true });
+            if (!fs.existsSync(pathMod.dirname(driverJarPath))) {
+              fs.mkdirSync(pathMod.dirname(driverJarPath), { recursive: true });
             }
 
             // Download driver if it doesn't exist
@@ -3860,7 +6037,7 @@ app.whenReady().then(async () => {
             }
 
             // Configure driver in DBeaver's drivers.xml - this ensures the driver is available
-            const driversConfigPath = path.join(dbeaverDataPath, 'drivers.xml');
+            const driversConfigPath = pathMod.join(dbeaverDataPath, 'drivers.xml');
             try {
               // DBeaver will auto-download the driver if we just reference it correctly
               // We create a minimal drivers.xml that references the standard PostgreSQL driver
@@ -3882,8 +6059,8 @@ app.whenReady().then(async () => {
             try {
               const workspaceDirs = fs.readdirSync(dbeaverDataPath, { withFileTypes: true })
                 .filter(dirent => dirent.isDirectory() && dirent.name.startsWith('workspace'))
-                .map(dirent => path.join(dbeaverDataPath, dirent.name));
-
+                .map(dirent => pathMod.join(dbeaverDataPath, dirent.name));
+              
               if (workspaceDirs.length > 0) {
                 workspacePath = workspaceDirs.sort().reverse()[0];
               }
@@ -3892,9 +6069,9 @@ app.whenReady().then(async () => {
             }
 
             if (workspacePath) {
-              const dataSourcesPath = path.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
-              const dataSourcesDir = path.dirname(dataSourcesPath);
-
+              const dataSourcesPath = pathMod.join(workspacePath, 'General', '.dbeaver', 'data-sources.json');
+              const dataSourcesDir = pathMod.dirname(dataSourcesPath);
+              
               if (!fs.existsSync(dataSourcesDir)) {
                 fs.mkdirSync(dataSourcesDir, { recursive: true });
               }
@@ -3968,9 +6145,9 @@ app.whenReady().then(async () => {
 
               // Also create credentials file for automatic authentication
               try {
-                const credentialsPath = path.join(workspacePath, 'General', '.dbeaver', 'credentials-config.json');
-                const credentialsDir = path.dirname(credentialsPath);
-
+                const credentialsPath = pathMod.join(workspacePath, 'General', '.dbeaver', 'credentials-config.json');
+                const credentialsDir = pathMod.dirname(credentialsPath);
+                
                 if (!fs.existsSync(credentialsDir)) {
                   fs.mkdirSync(credentialsDir, { recursive: true });
                 }
@@ -4037,7 +6214,7 @@ app.whenReady().then(async () => {
         const https = await import('https');
 
         // Find DBeaver workspace directory
-        const appDataPath = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+        const appDataPath = getDbeaverDataPath(os, path);
         const dbeaverDataPath = path.join(appDataPath, 'DBeaverData');
 
         // Download PostgreSQL JDBC driver if not already present
@@ -4391,16 +6568,17 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/status')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-status' })
         const vaultService = await getVaultService()
         console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
-        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier })
-        // Attach the user's resolved tier so the UI can gate categories
-        // Include sessionToken when unlocked so the client can bind to the
-        // existing session (background caching picks this up automatically).
+        const { canAccessRecordType } = await import('./main/vault/types')
+        const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
+        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier, canUseHsContextProfiles })
+        // Attach tier and canUseHsContextProfiles for UI gating (HS Context = Publisher+ only).
+        // Include sessionToken when unlocked so the client can bind to the existing session.
         const sessionToken = status.isUnlocked ? vaultService.getSessionToken() : null
-        res.json({ success: true, data: { ...status, tier }, ...(sessionToken ? { sessionToken } : {}) })
+        res.json({ success: true, data: { ...status, tier, canUseHsContextProfiles }, ...(sessionToken ? { sessionToken } : {}) })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in status:', error)
         console.error('[HTTP-VAULT] Error stack:', error?.stack)
@@ -4441,8 +6619,16 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
         const vaultService = await getVaultService()
+        const { setupEmbeddingServiceRef } = await import('./main/vault/rpc')
         await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
+        const db = getLedgerDb() ?? vaultService.getHsProfileDb?.() ?? null
+        setupEmbeddingServiceRef(vaultService, db)
         res.json({ success: true, sessionToken: vaultService.getSessionToken() })
+        setImmediate(() => {
+          completePendingContextSyncs(db, getCurrentSession())
+          if (db) processOutboundQueue(db, getOidcToken).catch(() => {})
+          try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+        })
       } catch (error: any) {
         console.error('[HTTP-VAULT] Error in unlock:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
@@ -4453,6 +6639,8 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/lock', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/lock')
+        const { clearEmbeddingServiceRef } = await import('./main/vault/rpc')
+        clearEmbeddingServiceRef()
         const vaultService = await getVaultService()
         await vaultService.lock()
         res.json({ success: true })
@@ -4466,7 +6654,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/items', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { canAccessCategory: canAccess } = await getVaultCapHelpers()
 
@@ -4501,7 +6689,7 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/create')
         console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
 
         // ── Capability gate (before any encryption/storage) ──
         const { canAccessCategory: canAccess } = await getVaultCapHelpers()
@@ -4543,7 +6731,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/get')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         // Tier is passed to getItem() so the capability check runs BEFORE
         // any KEK unwrap / DEK decrypt (fail-closed).
@@ -4560,7 +6748,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/update', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/update')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
 
         // Read category WITHOUT decrypting — no KEK/DEK touched
@@ -4584,7 +6772,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/delete', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
 
         // Read category WITHOUT decrypting — no KEK/DEK touched
@@ -4612,7 +6800,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/meta/get', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/meta/get')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { id } = req.body
         if (!id) { res.status(400).json({ success: false, error: 'Missing item id' }); return }
@@ -4631,7 +6819,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/item/meta/set', async (req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/item/meta/set')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const { id, meta } = req.body
         if (!id || !meta) { res.status(400).json({ success: false, error: 'Missing id or meta' }); return }
@@ -4663,7 +6851,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.evaluateAttach(tier as any, itemId, target)
         res.json({ success: true, data: result })
       } catch (error: any) {
@@ -4680,7 +6868,7 @@ app.whenReady().then(async () => {
     httpApp.post('/api/vault/documents', async (_req, res) => {
       try {
         console.log('[HTTP-VAULT] POST /api/vault/documents')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const vaultService = await getVaultService()
         const docs = vaultService.listDocuments(tier as any)
         res.json({ success: true, data: docs })
@@ -4704,7 +6892,7 @@ app.whenReady().then(async () => {
 
         // Data arrives as base64-encoded string from the frontend
         const buffer = Buffer.from(data, 'base64')
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.importDocument(tier as any, filename, buffer, notes || '')
 
         console.log('[HTTP-VAULT] ✅ Document imported:', result.document.id, result.deduplicated ? '(deduplicated)' : '')
@@ -4728,7 +6916,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const result = await vaultService.getDocument(tier as any, id)
 
         // SECURITY: Content is always returned as base64.
@@ -4760,7 +6948,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         vaultService.deleteDocument(tier as any, id)
         res.json({ success: true })
       } catch (error: any) {
@@ -4782,7 +6970,7 @@ app.whenReady().then(async () => {
           return
         }
 
-        const tier = await resolveRequestTier()
+        const tier = await getEffectiveTier()
         const doc = vaultService.updateDocumentMeta(tier as any, id, updates || {})
         res.json({ success: true, data: doc })
       } catch (error: any) {
@@ -4843,6 +7031,26 @@ app.whenReady().then(async () => {
         console.error('[HTTP-VAULT] Error in update settings:', error)
         res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
       }
+    })
+
+    // ===== INGESTION HTTP API ENDPOINTS =====
+    registerIngestionRoutes(httpApp, () => {
+      try {
+        const ledgerDb = getLedgerDb()
+        if (ledgerDb) return ledgerDb
+        const vs = (globalThis as any).__og_vault_service_ref
+        return vs?.db ?? null
+      } catch { return null }
+    })
+
+    // ===== HANDSHAKE HTTP API ENDPOINTS =====
+    registerHandshakeRoutes(httpApp, () => {
+      try {
+        const ledgerDb = getLedgerDb()
+        if (ledgerDb) return ledgerDb
+        const vs = (globalThis as any).__og_vault_service_ref
+        return vs?.db ?? null
+      } catch { return null }
     })
 
     // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
@@ -5766,15 +7974,23 @@ app.whenReady().then(async () => {
     })
     // ===== EMAIL GATEWAY API Endpoints =====
     
-    // GET /api/email/credentials/gmail - Check if Gmail OAuth credentials are configured
+    // GET /api/email/credentials/gmail - Check Gmail credentials with honest source
     httpApp.get('/api/email/credentials/gmail', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
-        const fs = await import('fs')
-        const path = await import('path')
-        const configPath = path.join(app.getPath('userData'), 'email-oauth-config.json')
-        const exists = fs.existsSync(configPath)
-        res.json({ ok: true, data: { configured: exists } })
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('gmail')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Gmail credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -5790,24 +8006,33 @@ app.whenReady().then(async () => {
           res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
           return
         }
-        const { saveOAuthConfig } = await import('./main/email/providers/gmail')
-        saveOAuthConfig(clientId, clientSecret)
-        res.json({ ok: true })
+        const { saveCredentials } = await import('./main/email/credentials')
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
     
-    // GET /api/email/credentials/outlook - Check if Outlook OAuth credentials are configured
+    // GET /api/email/credentials/outlook - Check Outlook credentials with honest source
     httpApp.get('/api/email/credentials/outlook', async (_req, res) => {
       try {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/outlook')
-        const fs = await import('fs')
-        const path = await import('path')
-        const configPath = path.join(app.getPath('userData'), 'outlook-oauth-config.json')
-        const exists = fs.existsSync(configPath)
-        res.json({ ok: true, data: { configured: exists } })
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('outlook')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error checking Outlook credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -5818,14 +8043,15 @@ app.whenReady().then(async () => {
     httpApp.post('/api/email/credentials/outlook', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/credentials/outlook')
-        const { clientId, clientSecret } = req.body
+        const { clientId, clientSecret, tenantId } = req.body
         if (!clientId) {
           res.status(400).json({ ok: false, error: 'clientId is required' })
           return
         }
-        const { saveOutlookOAuthConfig } = await import('./main/email/providers/outlook')
-        saveOutlookOAuthConfig(clientId, clientSecret)
-        res.json({ ok: true })
+        const { saveCredentials } = await import('./main/email/credentials')
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId }, storeInVault)
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Outlook credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -5988,6 +8214,34 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // POST /api/email/accounts/connect/custom-mailbox — IMAP + SMTP (both required)
+    httpApp.post('/api/email/accounts/connect/custom-mailbox', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/custom-mailbox')
+        const b = req.body || {}
+        const { emailGateway } = await import('./main/email/gateway')
+        const account = await emailGateway.connectCustomImapSmtpAccount({
+          displayName: typeof b.displayName === 'string' ? b.displayName : undefined,
+          email: String(b.email || ''),
+          imapHost: String(b.imapHost || ''),
+          imapPort: Number(b.imapPort) || 993,
+          imapSecurity: b.imapSecurity === 'starttls' || b.imapSecurity === 'none' ? b.imapSecurity : 'ssl',
+          imapUsername: typeof b.imapUsername === 'string' ? b.imapUsername : undefined,
+          imapPassword: String(b.imapPassword || ''),
+          smtpHost: String(b.smtpHost || ''),
+          smtpPort: Number(b.smtpPort) || 587,
+          smtpSecurity: b.smtpSecurity === 'ssl' || b.smtpSecurity === 'none' ? b.smtpSecurity : 'starttls',
+          smtpUseSameCredentials: b.smtpUseSameCredentials !== false,
+          smtpUsername: typeof b.smtpUsername === 'string' ? b.smtpUsername : undefined,
+          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined
+        })
+        res.json({ ok: true, data: account })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting custom mailbox:', error)
+        res.status(400).json({ ok: false, error: error.message })
+      }
+    })
     
     // DELETE /api/email/accounts/:id - Delete email account
     httpApp.delete('/api/email/accounts/:id', async (req, res) => {
@@ -6013,6 +8267,73 @@ app.whenReady().then(async () => {
         res.json({ ok: true, data: result })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error testing connection:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+    
+    // POST /api/email/send - Send a new email (used by extension popup)
+    httpApp.post('/api/email/send', async (req, res) => {
+      try {
+        const { accountId, to, subject, bodyText, attachments } = req.body
+        if (!accountId || !to || !Array.isArray(to)) {
+          res.status(400).json({ ok: false, error: 'accountId and to (array) are required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] POST /api/email/send', accountId)
+        const { emailGateway } = await import('./main/email/gateway')
+        const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
+          to: Array.isArray(to) ? to : [String(to)],
+          subject: subject || '(No subject)',
+          bodyText: bodyText || ''
+        }
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+          payload.attachments = attachments.filter((a: any) => a?.filename && a?.contentBase64).map((a: any) => ({
+            filename: String(a.filename),
+            mimeType: a.mimeType || 'application/octet-stream',
+            contentBase64: String(a.contentBase64)
+          }))
+        }
+        const result = await emailGateway.sendEmail(accountId, payload)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error sending email:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/email/send-beap - Send BEAP package via email (default account row via pickDefaultEmailAccountRowId)
+    httpApp.post('/api/email/send-beap', async (req, res) => {
+      try {
+        const { to, subject, body, attachments } = req.body
+        if (!to || typeof to !== 'string') {
+          res.status(400).json({ ok: false, error: 'to (recipient email) is required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] POST /api/email/send-beap', to)
+        const { emailGateway } = await import('./main/email/gateway')
+        const { pickDefaultEmailAccountRowId } = await import('./main/email/domain/accountRowPicker')
+        const accounts = await emailGateway.listAccounts()
+        const accountId = pickDefaultEmailAccountRowId(accounts)
+        if (!accountId) {
+          res.status(400).json({ ok: false, error: 'No email account connected. Connect in Settings or use Download.' })
+          return
+        }
+        const payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] } = {
+          to: [String(to)],
+          subject: subject || 'BEAP™ Secure Message',
+          bodyText: body || ''
+        }
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+          payload.attachments = attachments.filter((a: any) => a?.name && a?.data != null).map((a: any) => ({
+            filename: String(a.name),
+            mimeType: a.mime || 'application/json',
+            contentBase64: Buffer.from(String(a.data), 'utf-8').toString('base64')
+          }))
+        }
+        const result = await emailGateway.sendEmail(accountId, payload)
+        res.json({ ok: true, data: result })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error sending BEAP email:', error)
         res.status(500).json({ ok: false, error: error.message })
       }
     })
@@ -6667,940 +8988,147 @@ app.whenReady().then(async () => {
       })
     }
 
-      // POST /api/vault/delete - Delete vault (must be unlocked)
-      httpApp.post('/api/vault/delete', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.deleteVault(req.body.vaultId)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in delete:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to delete vault' })
-        }
-      })
-
-      // POST /api/vault/unlock - Unlock vault
-      httpApp.post('/api/vault/unlock', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in unlock:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
-        }
-      })
-
-      // POST /api/vault/lock - Lock vault
-      httpApp.post('/api/vault/lock', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/lock')
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.lock()
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in lock:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to lock vault' })
-        }
-      })
-
-      // POST /api/vault/items - List items
-      httpApp.post('/api/vault/items', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-          const { vaultService } = await import('./main/vault/rpc')
-          const filters = {
-            container_id: req.body.containerId,
-            category: req.body.category
-          }
-          const items = await vaultService.listItems(filters)
-          console.log(`[HTTP-VAULT] Returning ${items.length} items`)
-          res.json({ success: true, data: items })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in items:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to list items' })
-        }
-      })
-
-      // POST /api/vault/item/create - Create item
-      httpApp.post('/api/vault/item/create', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/create')
-          console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.createItem(req.body)
-          console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
-
-          // Immediately verify the item can be retrieved
-          try {
-            const verifyItems = await vaultService.listItems({ category: item.category })
-            const found = verifyItems.find(i => i.id === item.id)
-            if (found) {
-              console.log('[HTTP-VAULT] ✅ Verified: Item can be retrieved immediately after creation')
-            } else {
-              console.error('[HTTP-VAULT] ⚠️ WARNING: Item created but NOT found in listItems query!')
-              console.error('[HTTP-VAULT] Created item ID:', item.id)
-              console.error('[HTTP-VAULT] Items returned:', verifyItems.map(i => ({ id: i.id, title: i.title })))
-            }
-          } catch (verifyError: any) {
-            console.error('[HTTP-VAULT] ⚠️ Verification query failed:', verifyError?.message)
-          }
-
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] ❌ Error in create item:', error)
-          console.error('[HTTP-VAULT] Error stack:', error?.stack)
-          res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
-        }
-      })
-
-      // POST /api/vault/item/get - Get item by ID
-      httpApp.post('/api/vault/item/get', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/get')
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.getItem(req.body.id)
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in get item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
-        }
-      })
-
-      // POST /api/vault/item/update - Update item
-      httpApp.post('/api/vault/item/update', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/update')
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.updateItem(req.body.id, req.body.updates)
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in update item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to update item' })
-        }
-      })
-
-      // POST /api/vault/item/delete - Delete item
-      httpApp.post('/api/vault/item/delete', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.deleteItem(req.body.id)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in delete item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to delete item' })
-        }
-      })
-
-      // POST /api/vault/containers - List containers
-      httpApp.post('/api/vault/containers', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/containers')
-          const { vaultService } = await import('./main/vault/rpc')
-          const containers = await vaultService.listContainers()
-          res.json({ success: true, data: containers })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in containers:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to list containers' })
-        }
-      })
-
-      // POST /api/vault/container/create - Create container
-      httpApp.post('/api/vault/container/create', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/container/create')
-          const { vaultService } = await import('./main/vault/rpc')
-          const { type, name, favorite } = req.body
-          const container = vaultService.createContainer(type, name, favorite || false)
-          res.json({ success: true, data: container })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in create container:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to create container' })
-        }
-      })
-
-      // POST /api/vault/settings - Get settings
-      httpApp.post('/api/vault/settings/get', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/settings/get')
-          const { vaultService } = await import('./main/vault/rpc')
-          const settings = await vaultService.getSettings()
-          res.json({ success: true, data: settings })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in get settings:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get settings' })
-        }
-      })
-
-      // POST /api/vault/settings/update - Update settings
-      httpApp.post('/api/vault/settings/update', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/settings/update')
-          const { vaultService } = await import('./main/vault/rpc')
-          const settings = await vaultService.updateSettings(req.body)
-          res.json({ success: true, data: settings })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in update settings:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
-        }
-      })
-
-      // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
-      // These endpoints provide encrypted storage for all orchestrator data
-
-      // POST /api/orchestrator/connect - Connect to orchestrator database (auto-creates if doesn't exist)
-      httpApp.post('/api/orchestrator/connect', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.connect()
-          const status = service.getStatus()
-          res.json({ success: true, data: status })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in connect:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to connect' })
-        }
-      })
-
-      // GET /api/orchestrator/status - Get connection status
-      httpApp.get('/api/orchestrator/status', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const status = service.getStatus()
-          res.json({ success: true, data: status })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in status:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get status' })
-        }
-      })
-
-      // GET /api/orchestrator/get - Get value by key
-      httpApp.get('/api/orchestrator/get', async (req, res) => {
-        try {
-          const key = req.query.key as string
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const value = await service.get(key)
-          res.json({ success: true, data: value })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in get:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get value' })
-        }
-      })
-
-      // POST /api/orchestrator/set - Set value by key
-      httpApp.post('/api/orchestrator/set', async (req, res) => {
-        try {
-          const { key, value } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.set(key, value)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in set:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to set value' })
-        }
-      })
-
-      // GET /api/orchestrator/get-all - Get all key-value pairs
-      httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const data = await service.getAll()
-          res.json({ success: true, data })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in get-all:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get all data' })
-        }
-      })
-
-      // POST /api/orchestrator/set-all - Set multiple key-value pairs
-      httpApp.post('/api/orchestrator/set-all', async (req, res) => {
-        try {
-          const { data } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.setAll(data)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in set-all:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to set all data' })
-        }
-      })
-
-      // POST /api/orchestrator/remove - Remove key(s)
-      httpApp.post('/api/orchestrator/remove', async (req, res) => {
-        try {
-          const { keys } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.remove(keys)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in remove:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to remove keys' })
-        }
-      })
-
-      // POST /api/orchestrator/migrate - Migrate data from Chrome storage
-      httpApp.post('/api/orchestrator/migrate', async (req, res) => {
-        try {
-          const { chromeData } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.migrateFromChromeStorage(chromeData)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in migrate:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to migrate data' })
-        }
-      })
-
-      // POST /api/orchestrator/export - Export data (future-ready for JSON/YAML/MD)
-      httpApp.post('/api/orchestrator/export', async (req, res) => {
-        try {
-          const options = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const exportData = await service.exportData(options)
-          res.json({ success: true, data: exportData })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in export:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to export data' })
-        }
-      })
-
-      // POST /api/orchestrator/import - Import data (future-ready for JSON/YAML/MD)
-      httpApp.post('/api/orchestrator/import', async (req, res) => {
-        try {
-          const { data } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.importData(data)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
-        }
-      })
-
-
-
-
-      // POST /api/vault/create - Create new vault
-      httpApp.post('/api/vault/create', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/create', { vaultName: req.body.vaultName })
-          const { vaultService } = await import('./main/vault/rpc')
-          const vaultId = await vaultService.createVault(req.body.password, req.body.vaultName || 'My Vault', req.body.vaultId)
-          res.json({ success: true, data: { vaultId } })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in create:', error)
-          console.error('[HTTP-VAULT] Error message:', error?.message)
-          console.error('[HTTP-VAULT] Error stack:', error?.stack)
-          res.status(500).json({ success: false, error: error?.message || error?.toString() || 'Failed to create vault' })
-        }
-      })
-
-      // POST /api/vault/delete - Delete vault (must be unlocked)
-      httpApp.post('/api/vault/delete', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/delete', { vaultId: req.body.vaultId })
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.deleteVault(req.body.vaultId)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in delete:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to delete vault' })
-        }
-      })
-
-      // POST /api/vault/unlock - Unlock vault
-      httpApp.post('/api/vault/unlock', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/unlock', { vaultId: req.body.vaultId })
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.unlock(req.body.password, req.body.vaultId || 'default')
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in unlock:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to unlock vault' })
-        }
-      })
-
-      // POST /api/vault/lock - Lock vault
-      httpApp.post('/api/vault/lock', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/lock')
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.lock()
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in lock:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to lock vault' })
-        }
-      })
-
-      // POST /api/vault/items - List items
-      httpApp.post('/api/vault/items', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/items', req.body)
-          const { vaultService } = await import('./main/vault/rpc')
-          const filters = {
-            container_id: req.body.containerId,
-            category: req.body.category
-          }
-          const items = await vaultService.listItems(filters)
-          console.log(`[HTTP-VAULT] Returning ${items.length} items`)
-          res.json({ success: true, data: items })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in items:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to list items' })
-        }
-      })
-
-      // POST /api/vault/item/create - Create item
-      httpApp.post('/api/vault/item/create', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/create')
-          console.log('[HTTP-VAULT] Request body:', JSON.stringify(req.body, null, 2))
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.createItem(req.body)
-          console.log('[HTTP-VAULT] ✅ Item created successfully:', item.id, 'category:', item.category)
-
-          // Immediately verify the item can be retrieved
-          try {
-            const verifyItems = await vaultService.listItems({ category: item.category })
-            const found = verifyItems.find(i => i.id === item.id)
-            if (found) {
-              console.log('[HTTP-VAULT] ✅ Verified: Item can be retrieved immediately after creation')
-            } else {
-              console.error('[HTTP-VAULT] ⚠️ WARNING: Item created but NOT found in listItems query!')
-              console.error('[HTTP-VAULT] Created item ID:', item.id)
-              console.error('[HTTP-VAULT] Items returned:', verifyItems.map(i => ({ id: i.id, title: i.title })))
-            }
-          } catch (verifyError: any) {
-            console.error('[HTTP-VAULT] ⚠️ Verification query failed:', verifyError?.message)
-          }
-
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] ❌ Error in create item:', error)
-          console.error('[HTTP-VAULT] Error stack:', error?.stack)
-          res.status(500).json({ success: false, error: error.message || 'Failed to create item' })
-        }
-      })
-
-      // POST /api/vault/item/get - Get item by ID
-      httpApp.post('/api/vault/item/get', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/get')
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.getItem(req.body.id)
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in get item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get item' })
-        }
-      })
-
-      // POST /api/vault/item/update - Update item
-      httpApp.post('/api/vault/item/update', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/update')
-          const { vaultService } = await import('./main/vault/rpc')
-          const item = await vaultService.updateItem(req.body.id, req.body.updates)
-          res.json({ success: true, data: item })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in update item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to update item' })
-        }
-      })
-
-      // POST /api/vault/item/delete - Delete item
-      httpApp.post('/api/vault/item/delete', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/item/delete')
-          const { vaultService } = await import('./main/vault/rpc')
-          await vaultService.deleteItem(req.body.id)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in delete item:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to delete item' })
-        }
-      })
-
-      // POST /api/vault/containers - List containers
-      httpApp.post('/api/vault/containers', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/containers')
-          const { vaultService } = await import('./main/vault/rpc')
-          const containers = await vaultService.listContainers()
-          res.json({ success: true, data: containers })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in containers:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to list containers' })
-        }
-      })
-
-      // POST /api/vault/container/create - Create container
-      httpApp.post('/api/vault/container/create', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/container/create')
-          const { vaultService } = await import('./main/vault/rpc')
-          const { type, name, favorite } = req.body
-          const container = vaultService.createContainer(type, name, favorite || false)
-          res.json({ success: true, data: container })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in create container:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to create container' })
-        }
-      })
-
-      // POST /api/vault/settings - Get settings
-      httpApp.post('/api/vault/settings/get', async (_req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/settings/get')
-          const { vaultService } = await import('./main/vault/rpc')
-          const settings = await vaultService.getSettings()
-          res.json({ success: true, data: settings })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in get settings:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get settings' })
-        }
-      })
-
-      // POST /api/vault/settings/update - Update settings
-      httpApp.post('/api/vault/settings/update', async (req, res) => {
-        try {
-          console.log('[HTTP-VAULT] POST /api/vault/settings/update')
-          const { vaultService } = await import('./main/vault/rpc')
-          const settings = await vaultService.updateSettings(req.body)
-          res.json({ success: true, data: settings })
-        } catch (error: any) {
-          console.error('[HTTP-VAULT] Error in update settings:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to update settings' })
-        }
-      })
-
-      // ===== ORCHESTRATOR HTTP API ENDPOINTS (Encrypted SQLite Backend) =====
-      // These endpoints provide encrypted storage for all orchestrator data
-
-      // POST /api/orchestrator/connect - Connect to orchestrator database (auto-creates if doesn't exist)
-      httpApp.post('/api/orchestrator/connect', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/connect')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.connect()
-          const status = service.getStatus()
-          res.json({ success: true, data: status })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in connect:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to connect' })
-        }
-      })
-
-      // GET /api/orchestrator/status - Get connection status
-      httpApp.get('/api/orchestrator/status', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/status')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const status = service.getStatus()
-          res.json({ success: true, data: status })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in status:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get status' })
-        }
-      })
-
-      // GET /api/orchestrator/get - Get value by key
-      httpApp.get('/api/orchestrator/get', async (req, res) => {
-        try {
-          const key = req.query.key as string
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get', { key })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const value = await service.get(key)
-          res.json({ success: true, data: value })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in get:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get value' })
-        }
-      })
-
-      // POST /api/orchestrator/set - Set value by key
-      httpApp.post('/api/orchestrator/set', async (req, res) => {
-        try {
-          const { key, value } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set', { key })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.set(key, value)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in set:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to set value' })
-        }
-      })
-
-      // GET /api/orchestrator/get-all - Get all key-value pairs
-      httpApp.get('/api/orchestrator/get-all', async (_req, res) => {
-        try {
-          console.log('[HTTP-ORCHESTRATOR] GET /api/orchestrator/get-all')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const data = await service.getAll()
-          res.json({ success: true, data })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in get-all:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to get all data' })
-        }
-      })
-
-      // POST /api/orchestrator/set-all - Set multiple key-value pairs
-      httpApp.post('/api/orchestrator/set-all', async (req, res) => {
-        try {
-          const { data } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/set-all', { keyCount: Object.keys(data || {}).length })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.setAll(data)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in set-all:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to set all data' })
-        }
-      })
-
-      // POST /api/orchestrator/remove - Remove key(s)
-      httpApp.post('/api/orchestrator/remove', async (req, res) => {
-        try {
-          const { keys } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/remove', { keys })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.remove(keys)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in remove:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to remove keys' })
-        }
-      })
-
-      // POST /api/orchestrator/migrate - Migrate data from Chrome storage
-      httpApp.post('/api/orchestrator/migrate', async (req, res) => {
-        try {
-          const { chromeData } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/migrate', { keyCount: Object.keys(chromeData || {}).length })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.migrateFromChromeStorage(chromeData)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in migrate:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to migrate data' })
-        }
-      })
-
-      // POST /api/orchestrator/export - Export data (future-ready for JSON/YAML/MD)
-      httpApp.post('/api/orchestrator/export', async (req, res) => {
-        try {
-          const options = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/export', { format: options.format })
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          const exportData = await service.exportData(options)
-          res.json({ success: true, data: exportData })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in export:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to export data' })
-        }
-      })
-
-      // POST /api/orchestrator/import - Import data (future-ready for JSON/YAML/MD)
-      httpApp.post('/api/orchestrator/import', async (req, res) => {
-        try {
-          const { data } = req.body
-          console.log('[HTTP-ORCHESTRATOR] POST /api/orchestrator/import')
-          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
-          const service = getOrchestratorService()
-          await service.importData(data)
-          res.json({ success: true })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in import:', error)
-          res.status(500).json({ success: false, error: error.message || 'Failed to import data' })
-        }
-      })
-
-      // ==================== LLM API ENDPOINTS ====================
-
-      // GET /api/llm/hardware - Get hardware information
-      httpApp.get('/api/llm/hardware', async (_req, res) => {
-        try {
-          const { hardwareService } = await import('./main/llm/hardware')
-          const hardware = await hardwareService.detect()
-          res.json({ ok: true, data: hardware })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error in hardware detection:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // GET /api/llm/status - Get Ollama status
-      httpApp.get('/api/llm/status', async (_req, res) => {
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const status = await ollamaManager.getStatus()
-          res.json({ ok: true, data: status })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error in get status:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // POST /api/llm/start - Start Ollama server
-      httpApp.post('/api/llm/start', async (_req, res) => {
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          await ollamaManager.start()
-          res.json({ ok: true })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error starting Ollama:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // POST /api/llm/stop - Stop Ollama server
-      httpApp.post('/api/llm/stop', async (_req, res) => {
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          await ollamaManager.stop()
-          res.json({ ok: true })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error stopping Ollama:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // GET /api/llm/models - List installed models
-      httpApp.get('/api/llm/models', async (_req, res) => {
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const models = await ollamaManager.listModels()
-          res.json({ ok: true, data: models })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error listing models:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // GET /api/llm/catalog - Get model catalog
-      httpApp.get('/api/llm/catalog', async (_req, res) => {
-        try {
-          const { MODEL_CATALOG } = await import('./main/llm/config')
-          res.json({ ok: true, data: MODEL_CATALOG })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error getting catalog:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // POST /api/llm/models/install - Install a model
-      httpApp.post('/api/llm/models/install', async (req, res) => {
-        try {
-          const { modelId } = req.body
-          if (!modelId) {
-            res.status(400).json({ ok: false, error: 'modelId is required' })
-            return
-          }
-
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-
-          // Start async installation
-          ollamaManager.pullModel(modelId, (progress) => {
-            console.log('[HTTP-LLM] Install progress:', progress)
-            // Progress is now stored in ollamaManager.downloadProgress
-          }).catch((error) => {
-            console.error('[HTTP-LLM] Model installation failed:', error)
-          })
-
-          res.json({ ok: true, message: 'Installation started' })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error installing model:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // GET /api/llm/install-progress - Get current installation progress
-      httpApp.get('/api/llm/install-progress', async (_req, res) => {
-        try {
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const progress = ollamaManager.getDownloadProgress()
-          res.json({ ok: true, progress })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error getting install progress:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // DELETE /api/llm/models/:modelId - Delete a model
-      httpApp.delete('/api/llm/models/:modelId', async (req, res) => {
-        try {
-          const { modelId } = req.params
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          await ollamaManager.deleteModel(modelId)
-          res.json({ ok: true })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error deleting model:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // POST /api/llm/models/activate - Set active model
-      httpApp.post('/api/llm/models/activate', async (req, res) => {
-        try {
-          const { modelId } = req.body
-          if (!modelId) {
-            res.status(400).json({ ok: false, error: 'modelId is required' })
-            return
-          }
-
-          // TODO: Store in config
-          console.log('[HTTP-LLM] Set active model:', modelId)
-          res.json({ ok: true })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error setting active model:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // POST /api/llm/chat - Chat with model
-      httpApp.post('/api/llm/chat', async (req, res) => {
-        try {
-          const { modelId, messages } = req.body
-          if (!messages || !Array.isArray(messages)) {
-            res.status(400).json({ ok: false, error: 'messages array is required' })
-            return
-          }
-
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const activeModelId = modelId || 'mistral:7b-instruct-q4_0'
-          const response = await ollamaManager.chat(activeModelId, messages)
-          res.json({ ok: true, data: response })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error in chat:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      // GET /api/llm/performance/:modelId - Get performance estimate for model
-      httpApp.get('/api/llm/performance/:modelId', async (req, res) => {
-        try {
-          const { modelId } = req.params
-          const { hardwareService } = await import('./main/llm/hardware')
-          const { getModelConfig } = await import('./main/llm/config')
-
-          const hardware = await hardwareService.detect()
-          const modelConfig = getModelConfig(modelId)
-
-          if (!modelConfig) {
-            res.status(404).json({ ok: false, error: 'Model not found in catalog' })
-            return
-          }
-
-          const estimate = hardwareService.estimatePerformance(modelConfig, hardware)
-          res.json({ ok: true, data: estimate })
-        } catch (error: any) {
-          console.error('[HTTP-LLM] Error getting performance estimate:', error)
-          res.status(500).json({ ok: false, error: error.message })
-        }
-      })
-
-      const HTTP_PORT = 51248
-
-      // Simple function to start HTTP server with error handling
-      const startHttpServer = (port: number, attempt = 1): void => {
-        console.log(`[MAIN] Starting HTTP API server on port ${port} (attempt ${attempt})...`)
-
-        const server = httpApp.listen(port, '127.0.0.1', () => {
-          console.log(`[MAIN] ✅ HTTP API server listening on http://127.0.0.1:${port}`)
-          console.log(`[MAIN] HTTP server is now listening on port ${port}`)
-        })
-
-        server.on('error', (err: any) => {
-          if (err.code === 'EADDRINUSE') {
-            console.error(`[MAIN] Port ${port} is already in use`)
-
-            // Try to free the port on Windows
-            if (process.platform === 'win32' && attempt === 1) {
-              console.log(`[MAIN] Attempting to free port ${port}...`)
-              exec(`netstat -ano | findstr :${port}`, (_error: any, stdout: string) => {
-                if (stdout) {
-                  const lines = stdout.trim().split('\n')
-                  const pids = new Set<string>()
-                  lines.forEach(line => {
-                    const parts = line.trim().split(/\s+/)
-                    if (parts.length > 0) {
-                      const pid = parts[parts.length - 1]
-                      if (pid && pid !== '0') pids.add(pid)
-                    }
-                  })
-                  if (pids.size > 0) {
-                    console.log(`[MAIN] Found processes using port ${port}: ${Array.from(pids).join(', ')}`)
-                    pids.forEach(pid => {
-                      exec(`taskkill /F /PID ${pid}`, () => { })
-                    })
-                    // Wait and retry
-                    setTimeout(() => {
-                      console.log(`[MAIN] Retrying after cleanup...`)
-                      startHttpServer(port, attempt + 1)
-                    }, 2000)
-                    return
-                  }
-                }
-                // If cleanup didn't work, try alternative port
-                console.log(`[MAIN] Trying alternative port ${port + 1}...`)
-                startHttpServer(port + 1, 1)
-              })
-            } else {
-              // Try alternative port
-              if (attempt < 3) {
-                console.log(`[MAIN] Trying alternative port ${port + 1}...`)
-                startHttpServer(port + 1, attempt + 1)
-              } else {
-                console.error(`[MAIN] ❌ Failed to start HTTP server after ${attempt} attempts`)
-              }
-            }
-          } else {
-            console.error('[MAIN] HTTP server error:', err.message, err.stack)
-          }
-        })
-
+    // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
+    let p2pServerStarted = false
+    let coordinationWsClient: ReturnType<typeof createCoordinationWsClient> | null = null
+    const getHandshakeDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+
+    async function getOidcToken(): Promise<string | null> {
+      try {
+        const session = await ensureSession()
+        return session.accessToken ?? getAccessToken()
+      } catch {
+        return null
       }
     }
 
-      // Start the server
-      startHttpServer(HTTP_PORT)
-    } catch (err) {
-      console.error('[MAIN] Error in HTTP API setup:', err)
+    function tryP2PStartup(): void {
+      const handshakeDb = getHandshakeDb()
+      if (!handshakeDb) {
+        return // Ledger not ready yet — will retry in 10s
+      }
+      processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
+        console.warn('[P2P] processOutboundQueue error:', err?.message)
+      })
+
+      // Re-trigger context_sync for any ACCEPTED handshakes where we haven't sent yet
+      // (context_sync_pending=1, vault now unlocked). Also retry for stuck ACCEPTED
+      // handshakes where context_sync_pending=0 but last_seq_received=0 (we sent but
+      // counterparty may not have received — re-enqueue so their relay retries delivery).
+      const session = getCurrentSession()
+      if (session) {
+        completePendingContextSyncs(handshakeDb, session)
+        try {
+          const stuckRows = handshakeDb.prepare(
+            `SELECT handshake_id, last_capsule_hash_received, last_seq_received
+             FROM handshakes
+             WHERE state = 'ACCEPTED'
+               AND context_sync_pending = 0
+               AND last_seq_received = 0
+               AND created_at < datetime('now', '-5 seconds')`
+          ).all() as Array<{ handshake_id: string; last_capsule_hash_received: string; last_seq_received: number }>
+          for (const row of stuckRows) {
+            console.log('[P2P] Re-triggering context_sync for stuck ACCEPTED handshake:', row.handshake_id)
+            const result = tryEnqueueContextSync(handshakeDb, row.handshake_id, session, {
+              lastCapsuleHash: row.last_capsule_hash_received ?? '',
+              lastSeqReceived: 0,
+            })
+            if (result.success) {
+              processOutboundQueue(handshakeDb, getOidcToken).catch(() => {})
+            }
+          }
+        } catch (err: any) {
+          console.warn('[P2P] Stuck ACCEPTED re-trigger error:', err?.message)
+        }
+      }
+      const p2pConfig = getP2PConfig(handshakeDb)
+      setP2PHealthRelayMode(p2pConfig.relay_mode, p2pConfig.use_coordination)
+      // Only pull from relay when relay_mode=remote (coordination mode uses WebSocket push)
+      if (p2pConfig.relay_mode === 'remote') {
+        pullFromRelay(handshakeDb, () => getCurrentSession()).catch((err) => {
+          console.warn('[P2P] pullFromRelay error:', err?.message)
+        })
+      }
+      if (!p2pServerStarted) {
+        try {
+          migrateHandshakeTables(handshakeDb)
+          const config = getP2PConfig(handshakeDb)
+          if (config.enabled) {
+            const getDb = () => getHandshakeDb()
+            const getSsoSession = () => getCurrentSession()
+            const server = createP2PServer(
+              config,
+              getDb,
+              getSsoSession,
+              (localEndpoint) => {
+                try {
+                  upsertP2PConfig(handshakeDb, { local_p2p_endpoint: localEndpoint })
+                  console.log('[P2P] local_p2p_endpoint:', localEndpoint)
+                  // Self-test: connect to own endpoint
+                  fetch(localEndpoint, { method: 'POST', body: JSON.stringify({ handshake_id: 'self-test' }), headers: { 'Content-Type': 'application/json' } })
+                    .then(() => setP2PHealthSelfTest(true))
+                    .catch(() => setP2PHealthSelfTest(false))
+                } catch {}
+              },
+              () => { p2pServerStarted = false },
+            )
+            if (server) p2pServerStarted = true
+          }
+        } catch (err: any) {
+          console.warn('[P2P] Server startup skipped:', err?.message)
+        }
+      }
+      // Coordination WebSocket: connect when use_coordination (receives capsules from relay)
+      const coordConfig = getP2PConfig(handshakeDb)
+      if (coordConfig?.use_coordination && coordConfig?.coordination_enabled) {
+        if (!coordinationWsClient) {
+          console.log('[P2P] Starting coordination WebSocket client (relay:', coordConfig.coordination_ws_url, ')')
+          coordinationWsClient = createCoordinationWsClient(
+            coordConfig,
+            () => getHandshakeDb(), // Handshake DB (ledger or vault fallback) — receive works when either is ready
+            () => getCurrentSession(),
+            getOidcToken,
+            {
+              onHandshakeUpdated: () => {
+                try { win?.webContents.send('handshake-list-refresh') } catch { /* no window */ }
+              },
+            },
+          )
+          coordinationWsClient.connect().catch((err) => {
+            console.warn('[Coordination] WS connect error:', err?.message)
+          })
+        }
+      } else if (coordinationWsClient) {
+        coordinationWsClient.disconnect()
+        coordinationWsClient = null
+      }
     }
+
+    onLedgerReady = tryP2PStartup
+    tryP2PStartup()
+    setInterval(tryP2PStartup, 10_000)
+
+    // Refresh P2P health queue counts every 60s
+    setInterval(() => {
+      const db = getHandshakeDb()
+      if (!db) return
+      try {
+        const rows = db.prepare('SELECT status, COUNT(*) as cnt FROM outbound_capsule_queue GROUP BY status').all() as Array<{ status: string; cnt: number }>
+        let pending = 0, failed = 0
+        for (const r of rows) {
+          if (r.status === 'pending') pending = r.cnt
+          else if (r.status === 'failed') failed = r.cnt
+        }
+        setP2PHealthQueueCounts(pending, failed)
+      } catch {}
+    }, 60_000)
+
+    // Error handling is done via try-catch and httpApp.listen callback
+  } catch (err) {
+    console.error('[MAIN] Error in HTTP API setup:', err)
+    console.error('[MAIN] Error details:', err instanceof Error ? err.message : String(err))
+    console.error('[MAIN] Error stack:', err instanceof Error ? err.stack : 'No stack trace')
+  }
   } catch (err) {
     console.error('[MAIN] Error in app.whenReady:', err)
   }

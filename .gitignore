@@ -1,5 +1,4 @@
-﻿<<<<<<< HEAD
-﻿*.exe
+*.exe
 *.dll
 *.pak
 *.asar
@@ -8,14 +7,10 @@ dist/
 release/
 win-unpacked/
 node_modules/
-=======
-﻿# Node / pnpm
-node_modules/
 .pnpm-debug.log
 pnpm-debug.log*
 
 # Vite / Build Artefakte
-dist/
 .vite/
 *.local
 
@@ -38,4 +33,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
->>>>>>> fix/agents-lightbox
+
+# Ingestion-core compiled output
+code/packages/ingestion-core/src/*.d.ts
+code/packages/ingestion-core/src/*.js

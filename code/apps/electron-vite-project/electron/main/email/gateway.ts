@@ -28,7 +28,9 @@ import {
   MessageSearchOptions,
   SendEmailPayload,
   SendResult,
-  SyncStatus
+  SyncStatus,
+  CustomImapSmtpConnectPayload,
+  type ImapLifecycleValidationResult
 } from './types'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
@@ -45,8 +47,81 @@ import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extract
 import { 
   encryptOAuthTokens, 
   decryptOAuthTokens, 
-  isSecureStorageAvailable 
+  isSecureStorageAvailable,
+  encryptValue,
+  decryptValue
 } from './secure-storage'
+import { getProviderAccountCapabilities } from './domain/capabilitiesRegistry'
+import { getFoldersForAccountOperation, resolveMailboxesForAccount } from './domain/mailboxResolution'
+import type {
+  OrchestratorRemoteOperation,
+  OrchestratorRemoteApplyResult,
+  OrchestratorRemoteApplyContext,
+} from './domain/orchestratorRemoteTypes'
+import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
+import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
+
+function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConfig {
+  if (account.provider !== 'imap') return account
+  let next: EmailAccountConfig = { ...account }
+  if (next.imap && next.imap._encrypted === true) {
+    try {
+      next = {
+        ...next,
+        imap: {
+          ...next.imap,
+          password: decryptValue(next.imap.password)
+        }
+      }
+    } catch (err) {
+      console.error('[EmailGateway] Failed to decrypt IMAP password for account:', account.id, err)
+      return {
+        ...next,
+        status: 'error',
+        lastError: 'Failed to decrypt stored IMAP credentials. Please remove the account and connect again.',
+        imap: next.imap ? { ...next.imap, password: '' } : undefined
+      }
+    }
+  }
+  if (next.smtp && next.smtp._encrypted === true) {
+    try {
+      next = {
+        ...next,
+        smtp: {
+          ...next.smtp,
+          password: decryptValue(next.smtp.password)
+        }
+      }
+    } catch (err) {
+      console.error('[EmailGateway] Failed to decrypt SMTP password for account:', account.id, err)
+      return {
+        ...next,
+        status: 'error',
+        lastError: 'Failed to decrypt stored SMTP credentials. Please remove the account and connect again.',
+        smtp: next.smtp ? { ...next.smtp, password: '' } : undefined
+      }
+    }
+  }
+  return next
+}
+
+function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAccountConfig {
+  if (account.provider !== 'imap' || !account.imap) return account
+  const encAvail = isSecureStorageAvailable()
+  const imap = {
+    ...account.imap,
+    password: encryptValue(account.imap.password),
+    _encrypted: encAvail
+  }
+  const smtp = account.smtp
+    ? {
+        ...account.smtp,
+        password: encryptValue(account.smtp.password),
+        _encrypted: encAvail
+      }
+    : undefined
+  return { ...account, imap, smtp }
+}
 
 /**
  * Storage file for email accounts
@@ -72,19 +147,16 @@ function loadAccounts(): EmailAccountConfig[] {
       const accounts = data.accounts || []
       console.log('[EmailGateway] Loaded', accounts.length, 'accounts from disk')
       
-      // Decrypt OAuth tokens for each account
+      // Decrypt OAuth tokens and IMAP/SMTP passwords for each account
       return accounts.map((account: EmailAccountConfig) => {
+        let next: EmailAccountConfig = account
         if (account.oauth) {
           try {
             const decrypted = decryptOAuthTokens(account.oauth as any)
-            return {
-              ...account,
-              oauth: decrypted
-            }
+            next = { ...next, oauth: decrypted }
           } catch (err) {
             console.error('[EmailGateway] Failed to decrypt tokens for account:', account.id, err)
-            // Return account without oauth if decryption fails
-            return {
+            next = {
               ...account,
               oauth: undefined,
               status: 'error' as const,
@@ -92,7 +164,7 @@ function loadAccounts(): EmailAccountConfig[] {
             }
           }
         }
-        return account
+        return decryptImapSmtpPasswords(next)
       })
     } else {
       console.log('[EmailGateway] No accounts file found, starting fresh')
@@ -118,15 +190,16 @@ function saveAccounts(accounts: EmailAccountConfig[]): void {
       fs.mkdirSync(dir, { recursive: true })
     }
     
-    // Encrypt OAuth tokens before saving
+    // Encrypt OAuth tokens and IMAP/SMTP passwords before saving
     const encryptedAccounts = accounts.map(account => {
+      let next = account
       if (account.oauth) {
-        return {
+        next = {
           ...account,
           oauth: encryptOAuthTokens(account.oauth)
         }
       }
-      return account
+      return encryptImapSmtpPasswordsForDisk(next)
     })
     
     fs.writeFileSync(accountsPath, JSON.stringify({ accounts: encryptedAccounts }, null, 2), 'utf-8')
@@ -159,6 +232,19 @@ class EmailGateway implements IEmailGateway {
   async getAccount(id: string): Promise<EmailAccountInfo | null> {
     const account = this.accounts.find(a => a.id === id)
     return account ? this.toAccountInfo(account) : null
+  }
+
+  /**
+   * Synchronous provider lookup for use in DB paths (enqueue, deletion queue).
+   * Throws if the account no longer exists — callers must catch and skip / abort;
+   * never default to `imap` (would mis-route Graph/Gmail API calls).
+   */
+  getProviderSync(id: string): string {
+    const account = this.accounts.find(a => a.id === id)
+    if (!account) {
+      throw new Error(`Account not found: ${id}`)
+    }
+    return account.provider
   }
   
   async addAccount(config: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<EmailAccountInfo> {
@@ -263,8 +349,9 @@ class EmailGateway implements IEmailGateway {
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
     const provider = await this.getConnectedProvider(account)
-    
-    const folder = options?.folder || account.folders.inbox
+
+    const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
+    const folder = options?.folder ?? effectiveFolders.inbox
     const rawMessages = await provider.fetchMessages(folder, options)
     
     return rawMessages.map(raw => this.sanitizeMessage(raw, accountId))
@@ -297,6 +384,48 @@ class EmailGateway implements IEmailGateway {
     const provider = await this.getConnectedProvider(account)
     await provider.setFlagged(messageId, flagged)
   }
+
+  async deleteMessage(
+    accountId: string,
+    messageId: string,
+    context?: OrchestratorRemoteApplyContext,
+  ): Promise<void> {
+    const account = this.findAccount(accountId)
+    const provider = await this.getConnectedProvider(account)
+    if (typeof provider.deleteMessage === 'function') {
+      await provider.deleteMessage(messageId, context)
+    } else {
+      throw new Error(`Provider ${account.provider} does not support message deletion`)
+    }
+  }
+
+  /**
+   * Mirror orchestrator lifecycle on the origin mailbox (best-effort).
+   * Delegates to `provider.applyOrchestratorRemoteOperation` when implemented.
+   */
+  async applyOrchestratorRemoteOperation(
+    accountId: string,
+    emailMessageId: string,
+    operation: OrchestratorRemoteOperation,
+    context?: OrchestratorRemoteApplyContext,
+  ): Promise<OrchestratorRemoteApplyResult> {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      return {
+        ok: false,
+        error: 'Account not found (disconnected or removed). Clear queue row or reconnect.',
+      }
+    }
+    const provider = await this.getConnectedProvider(account)
+    const fn = provider.applyOrchestratorRemoteOperation
+    if (typeof fn !== 'function') {
+      return {
+        ok: false,
+        error: `Provider ${account.provider} does not implement remote orchestrator mutations`,
+      }
+    }
+    return fn.call(provider, emailMessageId, operation, context)
+  }
   
   // =================================================================
   // Attachment Operations
@@ -319,6 +448,16 @@ class EmailGateway implements IEmailGateway {
     }))
   }
   
+  async fetchAttachmentBuffer(
+    accountId: string,
+    messageId: string,
+    attachmentId: string,
+  ): Promise<Buffer | null> {
+    const account = this.findAccount(accountId)
+    const provider = await this.getConnectedProvider(account)
+    return provider.fetchAttachment(messageId, attachmentId)
+  }
+
   async extractAttachmentText(
     accountId: string, 
     messageId: string, 
@@ -356,8 +495,12 @@ class EmailGateway implements IEmailGateway {
       }
     }
     
-    // For plain text files
-    if (attachment.mimeType.startsWith('text/')) {
+    // For plain text and JSON-based files (incl. .beap capsules)
+    if (
+      attachment.mimeType.startsWith('text/') ||
+      attachment.mimeType === 'application/json' ||
+      attachment.mimeType === 'application/vnd.beap+json'
+    ) {
       return {
         attachmentId,
         text: buffer.toString('utf-8')
@@ -550,7 +693,8 @@ class EmailGateway implements IEmailGateway {
   }
   
   /**
-   * Connect IMAP account with credentials
+   * Connect IMAP (and optional SMTP) — legacy / API path. Prefer {@link connectCustomImapSmtpAccount}
+   * for the full inbox+send setup (required IMAP + SMTP with separate security).
    */
   async connectImapAccount(config: {
     displayName: string
@@ -562,6 +706,10 @@ class EmailGateway implements IEmailGateway {
     security: 'ssl' | 'starttls' | 'none'
     smtpHost?: string
     smtpPort?: number
+    /** When SMTP is set, defaults to `security` if omitted. */
+    smtpSecurity?: 'ssl' | 'starttls' | 'none'
+    smtpUsername?: string
+    smtpPassword?: string
   }): Promise<EmailAccountInfo> {
     // Create account config for IMAP
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -579,9 +727,9 @@ class EmailGateway implements IEmailGateway {
       smtp: config.smtpHost ? {
         host: config.smtpHost,
         port: config.smtpPort || 587,
-        security: config.security,
-        username: config.username,
-        password: config.password
+        security: config.smtpSecurity ?? config.security,
+        username: config.smtpUsername ?? config.username,
+        password: config.smtpPassword ?? config.password
       } : undefined,
       folders: {
         monitored: ['INBOX'],
@@ -608,6 +756,124 @@ class EmailGateway implements IEmailGateway {
     }
     
     return addedAccount
+  }
+
+  /**
+   * Custom provider: inbound IMAP + outbound SMTP (both required). Runs separate connection tests
+   * before persisting; passwords are sealed via the same disk encryption path as other accounts.
+   */
+  async connectCustomImapSmtpAccount(payload: CustomImapSmtpConnectPayload): Promise<EmailAccountInfo> {
+    validateCustomImapSmtpPayload(payload)
+    const email = payload.email.trim()
+    const imapUser = (payload.imapUsername?.trim() || email).trim()
+    const imapPass = payload.imapPassword.trim()
+    const smtpUser = payload.smtpUseSameCredentials
+      ? imapUser
+      : (payload.smtpUsername?.trim() || '')
+    const smtpPass = payload.smtpUseSameCredentials
+      ? imapPass
+      : (payload.smtpPassword?.trim() || '')
+    if (!smtpUser) {
+      throw new Error('SMTP username is missing.')
+    }
+    if (!smtpPass) {
+      throw new Error('SMTP password is missing.')
+    }
+
+    const now = Date.now()
+    const orchRemote = orchestratorRemoteFromImapLifecycleFields(payload)
+    const draft: EmailAccountConfig = {
+      id: '__custom_connect_probe__',
+      displayName: (payload.displayName?.trim() || email),
+      email,
+      provider: 'imap',
+      authType: 'password',
+      imap: {
+        host: payload.imapHost.trim(),
+        port: payload.imapPort,
+        security: payload.imapSecurity,
+        username: imapUser,
+        password: imapPass
+      },
+      smtp: {
+        host: payload.smtpHost.trim(),
+        port: payload.smtpPort,
+        security: payload.smtpSecurity,
+        username: smtpUser,
+        password: smtpPass
+      },
+      folders: {
+        monitored: ['INBOX'],
+        inbox: 'INBOX',
+        sent: 'Sent'
+      },
+      sync: {
+        maxAgeDays: 30,
+        analyzePdfs: true,
+        batchSize: 50
+      },
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+      ...(orchRemote ? { orchestratorRemote: orchRemote } : {})
+    }
+
+    const imapProbe = new ImapProvider()
+    const imapTest = await imapProbe.testConnection(draft)
+    if (!imapTest.success) {
+      throw new Error(
+        `IMAP check failed: ${imapTest.error || 'Could not connect or log in.'} Check IMAP host, port, security (SSL/TLS on 993 vs STARTTLS on 143), username, and password or app password.`
+      )
+    }
+
+    const smtpTest = await ImapProvider.testSmtpConnection(draft)
+    if (!smtpTest.success) {
+      throw new Error(
+        `SMTP check failed: ${smtpTest.error || 'Could not connect or authenticate.'} IMAP succeeded. Verify SMTP host, port (often 587 + STARTTLS or 465 + SSL), security mode, and credentials.`
+      )
+    }
+
+    const account: EmailAccountConfig = {
+      ...draft,
+      id: generateId(),
+      createdAt: now,
+      updatedAt: now
+    }
+    this.accounts.push(account)
+    saveAccounts(this.accounts)
+    console.log('[EmailGateway] Custom IMAP+SMTP account saved:', account.id, account.email)
+    return this.toAccountInfo(account)
+  }
+
+  /**
+   * LIST lifecycle-related mailboxes and try CREATE when missing (IMAP only).
+   */
+  async validateImapLifecycleRemote(
+    accountId: string,
+  ): Promise<
+    { ok: true; result: ImapLifecycleValidationResult } | { ok: false; error: string }
+  > {
+    const account = this.accounts.find((a) => a.id === accountId)
+    if (!account) {
+      return { ok: false, error: 'Account not found' }
+    }
+    if (account.provider !== 'imap') {
+      return { ok: false, error: 'Only IMAP accounts support lifecycle mailbox validation.' }
+    }
+    const p = new ImapProvider()
+    try {
+      await p.connect(account)
+      const result = await p.validateLifecycleRemoteBoxes()
+      return { ok: true, result }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    } finally {
+      try {
+        await p.disconnect()
+      } catch {
+        /* ignore */
+      }
+    }
   }
   
   // =================================================================
@@ -669,6 +935,7 @@ class EmailGateway implements IEmailGateway {
   }
   
   private toAccountInfo(account: EmailAccountConfig): EmailAccountInfo {
+    const defaultFolders = getFoldersForAccountOperation(account, undefined)
     return {
       id: account.id,
       displayName: account.displayName,
@@ -678,9 +945,20 @@ class EmailGateway implements IEmailGateway {
       lastError: account.lastError,
       lastSyncAt: account.lastSyncAt,
       folders: {
-        monitored: account.folders.monitored,
-        inbox: account.folders.inbox
-      }
+        monitored: defaultFolders.monitored,
+        inbox: defaultFolders.inbox,
+      },
+      capabilities: getProviderAccountCapabilities(account),
+      mailboxes: resolveMailboxesForAccount(account).map((s) => ({
+        mailboxId: s.mailboxId,
+        label: s.label,
+        isDefault: s.isDefault,
+        providerMailboxResourceRef: s.providerMailboxResourceRef,
+      })),
+      sync: {
+        maxAgeDays: account.sync?.maxAgeDays ?? 90,
+        batchSize: account.sync?.batchSize ?? 50,
+      },
     }
   }
   

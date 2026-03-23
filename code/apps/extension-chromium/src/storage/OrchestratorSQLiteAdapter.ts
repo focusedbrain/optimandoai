@@ -3,7 +3,7 @@
  * Proxies all storage operations to Electron's encrypted SQLite backend via HTTP API
  */
 
-import type { StorageAdapter } from '@shared/core/storage/StorageAdapter'
+import type { StorageAdapter } from '@shared/storage/StorageAdapter'
 
 const HTTP_API_BASE = 'http://127.0.0.1:51248/api/orchestrator'
 

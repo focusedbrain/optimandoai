@@ -1119,9 +1119,9 @@ function getOverlayHtml(): string {
       let attachmentsHtml = '';
       if (email.attachments && email.attachments.length > 0) {
         const items = email.attachments.map(att => 
-          '<div class="attachment-item"><span>📎</span><span>' + escapeHtml(att.name) + '</span></div>'
+          '<div class="attachment-item"><span>📁</span><span>' + escapeHtml(att.name) + '</span></div>'
         ).join('');
-        attachmentsHtml = '<div class="attachments"><div class="attachments-title"><span>📎</span>Attachments</div><div class="attachment-list">' + items + '</div></div>';
+        attachmentsHtml = '<div class="attachments"><div class="attachments-title"><span>📁</span>Attachments</div><div class="attachment-list">' + items + '</div></div>';
       }
       
       // Info box - shows different content based on whether this is preview or full email

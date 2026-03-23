@@ -118,8 +118,7 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
     emailTo,
     subject,
     messageBody,
-    attachments
-  }), [recipientMode, deliveryMethod, selectedRecipient, senderFingerprint, senderFingerprintShort, emailTo, subject, messageBody, attachments])
+  }), [recipientMode, deliveryMethod, selectedRecipient, senderFingerprint, senderFingerprintShort, emailTo, subject, messageBody])
   
   // Validation
   const validation = useMemo((): BeapDraftValidation => {
@@ -218,30 +217,21 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
         // Add to outbox
         addOutboxMessage({
           id: `beap_${Date.now()}`,
-          folder: 'Outbox',
-          sender: 'You',
-          senderFingerprint,
-          recipient: recipientMode === 'private' 
-            ? (selectedRecipient?.receiver_display_name || 'Unknown')
-            : 'PUBLIC',
-          recipientFingerprint: recipientMode === 'private'
-            ? selectedRecipient?.receiver_fingerprint_short
-            : undefined,
-          subject: subject || 'BEAP™ Message',
-          preview: messageBody.slice(0, 100),
-          date: new Date().toISOString(),
-          status: deliveryMethod === 'email' ? 'sending' : 'delivered',
-          deliveryStatus: {
-            state: deliveryMethod === 'email' ? 'sending' : 'delivered',
-            method: deliveryMethod,
-            timestamp: Date.now()
-          },
+          folder: 'outbox',
+          fingerprint: senderFingerprint,
+          senderName: 'You',
+          deliveryMethod,
+          title: subject || 'BEAP™ Message',
+          bodyText: messageBody.slice(0, 100),
+          timestamp: Date.now(),
+          status: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+          deliveryStatus: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+          direction: 'outbound',
           attachments: attachments.map(f => ({
             name: f.name,
             size: f.size,
             type: f.type
           })),
-          encodingType: recipientMode === 'private' ? 'qBEAP' : 'pBEAP'
         })
         
         // Clear draft on success

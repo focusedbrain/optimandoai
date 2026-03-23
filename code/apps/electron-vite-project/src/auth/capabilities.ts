@@ -19,12 +19,34 @@
  * - 'publisher_lifetime': Publisher lifetime license
  * - 'enterprise': Full enterprise tier
  */
-export type Tier = 'free' | 'private' | 'private_lifetime' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise';
+export type Tier = 'free' | 'private' | 'private_lifetime' | 'pro' | 'publisher' | 'publisher_lifetime' | 'enterprise' | 'unknown';
 
 /**
  * Default tier for new logins (fail-closed)
  */
 export const DEFAULT_TIER: Tier = 'free';
+
+/**
+ * Tier used when session is missing or tier cannot be derived.
+ * Never use 'free' as an error fallback — use 'unknown' instead.
+ */
+export const UNKNOWN_TIER: Tier = 'unknown';
+
+/**
+ * Numeric tier hierarchy for "higher tier wins" resolution.
+ * Used when both plan and roles provide a tier — prevents downgrades from stale plan.
+ * 'unknown' has level -1 (most restrictive — no premium access).
+ */
+export const TIER_LEVEL: Record<Tier, number> = {
+  unknown: -1,
+  free: 0,
+  private: 1,
+  private_lifetime: 2,
+  pro: 3,
+  publisher: 4,
+  publisher_lifetime: 5,
+  enterprise: 6,
+} as const;
 
 /**
  * Valid tier values that can come from the wrdesk_plan claim
@@ -41,67 +63,102 @@ export function hasRolesInToken(roles: string[] | undefined | null): boolean {
 }
 
 /**
+ * Extract SSO-derived tier from Keycloak roles.
+ * Used as an additional fallback when plan claim is missing.
+ *
+ * Maps only: enterprise → enterprise, publisher → publisher, pro → pro.
+ * Returns undefined for other roles (e.g. publisher_lifetime, private).
+ *
+ * @param roles - Combined realm + client roles from token
+ * @returns Tier if a tier role is present, otherwise undefined
+ */
+export function extractSsoTierFromRoles(roles: string[]): Tier | undefined {
+  if (!Array.isArray(roles) || roles.length === 0) return undefined;
+  const normalized = roles.map(r => r.toLowerCase());
+  if (normalized.includes('enterprise')) return 'enterprise';
+  if (normalized.includes('publisher')) return 'publisher';
+  if (normalized.includes('pro')) return 'pro';
+  return undefined;
+}
+
+/**
+ * Resolve tier from plan claim only (no roles).
+ * Returns undefined if plan is missing or unrecognized.
+ */
+function tierFromPlanClaim(wrdesk_plan?: string): Tier | undefined {
+  if (!wrdesk_plan?.trim()) return undefined;
+  const normalized = wrdesk_plan.toLowerCase().trim();
+
+  const WC_PLAN_ALIASES: Record<string, Tier> = {
+    'private': 'pro',
+    'private_lifetime': 'pro',
+  };
+  if (WC_PLAN_ALIASES[normalized]) return WC_PLAN_ALIASES[normalized];
+  if (VALID_PLAN_TIERS.includes(normalized)) return normalized as Tier;
+
+  const FUZZY_MAP: Array<{ pattern: RegExp; tier: Tier }> = [
+    { pattern: /enterprise/i, tier: 'enterprise' },
+    { pattern: /publisher.*life/i, tier: 'publisher_lifetime' },
+    { pattern: /publisher/i, tier: 'publisher' },
+    { pattern: /\bpro\b/i, tier: 'pro' },
+    { pattern: /private.*life/i, tier: 'pro' },
+    { pattern: /\bprivate\b/i, tier: 'pro' },
+  ];
+  for (const { pattern, tier } of FUZZY_MAP) {
+    if (pattern.test(normalized)) return tier;
+  }
+  return undefined;
+}
+
+/**
  * Determine tier from wrdesk_plan claim and/or Keycloak roles.
- * 
+ *
+ * When both plan and roles provide a tier, returns the higher tier (prevents
+ * downgrades from stale plan claims). Otherwise uses plan or roles fallback.
+ *
  * Priority:
- * 1. wrdesk_plan claim (custom Keycloak User Attribute) - if present and valid
- * 2. Keycloak roles (fallback for backwards compatibility)
- * 3. DEFAULT_TIER ('free') if neither provides a valid tier
- * 
+ * 1. tierFromPlan = plan claim logic
+ * 2. tierFromRoles = ssoTier ?? mapRolesToTier(roles)
+ * 3. Return max(tierFromPlan, tierFromRoles) by TIER_LEVEL
+ * 4. DEFAULT_TIER ('free') if neither provides a valid tier
+ *
  * SECURITY: Never invents tiers client-side. Fail-closed to 'free'.
- * 
- * @param wrdesk_plan - Value of the wrdesk_plan JWT claim (from Keycloak User Attribute)
- * @param keycloakRoles - Combined realm + client roles from token (fallback)
+ *
+ * @param wrdesk_plan - Value of the wrdesk_plan JWT claim
+ * @param keycloakRoles - Combined realm + client roles from token
+ * @param ssoTier - Optional SSO-derived tier from roles
  * @returns Resolved tier
  */
-export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: string[]): Tier {
-  // PRIMARY: Use wrdesk_plan claim if present and valid
-  if (wrdesk_plan) {
-    const normalized = wrdesk_plan.toLowerCase().trim();
+export function resolveTier(
+  wrdesk_plan?: string,
+  keycloakRoles: string[] = [],
+  ssoTier?: Tier,
+): Tier {
+  const tierFromPlan = tierFromPlanClaim(wrdesk_plan);
+  const tierFromRoles = ssoTier ?? mapRolesToTier(keycloakRoles);
 
-    // ── WooCommerce → Keycloak naming alignment ──
-    // WooCommerce stores the Pro plan as 'private' internally.
-    // The WordPress dashboard correctly displays it as "Pro", but Keycloak
-    // receives the raw WooCommerce value 'private'.  Map it to the 'pro'
-    // tier so vault capabilities match what the user purchased.
-    const WC_PLAN_ALIASES: Record<string, Tier> = {
-      'private':          'pro',
-      'private_lifetime': 'pro',
-    };
-    if (WC_PLAN_ALIASES[normalized]) {
-      const mapped = WC_PLAN_ALIASES[normalized];
-      console.log('[TIER] Resolved from plan claim (WC alias "' + normalized + '" → ' + mapped + ')');
-      return mapped;
-    }
+  const levelFromPlan = tierFromPlan ? TIER_LEVEL[tierFromPlan] ?? 0 : 0;
+  const levelFromRoles = tierFromRoles ? TIER_LEVEL[tierFromRoles] ?? 0 : 0;
 
-    // Direct match (e.g. "pro", "publisher", "enterprise")
-    if (VALID_PLAN_TIERS.includes(normalized)) {
-      console.log('[TIER] Resolved from plan claim (exact): ' + normalized);
-      return normalized as Tier;
-    }
+  const canonicalTier = levelFromPlan >= levelFromRoles
+    ? (tierFromPlan ?? tierFromRoles)
+    : tierFromRoles;
 
-    // Fuzzy match: handle common variations like "Pro Plan", "pro_annual",
-    // "publisher-lifetime", "Enterprise Tier", etc.
-    const FUZZY_MAP: Array<{ pattern: RegExp; tier: Tier }> = [
-      { pattern: /enterprise/i,            tier: 'enterprise' },
-      { pattern: /publisher.*life/i,       tier: 'publisher_lifetime' },
-      { pattern: /publisher/i,             tier: 'publisher' },
-      { pattern: /\bpro\b/i,              tier: 'pro' },
-      { pattern: /private.*life/i,         tier: 'pro' },
-      { pattern: /\bprivate\b/i,           tier: 'pro' },
-    ];
-    for (const { pattern, tier } of FUZZY_MAP) {
-      if (pattern.test(normalized)) {
-        console.log('[TIER] Resolved from plan claim (fuzzy "' + wrdesk_plan + '" → ' + tier + ')');
-        return tier;
-      }
-    }
+  const result = canonicalTier ?? UNKNOWN_TIER;
 
-    console.log('[TIER] Plan claim has unrecognized value: "' + wrdesk_plan + '", falling back to roles');
+  if (tierFromPlan && tierFromRoles && tierFromPlan !== tierFromRoles) {
+    console.log('[TIER] Plan/roles mismatch — higher tier wins: plan=' + tierFromPlan + ', roles=' + tierFromRoles + ' → ' + result);
+  } else if (tierFromPlan) {
+    console.log('[TIER] Resolved from plan claim: ' + result);
+  } else if (ssoTier) {
+    console.log('[TIER] Resolved from SSO roles (plan missing): ' + result);
+  } else if (tierFromRoles !== DEFAULT_TIER && tierFromRoles !== UNKNOWN_TIER) {
+    console.log('[TIER] Resolved from roles fallback: ' + result);
+  } else {
+    console.log('[TIER] No plan or roles; returning unknown (not free)');
   }
 
-  // FALLBACK: Map Keycloak roles to tier
-  return mapRolesToTier(keycloakRoles);
+  return result;
 }
 
 /**
@@ -111,15 +168,16 @@ export function resolveTier(wrdesk_plan: string | undefined, keycloakRoles: stri
  * 
  * SECURITY: Never invents roles client-side.
  * Priority order: enterprise > publisher_lifetime > publisher > pro > private_lifetime > private > free
+ * Note: WooCommerce 'private' → 'pro' alias is handled only in resolveTier() for wrdesk_plan claims.
  * 
  * @param keycloakRoles - Combined realm + client roles from token
  * @returns Tier based on role presence
  */
 export function mapRolesToTier(keycloakRoles: string[]): Tier {
-  // FAIL-CLOSED: If no roles provided, log diagnostic and return default
+  // FAIL-CLOSED: If no roles provided, return unknown (not free — never use free as error fallback)
   if (!hasRolesInToken(keycloakRoles)) {
-    console.log('[TIER] No wrdesk_plan and no roles in token; defaulting to free');
-    return DEFAULT_TIER;
+    console.log('[TIER] No wrdesk_plan and no roles in token; returning unknown');
+    return UNKNOWN_TIER;
   }
 
   // Check for exact tier name matches only (case-insensitive)
@@ -145,16 +203,16 @@ export function mapRolesToTier(keycloakRoles: string[]): Tier {
     return 'pro';
   }
   
-  // Private lifetime → maps to pro (WooCommerce naming: 'private' = Pro plan)
+  // Private lifetime
   if (normalizedRoles.includes('private_lifetime')) {
-    return 'pro';
+    return 'private_lifetime';
   }
-  
-  // Private annual → maps to pro (WooCommerce naming: 'private' = Pro plan)
+
+  // Private annual
   if (normalizedRoles.includes('private')) {
-    return 'pro';
+    return 'private';
   }
   
-  // No tier role found - default to free (not an error, just no premium role)
-  return DEFAULT_TIER;
+  // No tier role found - return unknown (not free — never use free as error fallback)
+  return UNKNOWN_TIER;
 }

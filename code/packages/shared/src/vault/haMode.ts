@@ -420,7 +420,7 @@ export type HAGatedAction =
  */
 export function haAllows(
   haState: HAModeState | null | undefined,
-  action: HAGatedAction,
+  _action: HAGatedAction,
 ): boolean {
   // HA active → block everything in the gated set
   if (isHAActive(haState)) return false

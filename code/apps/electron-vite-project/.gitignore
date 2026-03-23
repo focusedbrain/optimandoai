@@ -10,7 +10,15 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-electron
 *.local
+
+# Build output (electron-builder)
+dist/release
+squashfs-root
+build-output/
+**/linux-unpacked/
+**/win-unpacked/
 
 # Editor directories and files
 .vscode/*

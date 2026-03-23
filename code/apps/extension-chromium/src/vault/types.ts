@@ -94,6 +94,7 @@ export const COMPANY_STANDARD_FIELDS: StandardFieldDef[] = [
   { key: 'website', label: 'Website', type: 'url', required: false, explanation: 'Company website URL' },
   { key: 'vat_number', label: 'VAT Number', type: 'text', required: false, explanation: 'Value Added Tax identification number' },
   { key: 'tax_id', label: 'Tax ID', type: 'text', required: false, explanation: 'Business tax identification number' },
+  { key: 'company_registration_number', label: 'Company Registration Number', type: 'text', required: false, explanation: 'Commercial register number (e.g. HRB, Handelsregisternummer)' },
   { key: 'additional_info', label: 'Additional Info', type: 'textarea', required: false, explanation: 'Additional context or notes that help AI autofill match this data to forms more accurately' },
 ]
 
@@ -168,6 +169,8 @@ export interface VaultStatus {
   availableVaults?: Array<{ id: string, name: string, created: number }>
   /** User's resolved subscription tier (for capability gating). */
   tier?: string
+  /** HS Context Profiles available (Publisher+ only). Gates handshake context authoring. */
+  canUseHsContextProfiles?: boolean
   /** Available unlock provider types for the current vault. */
   unlockProviders?: Array<{ id: string; name: string }>
   /** The active (default) provider type for the current vault. */

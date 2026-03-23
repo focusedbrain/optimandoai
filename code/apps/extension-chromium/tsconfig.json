@@ -2,10 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "moduleResolution": "Bundler",
     "types": [
@@ -17,15 +14,9 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@shared": [
-        "../../packages/shared/src/index.ts"
-      ],
-      "@shared/*": [
-        "../../packages/shared/src/*"
-      ],
-      "@shared-extension/*": [
-        "../../packages/shared-extension/src/*"
-      ]
+      "@shared/*": ["../../packages/shared/src/*"],
+      "@shared-extension/*": ["../../packages/shared-extension/src/*"]
     }
-  }
+  },
+  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

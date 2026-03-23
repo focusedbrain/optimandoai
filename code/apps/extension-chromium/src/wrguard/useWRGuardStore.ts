@@ -18,12 +18,14 @@ import type {
   ProviderConnectionStatus,
   ProtectedSite,
   ProtectedSiteSource,
+  RuntimeConfig,
   PolicyOverview,
   WRGuardSection
 } from './types'
 import {
   DEFAULT_PROTECTED_SITES,
-  DEFAULT_POLICY_OVERVIEW
+  DEFAULT_POLICY_OVERVIEW,
+  DEFAULT_RUNTIME_CONFIG,
 } from './types'
 
 // =============================================================================
@@ -34,6 +36,9 @@ interface WRGuardState extends WRGuardConfig {
   /** Current active section */
   activeSection: WRGuardSection
   
+  /** Handshake ID to select when navigating from inbox (e.g. "View Handshake") */
+  selectedHandshakeId: string | null
+  
   /** Loading state */
   isLoading: boolean
   
@@ -43,6 +48,9 @@ interface WRGuardState extends WRGuardConfig {
   
   /** Set active section */
   setActiveSection: (section: WRGuardSection) => void
+  
+  /** Set handshake to select (used when navigating from inbox) */
+  setSelectedHandshakeId: (id: string | null) => void
   
   // =========================================================================
   // Email Providers
@@ -100,6 +108,22 @@ interface WRGuardState extends WRGuardConfig {
   /** Reset to default sites */
   resetProtectedSites: () => void
   
+  /** Alias for addProtectedSite (used by ProtectedSitesList) */
+  addSite: (site: Omit<ProtectedSite, 'id' | 'addedAt' | 'source'>) => void
+  
+  /** Alias for removeProtectedSite */
+  removeSite: (id: string) => void
+  
+  /** Alias for toggleProtectedSite */
+  toggleSite: (id: string) => void
+  
+  // =========================================================================
+  // Runtime Config
+  // =========================================================================
+  
+  /** Update runtime configuration */
+  updateRuntimeConfig: (update: Partial<RuntimeConfig>) => void
+  
   // =========================================================================
   // Policy Overview
   // =========================================================================
@@ -129,6 +153,7 @@ const createInitialState = (): Omit<WRGuardConfig, 'protectedSites'> & { protect
     id: `default_${index}`,
     addedAt: Date.now()
   })),
+  runtimeConfig: { ...DEFAULT_RUNTIME_CONFIG },
   policyOverview: DEFAULT_POLICY_OVERVIEW,
   initialized: false,
   lastUpdated: Date.now()
@@ -143,6 +168,7 @@ export const useWRGuardStore = create<WRGuardState>()(
     (set, get) => ({
       ...createInitialState(),
       activeSection: 'providers',
+      selectedHandshakeId: null,
       isLoading: false,
       
       // =========================================================================
@@ -150,6 +176,8 @@ export const useWRGuardStore = create<WRGuardState>()(
       // =========================================================================
       
       setActiveSection: (section) => set({ activeSection: section }),
+      
+      setSelectedHandshakeId: (id) => set({ selectedHandshakeId: id }),
       
       // =========================================================================
       // Email Providers
@@ -309,6 +337,29 @@ export const useWRGuardStore = create<WRGuardState>()(
         })
       },
       
+      addSite: (site) => {
+        get().addProtectedSite(site.domain, site.description)
+      },
+      
+      removeSite: (id) => {
+        get().removeProtectedSite(id)
+      },
+      
+      toggleSite: (id) => {
+        get().toggleProtectedSite(id)
+      },
+      
+      // =========================================================================
+      // Runtime Config
+      // =========================================================================
+      
+      updateRuntimeConfig: (update) => {
+        set(state => ({
+          runtimeConfig: { ...state.runtimeConfig, ...update },
+          lastUpdated: Date.now()
+        }))
+      },
+      
       // =========================================================================
       // Policy Overview
       // =========================================================================
@@ -388,6 +439,7 @@ export const useWRGuardStore = create<WRGuardState>()(
       partialize: (state) => ({
         providers: state.providers,
         protectedSites: state.protectedSites,
+        runtimeConfig: state.runtimeConfig,
         policyOverview: state.policyOverview,
         initialized: state.initialized,
         lastUpdated: state.lastUpdated

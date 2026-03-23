@@ -83,10 +83,10 @@ export const BeapDraftComposer: React.FC<BeapDraftComposerProps> = ({
         timestamp: Date.now(),
         bodyText: composeBody,
         attachments: attachments,
-        status: deliveryMethod === 'download' ? 'downloaded' : 'pending',
+        status: deliveryMethod === 'download' ? 'pending_user_action' : 'pending',
         direction: 'outbound',
         senderName: composeTo || 'Download',
-        deliveryStatus: deliveryMethod === 'download' ? 'downloaded' : 'pending'
+        deliveryStatus: deliveryMethod === 'download' ? 'pending_user_action' : 'queued'
       }
       
       addOutboxMessage(message)
@@ -300,7 +300,7 @@ export const BeapDraftComposer: React.FC<BeapDraftComposerProps> = ({
                 gap: '4px'
               }}
             >
-              📎 Add File
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle' }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Add File
             </button>
           </div>
           <input
@@ -335,7 +335,7 @@ export const BeapDraftComposer: React.FC<BeapDraftComposerProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '12px' }}>📄</span>
                     <span style={{ fontSize: '12px', color: textColor }}>{att.name}</span>
-                    <span style={{ fontSize: '10px', color: mutedColor }}>({formatFileSize(att.size)})</span>
+                    <span style={{ fontSize: '10px', color: mutedColor }}>({formatFileSize(att.size ?? 0)})</span>
                   </div>
                   <button
                     onClick={() => removeAttachment(i)}

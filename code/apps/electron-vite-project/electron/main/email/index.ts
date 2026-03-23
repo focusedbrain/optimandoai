@@ -47,10 +47,10 @@
  * 
  * ## Adding a New Provider
  * 
- * 1. Create a new file in `providers/` (e.g., `outlook.ts`)
- * 2. Implement the `IEmailProvider` interface from `providers/base.ts`
- * 3. Add the provider type to `EmailProvider` in `types.ts`
- * 4. Register the provider in `gateway.ts` `getProvider()` method
+ * 1. Add the provider to `EmailProvider` in `types.ts`
+ * 2. Register `PROVIDER_IMPLEMENTATION_PROFILE` in `domain/capabilitiesRegistry.ts`
+ * 3. Create `providers/<name>.ts` implementing `IEmailProvider` from `providers/base.ts`
+ * 4. Register the provider in `gateway.ts` `getProvider()` / `getConnectedProvider()` switches
  * 
  * ## MCP Integration
  * 
@@ -67,11 +67,14 @@
 // Export types
 export * from './types'
 
+// Domain model (capabilities, identity, mailbox sync plan mappers)
+export * from './domain'
+
 // Export gateway
 export { emailGateway } from './gateway'
 
 // Export IPC registration
-export { registerEmailHandlers } from './ipc'
+export { registerEmailHandlers, registerInboxHandlers } from './ipc'
 
 // Export sanitizer utilities (for use in other modules)
 export {

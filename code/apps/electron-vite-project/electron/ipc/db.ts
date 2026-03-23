@@ -194,6 +194,9 @@ export async function getConfig(): Promise<AdapterResult> {
  * Register IPC handlers
  */
 export function registerDbHandlers(): void {
+  ipcMain.removeHandler('db:testConnection')
+  ipcMain.removeHandler('db:sync')
+  ipcMain.removeHandler('db:getConfig')
   ipcMain.handle('db:testConnection', async (_event, config: PostgresConfig) => {
     return testConnection(config);
   });

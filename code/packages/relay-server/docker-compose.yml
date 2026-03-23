@@ -1,0 +1,33 @@
+# BEAP Relay Server — Production deployment
+# Usage: RELAY_AUTH_SECRET=your-secret docker compose up -d
+
+services:
+  beap-relay:
+    image: wrdesk/beap-relay:latest
+    container_name: beap-relay
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    ports:
+      - "51249:51249"
+    volumes:
+      - relay-data:/data
+    tmpfs:
+      - /tmp
+    environment:
+      - RELAY_AUTH_SECRET=${RELAY_AUTH_SECRET}
+      - RELAY_TLS_ENABLED=${RELAY_TLS_ENABLED:-false}
+      - RELAY_DB_PATH=/data/relay.db
+    healthcheck:
+      test: ["CMD", "node", "-e", "const p=process.env.RELAY_PORT||51249;fetch('http://127.0.0.1:'+p+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  relay-data:

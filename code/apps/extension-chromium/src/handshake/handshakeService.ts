@@ -12,11 +12,6 @@
  * @version 1.0.0
  */
 
-import type {
-  HandshakeRequestPayload,
-  HandshakeAcceptPayload,
-  AutomationMode
-} from './types'
 import {
   getOrCreateDeviceKeypair,
   type X25519KeyPair
@@ -45,39 +40,6 @@ export interface OurIdentity {
   localX25519KeyId: string
 }
 
-/**
- * Input for creating a handshake request payload.
- */
-export interface CreateHandshakeRequestInput {
-  /** Display name to include in request */
-  senderDisplayName: string
-  
-  /** Email address (optional) */
-  senderEmail?: string
-  
-  /** Organization (optional) */
-  senderOrganization?: string
-  
-  /** Human-readable message to recipient */
-  message: string
-  
-  /** Expiration time in ms from now (optional, default: 7 days) */
-  expiresInMs?: number
-}
-
-/**
- * Acceptor info for creating accept payload.
- */
-export interface AcceptorInfo {
-  /** Display name */
-  acceptorDisplayName: string
-  
-  /** Email (optional) */
-  acceptorEmail?: string
-  
-  /** Organization (optional) */
-  acceptorOrganization?: string
-}
 
 // =============================================================================
 // Fingerprint Derivation
@@ -158,122 +120,6 @@ export function clearIdentityCache(): void {
   _cachedIdentity = null
 }
 
-// =============================================================================
-// Payload Creation
-// =============================================================================
-
-/**
- * Create a handshake request payload with real X25519 keys.
- * 
- * Uses the device's stable identity (not mock fingerprints).
- * 
- * @param input - Request input with display name, message, etc.
- * @returns HandshakeRequestPayload ready for serialization
- */
-export async function createHandshakeRequestPayload(
-  input: CreateHandshakeRequestInput
-): Promise<HandshakeRequestPayload> {
-  // Get our stable identity
-  const identity = await getOurIdentity()
-  
-  const now = Date.now()
-  
-  // Default expiration: 7 days
-  const defaultExpiresInMs = 7 * 24 * 60 * 60 * 1000
-  const expiresAt = input.expiresInMs !== undefined
-    ? now + input.expiresInMs
-    : now + defaultExpiresInMs
-  
-  const payload: HandshakeRequestPayload = {
-    type: 'BEAP_HANDSHAKE_REQUEST',
-    version: 1,
-    senderDisplayName: input.senderDisplayName,
-    senderFingerprint: identity.fingerprint,
-    senderX25519PublicKeyB64: identity.x25519PublicKeyB64,
-    message: input.message,
-    createdAt: now,
-    expiresAt
-  }
-  
-  // Add optional fields if provided
-  if (input.senderEmail) {
-    payload.senderEmail = input.senderEmail
-  }
-  if (input.senderOrganization) {
-    payload.senderOrganization = input.senderOrganization
-  }
-  
-  // ML-KEM: Not included for now (Electron-only, optional)
-  // Future: payload.senderMlkem768PublicKeyB64 = ...
-  
-  console.log('[HandshakeService] Created request payload:', {
-    senderDisplayName: payload.senderDisplayName,
-    fingerprintShort: `${payload.senderFingerprint.slice(0, 8)}…${payload.senderFingerprint.slice(-8)}`,
-    hasX25519Key: !!payload.senderX25519PublicKeyB64
-  })
-  
-  return payload
-}
-
-/**
- * Create a handshake accept payload in response to a request.
- * 
- * Uses the device's stable identity (not mock fingerprints).
- * 
- * @param requestPayload - The original request we're accepting
- * @param acceptorInfo - Info about the acceptor (display name, email, org)
- * @param automationMode - Chosen automation mode for this handshake
- * @returns HandshakeAcceptPayload ready for serialization
- */
-export async function createHandshakeAcceptPayload(
-  requestPayload: HandshakeRequestPayload,
-  acceptorInfo: AcceptorInfo,
-  automationMode: AutomationMode
-): Promise<HandshakeAcceptPayload> {
-  // Get our stable identity
-  const identity = await getOurIdentity()
-  
-  const now = Date.now()
-  
-  // Generate a request ID based on the original request
-  // Use sender fingerprint + createdAt to create a deterministic ID
-  const requestIdSource = `${requestPayload.senderFingerprint}:${requestPayload.createdAt}`
-  const requestIdBytes = new TextEncoder().encode(requestIdSource)
-  const requestIdHash = await sha256Hex(requestIdBytes)
-  const requestId = `req_${requestIdHash.slice(0, 16)}`
-  
-  const payload: HandshakeAcceptPayload = {
-    type: 'BEAP_HANDSHAKE_ACCEPT',
-    version: 1,
-    requestId,
-    acceptorDisplayName: acceptorInfo.acceptorDisplayName,
-    acceptorFingerprint: identity.fingerprint,
-    acceptorX25519PublicKeyB64: identity.x25519PublicKeyB64,
-    automationMode,
-    createdAt: now
-  }
-  
-  // Add optional fields if provided
-  if (acceptorInfo.acceptorEmail) {
-    payload.acceptorEmail = acceptorInfo.acceptorEmail
-  }
-  if (acceptorInfo.acceptorOrganization) {
-    payload.acceptorOrganization = acceptorInfo.acceptorOrganization
-  }
-  
-  // ML-KEM: Not included for now (Electron-only, optional)
-  // Future: payload.acceptorMlkem768PublicKeyB64 = ...
-  
-  console.log('[HandshakeService] Created accept payload:', {
-    requestId: payload.requestId,
-    acceptorDisplayName: payload.acceptorDisplayName,
-    fingerprintShort: `${payload.acceptorFingerprint.slice(0, 8)}…${payload.acceptorFingerprint.slice(-8)}`,
-    automationMode: payload.automationMode,
-    hasX25519Key: !!payload.acceptorX25519PublicKeyB64
-  })
-  
-  return payload
-}
 
 // =============================================================================
 // Fingerprint Formatting (convenience re-exports)

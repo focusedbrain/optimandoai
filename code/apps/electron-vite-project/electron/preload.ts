@@ -51,6 +51,115 @@ function assertString(v: unknown, name: string): string {
   return v
 }
 
+/** IMAP/SMTP passwords & app passwords (bounded for IPC). */
+function assertSecretString(v: unknown, name: string, maxLen = 512): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
+    throw new Error(`${name}: expected non-empty string (max ${maxLen} chars)`)
+  }
+  return v
+}
+
+function assertSecurityMode(v: unknown, field: string): 'ssl' | 'starttls' | 'none' {
+  if (v === 'ssl' || v === 'starttls' || v === 'none') return v
+  throw new Error(`${field}: expected ssl | starttls | none`)
+}
+
+function assertMailboxPort(v: unknown, field: string): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(String(v).trim(), 10) : NaN
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    throw new Error(`${field}: expected integer port 1–65535`)
+  }
+  return n
+}
+
+function assertHostLike(v: unknown, name: string): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (s.length < 1 || s.length > 253) {
+    throw new Error(`${name}: invalid host (1–253 chars)`)
+  }
+  if (/\s/.test(s)) {
+    throw new Error(`${name}: host must not contain whitespace`)
+  }
+  return s
+}
+
+function optionalImapLifecycleMailbox(v: unknown, field: string): string | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v !== 'string') throw new Error(`${field}: expected string or omit`)
+  const t = v.trim()
+  if (!t) return undefined
+  if (t.length > 200) throw new Error(`${field}: max 200 characters`)
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(t)) throw new Error(`${field}: invalid characters`)
+  return t
+}
+
+function assertCustomMailboxPayload(v: unknown): {
+  displayName?: string
+  email: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: 'ssl' | 'starttls' | 'none'
+  imapUsername?: string
+  imapPassword: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: 'ssl' | 'starttls' | 'none'
+  smtpUseSameCredentials: boolean
+  smtpUsername?: string
+  smtpPassword?: string
+  imapLifecycleArchiveMailbox?: string
+  imapLifecyclePendingReviewMailbox?: string
+  imapLifecyclePendingDeleteMailbox?: string
+  imapLifecycleTrashMailbox?: string
+} {
+  if (!v || typeof v !== 'object') throw new Error('customMailbox: expected object')
+  const o = v as Record<string, unknown>
+  const emailRaw = typeof o.email === 'string' ? o.email.trim() : ''
+  if (!emailRaw || emailRaw.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+    throw new Error('customMailbox.email: valid email required')
+  }
+  const displayName =
+    typeof o.displayName === 'string' && o.displayName.trim()
+      ? o.displayName.trim().slice(0, 200)
+      : undefined
+  const imapHost = assertHostLike(o.imapHost, 'imapHost')
+  const smtpHost = assertHostLike(o.smtpHost, 'smtpHost')
+  /** Default: same as IMAP (unless explicitly `false`). */
+  const useSame = o.smtpUseSameCredentials !== false
+  const imapUser =
+    typeof o.imapUsername === 'string' && o.imapUsername.trim()
+      ? o.imapUsername.trim().slice(0, 320)
+      : undefined
+  let smtpUser: string | undefined
+  let smtpPass: string | undefined
+  if (!useSame) {
+    if (typeof o.smtpUsername !== 'string' || !o.smtpUsername.trim()) {
+      throw new Error('customMailbox.smtpUsername required when not using same credentials as IMAP')
+    }
+    smtpUser = o.smtpUsername.trim().slice(0, 320)
+    smtpPass = assertSecretString(o.smtpPassword, 'smtpPassword')
+  }
+  const lifeArchive = optionalImapLifecycleMailbox(o.imapLifecycleArchiveMailbox, 'imapLifecycleArchiveMailbox')
+  const lifeReview = optionalImapLifecycleMailbox(o.imapLifecyclePendingReviewMailbox, 'imapLifecyclePendingReviewMailbox')
+  const lifeDelete = optionalImapLifecycleMailbox(o.imapLifecyclePendingDeleteMailbox, 'imapLifecyclePendingDeleteMailbox')
+  const lifeTrash = optionalImapLifecycleMailbox(o.imapLifecycleTrashMailbox, 'imapLifecycleTrashMailbox')
+  return {
+    ...(displayName ? { displayName } : {}),
+    email: emailRaw,
+    imapHost,
+    imapPort: assertMailboxPort(o.imapPort, 'imapPort'),
+    imapSecurity: assertSecurityMode(o.imapSecurity, 'imapSecurity'),
+    ...(imapUser ? { imapUsername: imapUser } : {}),
+    imapPassword: assertSecretString(o.imapPassword, 'imapPassword'),
+    smtpHost,
+    smtpPort: assertMailboxPort(o.smtpPort, 'smtpPort'),
+    smtpSecurity: assertSecurityMode(o.smtpSecurity, 'smtpSecurity'),
+    smtpUseSameCredentials: useSame,
+    ...(smtpUser ? { smtpUsername: smtpUser } : {}),
+    ...(smtpPass ? { smtpPassword: smtpPass } : {}),
+  }
+}
+
 function assertTheme(v: unknown): string {
   const ALLOWED = new Set(['default', 'dark', 'professional', 'pro', 'standard'])
   const s = assertString(v, 'theme')
@@ -102,33 +211,12 @@ function assertSavePreset(v: unknown): object {
 // §2  Channel Allowlists (compile-time constants)
 // ============================================================================
 
-// Channels the renderer may INVOKE (request→response)
-const INVOKE_CHANNELS = new Set([
-  'lmgtfy/select-screenshot',
-  'lmgtfy/select-stream',
-  'lmgtfy/stop-stream',
-  'lmgtfy/get-presets',
-  'lmgtfy/capture-preset',
-  'lmgtfy/save-preset',
-  'integrity:status',
-] as const)
-
-// Channels the renderer may SEND (fire-and-forget)
-const SEND_CHANNELS = new Set([
-  'REQUEST_THEME',
-  'SET_THEME',
-  'OPEN_BEAP_INBOX',
-] as const)
-
-// Channels the renderer may LISTEN to (main→renderer)
-const LISTEN_CHANNELS = new Set([
-  'main-process-message',
-  'lmgtfy.capture',
-  'hotkey',
-  'TRIGGERS_UPDATED',
-  'OPEN_ANALYSIS_DASHBOARD',
-  'THEME_CHANGED',
-] as const)
+// Allowed channel documentation (not enforced at runtime — kept for audit):
+// INVOKE:  lmgtfy/select-screenshot, lmgtfy/select-stream, lmgtfy/stop-stream,
+//          lmgtfy/get-presets, lmgtfy/capture-preset, lmgtfy/save-preset, integrity:status
+// SEND:    REQUEST_THEME, SET_THEME, OPEN_BEAP_INBOX
+// LISTEN:  main-process-message, lmgtfy.capture, hotkey, TRIGGERS_UPDATED,
+//          OPEN_ANALYSIS_DASHBOARD, THEME_CHANGED
 
 // ============================================================================
 // §3  Exposed Bridges
@@ -195,6 +283,390 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openBeapInbox: () => {
     ipcRenderer.send('OPEN_BEAP_INBOX')
   },
+  openBeapDraft: () => {
+    ipcRenderer.send('OPEN_BEAP_DRAFT')
+  },
+  openEmailCompose: () => {
+    ipcRenderer.send('OPEN_EMAIL_COMPOSE')
+  },
+  openHandshakeRequest: () => {
+    ipcRenderer.send('OPEN_HANDSHAKE_REQUEST')
+  },
+})
+
+// ── Handshake list refresh (main → renderer when coordination receives capsule) ─
+ipcRenderer.on('handshake-list-refresh', () => {
+  window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
+})
+ipcRenderer.on('vault-status-changed', () => {
+  window.dispatchEvent(new CustomEvent('vault-status-changed'))
+})
+
+// ── Handshake View (Relationships + Capsule Import) ────────────────────────
+contextBridge.exposeInMainWorld('handshakeView', {
+  listHandshakes: (filter?: unknown) => {
+    const validFilter = filter && typeof filter === 'object' ? filter : undefined
+    return ipcRenderer.invoke('handshake:list', validFilter)
+  },
+  submitCapsule: (jsonString: unknown) => {
+    if (typeof jsonString !== 'string' || jsonString.length === 0 || jsonString.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    return ipcRenderer.invoke('handshake:submitCapsule', jsonString)
+  },
+  importCapsule: (jsonString: unknown) => {
+    if (typeof jsonString !== 'string' || jsonString.length === 0 || jsonString.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    return ipcRenderer.invoke('handshake:importCapsule', jsonString)
+  },
+  acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
+  },
+  declineHandshake: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:decline', assertString(id, 'id'))
+  },
+  deleteHandshake: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:delete', assertString(id, 'id'))
+  },
+  getPendingP2PBeapMessages: () => {
+    return ipcRenderer.invoke('handshake:getPendingP2PBeapMessages')
+  },
+  ackPendingP2PBeap: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:ackPendingP2PBeap', typeof id === 'number' ? id : 0)
+  },
+  getPendingPlainEmails: () => {
+    return ipcRenderer.invoke('handshake:getPendingPlainEmails')
+  },
+  ackPendingPlainEmail: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:ackPendingPlainEmail', typeof id === 'number' ? id : 0)
+  },
+  importBeapMessage: (packageJson: unknown) => {
+    if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
+      return Promise.resolve({ success: false, error: 'Invalid package: expected non-empty string (max 512KB)' })
+    }
+    return ipcRenderer.invoke('handshake:importBeapMessage', packageJson)
+  },
+  requestUnlockVault: () => {
+    return ipcRenderer.invoke('vault:unlockForHandshake')
+  },
+  unlockVaultWithPassword: (password: unknown, vaultId?: unknown) => {
+    const pwd = typeof password === 'string' ? password : ''
+    const vid = typeof vaultId === 'string' ? vaultId : undefined
+    return ipcRenderer.invoke('vault:unlockWithPassword', pwd, vid)
+  },
+  getVaultStatus: () => {
+    return ipcRenderer.invoke('vault:getStatus')
+  },
+  listHsContextProfiles: (includeArchived?: boolean) => {
+    return ipcRenderer.invoke('vault:listHsContextProfiles', includeArchived === true)
+  },
+  getDocumentPageCount: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentPageCount', assertString(documentId, 'documentId'))
+  },
+  getDocumentPage: (documentId: unknown, pageNumber: unknown) => {
+    const docId = assertString(documentId, 'documentId')
+    const pn = typeof pageNumber === 'number' && Number.isInteger(pageNumber) && pageNumber >= 1 ? pageNumber : 1
+    return ipcRenderer.invoke('vault:getDocumentPage', docId, pn)
+  },
+  getDocumentPageList: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentPageList', assertString(documentId, 'documentId'))
+  },
+  getDocumentFullText: (documentId: unknown) => {
+    return ipcRenderer.invoke('vault:getDocumentFullText', assertString(documentId, 'documentId'))
+  },
+  searchDocumentPages: (documentId: unknown, query: unknown) => {
+    const q = typeof query === 'string' ? query : ''
+    return ipcRenderer.invoke('vault:searchDocumentPages', assertString(documentId, 'documentId'), q)
+  },
+  updateHandshakePolicies: (handshakeId: unknown, policies: unknown) => {
+    return ipcRenderer.invoke('handshake:updatePolicies', assertString(handshakeId, 'handshakeId'), policies)
+  },
+  updateContextItemGovernance: (
+    handshakeId: unknown,
+    blockId: unknown,
+    blockHash: unknown,
+    senderUserId: unknown,
+    governance: unknown,
+  ) => {
+    return ipcRenderer.invoke(
+      'handshake:updateContextItemGovernance',
+      assertString(handshakeId, 'handshakeId'),
+      assertString(blockId, 'blockId'),
+      assertString(blockHash, 'blockHash'),
+      assertString(senderUserId, 'senderUserId'),
+      governance && typeof governance === 'object' ? governance as Record<string, unknown> : {},
+    )
+  },
+  setBlockVisibility: (args: {
+    sender_wrdesk_user_id: string
+    block_id: string
+    block_hash: string
+    visibility: 'public' | 'private'
+  }) => ipcRenderer.invoke('handshake:setBlockVisibility', args),
+  setBulkBlockVisibility: (args: { handshake_id: string; visibility: 'public' | 'private' }) =>
+    ipcRenderer.invoke('handshake:setBulkBlockVisibility', args),
+  forceRevokeHandshake: (id: unknown) => {
+    return ipcRenderer.invoke('handshake:forceRevoke', assertString(id, 'id'))
+  },
+  getContextBlockCount: (handshakeId: unknown) => {
+    return ipcRenderer.invoke('handshake:contextBlockCount', assertString(handshakeId, 'handshakeId'))
+  },
+  queryContextBlocks: (handshakeId: unknown, purpose?: string) => {
+    return ipcRenderer.invoke('handshake:queryContextBlocks', assertString(handshakeId, 'handshakeId'), purpose)
+  },
+  requestOriginalDocument: (documentId: unknown, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+    return ipcRenderer.invoke('handshake:requestOriginalDocument', assertString(documentId, 'documentId'), acknowledgedWarning, handshakeId ?? null)
+  },
+  requestLinkOpenApproval: (linkEntityId: unknown, acknowledgedWarning: boolean, handshakeId?: string | null) => {
+    return ipcRenderer.invoke('handshake:requestLinkOpenApproval', assertString(linkEntityId, 'linkEntityId'), acknowledgedWarning, handshakeId ?? null)
+  },
+  semanticSearch: async (query: string, scope?: string, limit?: number) => {
+    return ipcRenderer.invoke('handshake:semanticSearch', query, scope, limit)
+  },
+  getAvailableModels: () => ipcRenderer.invoke('handshake:getAvailableModels'),
+  generateDraft: (prompt: string) => ipcRenderer.invoke('handshake:generateDraft', prompt),
+  chatWithContext: (systemMessage: unknown, dataWrapper: unknown, userMessage: unknown) => {
+    if (typeof systemMessage !== 'string' || systemMessage.length > 4096) {
+      throw new Error('systemMessage: expected string (max 4KB)')
+    }
+    if (typeof dataWrapper !== 'string' || dataWrapper.length > 512_000) {
+      throw new Error('dataWrapper: expected string (max 512KB)')
+    }
+    const user = assertString(userMessage, 'userMessage')
+    return ipcRenderer.invoke('handshake:chatWithContext', systemMessage, dataWrapper, user)
+  },
+  chatWithContextRag: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string }) => {
+    if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
+      throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
+    }
+    return ipcRenderer.invoke('handshake:chatWithContextRag', {
+      query: params.query,
+      scope: typeof params.scope === 'string' ? params.scope : undefined,
+      model: typeof params.model === 'string' ? params.model : 'llama3',
+      provider: typeof params.provider === 'string' ? params.provider : 'ollama',
+      stream: params.stream === true,
+      debug: params.debug === true,
+      conversationContext: params.conversationContext && typeof params.conversationContext === 'object'
+        ? { lastAnswer: typeof params.conversationContext.lastAnswer === 'string' ? params.conversationContext.lastAnswer : undefined }
+        : undefined,
+      selectedDocumentId: typeof params.selectedDocumentId === 'string' && params.selectedDocumentId.trim() ? params.selectedDocumentId.trim() : undefined,
+      selectedAttachmentId: typeof params.selectedAttachmentId === 'string' && params.selectedAttachmentId.trim() ? params.selectedAttachmentId.trim() : undefined,
+    })
+  },
+  onChatStreamStart: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => {
+    const handler = (_: unknown, data: unknown) => callback(data as { contextBlocks: string[]; sources: unknown[] })
+    ipcRenderer.on('handshake:chatStreamStart', handler)
+    return () => ipcRenderer.removeListener('handshake:chatStreamStart', handler)
+  },
+  onChatStreamToken: (callback: (data: { token: string }) => void) => {
+    const handler = (_: unknown, data: unknown) => callback(data as { token: string })
+    ipcRenderer.on('handshake:chatStreamToken', handler)
+    return () => ipcRenderer.removeListener('handshake:chatStreamToken', handler)
+  },
+  initiateHandshake: (receiverEmail: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
+    const email = assertString(receiverEmail, 'receiverEmail')
+    const acct = typeof fromAccountId === 'string' ? fromAccountId : ''
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
+      ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
+  },
+  buildForDownload: (receiverEmail: unknown, contextOpts?: unknown) => {
+    const email = assertString(receiverEmail, 'receiverEmail')
+    const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const safeOpts = opts ? {
+      ...(typeof opts.skipVaultContext === 'boolean' ? { skipVaultContext: opts.skipVaultContext } : {}),
+      ...(typeof opts.message === 'string' && opts.message.trim() ? { message: opts.message.trim() } : {}),
+      ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
+      ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
+      ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
+      ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
+    } : undefined
+    return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)
+  },
+  downloadCapsule: (capsuleJson: unknown, suggestedFilename: unknown) => {
+    if (typeof capsuleJson !== 'string' || capsuleJson.length === 0 || capsuleJson.length > 65536) {
+      throw new Error('capsuleJson: expected non-empty string (max 64KB)')
+    }
+    const name = typeof suggestedFilename === 'string' && suggestedFilename.length <= 255
+      ? suggestedFilename : 'handshake.beap'
+    return ipcRenderer.invoke('handshake:downloadCapsule', capsuleJson, name)
+  },
+})
+
+// ── P2P Health & Queue ─────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('p2p', {
+  getHealth: () => ipcRenderer.invoke('p2p:getHealth'),
+  getQueueStatus: (handshakeId: unknown) => {
+    const id = typeof handshakeId === 'string' && handshakeId.length <= 128 ? handshakeId : ''
+    return ipcRenderer.invoke('p2p:getQueueStatus', id)
+  },
+  flushOutboundQueue: () => ipcRenderer.invoke('p2p:flushOutboundQueue'),
+})
+
+// ── Auth Status (tier for relay gating) ─────────────────────────────────────
+contextBridge.exposeInMainWorld('auth', {
+  getStatus: () => ipcRenderer.invoke('auth:status'),
+})
+
+// ── Relay Setup Wizard ─────────────────────────────────────────────────────
+function assertRelayUrl(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (s.length === 0 || s.length > 500) throw new Error('relay_url: expected non-empty string (max 500 chars)')
+  return s
+}
+contextBridge.exposeInMainWorld('relay', {
+  generateSecret: () => ipcRenderer.invoke('relay:generateSecret'),
+  testConnection: (url: unknown) => ipcRenderer.invoke('relay:testConnection', assertRelayUrl(url)),
+  verifyEndToEnd: (url: unknown, secret: unknown) => {
+    const u = assertRelayUrl(url)
+    const s = typeof secret === 'string' && secret.length > 0 ? secret : ''
+    if (!s) throw new Error('secret: required for verifyEndToEnd')
+    return ipcRenderer.invoke('relay:verifyEndToEnd', u, s)
+  },
+  activate: (config: unknown) => {
+    const c = config && typeof config === 'object' && config !== null ? config as Record<string, unknown> : {}
+    const url = typeof c.relay_url === 'string' ? c.relay_url.trim() : ''
+    const pull = typeof c.relay_pull_url === 'string' ? c.relay_pull_url.trim() : undefined
+    if (!url) throw new Error('relay_url: required for activate')
+    return ipcRenderer.invoke('relay:activate', { relay_url: url, relay_pull_url: pull })
+  },
+  getSetupStatus: () => ipcRenderer.invoke('relay:getSetupStatus'),
+  deactivate: () => ipcRenderer.invoke('relay:deactivate'),
+  getSecret: () => ipcRenderer.invoke('relay:getSecret'),
+  testTlsConnection: (url: unknown) => ipcRenderer.invoke('relay:testTlsConnection', assertRelayUrl(url)),
+  acceptCertFingerprint: (fingerprint: unknown) => {
+    const fp = typeof fingerprint === 'string' && fingerprint.trim().length > 0 ? fingerprint.trim() : ''
+    if (!fp) throw new Error('fingerprint: required for acceptCertFingerprint')
+    return ipcRenderer.invoke('relay:acceptCertFingerprint', fp)
+  },
+})
+
+// ── Email (BEAP send) ─────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('email', {
+  sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) =>
+    ipcRenderer.invoke('email:sendBeapEmail', contract),
+})
+
+// ── Email Accounts ─────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('emailAccounts', {
+  listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+  sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
+    ipcRenderer.invoke('email:sendEmail', accountId, payload),
+  deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
+  connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
+  connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
+  connectCustomMailbox: (payload: unknown) =>
+    ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
+  validateImapLifecycleRemote: (accountId: string) =>
+    ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
+  setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
+    ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
+  setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>
+    ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId, storeInVault ?? true),
+  checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
+  checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),
+  onAccountConnected: (cb: (data: { provider: string; email: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string }) => cb(data)
+    ipcRenderer.on('email:accountConnected', handler)
+    return () => { ipcRenderer.removeListener('email:accountConnected', handler) }
+  },
+})
+
+// ── Email Inbox ───────────────────────────────────────────────────────────
+contextBridge.exposeInMainWorld('emailInbox', {
+  syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
+  toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
+  getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),
+  onNewMessages: (handler: (data: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
+    ipcRenderer.on('inbox:newMessages', fn)
+    return () => { ipcRenderer.removeListener('inbox:newMessages', fn) }
+  },
+  listMessages: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => ipcRenderer.invoke('inbox:listMessages', options),
+  listMessageIds: (options?: {
+    filter?: string
+    sourceType?: string
+    handshakeId?: string
+    category?: string
+    limit?: number
+    offset?: number
+    search?: string
+  }) => ipcRenderer.invoke('inbox:listMessageIds', options),
+  getMessage: (messageId: string) => ipcRenderer.invoke('inbox:getMessage', messageId),
+  markRead: (ids: string[], read: boolean) => ipcRenderer.invoke('inbox:markRead', ids, read),
+  toggleStar: (id: string) => ipcRenderer.invoke('inbox:toggleStar', id),
+  archiveMessages: (ids: string[]) => ipcRenderer.invoke('inbox:archiveMessages', ids),
+  setCategory: (ids: string[], category: string) => ipcRenderer.invoke('inbox:setCategory', ids, category),
+  deleteMessages: (ids: string[], gracePeriodHours?: number) => ipcRenderer.invoke('inbox:deleteMessages', ids, gracePeriodHours),
+  cancelDeletion: (id: string) => ipcRenderer.invoke('inbox:cancelDeletion', id),
+  getDeletedMessages: () => ipcRenderer.invoke('inbox:getDeletedMessages'),
+  getAttachment: (id: string) => ipcRenderer.invoke('inbox:getAttachment', id),
+  getAttachmentText: (id: string) => ipcRenderer.invoke('inbox:getAttachmentText', id),
+  openAttachmentOriginal: (id: string) => ipcRenderer.invoke('inbox:openAttachmentOriginal', id),
+  aiSummarize: (id: string) => ipcRenderer.invoke('inbox:aiSummarize', id),
+  aiDraftReply: (id: string) => ipcRenderer.invoke('inbox:aiDraftReply', id),
+  aiAnalyzeMessage: (id: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessage', id),
+  aiAnalyzeMessageStream: (messageId: string) => ipcRenderer.invoke('inbox:aiAnalyzeMessageStream', messageId),
+  onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; chunk: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageChunk', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageChunk', handler)
+  },
+  onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageDone', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageDone', handler)
+  },
+  onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { messageId: string; error: string; message: string }) => cb(data)
+    ipcRenderer.on('inbox:aiAnalyzeMessageError', handler)
+    return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
+  },
+  aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
+  aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
+  persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
+    ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
+  markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
+  moveToPendingReview: (ids: string[]) => ipcRenderer.invoke('inbox:moveToPendingReview', ids),
+  cancelPendingDelete: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingDelete', messageId),
+  cancelPendingReview: (messageId: string) => ipcRenderer.invoke('inbox:cancelPendingReview', messageId),
+  unarchive: (messageId: string) => ipcRenderer.invoke('inbox:unarchive', messageId),
+  getInboxSettings: () => ipcRenderer.invoke('inbox:getInboxSettings'),
+  setInboxSettings: (partial: { tone?: string; sortRules?: string; batchSize?: number }) => ipcRenderer.invoke('inbox:setInboxSettings', partial),
+  selectAndUploadContextDoc: () => ipcRenderer.invoke('inbox:selectAndUploadContextDoc'),
+  deleteContextDoc: (docId: string) => ipcRenderer.invoke('inbox:deleteContextDoc', docId),
+  listContextDocs: () => ipcRenderer.invoke('inbox:listContextDocs'),
+  getAiRules: () => ipcRenderer.invoke('inbox:getAiRules'),
+  saveAiRules: (content: string) => ipcRenderer.invoke('inbox:saveAiRules', content),
+  getAiRulesDefault: () => ipcRenderer.invoke('inbox:getAiRulesDefault'),
+  showOpenDialogForAttachments: () => ipcRenderer.invoke('inbox:showOpenDialogForAttachments'),
+  readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
+  reconcileImapRemoteLifecycle: (accountId: string) =>
+    ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

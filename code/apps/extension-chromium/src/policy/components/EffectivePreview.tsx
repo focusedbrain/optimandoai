@@ -6,8 +6,14 @@
 
 import { useMemo } from 'react'
 import type { CanonicalPolicy } from '../schema'
+import type { AutomationSessionRestrictions } from '../schema/domains/session-restrictions'
 import { computeEffectivePolicy } from '../engine'
 import { RiskLabel } from './RiskLabel'
+import { getThemeTokens } from '../../shared/ui/lightboxTheme'
+
+type PolicyWithSessionRestrictions = CanonicalPolicy & {
+  sessionRestrictions?: Partial<AutomationSessionRestrictions>
+}
 
 interface EffectivePreviewProps {
   localPolicy: CanonicalPolicy
@@ -26,11 +32,12 @@ export function EffectivePreview({
   capsulePolicy,
   theme = 'default',
 }: EffectivePreviewProps) {
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
-  const borderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-  const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'
+  const t = getThemeTokens(theme)
+  const isDark = !t.isLight
+  const textColor = t.text
+  const mutedColor = t.textMuted
+  const borderColor = t.border
+  const cardBg = t.cardBg
 
   // Find selected handshake
   const selectedHsp = handshakePolicies.find(p => p.id === selectedHandshakeId)
@@ -181,7 +188,7 @@ export function EffectivePreview({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <CapabilityRow
                 label="Egress Mode"
-                value={result.effective.sessionRestrictions?.egressDuringAutomation === 'none' ? 'Blocked' : 'Allowlist'}
+                value={(result.effective as PolicyWithSessionRestrictions).sessionRestrictions?.egressDuringAutomation === 'none' ? 'Blocked' : 'Allowlist'}
                 theme={theme}
               />
               <CapabilityRow
@@ -192,7 +199,7 @@ export function EffectivePreview({
               />
               <CapabilityRow
                 label="Concurrent"
-                value={result.effective.sessionRestrictions?.maxConcurrentSessions || 1}
+                value={(result.effective as PolicyWithSessionRestrictions).sessionRestrictions?.maxConcurrentSessions || 1}
                 suffix="max"
                 theme={theme}
               />
@@ -300,9 +307,9 @@ function CapabilityRow({
   isRisky?: boolean
   theme?: string
 }) {
-  const isDark = theme === 'default' || theme === 'dark'
-  const textColor = isDark ? '#e5e5e5' : '#1f2937'
-  const mutedColor = isDark ? '#9ca3af' : '#6b7280'
+  const t = getThemeTokens(theme)
+  const textColor = t.text
+  const mutedColor = t.textMuted
 
   return (
     <div style={{

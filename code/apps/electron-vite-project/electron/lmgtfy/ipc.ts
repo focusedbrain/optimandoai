@@ -40,6 +40,7 @@ export function registerHandler<T extends any[]>(
   channel: string,
   handler: (e: IpcMainInvokeEvent, ...args: T) => any,
 ) {
+  ipcMain.removeHandler(channel) // Remove existing handler to allow re-registration (e.g. when dashboard window is destroyed and recreated)
   ipcMain.handle(channel, handler)
 }
 

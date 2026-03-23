@@ -41,29 +41,42 @@ function PolicyLightboxInit({ onClose, theme = 'default' }: PolicyLightboxInitPr
 /**
  * Open the policy lightbox in the content script context
  */
-export function openPolicyLightboxInContent(theme: 'default' | 'dark' | 'professional' = 'default'): () => void {
-  console.log('[PolicyLightbox] Opening in content script')
-
-  // Create container
+export function openPolicyLightboxInContent(): () => void {
+  // Create container immediately so cleanup always works
   const container = document.createElement('div')
   container.id = 'wr-policy-lightbox-root'
   container.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 999999;'
   document.body.appendChild(container)
 
-  // Create React root
   const root = createRoot(container)
 
   const cleanup = () => {
-    console.log('[PolicyLightbox] Cleaning up')
     root.unmount()
     container.remove()
   }
 
-  root.render(
-    <React.StrictMode>
-      <PolicyLightboxInit theme={theme} onClose={cleanup} />
-    </React.StrictMode>
-  )
+  const resolveTheme = (raw: string): 'default' | 'dark' | 'professional' => {
+    if (raw === 'standard' || raw === 'professional') return 'professional';
+    if (raw === 'dark') return 'dark';
+    return 'default';
+  };
+
+  const renderWith = (theme: 'default' | 'dark' | 'professional') => {
+    root.render(
+      <React.StrictMode>
+        <PolicyLightboxInit theme={theme} onClose={cleanup} />
+      </React.StrictMode>
+    )
+  };
+
+  // Read theme from the same chrome.storage.local key the app uses
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.get(['optimando-ui-theme'], (result) => {
+      renderWith(resolveTheme(result['optimando-ui-theme'] || 'default'));
+    });
+  } else {
+    renderWith('default');
+  }
 
   return cleanup
 }

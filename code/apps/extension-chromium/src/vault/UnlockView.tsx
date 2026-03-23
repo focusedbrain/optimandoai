@@ -56,7 +56,7 @@ export const UnlockView: React.FC<UnlockViewProps> = ({ onUnlocked }) => {
 
     try {
       if (isCreating) {
-        await createVault(password)
+        await createVault(password, 'My Vault')
         console.log('[VAULT UI] ✅ Vault created')
       } else {
         await unlockVault(password)

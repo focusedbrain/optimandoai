@@ -1,4 +1,3 @@
-/// <reference types="chrome-types"/>
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcher } from './components/BackendSwitcher'
@@ -10,13 +9,11 @@ import {
   formatFingerprintShort, 
   formatFingerprintGrouped 
 } from './handshake/fingerprint'
-import { HANDSHAKE_REQUEST_TEMPLATE, POLICY_NOTES, TOOLTIPS } from './handshake/microcopy'
+import { POLICY_NOTES, TOOLTIPS } from './handshake/microcopy'
 import {
   getOurIdentity,
-  createHandshakeRequestPayload,
   type OurIdentity
 } from './handshake/handshakeService'
-import { serializeHandshakeRequestPayload } from './handshake/handshakePayload'
 import { 
   routeInput, 
   routeEventTagInput,
@@ -34,13 +31,28 @@ import {
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
+import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
+import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
-import { WRGuardWorkspace } from './wrguard'
-import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction } from './beap-messages'
-import type { RecipientMode, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
-import { useHandshakeStore } from './handshake/useHandshakeStore'
+import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
+import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
+import type { BeapBulkInboxHandle } from './beap-messages'
+import type { RecipientMode, SelectedHandshakeRecipient, SelectedRecipient, DeliveryMethod, BeapPackageConfig } from './beap-messages'
+import { BeapInboxView } from './beap-messages/components/BeapInboxView'
+import type { BeapInboxViewHandle } from './beap-messages/components/BeapInboxView'
+import { createBeapReplyAiProvider } from './beap-messages/services/beapReplyAiProvider'
+import { InboxErrorBoundary } from './beap-messages/components/InboxErrorBoundary'
+import { useBeapInboxStore } from './beap-messages/useBeapInboxStore'
+import { sendViaHandshakeRefresh } from './beap-builder/handshakeRefresh'
+import { HandshakeManagementPanel } from './handshake/components/HandshakeManagementPanel'
+import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
+import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDelivery'
+import { useHandshakes } from './handshake/useHandshakes'
 import { processAttachmentForParsing, processAttachmentForRasterization } from './beap-builder'
+import { VisionFallbackButton, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
+import { electronRpc } from './rpc/electronRpc'
+import { getVaultStatus } from './vault/api'
 
 interface ConnectionStatus {
   isConnected: boolean
@@ -101,6 +113,7 @@ function SidepanelOrchestrator() {
   const [showThirdPartyLicenses, setShowThirdPartyLicenses] = useState(false) // Third party licenses modal
   const [showElectronDialog, setShowElectronDialog] = useState(false) // Dialog when Electron app is not running
   const [isLaunchingElectron, setIsLaunchingElectron] = useState(false) // Loading state for launching Electron
+  const [platformOs, setPlatformOs] = useState<'linux' | 'mac' | 'win' | null>(null)
   
   /**
    * BASELINE LOCATION COMMENTS (Step 1/10 Refactoring)
@@ -122,15 +135,68 @@ function SidepanelOrchestrator() {
   
   // Command chat state - workspace + submode like popup
   const [dockedWorkspace, setDockedWorkspace] = useState<'wr-chat' | 'augmented-overlay' | 'beap-messages' | 'wrguard'>('wr-chat')
-  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake'>('command')
-  const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected'>('draft')
+  const [dockedSubmode, setDockedSubmode] = useState<'command' | 'p2p-chat' | 'p2p-stream' | 'group-stream' | 'handshake' | 'beap-draft'>('command')
+  const [beapSubmode, setBeapSubmode] = useState<'inbox' | 'draft' | 'outbox' | 'archived' | 'rejected' | 'bulk-inbox'>('draft')
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  
+  const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
+  const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
+
+  // Init BEAP PQ auth so qBEAP can reach Electron PQ API (port 51248)
+  useEffect(() => {
+    initBeapPqAuth()
+  }, [])
+
+  // Deep linking: ?message=id, ?handshake=id, or #message=id, #handshake=id (R.8)
+  useEffect(() => {
+    try {
+      const search = typeof window !== 'undefined' ? window.location.search : ''
+      const hash = typeof window !== 'undefined' ? window.location.hash : ''
+      const searchParams = new URLSearchParams(search)
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ''))
+      const messageId = searchParams.get('message') ?? hashParams.get('message')
+      const handshakeId = searchParams.get('handshake') ?? hashParams.get('handshake')
+      if (messageId) {
+        setDockedWorkspace('beap-messages')
+        setBeapSubmode('inbox')
+        useBeapInboxStore.getState().selectMessage(messageId)
+      } else if (handshakeId) {
+        setDockedWorkspace('wrguard')
+        useWRGuardStore.getState().setActiveSection('handshakes')
+        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+      }
+    } catch {
+      // Ignore deep-link parse errors
+    }
+  }, [])
+
+  // Fetch vault status for HS Context gating (Publisher+ only)
+  useEffect(() => {
+    const fetchVault = async () => {
+      try {
+        const status = await getVaultStatus()
+        setCanUseHsContextProfiles(status?.canUseHsContextProfiles ?? false)
+      } catch {
+        setCanUseHsContextProfiles(false)
+      }
+    }
+    fetchVault()
+    const h = () => fetchVault()
+    window.addEventListener('vault-status-changed', h)
+    return () => window.removeEventListener('vault-status-changed', h)
+  }, [])
+
   // Helper to get combined mode for conditional rendering
   const dockedPanelMode = dockedWorkspace === 'wr-chat' ? dockedSubmode : dockedWorkspace
   
   // Helper to get the current BEAP view for conditional rendering
   const currentBeapView = dockedWorkspace === 'beap-messages' ? beapSubmode : null
+
+  // Search bar context label — updated by BeapInboxView / HandshakeDetailsPanel when a
+  // message or handshake is selected. Used as the dynamic textarea placeholder.
+  const [searchBarContext, setSearchBarContext] = React.useState<string>('')
+  const inboxViewRef = React.useRef<BeapInboxViewHandle>(null)
+  const bulkInboxRef = React.useRef<BeapBulkInboxHandle>(null)
+  const pendingInboxAiRef = React.useRef<{ messageId: string; query: string } | null>(null)
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatHeight, setChatHeight] = useState(200)
@@ -151,6 +217,7 @@ function SidepanelOrchestrator() {
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [electronNotRunning, setElectronNotRunning] = useState(false)
   const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   
   // Check auth status on mount and periodically
@@ -183,6 +250,13 @@ function SidepanelOrchestrator() {
     return () => clearInterval(interval);
   }, []);
   
+  // Platform detection for Linux vs Windows copy and Start Desktop App button
+  useEffect(() => {
+    chrome.runtime.getPlatformInfo?.().then((info) => {
+      setPlatformOs(info.os as 'linux' | 'mac' | 'win')
+    }).catch(() => setPlatformOs(null))
+  }, [])
+
   // Open wrdesk.com when logged out (once per sidepanel open, no tab spam)
   const hasTriedOpeningWrdeskRef = useRef(false);
   useEffect(() => {
@@ -205,6 +279,7 @@ function SidepanelOrchestrator() {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
     setLoginError(null);
+    setElectronNotRunning(false);
     chrome.runtime.sendMessage({ type: 'AUTH_LOGIN' }, (response) => {
       setIsLoggingIn(false);
       if (response?.ok) {
@@ -225,11 +300,11 @@ function SidepanelOrchestrator() {
         const reason = response?.error || 'unknown';
         console.log('[AUTH] SSO failed. Reason:', reason);
         if (response?.electronNotRunning) {
-          // Electron is truly not running – redirect to wrdesk.com
-          setLoginError('Desktop app is not running. Please start WR Desk Orchestrator.');
+          setElectronNotRunning(true);
+          setLoginError('WR Desk Orchestrator is not running.');
           chrome.runtime.sendMessage({ type: 'OPEN_WRDESK_HOME_IF_NEEDED' });
         } else {
-          // Transient issue (launch secret not ready, timeout, etc.) – show error, let user retry
+          setElectronNotRunning(false);
           setLoginError(reason);
         }
       }
@@ -260,50 +335,62 @@ function SidepanelOrchestrator() {
   const [mailguardAttachments, setMailguardAttachments] = useState<Array<{name: string, size: number, file: File}>>([])
   const [mailguardBodyHeight, setMailguardBodyHeight] = useState(200)
   
-  // BEAP Handshake Request state
-  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'messenger' | 'download'>('email')
-  const [handshakeTo, setHandshakeTo] = useState('')
-  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
-  const [fingerprintCopied, setFingerprintCopied] = useState(false)
-  
   // ==========================================================================
-  // Real X25519 Identity (replaces mock fingerprint)
+  // Identity (for fingerprint display in other panels)
   // ==========================================================================
-  
+
   const [identity, setIdentity] = useState<OurIdentity | null>(null)
   const [identityLoading, setIdentityLoading] = useState(true)
-  const [handshakeSending, setHandshakeSending] = useState(false)
-  
-  // Load real identity on mount
+
+  // Load identity on mount
   useEffect(() => {
     let mounted = true
     setIdentityLoading(true)
-    
     getOurIdentity()
-      .then((id) => {
-        if (mounted) {
-          setIdentity(id)
-          // Update handshake message with real fingerprint
-          setHandshakeMessage(HANDSHAKE_REQUEST_TEMPLATE.replace('[FINGERPRINT]', id.fingerprint))
-        }
-      })
-      .catch((err) => {
-        console.error('[Sidepanel] Failed to load identity:', err)
-      })
-      .finally(() => {
-        if (mounted) setIdentityLoading(false)
-      })
-    
+      .then((id) => { if (mounted) setIdentity(id) })
+      .catch((err) => { console.error('[Sidepanel] Failed to load identity:', err) })
+      .finally(() => { if (mounted) setIdentityLoading(false) })
     return () => { mounted = false }
   }, [])
-  
-  // Derived fingerprint values (safe to use after loading)
+
+  // Derived fingerprint values
   const ourFingerprint = identity?.fingerprint || ''
   const ourFingerprintShort = identity ? formatFingerprintShort(identity.fingerprint) : '...'
+
+  const replyComposerConfig = useMemo(() => {
+    const generate = async (prompt: string): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'BEAP_GENERATE_DRAFT', prompt },
+          (response: { ok?: boolean; data?: { content?: string }; error?: string } | undefined) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError?.message ?? 'Draft generation failed'))
+              return
+            }
+            if (response?.ok && response?.data?.content != null) {
+              resolve(response.data.content)
+            } else {
+              reject(new Error(response?.error ?? 'Draft generation failed'))
+            }
+          }
+        )
+      })
+    }
+    return {
+      senderFingerprint: ourFingerprint,
+      senderFingerprintShort: ourFingerprintShort,
+      aiProvider: createBeapReplyAiProvider(generate),
+      policy: { allowSemanticProcessing: true, allowActuatingProcessing: false },
+    }
+  }, [ourFingerprint, ourFingerprintShort])
   
-  // Initialize handshake message (will be updated when identity loads)
+  // BEAP Handshake Request delivery state (used in draft panels)
+  const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('p2p')
+  const [handshakeTo, setHandshakeTo] = useState('')
+  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
   const [handshakeMessage, setHandshakeMessage] = useState('')
-  
+  const [fingerprintCopied, setFingerprintCopied] = useState(false)
+
   // BEAP Draft message state (separate from handshake message)
   const [beapDraftMessage, setBeapDraftMessage] = useState('')
   const [beapDraftEncryptedMessage, setBeapDraftEncryptedMessage] = useState('')
@@ -315,17 +402,10 @@ function SidepanelOrchestrator() {
   // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
-  
-  // Get handshakes from store
-  const handshakes = useHandshakeStore(state => state.handshakes)
-  const initializeHandshakes = useHandshakeStore(state => state.initializeWithDemo)
-  const createPendingOutgoing = useHandshakeStore(state => state.createPendingOutgoingFromRequest)
-  
-  // Initialize handshakes on mount
-  useEffect(() => {
-    initializeHandshakes()
-  }, [initializeHandshakes])
-  
+
+  // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
+  const { handshakes } = useHandshakes('active')
+
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
   const loadAvailableSessions = () => {
@@ -405,83 +485,101 @@ function SidepanelOrchestrator() {
     setIsSendingBeap(true)
     
     try {
-      // Build config for the package builder
-      // Extract CapsuleAttachment objects from draft attachments
-      const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
-      // Collect all raster page data as artefacts for the package
-      const rasterArtefacts: BeapPackageConfig['rasterArtefacts'] = []
-      for (const att of beapDraftAttachments) {
-        if (att.rasterPageData && att.rasterPageData.length > 0) {
-          for (const pageData of att.rasterPageData) {
-            rasterArtefacts.push({
-              artefactRef: pageData.artefactRef,
-              attachmentId: att.id,
-              page: pageData.page,
-              mime: pageData.mime,
-              base64: pageData.base64,
-              sha256: pageData.sha256,
-              width: pageData.width,
-              height: pageData.height,
-              bytes: pageData.bytes
-            })
+      // Download/messenger: always use package builder + executeDeliveryAction (never handshake.refresh)
+      // Email + private: use handshake.refresh RPC for direct delivery
+      const useHandshakeRefresh =
+        handshakeDelivery === 'email' &&
+        beapRecipientMode === 'private' &&
+        selectedRecipient &&
+        'handshake_id' in selectedRecipient
+
+      if (useHandshakeRefresh) {
+        const hsRecipient = selectedRecipient as any
+        const hsId = hsRecipient.handshake_id as string
+        const accountId = selectedEmailAccountId || 'default'
+        
+        const result = await sendViaHandshakeRefresh(hsId, { text: beapDraftMessage }, accountId)
+        
+        if (result.success) {
+          setNotification({ message: 'BEAP™ Message sent via handshake!', type: 'success' })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        } else {
+          setNotification({ message: result.error || 'Failed to send message', type: 'error' })
+        }
+      } else {
+        // Legacy path: use the package builder + delivery service
+        const capsuleAttachments = beapDraftAttachments.map(a => a.capsuleAttachment)
+        const rasterArtefacts: BeapPackageConfig['rasterArtefacts'] = []
+        for (const att of beapDraftAttachments) {
+          if (att.rasterPageData && att.rasterPageData.length > 0) {
+            for (const pageData of att.rasterPageData) {
+              rasterArtefacts.push({
+                artefactRef: pageData.artefactRef,
+                attachmentId: att.id,
+                page: pageData.page,
+                mime: pageData.mime,
+                base64: pageData.base64,
+                sha256: pageData.sha256,
+                width: pageData.width,
+                height: pageData.height,
+                bytes: pageData.bytes
+              })
+            }
           }
         }
-      }
-      // Collect original file bytes for archival (per canon A.3.043)
-      // These will be encrypted as "original" class artefacts
-      const originalFiles: BeapPackageConfig['originalFiles'] = beapDraftAttachments.map(att => ({
-        attachmentId: att.id,
-        filename: att.name,
-        mime: att.mime,
-        base64: att.dataBase64
-      }))
-      const config: BeapPackageConfig = {
-        recipientMode: beapRecipientMode,
-        deliveryMethod: handshakeDelivery as DeliveryMethod,
-        selectedRecipient,
-        senderFingerprint: ourFingerprint,
-        senderFingerprintShort: ourFingerprintShort,
-        emailTo: beapDraftTo,
-        subject: 'BEAP™ Message',
-        messageBody: beapDraftMessage,
-        attachments: capsuleAttachments,
-        rasterArtefacts: rasterArtefacts.length > 0 ? rasterArtefacts : undefined,
-        // Original file bytes for archival (encrypted as "original" artefacts per canon A.3.043)
-        originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
-        // Only pass encrypted message for qBEAP/private mode
-        ...(beapRecipientMode === 'private' && {
-          encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
-        })
-      }
-      
-      // Log warning if qBEAP private build without encrypted message
-      if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
-        console.warn('[BEAP Builder] qBEAP private build without encryptedMessage: using transport plaintext only')
-      }
-      
-      // Execute the delivery action
-      const result = await executeDeliveryAction(config)
-      
-      if (result.success) {
-        // Show success notification based on delivery method
-        const actionLabel = handshakeDelivery === 'download' ? 'Package downloaded!' 
-          : handshakeDelivery === 'messenger' ? 'Payload copied to clipboard!' 
-          : 'BEAP™ Message sent!'
-        setNotification({ message: actionLabel, type: 'success' })
+        const originalFiles: BeapPackageConfig['originalFiles'] = beapDraftAttachments.map(att => ({
+          attachmentId: att.id,
+          filename: att.name,
+          mime: att.mime,
+          base64: att.dataBase64
+        }))
+        const config: BeapPackageConfig = {
+          recipientMode: beapRecipientMode,
+          deliveryMethod: handshakeDelivery as DeliveryMethod,
+          selectedRecipient,
+          senderFingerprint: ourFingerprint,
+          senderFingerprintShort: ourFingerprintShort,
+          emailTo: beapDraftTo,
+          subject: 'BEAP™ Message',
+          messageBody: beapDraftMessage,
+          attachments: capsuleAttachments,
+          rasterArtefacts: rasterArtefacts.length > 0 ? rasterArtefacts : undefined,
+          originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
+          ...(beapRecipientMode === 'private' && {
+            encryptedMessage: beapDraftEncryptedMessage.trim() || undefined
+          })
+        }
         
-        // Clear form
-        setBeapDraftTo('')
-        setBeapDraftMessage('')
-        setBeapDraftEncryptedMessage('')
-        setBeapDraftSessionId('')
-        setBeapDraftAttachments([])
-        setSelectedRecipient(null)
-      } else {
-        setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+        if (beapRecipientMode === 'private' && !beapDraftEncryptedMessage.trim()) {
+          console.warn('[BEAP Builder] qBEAP private build without encryptedMessage: using transport plaintext only')
+        }
+        
+        const result = await executeDeliveryAction(config)
+        
+        if (result.success) {
+          const actionLabel = handshakeDelivery === 'download' ? 'BEAP capsule downloaded' 
+            : handshakeDelivery === 'p2p' ? 'BEAP™ Message sent via P2P!' 
+            : 'BEAP™ Message sent!'
+          setNotification({ message: actionLabel, type: 'success' })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        } else {
+          setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+        }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-      setNotification({ message, type: 'error' })
+      const raw = error instanceof Error ? error.message : 'An unexpected error occurred'
+      const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
+      setNotification({ message: isTechnical ? 'Something went wrong. Please try again.' : raw, type: 'error' })
     } finally {
       setIsSendingBeap(false)
       setTimeout(() => setNotification(null), 3000)
@@ -493,7 +591,7 @@ function SidepanelOrchestrator() {
     if (isSendingBeap) return '⏳ Processing...'
     switch (handshakeDelivery) {
       case 'email': return '📧 Send'
-      case 'messenger': return '📋 Copy'
+      case 'p2p': return '🔗 Send'
       case 'download': return '💾 Download'
       default: return '📤 Send'
     }
@@ -515,11 +613,11 @@ function SidepanelOrchestrator() {
     status: 'active' | 'error' | 'disabled'
     lastError?: string
   }>>([])
+  const defaultEmailAccountRowId = useMemo(
+    () => pickDefaultEmailAccountRowId(emailAccounts),
+    [emailAccounts],
+  )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
-  const [showEmailSetupWizard, setShowEmailSetupWizard] = useState(false)
-  const [emailSetupStep, setEmailSetupStep] = useState<'provider' | 'credentials' | 'connecting' | 'gmail-credentials' | 'outlook-credentials'>('provider')
-  const [gmailCredentials, setGmailCredentials] = useState({ clientId: '', clientSecret: '' })
-  const [outlookCredentials, setOutlookCredentials] = useState({ clientId: '', clientSecret: '' })
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
   const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
@@ -569,6 +667,11 @@ function SidepanelOrchestrator() {
       setIsLoadingEmailAccounts(false)
     }
   }
+
+  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
+    onAfterConnected: loadEmailAccounts,
+    theme: theme === 'standard' ? 'professional' : 'default',
+  })
   
   // Load email accounts when BEAP Messages workspace is selected
   useEffect(() => {
@@ -576,241 +679,6 @@ function SidepanelOrchestrator() {
       loadEmailAccounts()
     }
   }, [dockedWorkspace])
-  
-  // IMAP form state
-  const [imapForm, setImapForm] = useState({
-    displayName: '',
-    email: '',
-    host: '',
-    port: 993,
-    username: '',
-    password: '',
-    security: 'ssl' as 'ssl' | 'starttls' | 'none'
-  })
-  const [imapPresets, setImapPresets] = useState<Record<string, { name: string; host: string; port: number; security: string }>>({})
-  
-  // Load IMAP presets
-  const loadImapPresets = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_GET_PRESETS' })
-      if (response?.ok && response?.data) {
-        setImapPresets(response.data)
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to load IMAP presets:', err)
-    }
-  }
-  
-  // Check if Gmail credentials are configured, show inline form if not
-  const startGmailConnect = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_GMAIL_CREDENTIALS' })
-      if (response?.ok && response?.data?.configured) {
-        // Credentials exist, proceed with OAuth
-        connectGmailAccount()
-      } else {
-        // Show inline credentials form
-        setEmailSetupStep('gmail-credentials')
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to check Gmail credentials:', err)
-      // Show form anyway
-      setEmailSetupStep('gmail-credentials')
-    }
-  }
-  
-  // Save Gmail credentials and connect
-  const saveGmailCredentialsAndConnect = async () => {
-    if (!gmailCredentials.clientId || !gmailCredentials.clientSecret) {
-      setNotification({ message: 'Please enter both Client ID and Client Secret', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      // Save credentials
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_GMAIL_CREDENTIALS',
-        clientId: gmailCredentials.clientId,
-        clientSecret: gmailCredentials.clientSecret
-      })
-      
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      
-      // Now connect
-      await connectGmailAccount()
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to save Gmail credentials:', err)
-      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('gmail-credentials')
-    }
-  }
-  
-  // Connect Gmail account via Electron
-  const connectGmailAccount = async () => {
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_GMAIL' 
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setGmailCredentials({ clientId: '', clientSecret: '' })
-        loadEmailAccounts()
-        setNotification({ message: 'Gmail connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('provider')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect Gmail:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('provider')
-    }
-  }
-  
-  // Check if Outlook credentials are configured, show inline form if not
-  const startOutlookConnect = async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_OUTLOOK_CREDENTIALS' })
-      if (response?.ok && response?.data?.configured) {
-        // Credentials exist, proceed with OAuth
-        connectOutlookAccount()
-      } else {
-        // Show inline credentials form
-        setEmailSetupStep('outlook-credentials')
-      }
-    } catch (err) {
-      console.error('[Sidepanel] Failed to check Outlook credentials:', err)
-      // Show form anyway
-      setEmailSetupStep('outlook-credentials')
-    }
-  }
-  
-  // Save Outlook credentials and connect
-  const saveOutlookCredentialsAndConnect = async () => {
-    if (!outlookCredentials.clientId) {
-      setNotification({ message: 'Please enter the Client ID', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      // Save credentials
-      const saveResponse = await chrome.runtime.sendMessage({
-        type: 'EMAIL_SAVE_OUTLOOK_CREDENTIALS',
-        clientId: outlookCredentials.clientId,
-        clientSecret: outlookCredentials.clientSecret
-      })
-      
-      if (!saveResponse?.ok) {
-        throw new Error(saveResponse?.error || 'Failed to save credentials')
-      }
-      
-      // Now connect
-      await connectOutlookAccount()
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to save Outlook credentials:', err)
-      setNotification({ message: err.message || 'Failed to save credentials', type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('outlook-credentials')
-    }
-  }
-  
-  // Connect Outlook account via Electron
-  const connectOutlookAccount = async () => {
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_OUTLOOK' 
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setOutlookCredentials({ clientId: '', clientSecret: '' })
-        loadEmailAccounts()
-        setNotification({ message: 'Outlook connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('provider')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect Outlook:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('provider')
-    }
-  }
-  
-  // Connect IMAP account
-  const connectImapAccount = async () => {
-    if (!imapForm.email || !imapForm.host || !imapForm.username || !imapForm.password) {
-      setNotification({ message: 'Please fill in all required fields', type: 'error' })
-      setTimeout(() => setNotification(null), 3000)
-      return
-    }
-    
-    setEmailSetupStep('connecting')
-    try {
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_CONNECT_IMAP',
-        ...imapForm
-      })
-      if (response?.ok) {
-        setShowEmailSetupWizard(false)
-        setEmailSetupStep('provider')
-        setImapForm({ displayName: '', email: '', host: '', port: 993, username: '', password: '', security: 'ssl' })
-        loadEmailAccounts()
-        setNotification({ message: 'Email account connected successfully!', type: 'success' })
-        setTimeout(() => setNotification(null), 3000)
-      } else {
-        // Use user-friendly error message
-        const errorMessage = formatErrorForNotification(response?.error, response?.errorCode)
-        const timeout = isConnectionError(response?.errorCode) ? 8000 : 5000
-        setNotification({ message: errorMessage, type: 'error' })
-        setTimeout(() => setNotification(null), timeout)
-        setEmailSetupStep('credentials')
-      }
-    } catch (err: any) {
-      console.error('[Sidepanel] Failed to connect IMAP:', err)
-      const errorMessage = formatErrorForNotification(err.message)
-      setNotification({ message: errorMessage, type: 'error' })
-      setTimeout(() => setNotification(null), 5000)
-      setEmailSetupStep('credentials')
-    }
-  }
-  
-  // Apply IMAP preset
-  const applyImapPreset = (presetKey: string) => {
-    const preset = imapPresets[presetKey]
-    if (preset) {
-      setImapForm(prev => ({
-        ...prev,
-        host: preset.host,
-        port: preset.port,
-        security: preset.security as 'ssl' | 'starttls' | 'none'
-      }))
-    }
-  }
   
   // Disconnect email account
   const disconnectEmailAccount = async (accountId: string) => {
@@ -833,12 +701,11 @@ function SidepanelOrchestrator() {
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
   
-  // Function to refresh available models
+  // Function to refresh available models (uses electronRpc for auth — direct fetch gets 401)
   const refreshAvailableModels = async () => {
     try {
-      const baseUrl = 'http://127.0.0.1:51248'
-      const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
-      const statusResult = await statusResponse.json()
+      const result = await electronRpc('llm.status')
+      const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
       
       if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
         const models = statusResult.data.modelsInstalled
@@ -870,11 +737,8 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     const fetchFirstAvailableModel = async () => {
       try {
-        const baseUrl = 'http://127.0.0.1:51248'
-        
-        // Check status first
-        const statusResponse = await fetch(`${baseUrl}/api/llm/status`)
-        const statusResult = await statusResponse.json()
+        const result = await electronRpc('llm.status')
+        const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
         
         if (!statusResult.ok || !statusResult.data) {
           setLlmError('LLM service not available')
@@ -1330,7 +1194,7 @@ function SidepanelOrchestrator() {
     checkTabType()
 
     // Listen for tab updates (URL changes)
-    const handleTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+    const handleTabUpdate = (tabId: number, changeInfo: { url?: string; status?: string }, tab: chrome.tabs.Tab) => {
       if (changeInfo.url || changeInfo.status === 'complete') {
         console.log('🔄 Tab URL changed, rechecking tab type')
         checkTabType()
@@ -1338,7 +1202,7 @@ function SidepanelOrchestrator() {
     }
 
     // Listen for when user switches tabs
-    const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+    const handleTabActivated = (activeInfo: { tabId: number; windowId: number }) => {
       console.log('🔄 Tab activated, rechecking tab type')
       checkTabType()
     }
@@ -1763,28 +1627,60 @@ function SidepanelOrchestrator() {
   // Function to launch Electron app
   // State for showing manual launch instructions
   const [showManualLaunchInstructions, setShowManualLaunchInstructions] = useState(false)
+  const [launchTimedOut, setLaunchTimedOut] = useState(false)
+  
+  const checkConnection = (): Promise<boolean> => {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (r: { data?: { isConnected?: boolean } }) => {
+        resolve(r?.data?.isConnected ?? false)
+      })
+    })
+  }
   
   const launchElectronApp = async () => {
     setIsLaunchingElectron(true)
     setShowManualLaunchInstructions(false)
+    setLaunchTimedOut(false)
     try {
-      // Send message to background to launch Electron
+      // First check if Electron is already running (common in dev mode on Linux
+      // where protocol launch can't start the app but it's already running).
+      const alreadyRunning = await checkConnection()
+      if (alreadyRunning) {
+        setIsLaunchingElectron(false)
+        setShowElectronDialog(false)
+        handleAuthSignIn()
+        return
+      }
+
+      // Protocol launch (wrdesk://) disabled - caused xdg-open dialog on Linux
       const response = await chrome.runtime.sendMessage({ type: 'LAUNCH_ELECTRON_APP' })
       
       if (response?.success) {
-        // Wait a bit and recheck status
         setShowElectronDialog(false)
-        setTimeout(() => {
-          chrome.runtime.sendMessage({ type: 'GET_STATUS' })
-        }, 2000)
+        await new Promise(r => setTimeout(r, 2000))
+        chrome.runtime.sendMessage({ type: 'GET_STATUS' })
+        handleAuthSignIn()
       } else {
-        // Always show manual instructions when automatic launch fails
-        setShowManualLaunchInstructions(true)
-        setNotification({ 
-          message: response?.error || 'Please start WR Desk manually from the Start Menu.', 
-          type: 'error' 
-        })
-        setTimeout(() => setNotification(null), 8000)
+        // Poll for connection (user may start app manually)
+        const pollInterval = 2000
+        const maxWait = 30000
+        const start = Date.now()
+        const poll = async () => {
+          if (Date.now() - start >= maxWait) {
+            setLaunchTimedOut(true)
+            setIsLaunchingElectron(false)
+            return
+          }
+          const connected = await checkConnection()
+          if (connected) {
+            setIsLaunchingElectron(false)
+            handleAuthSignIn()
+            return
+          }
+          setTimeout(poll, pollInterval)
+        }
+        setTimeout(poll, pollInterval)
+        return
       }
     } catch (err) {
       console.error('[Sidepanel] Failed to launch Electron:', err)
@@ -1794,9 +1690,8 @@ function SidepanelOrchestrator() {
         type: 'error' 
       })
       setTimeout(() => setNotification(null), 8000)
-    } finally {
-      setIsLaunchingElectron(false)
     }
+    setIsLaunchingElectron(false)
   }
   
   // Retry connection check (for after user manually starts the app)
@@ -1850,7 +1745,7 @@ function SidepanelOrchestrator() {
     setNotification({ message: 'Opening Analysis Dashboard...', type: 'info' })
     setTimeout(() => setNotification(null), 3000)
     
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD' }, (response) => {
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD', theme }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('❌ Error:', chrome.runtime.lastError.message)
         setNotification({ message: 'Failed to open Dashboard. Is the extension loaded?', type: 'error' })
@@ -2601,17 +2496,45 @@ function SidepanelOrchestrator() {
     }
   }
 
+  const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
+    const ctx = pendingInboxAiRef.current
+    if (ctx) {
+      if (ctx.isBulk) {
+        bulkInboxRef.current?.handleExternalAiQuery(ctx.query, ctx.messageId, response, 'text', 'search')
+        bulkInboxRef.current?.stopGenerating(ctx.messageId)
+      } else {
+        inboxViewRef.current?.appendAiEntry({ query: ctx.query, content: response, type: 'text', source: 'search' })
+        inboxViewRef.current?.stopGenerating()
+      }
+      pendingInboxAiRef.current = null
+    }
+  }, [])
+
   const handleSendMessage = async () => {
-    const text = chatInput.trim()
+    const text = (pendingInboxAiRef.current?.query ?? chatInput).trim()
     // Allow sending with just an image (no text required)
     const hasImage = chatMessages.some(msg => msg.imageUrl)
+
+    // Route AI response to inbox detail panel (or bulk grid pair) when in BEAP inbox with message selected
+    if (
+      !pendingInboxAiRef.current &&
+      dockedWorkspace === 'beap-messages' &&
+      beapSubmode === 'inbox' &&
+      text
+    ) {
+      const selectedMessage = useBeapInboxStore.getState().getSelectedMessage()
+      if (selectedMessage) {
+        pendingInboxAiRef.current = { messageId: selectedMessage.messageId, query: text }
+        inboxViewRef.current?.startGenerating()
+      }
+    }
     
     // If empty input, show helpful hint
     if (!text && !hasImage) {
       if (isLlmLoading) return
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Attach files with 📎 for context\n\nTry: "What can you help me with?" or "#help"`
+        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Use the upload button to attach files for context\n\nTry: "What can you help me with?" or "#help"`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -2746,7 +2669,8 @@ function SidepanelOrchestrator() {
         activeEnabled: a.listening?.activeEnabled,
         passiveTriggers: a.listening?.passive?.triggers?.map((t: any) => t.tag?.name),
         activeTriggers: a.listening?.active?.triggers?.map((t: any) => t.tag?.name),
-        unifiedTriggers: a.listening?.triggers?.map((t: any) => t.tag || t.tagName)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- debug log: access legacy 'triggers' field that may exist at runtime
+        unifiedTriggers: (a.listening as any)?.triggers?.map((t: any) => t.tag || t.tagName)
       })))
       
       if (nlpResult.input.triggers.length > 0) {
@@ -2770,10 +2694,8 @@ function SidepanelOrchestrator() {
           // Display match detection feedback if any agents matched
           if (eventTagResult.batch.results.length > 0) {
             const matchFeedback = generateEventTagMatchFeedback(eventTagResult.batch)
-            setChatMessages(prev => [...prev, {
-              role: 'assistant' as const,
-              text: matchFeedback
-            }])
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: matchFeedback }])
+            routeAssistantToInboxIfPending(matchFeedback)
             scrollToBottom()
           } else {
             // Debug: Show why no matches were found
@@ -2799,10 +2721,8 @@ function SidepanelOrchestrator() {
         // =================================================================
         
         // A1. Show Butler confirmation (immediate response)
-        setChatMessages([...newMessages, {
-          role: 'assistant' as const,
-          text: routingDecision.butlerResponse
-        }])
+        setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
         // A2. Process with each matched agent
@@ -2832,24 +2752,21 @@ function SidepanelOrchestrator() {
               )
               
               // Show brief confirmation in chat
-              setChatMessages(prev => [...prev, {
-                role: 'assistant' as const,
-                text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
-              }])
+              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+              setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
+              routeAssistantToInboxIfPending(agentConfirm)
             } else {
               // No AgentBox - show full output in chat
-              setChatMessages(prev => [...prev, {
-                role: 'assistant' as const,
-                text: `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
-              }])
+              const agentOutput = `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
+              setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentOutput }])
+              routeAssistantToInboxIfPending(agentOutput)
             }
             scrollToBottom()
           } else if (result.error) {
             // Show error for this agent
-            setChatMessages(prev => [...prev, {
-              role: 'assistant' as const,
-              text: `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
-            }])
+            const agentErr = `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentErr }])
+            routeAssistantToInboxIfPending(agentErr)
             scrollToBottom()
           }
         }
@@ -2859,10 +2776,8 @@ function SidepanelOrchestrator() {
         // PATH B: SYSTEM STATUS RESPONSE
         // Butler handled this directly (e.g., "status", "what agents")
         // =================================================================
-        setChatMessages([...newMessages, {
-          role: 'assistant' as const,
-          text: routingDecision.butlerResponse
-        }])
+        setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
       } else {
@@ -2873,10 +2788,8 @@ function SidepanelOrchestrator() {
         const butlerResult = await getButlerResponse(processedMessages, activeLlmModel, baseUrl)
         
         if (butlerResult.success && butlerResult.response) {
-          setChatMessages([...newMessages, {
-            role: 'assistant' as const,
-            text: butlerResult.response
-          }])
+          setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])
+          routeAssistantToInboxIfPending(butlerResult.response)
           scrollToBottom()
         } else {
           throw new Error(butlerResult.error || 'No response from butler')
@@ -2895,16 +2808,23 @@ function SidepanelOrchestrator() {
         errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
       }
       
-      setChatMessages(prev => [...prev, {
-        role: 'assistant' as const,
-        text: errorMsg
-      }])
+      setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
+      routeAssistantToInboxIfPending(errorMsg)
       
       // Scroll to bottom after error message
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
       }, 0)
     } finally {
+      const ctx = pendingInboxAiRef.current
+      if (ctx) {
+        if (ctx.isBulk) {
+          bulkInboxRef.current?.stopGenerating(ctx.messageId)
+        } else {
+          inboxViewRef.current?.stopGenerating()
+        }
+        pendingInboxAiRef.current = null
+      }
       setIsLlmLoading(false)
     }
   }
@@ -3022,11 +2942,19 @@ function SidepanelOrchestrator() {
           </span>
         </button>
         
-        {/* Model dropdown toggle */}
+        {/* Model dropdown toggle — refresh models when opening, retry if empty */}
         <button
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation()
-            setShowModelDropdown(!showModelDropdown)
+            const next = !showModelDropdown
+            if (next) {
+              let ok = await refreshAvailableModels()
+              if (!ok && availableModels.length === 0) {
+                await new Promise(r => setTimeout(r, 2000))
+                await refreshAvailableModels()
+              }
+            }
+            setShowModelDropdown(next)
           }}
           disabled={isLlmLoading}
           style={{
@@ -3484,44 +3412,9 @@ function SidepanelOrchestrator() {
           textAlign: 'center'
         }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
-          <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 700 }}>
-            WR Desk Analysis Dashboard
-          </h2>
           
-          {!showManualLaunchInstructions ? (
-            <>
-              <p style={{ 
-                margin: '0 0 20px 0', 
-                fontSize: '13px', 
-                opacity: 0.9,
-                lineHeight: 1.5 
-              }}>
-                The desktop application is not running. Start it to enable full functionality including LLM processing, secure storage, and advanced features.
-              </p>
-              
-              <button
-                onClick={launchElectronApp}
-                disabled={isLaunchingElectron}
-                style={{
-                  width: '100%',
-                  padding: '12px 20px',
-                  background: isLaunchingElectron ? 'rgba(255,255,255,0.3)' : '#22c55e',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: isLaunchingElectron ? 'white' : '#0b1e12',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  cursor: isLaunchingElectron ? 'wait' : 'pointer',
-                  marginBottom: '12px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {isLaunchingElectron ? '⏳ Starting...' : '🚀 Start Dashboard'}
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={{
+          <>
+            <div style={{
                 background: 'rgba(0,0,0,0.2)',
                 borderRadius: '8px',
                 padding: '16px',
@@ -3532,11 +3425,23 @@ function SidepanelOrchestrator() {
                   Please start the app manually:
                 </p>
                 <ol style={{ margin: '0', paddingLeft: '20px', fontSize: '12px', lineHeight: 1.6 }}>
-                  <li>Open the <strong>Start Menu</strong></li>
-                  <li>Search for <strong>"WR Desk"</strong></li>
-                  <li>Click to launch the application</li>
-                  <li>Wait for the tray icon (🧠) to appear</li>
-                  <li>Click <strong>Retry Connection</strong> below</li>
+                  {platformOs === 'linux' ? (
+                    <>
+                      <li>Open your application menu</li>
+                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Click to launch the application</li>
+                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Click <strong>Retry Connection</strong> below</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>Open the <strong>Start Menu</strong></li>
+                      <li>Search for <strong>WR Desk</strong></li>
+                      <li>Click to launch the application</li>
+                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Click <strong>Retry Connection</strong> below</li>
+                    </>
+                  )}
                 </ol>
               </div>
               
@@ -3559,27 +3464,7 @@ function SidepanelOrchestrator() {
               >
                 {isLaunchingElectron ? '⏳ Checking...' : '🔄 Retry Connection'}
               </button>
-              
-              <button
-                onClick={() => {
-                  setShowManualLaunchInstructions(false)
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 16px',
-                  background: 'transparent',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  borderRadius: '6px',
-                  color: 'rgba(255,255,255,0.8)',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  marginBottom: '12px'
-                }}
-              >
-                ← Try Auto-Start Again
-              </button>
-            </>
-          )}
+          </>
           
           <button
             onClick={() => setShowElectronDialog(false)}
@@ -3605,8 +3490,9 @@ function SidepanelOrchestrator() {
             borderTop: '1px solid rgba(255,255,255,0.2)',
             paddingTop: '12px'
           }}>
-            <strong>Tip:</strong> The dashboard normally starts automatically with Windows. 
-            Check the system tray (🧠) if it's running in the background.
+            <strong>Tip:</strong> {platformOs === 'linux'
+              ? 'On Linux, start WR Desk from your application menu. Check the system tray (🧠) if it\'s running.'
+              : 'The dashboard normally starts automatically with Windows. Check the system tray (🧠) if it\'s running in the background.'}
           </div>
         </div>
       </div>
@@ -3635,7 +3521,7 @@ function SidepanelOrchestrator() {
           color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
           textAlign: 'center'
         }}>
-          Loading...
+          Loading WR Desk™…
         </div>
       </div>
     )
@@ -3770,16 +3656,63 @@ function SidepanelOrchestrator() {
         
         {/* Login error message */}
         {loginError && !isLoggingIn && (
-          <p style={{
-            fontSize: '12px',
-            color: theme === 'standard' ? '#dc2626' : '#f87171',
-            margin: 0,
-            textAlign: 'center',
-            lineHeight: '1.5',
-            maxWidth: '280px'
-          }}>
-            {loginError}
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', maxWidth: '280px' }}>
+            {electronNotRunning ? (
+              <>
+                <p style={{
+                  fontSize: '12px',
+                  color: theme === 'standard' ? '#dc2626' : '#f87171',
+                  margin: 0,
+                  textAlign: 'center',
+                  lineHeight: '1.5',
+                }}>
+                  WR Desk Orchestrator is not running.
+                </p>
+                <p style={{
+                  fontSize: '11px',
+                  color: theme === 'standard' ? '#6b7280' : '#9ca3af',
+                  margin: 0,
+                  textAlign: 'center',
+                  lineHeight: '1.5',
+                }}>
+                  {platformOs === 'linux'
+                    ? 'Please start WR Desk from your application menu.'
+                    : <>Please start WR Desk from the Start menu.</>}
+                </p>
+                {launchTimedOut ? (
+                  <p style={{ fontSize: '11px', color: theme === 'standard' ? '#dc2626' : '#f87171', margin: '4px 0 0', textAlign: 'center' }}>
+                    Could not connect. Please make sure WR Desk is running and try again.
+                  </p>
+                ) : null}
+                <button
+                  onClick={handleAuthSignIn}
+                  style={{
+                    marginTop: '4px',
+                    padding: '6px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: theme === 'standard' ? '#6366f1' : '#818cf8',
+                    color: '#fff',
+                  }}
+                >
+                  Retry Sign In
+                </button>
+              </>
+            ) : (
+              <p style={{
+                fontSize: '12px',
+                color: theme === 'standard' ? '#dc2626' : '#f87171',
+                margin: 0,
+                textAlign: 'center',
+                lineHeight: '1.5',
+              }}>
+                {loginError}
+              </p>
+            )}
+          </div>
         )}
       </div>
     )
@@ -3821,8 +3754,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={openPopupChat}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle('rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0
@@ -3834,8 +3765,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={toggleCommandChatPin}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
@@ -4025,6 +3954,7 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <option value="inbox">📥 Inbox</option>
+                      <option value="bulk-inbox">⚡ Bulk Inbox</option>
                       <option value="draft">✏️ Draft</option>
                       <option value="outbox">📤 Outbox</option>
                       <option value="archived">📁 Archived</option>
@@ -4034,7 +3964,7 @@ function SidepanelOrchestrator() {
                 </div>
                 {/* Controls */}
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {(dockedPanelMode !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
+                  {((dockedPanelMode as string) !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
                     <button 
                       onClick={handleScreenSelect}
                       title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -4243,7 +4173,7 @@ function SidepanelOrchestrator() {
                     <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                     <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                     <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                     <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -4306,340 +4236,42 @@ function SidepanelOrchestrator() {
                 </div>
               )}
 
-              {/* BEAP Handshake Request */}
+              {/* BEAP Handshake Request — Send Handshake Delivery */}
               {dockedPanelMode === 'handshake' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
-                  {/* Header */}
-                  <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>🤝</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
-                  </div>
-                  
-                  {/* DELIVERY METHOD - FIRST */}
-                  <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Delivery Method
-                    </label>
-                    <select
-                      value={handshakeDelivery}
-                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                        borderRadius: '8px',
-                        color: theme === 'standard' ? '#1f2937' : 'white',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                      <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-                    </select>
-                  </div>
-                  
-                  {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
-                  {handshakeDelivery === 'email' && (
-                  <div style={{ 
-                    padding: '16px 18px', 
-                    borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
-                    background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '16px' }}>🔗</span>
-                        <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
-                      </div>
-                      <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
-                    </div>
-                    {isLoadingEmailAccounts ? (
-                      <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
-                    ) : emailAccounts.length === 0 ? (
-                      <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed #e1e8ed' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
-                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                        <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                        <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {emailAccounts.map(account => (
-                          <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
-                              <div>
-                                <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
-                                <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                  <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                  {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
+                    <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Default policy for newly attached context
+                    </h5>
+                    <p style={{ margin: '0 0 8px', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>
+                      Starting template for new context items. Individual items can override.
+                    </p>
+                    {(['none', 'local_only', 'internal_and_cloud'] as const).map((val) => {
+                      const labels: Record<string, string> = { none: 'No AI processing', local_only: 'Internal AI only', internal_and_cloud: 'Allow Internal + Cloud AI' }
+                      const descs: Record<string, string> = { none: 'Handshake data must not be processed by any AI system', local_only: 'Restrict AI processing to on-premise or organization-controlled systems', internal_and_cloud: 'Allow handshake data to be processed by internal AI systems and external cloud AI services' }
+                      const active = hsPolicy.ai_processing_mode === val
+                      return (
+                        <label key={val} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 10px', borderRadius: '6px', background: active ? 'rgba(139,92,246,0.08)' : 'transparent', border: `1px solid ${active ? 'rgba(139,92,246,0.3)' : 'transparent'}`, cursor: 'pointer', marginBottom: '4px' }}>
+                          <input type="radio" name="hs-policy-docked" checked={active} onChange={() => setHsPolicy({ ai_processing_mode: val })} style={{ marginTop: '3px', accentColor: '#8b5cf6' }} />
+                          <div>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: theme === 'standard' ? '#374151' : '#d0d0d0' }}>{labels[val]}</span>
+                            <p style={{ margin: '2px 0 0', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>{descs[val]}</p>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                    {emailAccounts.length > 0 && (
-                      <div style={{ marginTop: '12px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                        <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
-                          {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
-                        </select>
-                      </div>
-                    )}
+                        </label>
+                      )
+                    })}
                   </div>
-                  )}
-                  
-                  <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {/* Your Fingerprint - PROMINENT */}
-                    <div style={{
-                      padding: '12px 14px',
-                      background: theme === 'standard' ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
-                      border: `2px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(139, 92, 246, 0.3)'}`,
-                      borderRadius: '10px',
-                    }}>
-                      <div style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: '8px',
-                      }}>
-                        <div style={{ 
-                          fontSize: '11px', 
-                          fontWeight: 600, 
-                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                          textTransform: 'uppercase', 
-                          letterSpacing: '0.5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                        }}>
-                          🔐 {TOOLTIPS.FINGERPRINT_TITLE}
-                          <span 
-                            style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
-                            title={TOOLTIPS.FINGERPRINT}
-                          >
-                            ⓘ
-                          </span>
-                        </div>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(ourFingerprint)
-                              setFingerprintCopied(true)
-                              setTimeout(() => setFingerprintCopied(false), 2000)
-                            } catch (err) {
-                              console.error('Failed to copy:', err)
-                            }
-                          }}
-                          style={{
-                            padding: '4px 10px',
-                            fontSize: '10px',
-                            background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.1)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
-                        </button>
-                      </div>
-                      <div style={{
-                        fontFamily: 'monospace',
-                        fontSize: '11px',
-                        color: theme === 'standard' ? '#1f2937' : 'white',
-                        wordBreak: 'break-all',
-                        lineHeight: 1.5,
-                      }}>
-                        {formatFingerprintGrouped(ourFingerprint)}
-                      </div>
-                      <div style={{
-                        marginTop: '8px',
-                        fontSize: '10px',
-                        color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
-                      }}>
-                        Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
-                      </div>
-                    </div>
-                    
-                    {/* To & Subject Fields - Only for Email */}
-                    {handshakeDelivery === 'email' && (
-                      <>
-                        <div>
-                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            To:
-                          </label>
-                          <input
-                            type="email"
-                            value={handshakeTo}
-                            onChange={(e) => setHandshakeTo(e.target.value)}
-                            placeholder="recipient@example.com"
-                            style={{
-                              width: '100%',
-                              padding: '10px 12px',
-                              background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                              border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                              borderRadius: '8px',
-                              color: theme === 'standard' ? '#1f2937' : 'white',
-                              fontSize: '13px',
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            Subject:
-                          </label>
-                          <input
-                            type="text"
-                            value={handshakeSubject}
-                            onChange={(e) => setHandshakeSubject(e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 12px',
-                              background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                              border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                              borderRadius: '8px',
-                              color: theme === 'standard' ? '#1f2937' : 'white',
-                              fontSize: '13px',
-                            }}
-                          />
-                        </div>
-                      </>
-                    )}
-                    
-                    {/* Message */}
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        Message
-                      </label>
-                      <textarea
-                        value={handshakeMessage}
-                        onChange={(e) => setHandshakeMessage(e.target.value)}
-                        style={{
-                          flex: 1,
-                          minHeight: '120px',
-                          padding: '10px 12px',
-                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '8px',
-                          color: theme === 'standard' ? '#1f2937' : 'white',
-                          fontSize: '13px',
-                          lineHeight: '1.5',
-                          resize: 'none',
-                        }}
-                      />
-                    </div>
-                    
-                    {/* Info */}
-                    <div style={{
-                      padding: '10px 12px',
-                      background: theme === 'standard' ? '#f8f9fb' : 'rgba(139, 92, 246, 0.15)',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                      color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
-                    }}>
-                      💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
-                    </div>
-                  </div>
-                  
-                  {/* Footer */}
-                  <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button 
-                      onClick={() => setDockedSubmode('command')}
-                      style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      disabled={identityLoading || handshakeSending}
-                      onClick={async () => {
-                        if (handshakeDelivery === 'email' && !handshakeTo) {
-                          alert('Please enter a recipient email address')
-                          return
-                        }
-                        
-                        if (!identity) {
-                          alert('Identity not loaded yet. Please wait.')
-                          return
-                        }
-                        
-                        setHandshakeSending(true)
-                        
-                        try {
-                          // Create real handshake request payload
-                          const payload = await createHandshakeRequestPayload({
-                            senderDisplayName: 'WR Chat User', // TODO: Get from user profile
-                            senderEmail: handshakeDelivery === 'email' ? undefined : undefined,
-                            message: handshakeMessage
-                          })
-                          
-                          // Serialize to JSON
-                          const payloadJson = serializeHandshakeRequestPayload(payload)
-                          
-                          // Store as pending outgoing
-                          const recipient = handshakeDelivery === 'email' ? handshakeTo : 'Recipient'
-                          createPendingOutgoing(payload, recipient, identity.localX25519KeyId)
-                          
-                          // Deliver based on method
-                          if (handshakeDelivery === 'download') {
-                            // Trigger file download
-                            const blob = new Blob([payloadJson], { type: 'application/json' })
-                            const url = URL.createObjectURL(blob)
-                            const a = document.createElement('a')
-                            a.href = url
-                            a.download = `handshake-request-${payload.senderFingerprint.slice(0, 8)}.beap-handshake.json`
-                            document.body.appendChild(a)
-                            a.click()
-                            document.body.removeChild(a)
-                            URL.revokeObjectURL(url)
-                            alert('Handshake request downloaded! Share the file with your recipient.')
-                          } else if (handshakeDelivery === 'messenger') {
-                            // Copy to clipboard for messenger
-                            await navigator.clipboard.writeText(payloadJson)
-                            alert('Handshake request copied to clipboard! Paste it in your messenger.')
-                          } else {
-                            // Email: copy to clipboard (email sending requires OAuth integration)
-                            await navigator.clipboard.writeText(payloadJson)
-                            alert('Handshake request copied to clipboard! Paste it in your email body to ' + handshakeTo)
-                          }
-                          
-                          console.log('[Sidepanel] Handshake request created:', {
-                            fingerprint: payload.senderFingerprint.slice(0, 8) + '...',
-                            hasX25519Key: !!payload.senderX25519PublicKeyB64,
-                            delivery: handshakeDelivery
-                          })
-                          
-                          setDockedSubmode('command')
-                        } catch (err) {
-                          console.error('[Sidepanel] Failed to create handshake request:', err)
-                          alert('Failed to create handshake request: ' + (err instanceof Error ? err.message : 'Unknown error'))
-                        } finally {
-                          setHandshakeSending(false)
-                        }
-                      }}
-                      style={{ 
-                        padding: '8px 20px', 
-                        background: (identityLoading || handshakeSending) 
-                          ? 'rgba(139,92,246,0.5)' 
-                          : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
-                        border: 'none', 
-                        borderRadius: '8px', 
-                        color: 'white', 
-                        fontSize: '12px', 
-                        fontWeight: 600, 
-                        cursor: (identityLoading || handshakeSending) ? 'wait' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        opacity: (identityLoading || handshakeSending) ? 0.7 : 1,
-                      }}
-                    >
-                      {handshakeSending ? '⏳ Creating...' : (handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download')}
-                    </button>
-                  </div>
+                  <SendHandshakeDelivery
+                    theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                    onBack={() => setDockedSubmode('command')}
+                    fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
+                    emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                    onSelectEmailAccount={setSelectedEmailAccountId}
+                    onSuccess={() => setDockedSubmode('command')}
+                    canUseHsContextProfiles={canUseHsContextProfiles}
+                    policySelections={hsPolicy}
+                  />
                 </div>
               )}
 
@@ -4738,7 +4370,7 @@ function SidepanelOrchestrator() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={handleChatKeyDown}
-                  placeholder="Type your message..."
+                  placeholder={searchBarContext || 'Type your message...'}
                   style={{
                     boxSizing: 'border-box',
                     height: '40px',
@@ -4780,7 +4412,7 @@ function SidepanelOrchestrator() {
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                 >
-                  📎
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 </button>
                 <button 
                   title="Voice" 
@@ -4993,52 +4625,95 @@ function SidepanelOrchestrator() {
                   {/* INBOX VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'inbox' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Received BEAP™ packages will appear here. All packages are verified before display.
-                      </div>
-                    </div>
+                    <InboxErrorBoundary componentName="BeapInboxView" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                    <BeapInboxView
+                      ref={inboxViewRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                      onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                      onNavigateToHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onNavigateToHandshakesTab={() => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                      }}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId, attachmentId) => {
+                        pendingInboxAiRef.current = { messageId, query }
+                        inboxViewRef.current?.startGenerating()
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      replyComposerConfig={replyComposerConfig}
+                    />
+                    </InboxErrorBoundary>
                   )}
                   
                   {/* ========================================== */}
                   {/* OUTBOX VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'outbox' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Packages pending delivery. Monitor send status and delivery confirmations.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="outbox"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
                   )}
                   
                   {/* ========================================== */}
                   {/* ARCHIVED VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'archived' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Successfully executed packages are archived here for reference.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="archived"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
                   )}
                   
                   {/* ========================================== */}
                   {/* REJECTED VIEW */}
                   {/* ========================================== */}
                   {beapSubmode === 'rejected' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                      <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                      <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                        Rejected packages that failed verification or were declined by the user.
-                      </div>
-                    </div>
+                    <BeapMessageListView
+                      folder="rejected"
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onNavigateToDraft={() => setBeapSubmode('draft')}
+                    />
+                  )}
+                  
+                  {/* ========================================== */}
+                  {/* BULK INBOX VIEW */}
+                  {/* ========================================== */}
+                  {beapSubmode === 'bulk-inbox' && (
+                    <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                      <BeapBulkInbox
+                        ref={bulkInboxRef}
+                        theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                        onSetSearchContext={setSearchBarContext}
+                        onAiQuery={(query, messageId) => {
+                          pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                          bulkInboxRef.current?.startGenerating(messageId)
+                          setChatInput(query)
+                          handleSendMessage()
+                        }}
+                        onViewHandshake={(handshakeId) => {
+                          setDockedWorkspace('wrguard')
+                          useWRGuardStore.getState().setActiveSection('handshakes')
+                          useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                        }}
+                        onViewInInbox={(messageId) => {
+                          setBeapSubmode('inbox')
+                          useBeapInboxStore.getState().selectMessage(messageId)
+                        }}
+                        replyComposerConfig={replyComposerConfig}
+                        onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                        onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
+                      />
+                    </InboxErrorBoundary>
                   )}
                   
                   {/* ========================================== */}
@@ -5053,7 +4728,7 @@ function SidepanelOrchestrator() {
                     </label>
                     <select
                       value={handshakeDelivery}
-                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')}
+                      onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')}
                       style={{
                         width: '100%',
                         padding: '10px 12px',
@@ -5066,7 +4741,7 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                      <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                       <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                     </select>
                   </div>
@@ -5084,7 +4759,7 @@ function SidepanelOrchestrator() {
                         <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                       </div>
                       <button
-                        onClick={() => setShowEmailSetupWizard(true)}
+                        onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                         style={{
                           background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                           border: 'none',
@@ -5191,7 +4866,7 @@ function SidepanelOrchestrator() {
                           Send From:
                         </label>
                         <select
-                          value={selectedEmailAccountId || emailAccounts[0]?.id || ''}
+                          value={selectedEmailAccountId || defaultEmailAccountRowId || ''}
                           onChange={(e) => setSelectedEmailAccountId(e.target.value)}
                           style={{
                             width: '100%',
@@ -5490,15 +5165,48 @@ function SidepanelOrchestrator() {
                         />
                         {beapDraftAttachments.length > 0 && (
                           <div style={{ marginTop: '8px' }}>
-                            {beapDraftAttachments.map((a) => (
-                              <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}>
-                                <div>
-                                  <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}</div>
-                                  <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes</div>
+                            {beapDraftAttachments.map((a) => {
+                              const isPdf = a.mime?.toLowerCase() === 'application/pdf'
+                              const isParsing = a.processing?.parsing || a.processing?.rasterizing
+                              const isSuccess = a.capsuleAttachment?.semanticExtracted
+                              const parseStatus: 'pending' | 'success' | 'failed' =
+                                isParsing ? 'pending' : isSuccess ? 'success' : isPdf ? 'failed' : 'success'
+                              return (
+                              <div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                                    <span style={{ fontSize: '14px' }}>📄</span>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {a.name}
+                                      </div>
+                                      <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
+                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                      </div>
+                                    </div>
+                                    {isPdf && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                    {isPdf && !isSuccess && !isParsing && a.dataBase64 && (
+                                      <VisionFallbackButton
+                                        attachment={a.capsuleAttachment}
+                                        dataBase64={a.dataBase64}
+                                        onSuccess={(text) => setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, capsuleAttachment: { ...x.capsuleAttachment, semanticContent: text, semanticExtracted: true }, processing: { ...x.processing, error: undefined } } : x))}
+                                        theme={theme === 'standard' ? 'standard' : 'default'}
+                                      />
+                                    )}
+                                    <button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                  </div>
                                 </div>
-                                <button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                {a.processing?.error && !isParsing && (
+                                  <div style={{ padding: '6px 8px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(251,191,36,0.2)' : 'rgba(251,191,36,0.25)'}`, background: theme === 'standard' ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.12)', fontSize: '10px', color: theme === 'standard' ? '#b45309' : '#fbbf24' }}>
+                                    {a.processing.error.includes('connect') || a.processing.error.includes('Failed to connect')
+                                      ? 'Desktop App required for PDF text extraction. Or use Vision AI above.'
+                                      : a.processing.error}
+                                  </div>
+                                )}
                               </div>
-                            ))}
+                            )})}
                             <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                           </div>
                         )}
@@ -5552,14 +5260,19 @@ function SidepanelOrchestrator() {
                           return
                         }
                         // Handle send based on delivery method
-                        const selectedAccount = emailAccounts.find(a => a.id === selectedEmailAccountId) || emailAccounts[0]
+                        const selectedAccount =
+                          emailAccounts.find(a => a.id === selectedEmailAccountId) ||
+                          (defaultEmailAccountRowId
+                            ? emailAccounts.find(a => a.id === defaultEmailAccountRowId)
+                            : undefined) ||
+                          emailAccounts[0]
                         console.log('[BEAP Message] Sending:', { 
                           method: handshakeDelivery, 
                           to: handshakeTo, 
                           message: handshakeMessage,
                           fromAccount: selectedAccount?.email
                         })
-                        setNotification({ message: handshakeDelivery === 'download' ? 'Package downloaded!' : 'BEAP™ Message sent!', type: 'success' })
+                        setNotification({ message: handshakeDelivery === 'download' ? 'BEAP capsule downloaded' : 'BEAP™ Message sent!', type: 'success' })
                         setTimeout(() => setNotification(null), 3000)
                         setHandshakeTo('')
                         setHandshakeMessage('')
@@ -5578,7 +5291,7 @@ function SidepanelOrchestrator() {
                         gap: '6px'
                       }}
                     >
-                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
+                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'p2p' ? '🔗 Send' : '💾 Download'}
                     </button>
                   </div>
                     </>
@@ -5683,9 +5396,15 @@ function SidepanelOrchestrator() {
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
         
@@ -5788,6 +5507,8 @@ function SidepanelOrchestrator() {
     )
   }
 
+  const currentViewMode: 'app' | 'admin' = viewMode
+
   // Mini App View (simplified)
   if (viewMode === 'app') {
     return (
@@ -5820,8 +5541,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={openPopupChat}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle('rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0
@@ -5833,8 +5552,6 @@ function SidepanelOrchestrator() {
           <button
             onClick={toggleCommandChatPin}
             style={{
-              width: '32px',
-              height: '32px',
               ...actionButtonStyle(isCommandChatPinned ? 'rgba(76,175,80,0.4)' : 'rgba(255,255,255,0.1)'),
               fontSize: '14px',
               padding: 0,
@@ -6024,6 +5741,7 @@ function SidepanelOrchestrator() {
                     }}
                   >
                     <option value="inbox">📥 Inbox</option>
+                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
                     <option value="draft">✏️ Draft</option>
                     <option value="outbox">📤 Outbox</option>
                     <option value="archived">📁 Archived</option>
@@ -6035,7 +5753,7 @@ function SidepanelOrchestrator() {
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
+                {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -6240,7 +5958,7 @@ height: '28px',
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                   <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                   <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -6304,250 +6022,42 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request - App/Admin View */}
+            {/* BEAP Handshake Request — Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
-                {/* Header */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>🤝</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
-                </div>
-                
-                {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-                  </select>
-                </div>
-                
-                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
-                {handshakeDelivery === 'email' && (
-                <div style={{ padding: '16px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
-                    </div>
-                    <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
-                  </div>
-                  {isLoadingEmailAccounts ? (
-                    <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
-                  ) : emailAccounts.length === 0 ? (
-                    <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {emailAccounts.map(account => (
-                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
-                            <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
-                              <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
+                  <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Default policy for newly attached context
+                  </h5>
+                  <p style={{ margin: '0 0 8px', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>
+                    Starting template for new context items. Individual items can override.
+                  </p>
+                  {(['none', 'local_only', 'internal_and_cloud'] as const).map((val) => {
+                    const labels: Record<string, string> = { none: 'No AI processing', local_only: 'Internal AI only', internal_and_cloud: 'Allow Internal + Cloud AI' }
+                    const descs: Record<string, string> = { none: 'Handshake data must not be processed by any AI system', local_only: 'Restrict AI processing to on-premise or organization-controlled systems', internal_and_cloud: 'Allow handshake data to be processed by internal AI systems and external cloud AI services' }
+                    const active = hsPolicy.ai_processing_mode === val
+                    return (
+                      <label key={val} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 10px', borderRadius: '6px', background: active ? 'rgba(139,92,246,0.08)' : 'transparent', border: `1px solid ${active ? 'rgba(139,92,246,0.3)' : 'transparent'}`, cursor: 'pointer', marginBottom: '4px' }}>
+                        <input type="radio" name="hs-policy-docked" checked={active} onChange={() => setHsPolicy({ ai_processing_mode: val })} style={{ marginTop: '3px', accentColor: '#8b5cf6' }} />
+                        <div>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: theme === 'standard' ? '#374151' : '#d0d0d0' }}>{labels[val]}</span>
+                          <p style={{ margin: '2px 0 0', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>{descs[val]}</p>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  {emailAccounts.length > 0 && (
-                    <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
-                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-                )}
-                
-                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Your Fingerprint - PROMINENT */}
-                  <div style={{
-                    padding: '12px 14px',
-                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    border: `2px solid ${theme === 'standard' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
-                    borderRadius: '10px',
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginBottom: '8px',
-                    }}>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        fontWeight: 600, 
-                        color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                        textTransform: 'uppercase', 
-                        letterSpacing: '0.5px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}>
-                        🔐 {TOOLTIPS.FINGERPRINT_TITLE}
-                        <span 
-                          style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
-                          title={TOOLTIPS.FINGERPRINT}
-                        >
-                          ⓘ
-                        </span>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(ourFingerprint)
-                            setFingerprintCopied(true)
-                            setTimeout(() => setFingerprintCopied(false), 2000)
-                          } catch (err) {
-                            console.error('Failed to copy:', err)
-                          }
-                        }}
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '10px',
-                          background: theme === 'standard' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
-                      </button>
-                    </div>
-                    <div style={{
-                      fontFamily: 'monospace',
-                      fontSize: '11px',
-                      color: theme === 'standard' ? '#1f2937' : 'white',
-                      wordBreak: 'break-all',
-                      lineHeight: 1.5,
-                    }}>
-                      {formatFingerprintGrouped(ourFingerprint)}
-                    </div>
-                    <div style={{
-                      marginTop: '8px',
-                      fontSize: '10px',
-                      color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
-                    }}>
-                      Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
-                    </div>
-                  </div>
-                  
-                  {/* To Field - Only for Email */}
-                  {handshakeDelivery === 'email' && (
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        To:
                       </label>
-                      <input
-                        type="email"
-                        value={handshakeTo}
-                        onChange={(e) => setHandshakeTo(e.target.value)}
-                        placeholder="recipient@example.com"
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '8px',
-                          color: theme === 'standard' ? '#1f2937' : 'white',
-                          fontSize: '13px',
-                        }}
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Message */}
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Message
-                    </label>
-                    <textarea
-                      value={handshakeMessage}
-                      onChange={(e) => setHandshakeMessage(e.target.value)}
-                      style={{
-                        flex: 1,
-                        minHeight: '120px',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                        borderRadius: '8px',
-                        color: theme === 'standard' ? '#1f2937' : 'white',
-                        fontSize: '13px',
-                        lineHeight: '1.5',
-                        resize: 'none',
-                      }}
-                    />
-                  </div>
-                  
-                  {/* Policy Note */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: theme === 'standard' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
-                  }}>
-                    🛡️ {POLICY_NOTES.LOCAL_OVERRIDE}
-                  </div>
-                  
-                  {/* Info */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
-                  }}>
-                    💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
-                  </div>
+                    )
+                  })}
                 </div>
-                
-                {/* Footer */}
-                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.12)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                  <button 
-                    onClick={() => setDockedSubmode('command')}
-                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (handshakeDelivery === 'email' && !handshakeTo) {
-                        alert('Please enter a recipient email address')
-                        return
-                      }
-                      alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
-                      setDockedSubmode('command')
-                    }}
-                    style={{ 
-                      padding: '8px 20px', 
-                      background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
-                      border: 'none', 
-                      borderRadius: '8px', 
-                      color: 'white', 
-                      fontSize: '12px', 
-                      fontWeight: 600, 
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
-                    {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
-                  </button>
-                </div>
+                <SendHandshakeDelivery
+                  theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                  onBack={() => setDockedSubmode('command')}
+                  fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
+                  emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                  onSelectEmailAccount={setSelectedEmailAccountId}
+                  onSuccess={() => setDockedSubmode('command')}
+                  canUseHsContextProfiles={canUseHsContextProfiles}
+                  policySelections={hsPolicy}
+                />
               </div>
             )}
 
@@ -6646,7 +6156,7 @@ height: '28px',
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Type your message..."
+                    placeholder={searchBarContext || 'Type your message...'}
                     style={{
                       boxSizing: 'border-box',
                       height: '40px',
@@ -6688,7 +6198,7 @@ height: '28px',
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                   >
-                    📎
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
                   {renderSendButton()}
                 </div>
@@ -6707,51 +6217,91 @@ height: '28px',
                 
                 {/* Placeholder views for non-draft submodes */}
                 {beapSubmode === 'inbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Received BEAP™ packages will appear here.
-                    </div>
-                  </div>
+                  <InboxErrorBoundary componentName="BeapInboxView" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                  <BeapInboxView
+                    ref={inboxViewRef}
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                    onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                    onNavigateToHandshake={(handshakeId) => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                      useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                    }}
+                    onNavigateToHandshakesTab={() => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                    }}
+                    onSetSearchContext={setSearchBarContext}
+                    onAiQuery={(query, messageId, attachmentId) => {
+                      pendingInboxAiRef.current = { messageId, query }
+                      inboxViewRef.current?.startGenerating()
+                      setChatInput(query)
+                      handleSendMessage()
+                    }}
+                    replyComposerConfig={replyComposerConfig}
+                  />
+                  </InboxErrorBoundary>
                 )}
                 {beapSubmode === 'outbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Packages pending delivery.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="outbox"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'archived' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Successfully executed packages.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="archived"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'rejected' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
-                      Rejected packages.
-                    </div>
-                  </div>
+                  <BeapMessageListView
+                    folder="rejected"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
+                )}
+                {beapSubmode === 'bulk-inbox' && (
+                  <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                    <BeapBulkInbox
+                      ref={bulkInboxRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId) => {
+                        pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                        bulkInboxRef.current?.startGenerating(messageId)
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      onViewHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onViewInInbox={(messageId) => {
+                        setBeapSubmode('inbox')
+                        useBeapInboxStore.getState().selectMessage(messageId)
+                      }}
+                      replyComposerConfig={replyComposerConfig}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
+                    />
+                  </InboxErrorBoundary>
                 )}
                 
                 {/* Draft view - EMAIL ACCOUNTS + BEAP Message */}
                 {beapSubmode === 'draft' && (
+                  <InboxErrorBoundary componentName="BeapBuilder" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
                   <>
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
@@ -6769,7 +6319,7 @@ height: '28px',
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
-                      onClick={() => setShowEmailSetupWizard(true)}
+                      onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                       style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                         border: 'none',
@@ -6873,7 +6423,7 @@ height: '28px',
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -6926,7 +6476,7 @@ height: '28px',
                       <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
-                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                          {beapDraftAttachments.map((a) => { const isPdf = a.mime?.toLowerCase() === 'application/pdf'; const isParsing = a.processing?.parsing || a.processing?.rasterizing; const isSuccess = a.capsuleAttachment?.semanticExtracted; const st = isParsing ? 'pending' : isSuccess ? 'success' : isPdf ? 'failed' : 'success'; return (<div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}><span style={{ fontSize: '14px' }}>📄</span><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {(a.size/1024).toFixed(0)} KB</div></div>{isPdf && <AttachmentStatusBadge status={st} theme={theme === 'standard' ? 'standard' : 'dark'} />}</div><div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>{isPdf && !isSuccess && !isParsing && a.dataBase64 && (<VisionFallbackButton attachment={a.capsuleAttachment} dataBase64={a.dataBase64} onSuccess={(text) => setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, capsuleAttachment: { ...x.capsuleAttachment, semanticContent: text, semanticExtracted: true }, processing: { ...x.processing, error: undefined } } : x))} theme={theme === 'standard' ? 'standard' : 'default'} />)}<button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div></div>{a.processing?.error && !isParsing && (<div style={{ padding: '6px 8px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(251,191,36,0.2)' : 'rgba(251,191,36,0.25)'}`, background: theme === 'standard' ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.12)', fontSize: '10px', color: theme === 'standard' ? '#b45309' : '#fbbf24' }}>{a.processing.error.includes('connect') || a.processing.error.includes('Failed to connect') ? 'Desktop App required. Or use Vision AI above.' : a.processing.error}</div>)}</div>); })}
                           <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
@@ -6938,6 +6488,7 @@ height: '28px',
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
+                  </InboxErrorBoundary>
                 )}
               </div>
             )}
@@ -6949,9 +6500,15 @@ height: '28px',
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
           </div>
@@ -7324,6 +6881,7 @@ height: '28px',
                     }}
                   >
                     <option value="inbox">📥 Inbox</option>
+                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
                     <option value="draft">✏️ Draft</option>
                     <option value="outbox">📤 Outbox</option>
                     <option value="archived">📁 Archived</option>
@@ -7335,7 +6893,7 @@ height: '28px',
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                {dockedPanelMode !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
+                {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <button 
                     onClick={handleScreenSelect}
                     title="LmGTFY - Capture a screen area as screenshot or stream"
@@ -7540,7 +7098,7 @@ height: '28px',
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
                   <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
                   <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📎</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -7603,250 +7161,42 @@ height: '28px',
               </div>
             )}
 
-            {/* BEAP Handshake Request - App/Admin View */}
+            {/* BEAP Handshake Request — Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflow: 'hidden' }}>
-                {/* Header */}
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>🤝</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Handshake Request</span>
-                </div>
-                
-                {/* DELIVERY METHOD - FIRST */}
-                <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
-                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
-                  </select>
-                </div>
-                
-                {/* EMAIL ACCOUNTS SECTION - Only visible when email delivery selected */}
-                {handshakeDelivery === 'email' && (
-                <div style={{ padding: '16px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.1)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>🔗</span>
-                      <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
-                    </div>
-                    <button onClick={() => setShowEmailSetupWizard(true)} style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><span>+</span> Connect Email</button>
-                  </div>
-                  {isLoadingEmailAccounts ? (
-                    <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
-                  ) : emailAccounts.length === 0 ? (
-                    <div style={{ padding: '20px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>Connect your email to send handshake requests</div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {emailAccounts.map(account => (
-                        <div key={account.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', borderRadius: '8px', border: account.status === 'active' ? (theme === 'standard' ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.4)') : (theme === 'standard' ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(239,68,68,0.4)') }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '18px' }}>{account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}</span>
-                            <div>
-                              <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>{account.email || account.displayName}</div>
-                              <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: account.status === 'active' ? '#22c55e' : '#ef4444' }} />
-                                <span style={{ color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>{account.status === 'active' ? 'Connected' : account.lastError || 'Error'}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <button onClick={() => disconnectEmailAccount(account.id)} title="Disconnect" style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '4px', fontSize: '14px' }}>✕</button>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
+                {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
+                  <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Default policy for newly attached context
+                  </h5>
+                  <p style={{ margin: '0 0 8px', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>
+                    Starting template for new context items. Individual items can override.
+                  </p>
+                  {(['none', 'local_only', 'internal_and_cloud'] as const).map((val) => {
+                    const labels: Record<string, string> = { none: 'No AI processing', local_only: 'Internal AI only', internal_and_cloud: 'Allow Internal + Cloud AI' }
+                    const descs: Record<string, string> = { none: 'Handshake data must not be processed by any AI system', local_only: 'Restrict AI processing to on-premise or organization-controlled systems', internal_and_cloud: 'Allow handshake data to be processed by internal AI systems and external cloud AI services' }
+                    const active = hsPolicy.ai_processing_mode === val
+                    return (
+                      <label key={val} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 10px', borderRadius: '6px', background: active ? 'rgba(139,92,246,0.08)' : 'transparent', border: `1px solid ${active ? 'rgba(139,92,246,0.3)' : 'transparent'}`, cursor: 'pointer', marginBottom: '4px' }}>
+                        <input type="radio" name="hs-policy-docked" checked={active} onChange={() => setHsPolicy({ ai_processing_mode: val })} style={{ marginTop: '3px', accentColor: '#8b5cf6' }} />
+                        <div>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: theme === 'standard' ? '#374151' : '#d0d0d0' }}>{labels[val]}</span>
+                          <p style={{ margin: '2px 0 0', fontSize: '11px', color: theme === 'standard' ? '#6b7280' : '#777' }}>{descs[val]}</p>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  {emailAccounts.length > 0 && (
-                    <div style={{ marginTop: '12px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
-                        {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-                )}
-                
-                <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Your Fingerprint - PROMINENT */}
-                  <div style={{
-                    padding: '12px 14px',
-                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    border: `2px solid ${theme === 'standard' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.3)'}`,
-                    borderRadius: '10px',
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginBottom: '8px',
-                    }}>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        fontWeight: 600, 
-                        color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', 
-                        textTransform: 'uppercase', 
-                        letterSpacing: '0.5px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}>
-                        🔐 {TOOLTIPS.FINGERPRINT_TITLE}
-                        <span 
-                          style={{ cursor: 'help', fontSize: '11px', fontWeight: 400 }}
-                          title={TOOLTIPS.FINGERPRINT}
-                        >
-                          ⓘ
-                        </span>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(ourFingerprint)
-                            setFingerprintCopied(true)
-                            setTimeout(() => setFingerprintCopied(false), 2000)
-                          } catch (err) {
-                            console.error('Failed to copy:', err)
-                          }
-                        }}
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '10px',
-                          background: theme === 'standard' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {fingerprintCopied ? '✓ Copied' : '📋 Copy'}
-                      </button>
-                    </div>
-                    <div style={{
-                      fontFamily: 'monospace',
-                      fontSize: '11px',
-                      color: theme === 'standard' ? '#1f2937' : 'white',
-                      wordBreak: 'break-all',
-                      lineHeight: 1.5,
-                    }}>
-                      {formatFingerprintGrouped(ourFingerprint)}
-                    </div>
-                    <div style={{
-                      marginTop: '8px',
-                      fontSize: '10px',
-                      color: theme === 'standard' ? '#9ca3af' : 'rgba(255,255,255,0.5)',
-                    }}>
-                      Short: <span style={{ fontFamily: 'monospace' }}>{ourFingerprintShort}</span>
-                    </div>
-                  </div>
-                  
-                  {/* To Field - Only for Email */}
-                  {handshakeDelivery === 'email' && (
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        To:
                       </label>
-                      <input
-                        type="email"
-                        value={handshakeTo}
-                        onChange={(e) => setHandshakeTo(e.target.value)}
-                        placeholder="recipient@example.com"
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                          borderRadius: '8px',
-                          color: theme === 'standard' ? '#1f2937' : 'white',
-                          fontSize: '13px',
-                        }}
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Message */}
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Message
-                    </label>
-                    <textarea
-                      value={handshakeMessage}
-                      onChange={(e) => setHandshakeMessage(e.target.value)}
-                      style={{
-                        flex: 1,
-                        minHeight: '120px',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
-                        borderRadius: '8px',
-                        color: theme === 'standard' ? '#1f2937' : 'white',
-                        fontSize: '13px',
-                        lineHeight: '1.5',
-                        resize: 'none',
-                      }}
-                    />
-                  </div>
-                  
-                  {/* Policy Note */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: theme === 'standard' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.15)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
-                  }}>
-                    🛡️ {POLICY_NOTES.LOCAL_OVERRIDE}
-                  </div>
-                  
-                  {/* Info */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: theme === 'standard' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.15)',
-                    borderRadius: '8px',
-                    fontSize: '11px',
-                    color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
-                  }}>
-                    💡 This creates a secure BEAP™ package. Recipient will appear in your Handshakes once accepted.
-                  </div>
+                    )
+                  })}
                 </div>
-                
-                {/* Footer */}
-                <div style={{ padding: '12px 14px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.12)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                  <button 
-                    onClick={() => setDockedSubmode('command')}
-                    style={{ padding: '8px 16px', background: 'transparent', border: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)'}`, borderRadius: '8px', color: theme === 'standard' ? '#536471' : 'white', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (handshakeDelivery === 'email' && !handshakeTo) {
-                        alert('Please enter a recipient email address')
-                        return
-                      }
-                      alert(`Handshake request ${handshakeDelivery === 'download' ? 'downloaded' : 'sent'} successfully!`)
-                      setDockedSubmode('command')
-                    }}
-                    style={{ 
-                      padding: '8px 20px', 
-                      background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
-                      border: 'none', 
-                      borderRadius: '8px', 
-                      color: 'white', 
-                      fontSize: '12px', 
-                      fontWeight: 600, 
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
-                    {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'messenger' ? '💬 Insert' : '💾 Download'}
-                  </button>
-                </div>
+                <SendHandshakeDelivery
+                  theme={theme === 'standard' ? 'standard' : theme === 'pro' ? 'pro' : 'dark'}
+                  onBack={() => setDockedSubmode('command')}
+                  fromAccountId={selectedEmailAccountId || defaultEmailAccountRowId || ''}
+                  emailAccounts={emailAccounts.map(a => ({ id: a.id, email: a.email, provider: a.provider }))}
+                  onSelectEmailAccount={setSelectedEmailAccountId}
+                  onSuccess={() => setDockedSubmode('command')}
+                  canUseHsContextProfiles={canUseHsContextProfiles}
+                  policySelections={hsPolicy}
+                />
               </div>
             )}
 
@@ -7945,7 +7295,7 @@ height: '28px',
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyDown={handleChatKeyDown}
-                    placeholder="Type your message..."
+                    placeholder={searchBarContext || 'Type your message...'}
                     style={{
                       boxSizing: 'border-box',
                       height: '40px',
@@ -7987,7 +7337,7 @@ height: '28px',
                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
                   >
-                    📎
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
                   {renderSendButton()}
                 </div>
@@ -8006,43 +7356,91 @@ height: '28px',
                 
                 {/* Placeholder views for non-draft submodes */}
                 {beapSubmode === 'inbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📥</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Inbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Received BEAP™ packages will appear here.</div>
-                  </div>
+                  <InboxErrorBoundary componentName="BeapInboxView" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                  <BeapInboxView
+                    ref={inboxViewRef}
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                    onNavigateToWRGuard={() => setDockedWorkspace('wrguard')}
+                    onNavigateToHandshake={(handshakeId) => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                      useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                    }}
+                    onNavigateToHandshakesTab={() => {
+                      setDockedWorkspace('wrguard')
+                      useWRGuardStore.getState().setActiveSection('handshakes')
+                    }}
+                    onSetSearchContext={setSearchBarContext}
+                    onAiQuery={(query, messageId, attachmentId) => {
+                      pendingInboxAiRef.current = { messageId, query }
+                      inboxViewRef.current?.startGenerating()
+                      setChatInput(query)
+                      handleSendMessage()
+                    }}
+                    replyComposerConfig={replyComposerConfig}
+                  />
+                  </InboxErrorBoundary>
                 )}
                 {beapSubmode === 'outbox' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📤</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>BEAP Outbox</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Packages pending delivery.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="outbox"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'archived' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>📁</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Archived Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Successfully executed packages.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="archived"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
                 )}
                 {beapSubmode === 'rejected' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', textAlign: 'center' }}>
-                    <span style={{ fontSize: '48px', marginBottom: '16px' }}>🚫</span>
-                    <div style={{ fontSize: '18px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px' }}>Rejected Packages</div>
-                    <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>Rejected packages.</div>
-                  </div>
+                  <BeapMessageListView
+                    folder="rejected"
+                    theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                    onNavigateToDraft={() => setBeapSubmode('draft')}
+                  />
+                )}
+                {beapSubmode === 'bulk-inbox' && (
+                  <InboxErrorBoundary componentName="BeapBulkInbox" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
+                    <BeapBulkInbox
+                      ref={bulkInboxRef}
+                      theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}
+                      onSetSearchContext={setSearchBarContext}
+                      onAiQuery={(query, messageId) => {
+                        pendingInboxAiRef.current = { messageId, query, isBulk: true }
+                        bulkInboxRef.current?.startGenerating(messageId)
+                        setChatInput(query)
+                        handleSendMessage()
+                      }}
+                      onViewHandshake={(handshakeId) => {
+                        setDockedWorkspace('wrguard')
+                        useWRGuardStore.getState().setActiveSection('handshakes')
+                        useWRGuardStore.getState().setSelectedHandshakeId(handshakeId)
+                      }}
+                      onViewInInbox={(messageId) => {
+                        setBeapSubmode('inbox')
+                        useBeapInboxStore.getState().selectMessage(messageId)
+                      }}
+                      replyComposerConfig={replyComposerConfig}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
+                    />
+                  </InboxErrorBoundary>
                 )}
                 
                 {/* Draft view */}
                 {beapSubmode === 'draft' && (
+                  <InboxErrorBoundary componentName="BeapBuilder" theme={theme === 'pro' ? 'default' : theme === 'standard' ? 'professional' : 'dark'}>
                   <>
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'messenger' | 'download')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="messenger" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💬 Messenger (Web)</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
                   </select>
                 </div>
@@ -8060,7 +7458,7 @@ height: '28px',
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
-                      onClick={() => setShowEmailSetupWizard(true)}
+                      onClick={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                       style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                         border: 'none',
@@ -8164,7 +7562,7 @@ height: '28px',
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || emailAccounts[0]?.id || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -8218,7 +7616,7 @@ height: '28px',
                       <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdf = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdf, rasterizing: isPdf } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = ''; for (const item of newItems) { const isPdf = item.mime.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (isPdf) { console.log(`[BEAP] Processing PDF: ${item.name}`); processAttachmentForParsing(item.capsuleAttachment, item.dataBase64).then((r) => { console.log(`[BEAP] Parse done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: r.attachment, processing: { ...a.processing, parsing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, parsing: false, error: String(err) } } : a)) }); processAttachmentForRasterization(item.capsuleAttachment, item.dataBase64, 144).then((r) => { console.log(`[BEAP] Raster done: ${item.name}`); setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, capsuleAttachment: { ...a.capsuleAttachment, previewRef: r.attachment.previewRef, rasterProof: r.rasterProof }, processing: { ...a.processing, rasterizing: false, error: r.error || a.processing.error } } : a)) }).catch((err) => { setBeapDraftAttachments((prev) => prev.map((a) => a.id === item.id ? { ...a, processing: { ...a.processing, rasterizing: false, error: String(err) } } : a)) }) } } }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
-                          {beapDraftAttachments.map((a) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px' }}><div><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white' }}>{a.name}{(a.processing.parsing || a.processing.rasterizing) && ' ⏳'}{a.capsuleAttachment.semanticExtracted && ' ✓'}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {a.size} bytes{a.processing.error && ` · ⚠️ ${a.processing.error.slice(0,30)}`}</div></div><button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div>))}
+                          {beapDraftAttachments.map((a) => { const isPdf = a.mime?.toLowerCase() === 'application/pdf'; const isParsing = a.processing?.parsing || a.processing?.rasterizing; const isSuccess = a.capsuleAttachment?.semanticExtracted; const st = isParsing ? 'pending' : isSuccess ? 'success' : isPdf ? 'failed' : 'success'; return (<div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}><span style={{ fontSize: '14px' }}>📄</span><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div><div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {(a.size/1024).toFixed(0)} KB</div></div>{isPdf && <AttachmentStatusBadge status={st} theme={theme === 'standard' ? 'standard' : 'dark'} />}</div><div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>{isPdf && !isSuccess && !isParsing && a.dataBase64 && (<VisionFallbackButton attachment={a.capsuleAttachment} dataBase64={a.dataBase64} onSuccess={(text) => setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, capsuleAttachment: { ...x.capsuleAttachment, semanticContent: text, semanticExtracted: true }, processing: { ...x.processing, error: undefined } } : x))} theme={theme === 'standard' ? 'standard' : 'default'} />)}<button onClick={() => setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id))} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button></div></div>{a.processing?.error && !isParsing && (<div style={{ padding: '6px 8px', borderTop: `1px solid ${theme === 'standard' ? 'rgba(251,191,36,0.2)' : 'rgba(251,191,36,0.25)'}`, background: theme === 'standard' ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.12)', fontSize: '10px', color: theme === 'standard' ? '#b45309' : '#fbbf24' }}>{a.processing.error.includes('connect') || a.processing.error.includes('Failed to connect') ? 'Desktop App required. Or use Vision AI above.' : a.processing.error}</div>)}</div>); })}
                           <button onClick={() => setBeapDraftAttachments([])} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
@@ -8230,6 +7628,7 @@ height: '28px',
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
+                  </InboxErrorBoundary>
                 )}
               </div>
             )}
@@ -8241,9 +7640,15 @@ height: '28px',
                 emailAccounts={emailAccounts}
                 isLoadingEmailAccounts={isLoadingEmailAccounts}
                 selectedEmailAccountId={selectedEmailAccountId}
-                onConnectEmail={() => setShowEmailSetupWizard(true)}
+                onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
                 onSelectEmailAccount={setSelectedEmailAccountId}
+                onViewInInbox={(messageId) => {
+                  setDockedWorkspace('beap-messages')
+                  setBeapSubmode('inbox')
+                  useBeapInboxStore.getState().selectMessage(messageId)
+                }}
+                replyComposerConfig={replyComposerConfig}
               />
             )}
 
@@ -8835,13 +8240,13 @@ height: '28px',
               justifyContent: 'flex-end',
               paddingRight: '5px'
             }}
-            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${viewMode === 'app' ? 'Admin' : 'App'} view`}
+            title={isAdminDisabled ? 'Open a website for viewing the admin panel' : `Switch to ${currentViewMode === 'app' ? 'Admin' : 'App'} view`}
           >
             <div style={{
               position: 'relative',
               width: '50px',
               height: '20px',
-              background: viewMode === 'app'
+              background: currentViewMode === 'app'
                 ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
                 : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
               borderRadius: '10px',
@@ -8851,13 +8256,13 @@ height: '28px',
             }}>
               <span style={{
                 position: 'absolute',
-                left: viewMode === 'app' ? '8px' : 'auto',
-                right: viewMode === 'app' ? 'auto' : '8px',
+                left: currentViewMode === 'app' ? '8px' : 'auto',
+                right: currentViewMode === 'app' ? 'auto' : '8px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 fontSize: '9px',
                 fontWeight: '700',
-                color: viewMode === 'app'
+                color: currentViewMode === 'app'
                   ? 'rgba(255,255,255,0.95)'
                   : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
                 transition: 'all 0.2s',
@@ -8871,7 +8276,7 @@ height: '28px',
               <div style={{
                 position: 'absolute',
                 top: '3px',
-                left: viewMode === 'app' ? '32px' : '3px',
+                left: currentViewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
                 background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
@@ -9055,559 +8460,9 @@ height: '28px',
         </div>
       </div>
 
-      {/* Email Setup Wizard Modal - Global (accessible from all views) */}
-      {showEmailSetupWizard && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.7)',
-          zIndex: 2147483651,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{
-            width: '380px',
-            maxHeight: '85vh',
-            background: theme === 'standard' ? '#ffffff' : 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-            borderRadius: '16px',
-            border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.4)',
-            overflow: 'hidden'
-          }}>
-            {/* Header */}
-            <div style={{
-              padding: '20px',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-              color: 'white',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '24px' }}>📧</span>
-                <div>
-                  <div style={{ fontSize: '16px', fontWeight: '600' }}>Connect Your Email</div>
-                  <div style={{ fontSize: '11px', opacity: 0.9 }}>Secure access via official API</div>
-                </div>
-              </div>
-              <button
-                onClick={() => { setShowEmailSetupWizard(false); setEmailSetupStep('provider'); }}
-                style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: 'none',
-                  color: 'white',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '16px'
-                }}
-              >
-                ×
-              </button>
-            </div>
-            
-            {/* Content */}
-            <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(85vh - 80px)' }}>
-              {emailSetupStep === 'provider' && (
-                <>
-                  <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '16px' }}>
-                    Choose your email provider to connect securely:
-                  </div>
-                  
-                  {/* Gmail Option */}
-                  <button
-                    onClick={startGmailConnect}
-                    style={{
-                      width: '100%',
-                      padding: '14px 16px',
-                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      marginBottom: '10px',
-                      textAlign: 'left',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <span style={{ fontSize: '24px' }}>📧</span>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Gmail</div>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Google OAuth</div>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
-                  </button>
-                  
-                  {/* Microsoft 365 Option */}
-                  <button
-                    onClick={startOutlookConnect}
-                    style={{
-                      width: '100%',
-                      padding: '14px 16px',
-                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      marginBottom: '10px',
-                      textAlign: 'left',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <span style={{ fontSize: '24px' }}>📨</span>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Microsoft 365 / Outlook</div>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Connect via Microsoft OAuth</div>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
-                  </button>
-                  
-                  {/* IMAP Option */}
-                  <button
-                    onClick={() => { setEmailSetupStep('credentials'); loadImapPresets(); }}
-                    style={{
-                      width: '100%',
-                      padding: '14px 16px',
-                      background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      textAlign: 'left',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <span style={{ fontSize: '24px' }}>✉️</span>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Other (IMAP)</div>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Web.de, GMX, Yahoo, T-Online, etc.</div>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)' }}>→</span>
-                  </button>
-                  
-                  {/* Security note */}
-                  <div style={{ 
-                    marginTop: '16px', 
-                    padding: '12px', 
-                    background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(59,130,246,0.2)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <span style={{ fontSize: '14px' }}>🔒</span>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)', lineHeight: '1.5' }}>
-                        <strong>Security:</strong> Your emails are never rendered with scripts or tracking. All content is sanitized locally before display.
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-              
-              {emailSetupStep === 'credentials' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* Back button */}
-                  <button
-                    onClick={() => setEmailSetupStep('provider')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      background: 'none',
-                      border: 'none',
-                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
-                      fontSize: '13px',
-                      cursor: 'pointer',
-                      padding: '0',
-                      marginBottom: '8px'
-                    }}
-                  >
-                    ← Back to providers
-                  </button>
-                  
-                  {/* Preset selector */}
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Provider Preset (Optional)
-                    </label>
-                    <select
-                      onChange={(e) => applyImapPreset(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    >
-                      <option value="">Select a preset...</option>
-                      {Object.entries(imapPresets).filter(([k]) => k !== 'custom').map(([key, preset]) => (
-                        <option key={key} value={key}>{preset.name}</option>
-                      ))}
-                      <option value="custom">Custom IMAP Server</option>
-                    </select>
-                  </div>
-                  
-                  {/* Email field */}
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="your@email.com"
-                      value={imapForm.email}
-                      onChange={(e) => {
-                        const email = e.target.value
-                        setImapForm(prev => ({ ...prev, email, username: prev.username || email }))
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  {/* IMAP Server */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                        IMAP Server *
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="imap.example.com"
-                        value={imapForm.host}
-                        onChange={(e) => setImapForm(prev => ({ ...prev, host: e.target.value }))}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: '8px',
-                          fontSize: '13px',
-                          color: theme === 'standard' ? '#0f172a' : 'white'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                        Port
-                      </label>
-                      <input
-                        type="number"
-                        value={imapForm.port}
-                        onChange={(e) => setImapForm(prev => ({ ...prev, port: parseInt(e.target.value) || 993 }))}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: '8px',
-                          fontSize: '13px',
-                          color: theme === 'standard' ? '#0f172a' : 'white'
-                        }}
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Username */}
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Username *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Usually your email address"
-                      value={imapForm.username}
-                      onChange={(e) => setImapForm(prev => ({ ...prev, username: e.target.value }))}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  {/* Password */}
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Password / App Password *
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Your password or app-specific password"
-                      value={imapForm.password}
-                      onChange={(e) => setImapForm(prev => ({ ...prev, password: e.target.value }))}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px',
-                        fontSize: '13px',
-                        color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  {/* Connect button */}
-                  <button
-                    onClick={connectImapAccount}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: 'white',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      marginTop: '8px'
-                    }}
-                  >
-                    Connect Email Account
-                  </button>
-                  
-                  {/* Security note */}
-                  <div style={{ 
-                    marginTop: '8px', 
-                    padding: '10px', 
-                    background: theme === 'standard' ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    color: theme === 'standard' ? '#1e40af' : 'rgba(255,255,255,0.8)',
-                    lineHeight: '1.4'
-                  }}>
-                    🔒 <strong>Tip:</strong> For Gmail, Yahoo, and other accounts with 2FA, use an App Password instead of your regular password.
-                  </div>
-                </div>
-              )}
-              
-              {/* Gmail OAuth Credentials Form */}
-              {emailSetupStep === 'gmail-credentials' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <button
-                    onClick={() => setEmailSetupStep('provider')}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      background: 'none', border: 'none',
-                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
-                      fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
-                    }}
-                  >
-                    ← Back to providers
-                  </button>
-                  
-                  <div style={{ 
-                    padding: '12px', 
-                    background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
-                    borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <span>⚙️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
-                        <strong>One-time setup:</strong> You need a Google Cloud OAuth Client ID. 
-                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" 
-                           style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
-                          Get it here →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Client ID *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="xxxxxxxxx.apps.googleusercontent.com"
-                      value={gmailCredentials.clientId}
-                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientId: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Client Secret *
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="GOCSPX-xxxxxxxxx"
-                      value={gmailCredentials.clientSecret}
-                      onChange={(e) => setGmailCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  <button
-                    onClick={saveGmailCredentialsAndConnect}
-                    style={{
-                      width: '100%', padding: '12px',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-                      border: 'none', borderRadius: '8px',
-                      color: 'white', fontSize: '14px', fontWeight: '600',
-                      cursor: 'pointer', marginTop: '8px'
-                    }}
-                  >
-                    Save & Connect Gmail
-                  </button>
-                </div>
-              )}
-              
-              {/* Outlook OAuth Credentials Form */}
-              {emailSetupStep === 'outlook-credentials' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <button
-                    onClick={() => setEmailSetupStep('provider')}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      background: 'none', border: 'none',
-                      color: theme === 'standard' ? '#3b82f6' : '#60a5fa',
-                      fontSize: '13px', cursor: 'pointer', padding: '0', marginBottom: '8px'
-                    }}
-                  >
-                    ← Back to providers
-                  </button>
-                  
-                  <div style={{ 
-                    padding: '12px', 
-                    background: theme === 'standard' ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
-                    borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                      <span>⚙️</span>
-                      <div style={{ fontSize: '11px', color: theme === 'standard' ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.5' }}>
-                        <strong>One-time setup:</strong> You need an Azure AD App Registration. 
-                        <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" 
-                           style={{ color: theme === 'standard' ? '#3b82f6' : '#60a5fa', marginLeft: '4px' }}>
-                          Get it here →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Application (Client) ID *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                      value={outlookCredentials.clientId}
-                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientId: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px', display: 'block' }}>
-                      Client Secret (optional for public clients)
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Leave empty for public client apps"
-                      value={outlookCredentials.clientSecret}
-                      onChange={(e) => setOutlookCredentials(prev => ({ ...prev, clientSecret: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '10px 12px',
-                        background: theme === 'standard' ? '#fff' : 'rgba(255,255,255,0.08)',
-                        border: theme === 'standard' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '8px', fontSize: '13px', color: theme === 'standard' ? '#0f172a' : 'white'
-                      }}
-                    />
-                  </div>
-                  
-                  <button
-                    onClick={saveOutlookCredentialsAndConnect}
-                    style={{
-                      width: '100%', padding: '12px',
-                      background: 'linear-gradient(135deg, #0078d4 0%, #004578 100%)',
-                      border: 'none', borderRadius: '8px',
-                      color: 'white', fontSize: '14px', fontWeight: '600',
-                      cursor: 'pointer', marginTop: '8px'
-                    }}
-                  >
-                    Save & Connect Outlook
-                  </button>
-                </div>
-              )}
-              
-              {emailSetupStep === 'connecting' && (
-                <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                  <div style={{ 
-                    width: '48px', 
-                    height: '48px', 
-                    border: '3px solid rgba(59,130,246,0.3)',
-                    borderTopColor: '#3b82f6',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                    margin: '0 auto 20px'
-                  }} />
-                  <div style={{ fontSize: '14px', color: theme === 'standard' ? '#0f172a' : 'white', marginBottom: '8px', fontWeight: '600' }}>
-                    Waiting for Authorization...
-                  </div>
-                  <div style={{ fontSize: '12px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', marginBottom: '12px' }}>
-                    A browser window should open for you to sign in.
-                  </div>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.4)',
-                    padding: '12px',
-                    background: theme === 'standard' ? '#f1f5f9' : 'rgba(255,255,255,0.05)',
-                    borderRadius: '8px',
-                    lineHeight: '1.5'
-                  }}>
-                    💡 Complete the sign-in in your browser, then return here. This may take a few minutes.
-                  </div>
-                  <style>{`
-                    @keyframes spin {
-                      to { transform: rotate(360deg); }
-                    }
-                  `}</style>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {connectEmailFlowModal}
+
+      
 
       {/* Third Party Licenses Modal */}
       {showThirdPartyLicenses && (

@@ -12,6 +12,7 @@ import {
   ImageProvidersConfig,
   DEFAULT_CLOUD_PROVIDERS
 } from '../types/imageProviders'
+import { getThemeTokens } from '../shared/ui/lightboxTheme'
 
 interface ImageEngineSettingsProps {
   theme?: 'default' | 'dark' | 'professional'
@@ -25,9 +26,10 @@ export function ImageEngineSettings({ theme = 'default' }: ImageEngineSettingsPr
   const [expandedCloud, setExpandedCloud] = useState(true) // Expanded by default
   const [editingApiKey, setEditingApiKey] = useState<string | null>(null)
 
-  const textColor = theme === 'default' || theme === 'dark' ? '#e5e5e5' : '#1f2937'
-  const bgCard = 'rgba(255,255,255,0.05)'
-  const borderColor = 'rgba(255,255,255,0.1)'
+  const tt = getThemeTokens(theme)
+  const textColor = tt.text
+  const bgCard = tt.cardBg
+  const borderColor = tt.border
 
   // Load config on mount
   useEffect(() => {

@@ -942,7 +942,7 @@ function popoverGuardedSubmit(
       `Guarded submit blocked: ${result.reason ?? result.code} for "${itemTitle}". Degrading to fill-only.`)
     emitTelemetryEvent('popover_guarded_submit_blocked', {
       code: result.code,
-      reason: result.reason,
+      reason: result.reason ?? 'unknown',
     })
   }
 }

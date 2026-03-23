@@ -684,7 +684,7 @@ describe('background.ts exports WebMCP constants', () => {
 // ============================================================================
 
 /** Mirrors AUDIT_EXPORT_ALLOWED_PAGES from background.ts */
-const AUDIT_EXPORT_ALLOWED_PAGES = ['/popup.html', '/sidepanel.html']
+const AUDIT_EXPORT_ALLOWED_PAGES = ['/src/popup-chat.html', '/sidepanel.html']
 
 /** Mirrors AUDIT_EXPORT_RESULT_VERSION from background.ts */
 const AUDIT_EXPORT_RESULT_VERSION = 'audit-export-v1'
@@ -796,14 +796,14 @@ function simulateExportHandler(opts: {
 // ============================================================================
 
 const EXT_ID = 'abcdefghijklmnopqrstuvwxyz123456'
-const VALID_UI_SENDER = { url: `chrome-extension://${EXT_ID}/popup.html` }
+const VALID_UI_SENDER = { url: `chrome-extension://${EXT_ID}/src/popup-chat.html` }
 const VALID_SIDEPANEL_SENDER = { url: `chrome-extension://${EXT_ID}/sidepanel.html` }
 const VALID_VSBT = 'vsbt_session_token_abc123'
 const VALID_EXPORT = { jsonl: '{"ts":"2026-01-01","msg":"test"}\n', truncated: false }
 
 describe('EXPORT_AUDIT_LOG — context gate: sender.tab rejection', () => {
   it('rejects when sender.tab is present (content-script context)', () => {
-    const sender = { url: `chrome-extension://${EXT_ID}/popup.html`, tab: { id: 42 } }
+    const sender = { url: `chrome-extension://${EXT_ID}/src/popup-chat.html`, tab: { id: 42 } }
     expect(isExtensionUiContext(sender, EXT_ID)).toBe(false)
 
     const resp = simulateExportHandler({
@@ -818,12 +818,12 @@ describe('EXPORT_AUDIT_LOG — context gate: sender.tab rejection', () => {
   })
 
   it('rejects when sender.tab is truthy non-object (edge case)', () => {
-    const sender = { url: `chrome-extension://${EXT_ID}/popup.html`, tab: true as any }
+    const sender = { url: `chrome-extension://${EXT_ID}/src/popup-chat.html`, tab: true as any }
     expect(isExtensionUiContext(sender, EXT_ID)).toBe(false)
   })
 
   it('rejects when sender.tab is numeric (another edge case)', () => {
-    const sender = { url: `chrome-extension://${EXT_ID}/popup.html`, tab: 1 as any }
+    const sender = { url: `chrome-extension://${EXT_ID}/src/popup-chat.html`, tab: 1 as any }
     expect(isExtensionUiContext(sender, EXT_ID)).toBe(false)
   })
 })
@@ -840,12 +840,12 @@ describe('EXPORT_AUDIT_LOG — context gate: URL validation', () => {
   })
 
   it('rejects random external page', () => {
-    expect(isExtensionUiContext({ url: 'https://evil.com/popup.html' }, EXT_ID)).toBe(false)
-    expect(isExtensionUiContext({ url: 'http://localhost/popup.html' }, EXT_ID)).toBe(false)
+    expect(isExtensionUiContext({ url: 'https://evil.com/src/popup-chat.html' }, EXT_ID)).toBe(false)
+    expect(isExtensionUiContext({ url: 'http://localhost/src/popup-chat.html' }, EXT_ID)).toBe(false)
   })
 
   it('rejects foreign extension ID', () => {
-    expect(isExtensionUiContext({ url: 'chrome-extension://foreign_id_abc/popup.html' }, EXT_ID)).toBe(false)
+    expect(isExtensionUiContext({ url: 'chrome-extension://foreign_id_abc/src/popup-chat.html' }, EXT_ID)).toBe(false)
   })
 
   it('rejects when sender.url is missing or empty', () => {
@@ -863,7 +863,7 @@ describe('EXPORT_AUDIT_LOG — context gate: URL validation', () => {
     expect(isExtensionUiContext({ url: `chrome-extension://${EXT_ID}/` }, EXT_ID)).toBe(false)
   })
 
-  it('accepts popup.html', () => {
+  it('accepts popup-chat.html', () => {
     expect(isExtensionUiContext(VALID_UI_SENDER, EXT_ID)).toBe(true)
   })
 
@@ -872,7 +872,7 @@ describe('EXPORT_AUDIT_LOG — context gate: URL validation', () => {
   })
 
   it('strips query strings from URL path before matching', () => {
-    expect(isExtensionUiContext({ url: `chrome-extension://${EXT_ID}/popup.html?foo=bar&x=1` }, EXT_ID)).toBe(true)
+    expect(isExtensionUiContext({ url: `chrome-extension://${EXT_ID}/src/popup-chat.html?foo=bar&x=1` }, EXT_ID)).toBe(true)
   })
 
   it('strips hash fragments from URL path before matching', () => {
