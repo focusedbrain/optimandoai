@@ -22,6 +22,7 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { sortSourceWeightingFromMessageRow } from '../lib/inboxSortSourceWeighting'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
@@ -92,6 +93,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
+      const sortW = message ? sortSourceWeightingFromMessageRow(message) : undefined
       const tri = reconcileAnalyzeTriage(
         {
           urgencyScore: cached.urgencyScore,
@@ -99,7 +101,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           urgencyReason: cached.urgencyReason,
           summary: cached.summary,
         },
-        { subject: message?.subject, body: message?.body_text }
+        { subject: message?.subject, body: message?.body_text },
+        sortW
       )
       const cachedAdj = {
         ...cached,
@@ -170,6 +173,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisLoading(false)
       const final = tryParseAnalysis(accumulatedText)
       if (final) {
+        const sortW = message ? sortSourceWeightingFromMessageRow(message) : undefined
         const tri = reconcileAnalyzeTriage(
           {
             urgencyScore: final.urgencyScore,
@@ -177,7 +181,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             urgencyReason: final.urgencyReason,
             summary: final.summary,
           },
-          { subject: message?.subject, body: message?.body_text }
+          { subject: message?.subject, body: message?.body_text },
+          sortW
         )
         let adjusted = {
           ...final,
@@ -223,7 +228,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
     }
-  }, [messageId, message?.subject, message?.body_text])
+  }, [messageId, message?.subject, message?.body_text, message?.source_type, message?.handshake_id])
 
   useEffect(() => {
     if (!messageId) return

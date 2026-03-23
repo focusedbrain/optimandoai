@@ -92,6 +92,12 @@ category, urgency (1–10), needsReply, reason, and summary MUST agree:
 - If the reason describes "no action required" or "informational/promotional only", urgency MUST be 1–3 and needsReply MUST be false.
 - If the email body references attachments (e.g. "please find attached", "see the attachment", "I've attached") but attachment metadata is missing or unclear, treat as if attachments may be present and apply the Attachment Handling Rules conservatively (minimum pending_review when in doubt).
 
+## SOURCE TYPE WEIGHTING (same categories — signals only)
+Transport and handshake metadata are weighting hints inside this single pipeline, not separate routing classes and not a verdict by themselves:
+- Native BEAP (email_beap, direct_beap): bias toward archive when content fits; disfavor pending_delete unless the message is clearly low-value or spam-like; preserve conservatively.
+- Depackaged email (email_plain): bias toward pending_review when unsure; be less eager to archive than for Native BEAP; pending_delete only when content is clearly low-quality, irrelevant, or spam-like.
+- Handshake-linked (non-empty handshake_id or direct_beap): strongly favor visibility and review priority; do not choose archive or pending_delete for borderline cases alone; still respect attachments and high-stakes rules.
+
 ## DRAFT REPLY RULES
 Generate a draft reply (draftReply field) when:
 - needsReply is true
@@ -191,6 +197,7 @@ import type {
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
+import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 
@@ -2837,7 +2844,21 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
+      const row = db
+        .prepare(
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id FROM inbox_messages WHERE id = ?',
+        )
+        .get(messageId) as
+        | {
+            from_address?: string
+            from_name?: string
+            subject?: string
+            body_text?: string
+            received_at?: string
+            source_type?: string | null
+            handshake_id?: string | null
+          }
+        | undefined
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-ANALYZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
@@ -2848,7 +2869,8 @@ Rules:
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
       const body = (row.body_text || '').trim().slice(0, 8000)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
+      const sortWAnalyze = sortSourceWeightingFromMessageRow(row)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}`
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
@@ -2893,7 +2915,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       if (!parseFailed) {
         const tri = reconcileAnalyzeTriage(
           { urgencyScore, needsReply, urgencyReason, summary },
-          { subject: row.subject, body: row.body_text ?? '' }
+          { subject: row.subject, body: row.body_text ?? '' },
+          sortWAnalyze
         )
         urgencyScore = tri.urgencyScore
         needsReply = tri.needsReply
@@ -2943,7 +2966,21 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Database unavailable' })
         return { started: false }
       }
-      const row = db.prepare('SELECT from_address, from_name, subject, body_text, received_at FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string; received_at?: string } | undefined
+      const row = db
+        .prepare(
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id FROM inbox_messages WHERE id = ?',
+        )
+        .get(messageId) as
+        | {
+            from_address?: string
+            from_name?: string
+            subject?: string
+            body_text?: string
+            received_at?: string
+            source_type?: string | null
+            handshake_id?: string | null
+          }
+        | undefined
       if (!row) {
         event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Message not found' })
         return { started: false }
@@ -2957,7 +2994,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
       const body = (row.body_text || '').trim().slice(0, 8000)
-      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}`
+      const sortWStream = sortSourceWeightingFromMessageRow(row)
+      const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}`
 
       const { tone, sortRules } = getToneAndSortForPrompts(db)
       const contextBlock = getContextBlockForPrompts(db)
@@ -3019,7 +3057,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     if (!db) return { messageId, error: 'Database unavailable' }
     const row = db
       .prepare(
-        'SELECT from_address, from_name, subject, body_text, has_attachments, attachment_count FROM inbox_messages WHERE id = ?',
+        'SELECT from_address, from_name, subject, body_text, has_attachments, attachment_count, source_type, handshake_id FROM inbox_messages WHERE id = ?',
       )
       .get(messageId) as
       | {
@@ -3029,6 +3067,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
           body_text?: string
           has_attachments?: number | null
           attachment_count?: number | null
+          source_type?: string | null
+          handshake_id?: string | null
         }
       | undefined
     if (!row) return { messageId, error: 'not_found' }
@@ -3065,12 +3105,15 @@ Return ONLY a JSON object with this exact shape — no explanation, no markdown:
       hasAtt === 'yes'
         ? `Has attachments: yes (${attCount} file(s) per message metadata)`
         : 'Has attachments: no (0 files per message metadata)'
+    const sortWeight = sortSourceWeightingFromMessageRow(row)
     /** Short body keeps Auto-Sort fast; subject + sender carry most triage signal. */
     const userPrompt = `Classify this email:
 From: ${from}
 Subject: ${row.subject || '(No subject)'}
 ${attachmentLine}
-Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
+Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}
+
+${formatSourceWeightingForPrompt(sortWeight)}`
 
     try {
       const raw = await Promise.race([
@@ -3097,10 +3140,11 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}`
       let reason = (parsed.reason ?? '').slice(0, 500)
       const summary = (parsed.summary ?? '').slice(0, 500)
 
-      /** WRExpert coherence: promotional / unsolicited cannot be urgent+critical. */
+      /** WRExpert coherence: promotional / unsolicited cannot be urgent+critical; source/handshake weighting softens delete/archive where policy requires. */
       const reco = reconcileInboxClassification(
         { category: validCategory, urgency, needsReply, reason, summary },
-        { subject: row.subject, body: row.body_text ?? '' }
+        { subject: row.subject, body: row.body_text ?? '' },
+        sortWeight
       )
       validCategory = reco.category
       urgency = reco.urgency

@@ -75,6 +75,12 @@ category, urgency (1–10), needsReply, reason, and summary MUST agree:
 - If the reason describes "no action required" or "informational/promotional only", urgency MUST be 1–3 and needsReply MUST be false.
 - If the email body references attachments (e.g. "please find attached", "see the attachment", "I've attached") but attachment metadata is missing or unclear, treat as if attachments may be present and apply the Attachment Handling Rules conservatively (minimum pending_review when in doubt).
 
+## SOURCE TYPE WEIGHTING (same categories — signals only)
+Transport and handshake metadata are weighting hints inside this single pipeline, not separate routing classes and not a verdict by themselves:
+- **Native BEAP** (`email_beap`, `direct_beap`): bias toward archive when content fits; disfavor pending_delete unless the message is clearly low-value or spam-like; preserve conservatively.
+- **Depackaged email** (`email_plain`): bias toward pending_review when unsure; be less eager to archive than for Native BEAP; pending_delete only when content is clearly low-quality, irrelevant, or spam-like.
+- **Handshake-linked** (non-empty `handshake_id` or `direct_beap`): strongly favor visibility and review priority; do not choose archive or pending_delete for borderline cases alone; still respect attachments and high-stakes rules.
+
 ## DRAFT REPLY RULES
 Generate a draft reply (draftReply field) when:
 - needsReply is true
