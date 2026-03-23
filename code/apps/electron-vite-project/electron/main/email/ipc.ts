@@ -976,7 +976,7 @@ type InboxListFilterOptions = {
   filter?: string
   sourceType?: string
   /** Product-facing kind — aligned with `deriveInboxMessageKind` in renderer (`src/lib/inboxMessageKind.ts`). */
-  messageKind?: 'handshake' | 'depackaged' | 'auto_filed'
+  messageKind?: 'handshake' | 'depackaged'
   handshakeId?: string
   category?: string
   search?: string
@@ -1053,14 +1053,6 @@ function buildInboxMessagesWhereClause(options: InboxListFilterOptions = {}): { 
       '((handshake_id IS NULL OR trim(handshake_id) = ?) AND (source_type IS NULL OR source_type != ?))',
     )
     params.push('', 'direct_beap')
-  }
-  if (messageKind === 'auto_filed') {
-    for (let i = conditions.length - 1; i >= 0; i--) {
-      if (conditions[i] === 'archived = 0') conditions.splice(i, 1)
-    }
-    if (!conditions.includes('archived = 1')) {
-      conditions.push('archived = 1')
-    }
   }
   if (handshakeId) {
     conditions.push('handshake_id = ?')

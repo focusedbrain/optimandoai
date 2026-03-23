@@ -33,12 +33,12 @@ export function formatSourceWeightingForPrompt(w: SortSourceWeighting): string {
   }
   if (w.nativeBeap) {
     lines.push(
-      '- Native BEAP: favor archive/file when content fits; disfavor pending_delete unless the message is clearly low-value or spam-like; preserve conservatively.',
+      '- Native BEAP: favor archive/file when content fits; avoid delete-oriented outcomes and disfavor pending_delete unless the message is unmistakably low-value or spam-like; preserve conservatively.',
     )
   }
   if (w.depackagedEmail) {
     lines.push(
-      '- Depackaged email: favor pending_review when unsure; be less eager to archive than for Native BEAP; pending_delete is acceptable only when content is clearly low-quality, irrelevant, or spam-like.',
+      '- Depackaged email: favor pending_review when unsure; be less eager to archive than for Native BEAP; when content looks low-quality, irrelevant, or spam-like, pending_delete is more appropriate than for Native BEAP.',
     )
   }
   if (!w.handshakeLinked && !w.nativeBeap && !w.depackagedEmail) {

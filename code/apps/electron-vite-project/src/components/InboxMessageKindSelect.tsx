@@ -1,9 +1,9 @@
 /**
- * Shared compact dropdown for product-facing inbox type (workflow labels).
- * Same options in Normal + Bulk inbox; internal `value`s stay stable for IPC/filters.
+ * Inbox Type = origin only (All / Native BEAP / Depackaged Email).
+ * Status uses tabs; Handshakes uses its own section — not mixed here.
  */
 
-import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
+import { coerceInboxMessageKindFilter, type InboxMessageKindFilter } from '../lib/inboxMessageKind'
 
 export interface InboxMessageKindSelectProps {
   value: InboxMessageKindFilter
@@ -16,12 +16,12 @@ export interface InboxMessageKindSelectProps {
 
 const OPTIONS: { value: InboxMessageKindFilter; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'depackaged', label: 'Manual Review' },
-  { value: 'auto_filed', label: 'Auto-filed' },
-  { value: 'handshake', label: 'Handshakes' },
+  { value: 'handshake', label: 'Native BEAP' },
+  { value: 'depackaged', label: 'Depackaged Email' },
 ]
 
 export function InboxMessageKindSelect({ value, onChange, id, variant = 'default' }: InboxMessageKindSelectProps) {
+  const safeValue = coerceInboxMessageKindFilter(value)
   const selectClass =
     variant === 'bulk'
       ? 'bulk-view-selection-group-select inbox-message-kind-select--bulk'
@@ -35,9 +35,9 @@ export function InboxMessageKindSelect({ value, onChange, id, variant = 'default
       <select
         id={id}
         className={selectClass}
-        value={value}
+        value={safeValue}
         onChange={(e) => onChange(e.target.value as InboxMessageKindFilter)}
-        aria-label="Filter by type: All, Manual Review, Auto-filed, or Handshakes"
+        aria-label="Filter by message type: All, Native BEAP, or Depackaged Email"
       >
         {OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>

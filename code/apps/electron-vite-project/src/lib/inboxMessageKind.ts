@@ -1,15 +1,20 @@
 /**
- * Product-facing inbox message classification (BEAP inbox).
- * Independent of raw `source_type` transport labels — use this for filters and UI logic.
+ * Inbox Type filter: message origin only (not status, not Handshakes tab).
+ * Independent of raw `source_type` for display — renderer + main stay aligned on filter SQL.
  *
- * Rules (renderer + main must stay aligned):
- * - `handshake`: non-empty `handshake_id` OR `source_type === 'direct_beap'`
- * - `depackaged`: everything else (UI: Manual Review)
- * - `auto_filed` filter: `archived === 1` (UI: Auto-filed)
+ * Rules:
+ * - `handshake` (UI: Native BEAP): non-empty `handshake_id` OR `source_type === 'direct_beap'`
+ * - `depackaged` (UI: Depackaged Email): everything else
  */
 
-/** Filter dimension: All, or restrict to one product-facing kind / workflow slice. */
-export type InboxMessageKindFilter = 'all' | 'handshake' | 'depackaged' | 'auto_filed'
+/** Filter dimension: All, or one origin slice. Internal values stable for IPC. */
+export type InboxMessageKindFilter = 'all' | 'handshake' | 'depackaged'
+
+/** Normalize legacy or invalid persisted values (e.g. removed `auto_filed`). */
+export function coerceInboxMessageKindFilter(v: unknown): InboxMessageKindFilter {
+  if (v === 'handshake' || v === 'depackaged') return v
+  return 'all'
+}
 
 /** Derived kind for a single row (no `all`). */
 export type InboxMessageKindDerived = 'handshake' | 'depackaged'
@@ -27,12 +32,8 @@ export function deriveInboxMessageKind(m: InboxMessageKindFields): InboxMessageK
   return 'depackaged'
 }
 
-export function messageMatchesKindFilter(
-  m: InboxMessageKindFields & { archived?: number },
-  kind: InboxMessageKindFilter,
-): boolean {
+export function messageMatchesKindFilter(m: InboxMessageKindFields, kind: InboxMessageKindFilter): boolean {
   if (kind === 'all') return true
-  if (kind === 'auto_filed') return m.archived === 1
   return deriveInboxMessageKind(m) === kind
 }
 

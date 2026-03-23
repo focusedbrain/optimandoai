@@ -672,7 +672,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   listMessages: (options?: {
     filter?: string
     sourceType?: string
-    messageKind?: 'handshake' | 'depackaged' | 'auto_filed'
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -682,7 +682,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string
-    messageKind?: 'handshake' | 'depackaged' | 'auto_filed'
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
