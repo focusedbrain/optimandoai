@@ -2125,17 +2125,30 @@ body {
   justify-content: center;
 }
 
-/*
- * TODO: EmailInboxToolbar.tsx — migrate filter tab buttons from inline styles to className="inbox-toolbar-tab"
- * (preserve active/inactive colors via a modifier class or data attribute). Touch target ≥32px.
- */
+/* Normal inbox — workflow filter tabs (EmailInboxToolbar); touch target ≥32px */
 .inbox-toolbar-tab {
   min-height: 32px;
   padding: 6px 14px;
   font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
+  border: none;
+  background: #eee;
+  color: var(--color-text, #0f172a);
+  transition: background 0.15s, color 0.15s;
+}
+
+.inbox-toolbar-tab--active {
+  background: var(--purple-accent, #9333ea);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.inbox-toolbar-tab:hover:not(.inbox-toolbar-tab--active) {
+  background: rgba(124, 58, 237, 0.08);
 }
 
 .bulk-view-toolbar-row--message-kind {

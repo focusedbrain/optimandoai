@@ -90,7 +90,6 @@ export default function EmailInboxToolbar({
       {/* Filter tabs row */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="tablist" aria-label="Inbox filters">
         {FILTER_TABS.map((tab) => {
-          const active = filter.filter === tab
           return (
             <button
               key={tab}
@@ -98,18 +97,8 @@ export default function EmailInboxToolbar({
               role="tab"
               aria-selected={tab === filter.filter}
               id={`inbox-tab-${tab}`}
+              className={`inbox-toolbar-tab${tab === filter.filter ? ' inbox-toolbar-tab--active' : ''}`}
               onClick={() => onFilterChange({ filter: tab })}
-              style={{
-                padding: '6px 12px',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 999,
-                border: 'none',
-                background: active ? 'var(--purple-accent, #9333ea)' : '#eee',
-                color: active ? '#fff' : 'var(--color-text, #0f172a)',
-                cursor: 'pointer',
-                textTransform: 'capitalize',
-              }}
             >
               {FILTER_LABELS[tab]} ({tabCounts[tab]})
             </button>
