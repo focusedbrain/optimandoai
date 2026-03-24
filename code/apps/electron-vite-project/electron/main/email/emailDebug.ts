@@ -13,8 +13,7 @@ try {
   isDev = false
 }
 
-/** Forced on for IMAP pull diagnostics — revert to `process.env.EMAIL_DEBUG === '1' || isDev` after debugging. */
-export const EMAIL_DEBUG = true
+export const EMAIL_DEBUG = process.env.EMAIL_DEBUG === '1' || isDev
 
 /** Dev-only raw IMAP IPC (`email:diagnoseImap`) — production builds must not register the handler. */
 export const DIAGNOSE_IMAP_IPC_DEV = isDev

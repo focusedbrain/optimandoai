@@ -518,7 +518,7 @@ export class ImapProvider extends BaseEmailProvider {
   }
   
   /**
-   * SEARCH SINCE → sequence numbers; fetch headers in chunks via `seq.fetch` (search returns seq, not UID).
+   * SEARCH SINCE via node-imap → **UID SEARCH** (returns UIDs). Fetch with `client.fetch` (UID FETCH), not `seq.fetch`.
    */
   private fetchMessagesSince(folder: string, since: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     const limit = options?.limit || 50
@@ -592,22 +592,22 @@ export class ImapProvider extends BaseEmailProvider {
             criteriaJson: syncDebugFormatImapSearchCriteria(searchCriteria),
           },
         )
-        this.client!.search([searchCriteria], (sErr, seqnums: number[]) => {
+        this.client!.search([searchCriteria], (sErr, uids: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
-          const n = seqnums?.length ?? 0
-          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH result (sequence numbers)', { folder, matchCount: n })
-          if (!seqnums?.length) {
+          const n = uids?.length ?? 0
+          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH result (UIDs from UID SEARCH)', { folder, matchCount: n })
+          if (!uids?.length) {
             emailDebugLog(
-              '[SYNC-DEBUG] IMAP fetchMessagesSince: 0 SEARCH matches — no seq.fetch attempted for this folder',
+              '[SYNC-DEBUG] IMAP fetchMessagesSince: 0 SEARCH matches — no UID fetch attempted for this folder',
               { folder },
             )
             resolve([])
             return
           }
-          const sorted = [...seqnums].sort((a, b) => a - b)
+          const sorted = [...uids].sort((a, b) => a - b)
           let pick = syncAll ? sorted : sorted.slice(Math.max(0, sorted.length - limit))
           if (pick.length > maxM) {
             pick = pick.slice(-maxM)
@@ -630,12 +630,14 @@ export class ImapProvider extends BaseEmailProvider {
             i += chunkSize
             if (syncAll) {
               console.log(
-                `[IMAP] SINCE fetch chunk ${imapChunkIdx}: seq ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length} total matches)`,
+                `[IMAP] SINCE fetch chunk ${imapChunkIdx}: uid ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length} total matches)`,
               )
             }
             const spec = slice.join(',')
             const batch: RawEmailMessage[] = []
-            const fetch = this.client!.seq.fetch(spec, {
+            // connection.search() returns UIDs, not sequence numbers.
+            // Use this.client!.fetch (UID-based) not seq.fetch (sequence-based).
+            const fetch = this.client!.fetch(spec, {
               bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
               struct: true,
             })
@@ -671,7 +673,7 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   /**
-   * SEARCH BEFORE → sequence numbers; take the **newest** `maxM` matches (highest seq), then fetch headers.
+   * SEARCH BEFORE via **UID SEARCH**; take the **newest** `maxM` matches (highest UID), then UID FETCH headers.
    * Used for Pull More (older than local oldest message).
    */
   private fetchMessagesBeforeExclusive(folder: string, before: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
@@ -734,19 +736,19 @@ export class ImapProvider extends BaseEmailProvider {
           beforeIso: before.toISOString(),
           criteriaJson: syncDebugFormatImapSearchCriteria(beforeCriteria),
         })
-        this.client!.search([beforeCriteria], (sErr, seqnums: number[]) => {
+        this.client!.search([beforeCriteria], (sErr, uids: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
-          const n = seqnums?.length ?? 0
-          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH BEFORE result (sequence numbers)', { folder, matchCount: n })
-          if (!seqnums?.length) {
+          const n = uids?.length ?? 0
+          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH BEFORE result (UIDs)', { folder, matchCount: n })
+          if (!uids?.length) {
             emailDebugLog('[SYNC-DEBUG] IMAP fetchMessagesBeforeExclusive: 0 matches — no fetch', { folder })
             resolve([])
             return
           }
-          const sortedDesc = [...seqnums].sort((a, b) => b - a)
+          const sortedDesc = [...uids].sort((a, b) => b - a)
           const pick = sortedDesc.slice(0, maxM)
 
           const all: RawEmailMessage[] = []
@@ -756,7 +758,7 @@ export class ImapProvider extends BaseEmailProvider {
           const nextChunk = () => {
             if (i >= pick.length) {
               if (syncAll && pick.length > 0) {
-                console.log(`[IMAP] BEFORE fetch done: ${all.length} message(s) from ${pick.length} seq pick(es)`)
+                console.log(`[IMAP] BEFORE fetch done: ${all.length} message(s) from ${pick.length} uid pick(es)`)
               }
               resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
               return
@@ -766,12 +768,14 @@ export class ImapProvider extends BaseEmailProvider {
             i += chunkSize
             if (syncAll) {
               console.log(
-                `[IMAP] BEFORE fetch chunk ${imapChunkIdx}: seq ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length})`,
+                `[IMAP] BEFORE fetch chunk ${imapChunkIdx}: uid ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length})`,
               )
             }
             const spec = slice.join(',')
             const batch: RawEmailMessage[] = []
-            const fetch = this.client!.seq.fetch(spec, {
+            // connection.search() returns UIDs, not sequence numbers.
+            // Use this.client!.fetch (UID-based) not seq.fetch (sequence-based).
+            const fetch = this.client!.fetch(spec, {
               bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
               struct: true,
             })
