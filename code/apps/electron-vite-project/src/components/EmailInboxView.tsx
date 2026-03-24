@@ -1271,6 +1271,19 @@ export default function EmailInboxView({
     }
   }, [selectedMessageIdProp, selectedMessageId, selectMessage])
 
+  /**
+   * Normal inbox loads a single page (`messages`). After sync / Pull / onNewMessages / filter, the
+   * visible list can omit the current `selectedMessageId` while `selectedMessage` from `getMessage`
+   * still fills the detail pane — no row matches `selected`. Clear focus (store + App) when the id
+   * is absent from the visible page.
+   */
+  useEffect(() => {
+    if (!selectedMessageId || loading) return
+    if (messages.some((m) => m.id === selectedMessageId)) return
+    void selectMessage(null)
+    onSelectMessage?.(null)
+  }, [messages, selectedMessageId, loading, selectMessage, onSelectMessage])
+
   useEffect(() => {
     if (selectedAttachmentIdProp !== undefined && selectedAttachmentIdProp !== selectedAttachmentId) {
       selectAttachment(selectedMessageId ?? '', selectedAttachmentIdProp)

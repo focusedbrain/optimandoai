@@ -2265,17 +2265,20 @@ export default function EmailInboxBulkView({
     }
   }, [focusedMessageId])
 
-  /** When focused message is removed (archived/deleted), focus next available row. */
+  /**
+   * When focused id is not in the current list (tab / refresh / archive) keep list highlight and
+   * Hybrid Search scope aligned: focus first row, or clear App + store when the list is empty.
+   */
   useEffect(() => {
-    if (
-      focusedMessageId &&
-      !sortedMessages.some((m) => m.id === focusedMessageId) &&
-      sortedMessages.length > 0 &&
-      onSelectMessage
-    ) {
+    if (!focusedMessageId || !onSelectMessage || loading) return
+    if (sortedMessages.some((m) => m.id === focusedMessageId)) return
+    if (sortedMessages.length > 0) {
       onSelectMessage(sortedMessages[0].id)
+      return
     }
-  }, [focusedMessageId, sortedMessages, onSelectMessage])
+    onSelectMessage(null)
+    void selectMessage(null)
+  }, [focusedMessageId, sortedMessages, onSelectMessage, selectMessage, loading])
 
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
