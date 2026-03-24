@@ -4830,7 +4830,8 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
           if (acc.provider !== 'imap' || acc.status !== 'active') continue
           console.log('[IMAP-AUTO-SYNC] Triggering pull for IMAP account:', acc.id, acc.email)
           try {
-            await syncAccountEmails(db, { accountId: acc.id })
+            const result = await syncAccountEmails(db, { accountId: acc.id })
+            broadcastInboxNewMessagesFromAutoSync(result)
             console.log('[IMAP-AUTO-SYNC] Pull completed for:', acc.id)
           } catch (err) {
             console.error('[IMAP-AUTO-SYNC] Pull failed for:', acc.id, err)
