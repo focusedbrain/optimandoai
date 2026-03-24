@@ -475,40 +475,44 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       <div className="inbox-detail-ai-advisory-banner">
         AI suggestions — you decide what to do
       </div>
-      <div className="bulk-action-card-buttons inbox-detail-ai-primary-actions">
+      <div className="inbox-detail-ai-action-bar">
         <button
           type="button"
-          className="bulk-action-card-btn"
-          aria-label="Summarize email"
+          className="inbox-detail-ai-action-btn"
           onClick={handleSummarize}
-          disabled={summarizeLoading || draftLoading}
+          disabled={summarizeLoading}
+          aria-label="Regenerate summary"
+          title="Regenerate summary"
         >
-          {summarizeLoading ? '…' : '✨ Summarize'}
+          {summarizeLoading ? '…' : '✨ Summary'}
         </button>
         <button
           type="button"
-          className="bulk-action-card-btn"
-          aria-label="Draft reply"
+          className="inbox-detail-ai-action-btn"
           onClick={handleDraftReply}
-          disabled={analysisLoading || draftLoading}
+          disabled={draftLoading}
+          aria-label="Generate draft reply"
+          title="Generate draft reply"
         >
           {draftLoading ? '…' : '✏️ Draft'}
         </button>
         <button
           type="button"
-          className="bulk-action-card-btn"
-          aria-label="Analyze email"
+          className="inbox-detail-ai-action-btn"
           onClick={() => void runAnalysisStream()}
           disabled={analysisLoading}
+          aria-label="Re-run analysis"
+          title="Re-run analysis"
         >
-          {analysisLoading ? '…' : '🔍 Analyze'}
+          {analysisLoading ? '…' : '🔍 Analysis'}
         </button>
         {onDelete && messageId ? (
           <button
             type="button"
-            className="bulk-action-card-btn bulk-action-card-btn--danger"
-            aria-label="Delete email"
+            className="inbox-detail-ai-action-btn inbox-detail-ai-action-btn--danger"
             onClick={handleDelete}
+            aria-label="Delete email"
+            title="Delete email"
           >
             🗑️ Delete
           </button>

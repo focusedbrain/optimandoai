@@ -77,27 +77,18 @@ export default function EmailInboxToolbar({
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        padding: '12px 14px',
-        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        background: 'var(--color-bg, #0f172a)',
-      }}
-    >
+    <div className="email-inbox-toolbar">
       {/* Filter tabs row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="tablist" aria-label="Inbox filters">
+      <div className="inbox-toolbar-tabs" role="tablist" aria-label="Inbox filters">
         {FILTER_TABS.map((tab) => {
           return (
             <button
               key={tab}
-              type="button"
+              className={`inbox-toolbar-tab${tab === filter.filter ? ' inbox-toolbar-tab--active' : ''}`}
               role="tab"
               aria-selected={tab === filter.filter}
               id={`inbox-tab-${tab}`}
-              className={`inbox-toolbar-tab${tab === filter.filter ? ' inbox-toolbar-tab--active' : ''}`}
+              type="button"
               onClick={() => onFilterChange({ filter: tab })}
             >
               {FILTER_LABELS[tab]} ({tabCounts[tab]})
@@ -116,8 +107,8 @@ export default function EmailInboxToolbar({
       </div>
 
       {/* Sync row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <div style={{ flex: 1, minWidth: 8 }} />
+      <div className="inbox-toolbar-sync-row">
+        <div className="inbox-toolbar-sync-spacer" aria-hidden />
 
         <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
           <EmailInboxSyncControls

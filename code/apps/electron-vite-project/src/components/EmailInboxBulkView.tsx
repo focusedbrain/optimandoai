@@ -883,6 +883,7 @@ function BulkActionCardStructured({
       className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
       style={{ borderLeftColor: effectiveBorderColor }}
     >
+      <div className="bulk-action-card-content-scroll">
       <div className="bulk-action-card-body">
       {output.autosortOutcome === 'retained' && output.autosortRetainExplanation ? (
         <div
@@ -1144,16 +1145,22 @@ function BulkActionCardStructured({
             style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '100%',
+              height: isExpanded ? '100%' : 'auto',
               minHeight: 0,
               width: '100%',
-              flex: '1 1 0%',
+              flex: isExpanded ? '1 1 0%' : '0 1 auto',
               boxSizing: 'border-box',
             }}
           >
             <div
               className="bulk-draft-pane-scroll-region flex min-h-0 flex-1 flex-col"
-              style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}
+              style={{
+                flex: isExpanded ? 1 : '0 1 auto',
+                minHeight: 0,
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
             >
               <div
                 ref={draftRef}
@@ -1172,7 +1179,7 @@ function BulkActionCardStructured({
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  height: '100%',
+                  height: isExpanded ? '100%' : 'auto',
                   minHeight: 0,
                   width: '100%',
                   borderRadius: 16,
@@ -1502,8 +1509,9 @@ function BulkActionCardStructured({
             🗑 Delete
           </button>
         </div>
-      </div>
+        </div>
       )}
+      </div>
     </div>
   )
 }

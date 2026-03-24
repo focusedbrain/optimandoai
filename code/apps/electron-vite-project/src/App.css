@@ -894,15 +894,18 @@ body {
   display: none !important;
 }
 
-.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .bulk-action-card-buttons.inbox-detail-ai-primary-actions {
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar {
   flex-direction: column;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: 8px 4px;
+  border-bottom: none;
 }
 
-.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .bulk-action-card-buttons.inbox-detail-ai-primary-actions .bulk-action-card-btn {
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar .inbox-detail-ai-action-btn {
   padding: 6px 8px;
   font-size: 10px;
+  justify-content: center;
 }
 
 .inbox-detail-ai[data-collapsed="true"] .ai-analysis-toggle {
@@ -1513,22 +1516,53 @@ body {
   margin-top: 4px;
 }
 
-/* Normal Inbox AI — primary row uses bulk button classes; neutralize sticky footer chrome from .bulk-action-card-buttons */
-.inbox-detail-ai-inner > .bulk-action-card-buttons.inbox-detail-ai-primary-actions {
-  position: relative;
-  bottom: auto;
-  border-top: none;
+/* Normal Inbox AI — compact action bar */
+.inbox-detail-ai-action-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
   margin-bottom: 14px;
-  padding: 10px 12px;
-  border: 1px solid #e8edf3;
-  border-radius: 8px;
-  background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  box-sizing: border-box;
 }
 
-/* Normal AI panel: min touch target; bulk equivalent is under .bulk-view-row--expanded (min-height 34px there) */
-.inbox-detail-ai-inner .bulk-action-card-btn {
-  min-height: 32px;
+.inbox-detail-ai-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 28px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.inbox-detail-ai-action-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.inbox-detail-ai-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.inbox-detail-ai-action-btn--danger {
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+.inbox-detail-ai-action-btn--danger:hover {
+  background: #fef2f2;
+  border-color: #f87171;
 }
 
 .inbox-detail-ai-output {
@@ -1994,12 +2028,10 @@ body {
 }
 
 /*
- * Compact collapsed rows: one scrollable AI content stack above the footer.
- * Scroll owner: .bulk-action-card-body (header + sections). Footer rows (.bulk-action-card-buttons,
- * .bulk-draft-actions-toolbar-wrap) stay flex-shrink:0 siblings — not inside the scroll region.
- * Sections use overflow:visible so nested max-height mini-scrollbars are not required.
+ * Compact collapsed rows: scrollport is .bulk-action-card-content-scroll (wraps body + non-draft footer).
+ * Body + sections size to content so scrollHeight includes draft toolbars; sticky footers stay in view.
  */
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll {
   flex: 1 1 0%;
   min-height: 0;
   overflow-x: hidden;
@@ -2008,9 +2040,41 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections,
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections--has-draft {
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: visible;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-sections--has-draft > .bulk-draft-pane-with-toolbar {
+  flex: 0 1 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-draft-actions-toolbar-wrap {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  background: #ffffff;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-buttons {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-main-summary-body {
@@ -2125,30 +2189,86 @@ body {
   justify-content: center;
 }
 
-/* Normal inbox — workflow filter tabs (EmailInboxToolbar); touch target ≥32px */
+/* Normal inbox — toolbar shell (EmailInboxToolbar): compact vertical rhythm */
+.email-inbox-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  background: var(--color-bg, #0f172a);
+}
+
+.inbox-toolbar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0;
+}
+
 .inbox-toolbar-tab {
-  min-height: 32px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: capitalize;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
   cursor: pointer;
   white-space: nowrap;
-  border: none;
-  background: #eee;
-  color: var(--color-text, #0f172a);
   transition: background 0.15s, color 0.15s;
 }
 
-.inbox-toolbar-tab--active {
-  background: var(--purple-accent, #9333ea);
-  color: #ffffff;
-  font-weight: 600;
+.inbox-toolbar-tab:hover {
+  background: rgba(124, 58, 237, 0.06);
+  color: #475569;
 }
 
-.inbox-toolbar-tab:hover:not(.inbox-toolbar-tab--active) {
-  background: rgba(124, 58, 237, 0.08);
+.inbox-toolbar-tab--active {
+  background: #7c3aed;
+  color: #ffffff;
+  font-weight: 600;
+  border-color: #7c3aed;
+}
+
+.inbox-toolbar-tab--active:hover {
+  background: #6d28d9;
+  color: #ffffff;
+  border-color: #6d28d9;
+}
+
+.inbox-toolbar-sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.inbox-toolbar-sync-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.email-inbox-toolbar .bulk-view-toolbar-row--message-kind {
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 0;
+}
+
+.email-inbox-toolbar .inbox-message-kind-toolbar {
+  gap: 6px;
+}
+
+.email-inbox-toolbar .inbox-message-kind-select--bulk {
+  min-width: min(148px, 100%);
+  max-width: 100%;
+}
+
+.email-inbox-toolbar .bulk-view-toolbar-right--compact {
+  gap: 6px;
 }
 
 .bulk-view-toolbar-row--message-kind {
@@ -3654,6 +3774,15 @@ body {
   box-sizing: border-box;
   border-left: 3px solid transparent;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
+}
+
+/* Scroll shell: compact collapsed uses this as the scrollport so footer toolbars can stick; other modes delegate scroll to body/sections */
+.bulk-action-card--structured .bulk-action-card-content-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Content stack (autosort + header + scrollable sections) — separate from footer button row so controls stay anchored */
