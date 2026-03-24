@@ -807,6 +807,52 @@ body {
   grid-template-columns: 1fr 72px;
 }
 
+/* Normal inbox sidebar — dark shell; reuse bulk toolbar markup */
+.email-inbox-normal-sidebar {
+  background: var(--color-bg, #0f172a);
+}
+
+.email-inbox-normal-toolbar.bulk-view-toolbar {
+  background: var(--color-bg, #0f172a);
+  border-bottom-color: var(--color-border, rgba(255, 255, 255, 0.08));
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--color-border, rgba(255, 255, 255, 0.15));
+  color: var(--color-text, #e2e8f0);
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn[data-active='true'] {
+  background: rgba(147, 51, 234, 0.22);
+  border-color: rgba(147, 51, 234, 0.45);
+  color: #f5f3ff;
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn--urgent[data-active='true'] {
+  background: rgba(220, 38, 38, 0.22);
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #fecaca;
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn--pending[data-active='true'] {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn--review[data-active='true'] {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+}
+
+.email-inbox-normal-toolbar .bulk-view-toolbar-filter-btn--archived[data-active='true'] {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #bfdbfe;
+}
+
 .inbox-detail-message {
   min-width: 0;
   min-height: 0;
