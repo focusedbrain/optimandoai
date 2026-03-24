@@ -88,12 +88,16 @@ export default function EmailInboxToolbar({
       }}
     >
       {/* Filter tabs row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="tablist" aria-label="Inbox filters">
         {FILTER_TABS.map((tab) => {
           const active = filter.filter === tab
           return (
             <button
               key={tab}
+              type="button"
+              role="tab"
+              aria-selected={tab === filter.filter}
+              id={`inbox-tab-${tab}`}
               onClick={() => onFilterChange({ filter: tab })}
               style={{
                 padding: '6px 12px',

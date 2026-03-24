@@ -1429,23 +1429,6 @@ body {
   background: rgba(220, 38, 38, 0.1);
 }
 
-.inbox-detail-ai-btn-attach {
-  margin-top: 8px;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #475569;
-  cursor: pointer;
-}
-
-.inbox-detail-ai-btn-attach:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-}
-
 .inbox-detail-ai-draft-actions {
   display: flex;
   gap: 8px;
@@ -1480,22 +1463,6 @@ body {
 .inbox-detail-ai-btn-primary:hover {
   background: #6d28d9;
   border-color: #6d28d9;
-}
-
-.inbox-detail-ai-btn-secondary {
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #475569;
-  cursor: pointer;
-}
-
-.inbox-detail-ai-btn-secondary:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
 }
 
 .inbox-detail-ai-action-list {

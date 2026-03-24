@@ -471,22 +471,45 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const isDepackaged = message?.source_type === 'email_plain'
 
   return (
-    <div className="inbox-detail-ai-inner inbox-detail-ai-premium">
+    <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
       <div className="inbox-detail-ai-advisory-banner">
         AI suggestions — you decide what to do
       </div>
       <div className="bulk-action-card-buttons inbox-detail-ai-primary-actions">
-        <button type="button" className="bulk-action-card-btn" onClick={handleSummarize} disabled={summarizeLoading || draftLoading}>
+        <button
+          type="button"
+          className="bulk-action-card-btn"
+          aria-label="Summarize email"
+          onClick={handleSummarize}
+          disabled={summarizeLoading || draftLoading}
+        >
           {summarizeLoading ? '…' : '✨ Summarize'}
         </button>
-        <button type="button" className="bulk-action-card-btn" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
+        <button
+          type="button"
+          className="bulk-action-card-btn"
+          aria-label="Draft reply"
+          onClick={handleDraftReply}
+          disabled={analysisLoading || draftLoading}
+        >
           {draftLoading ? '…' : '✏️ Draft'}
         </button>
-        <button type="button" className="bulk-action-card-btn" onClick={() => void runAnalysisStream()} disabled={analysisLoading}>
+        <button
+          type="button"
+          className="bulk-action-card-btn"
+          aria-label="Analyze email"
+          onClick={() => void runAnalysisStream()}
+          disabled={analysisLoading}
+        >
           {analysisLoading ? '…' : '🔍 Analyze'}
         </button>
         {onDelete && messageId ? (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger" onClick={handleDelete}>
+          <button
+            type="button"
+            className="bulk-action-card-btn bulk-action-card-btn--danger"
+            aria-label="Delete email"
+            onClick={handleDelete}
+          >
             🗑️ Delete
           </button>
         ) : null}
@@ -599,7 +622,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         : `Keep for now — ${analysis.archiveReason || '—'}`}
                     </span>
                     {analysis.archiveRecommendation === 'archive' && onArchive && (
-                      <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
+                      <button
+                        type="button"
+                        className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn"
+                        aria-label="Archive email"
+                        onClick={handleArchive}
+                      >
+                        Archive
+                      </button>
                     )}
                   </>
                 ) : (
