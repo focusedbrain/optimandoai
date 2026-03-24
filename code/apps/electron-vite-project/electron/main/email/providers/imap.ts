@@ -811,11 +811,18 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    // Force clean reconnect if socket died — gateway may reuse a cached provider whose client is stale
     if (!this.client || !this.isConnected()) {
-      if (this.config) {
-        await this.connect(this.config)
+      const cfg = this.config
+      if (cfg) {
+        try {
+          await this.disconnect()
+        } catch {
+          /* noop */
+        }
+        await this.connect(cfg)
       } else {
-        throw new Error('IMAP not configured')
+        throw new Error('IMAP client not connected and no config available for reconnect')
       }
     }
 

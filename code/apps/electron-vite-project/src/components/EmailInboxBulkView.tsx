@@ -2350,6 +2350,11 @@ export default function EmailInboxBulkView({
     return () => setBulkMode(false)
   }, [setBulkMode])
 
+  /** Same as EmailInboxView: load inbox snapshot after mount (bulkMode is set by the effect above; order guarantees store.bulkMode is true). */
+  useEffect(() => {
+    void fetchMessages()
+  }, [fetchMessages])
+
   /** Auto-focus first row when messages finish loading — enables immediate keyboard triage. Skip when user explicitly unfocused. */
   const prevLoadingRef = useRef(false)
   useEffect(() => {
@@ -2386,11 +2391,6 @@ export default function EmailInboxBulkView({
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
   }, [syncBulkBatchSizeFromSettings])
-
-  /** Initial load + filter changes handled in store setFilter; mount: first page + tab counts. */
-  useEffect(() => {
-    void fetchAllMessages()
-  }, [fetchAllMessages])
 
   const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
   const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)

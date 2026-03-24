@@ -39,6 +39,7 @@ import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
+import { imapFetchReliable } from './providers/imapFetchReliable'
 import { saveZohoOAuthConfig } from './credentials'
 import {
   sanitizeHtmlToText,
@@ -572,12 +573,18 @@ class EmailGateway implements IEmailGateway {
   // Message Operations
   // =================================================================
   
-  // All providers (including IMAP) use getConnectedProvider → provider.fetchMessages.
-  // IMAP uses UID SEARCH + UID FETCH (fetchMessagesSince), not seq.fetch + postFilter.
+  // IMAP: dedicated `imapFetchReliable` (fresh connection, seq.fetch, timeout) — no stale cached provider.
+  // OAuth providers: getConnectedProvider → provider.fetchMessages.
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
+
+    if (account.provider === 'imap') {
+      const rawMessages = await imapFetchReliable(account, folder, options)
+      return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
+    }
+
     const provider = await this.getConnectedProvider(account)
     const rawMessages = await provider.fetchMessages(folder, options)
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
@@ -1407,7 +1414,19 @@ class EmailGateway implements IEmailGateway {
     }
 
     let provider = this.providers.get(account.id)
-    
+
+    if (provider && account.provider === 'imap') {
+      if (!provider.isConnected()) {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+        this.providers.delete(account.id)
+        provider = undefined
+      }
+    }
+
     if (!provider) {
       provider = await this.getProvider(account)
       
