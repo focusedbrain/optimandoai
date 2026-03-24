@@ -189,6 +189,12 @@ interface EmailInboxState {
   /** Account sync window (days); 0 = all mail. Loaded from the primary account row. */
   accountSyncWindowDays: number
   syncing: boolean
+  /**
+   * Main sent `inbox:newMessages` while a manual Pull was in progress (`syncing`).
+   * Flush one `fetchMessages` / `refreshMessages` when `syncing` becomes false (idempotent).
+   */
+  pendingInboxRefreshAfterSyncEvent: boolean
+  markPendingInboxRefreshAfterSyncEvent: () => void
   lastSyncAt: string | null
   /** Non-fatal sync issues from last Pull (partial failures). Cleared on next Pull start. */
   lastSyncWarnings: string[] | null
@@ -569,6 +575,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   autoSyncEnabled: false,
   accountSyncWindowDays: 30,
   syncing: false,
+  pendingInboxRefreshAfterSyncEvent: false,
   lastSyncAt: null,
   lastSyncWarnings: null,
   analysisCache: {},
@@ -587,6 +594,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
   clearRemoteSyncLog: () => set({ remoteSyncLog: [] }),
   clearLastSyncWarnings: () => set({ lastSyncWarnings: null }),
+
+  markPendingInboxRefreshAfterSyncEvent: () => set({ pendingInboxRefreshAfterSyncEvent: true }),
 
   addBulkDraftManualCompose: (messageId) =>
     set((s) => {

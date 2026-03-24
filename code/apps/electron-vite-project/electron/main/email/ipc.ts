@@ -347,11 +347,26 @@ const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 /** Set from `main.ts` with the same getter as inbox — used for post-connect remote queue cleanup. */
 let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
 
-function broadcastInboxNewMessagesFromAutoSync(result: SyncResult): void {
-  if (result.newMessages <= 0) return
+/**
+ * Notify renderer(s) to refresh inbox list snapshot after background sync (or invalidate on error).
+ * Uses same IPC channel as legacy `inbox:newMessages` — renderer always re-queries SQLite via `listMessages`.
+ * - Success (`result.ok`): send full `SyncResult` (even when `newMessages === 0`).
+ * - Failure / timeout / `!result.ok`: send lightweight `{ inboxInvalidate: true, reason }`.
+ */
+function broadcastInboxSnapshotAfterSync(result: SyncResult | null, error?: unknown): void {
+  const useInvalidate = error != null || result == null || !result.ok
+  const payload: unknown = useInvalidate
+    ? {
+        inboxInvalidate: true,
+        reason:
+          error != null
+            ? String((error as Error)?.message ?? error)
+            : result?.errors?.[0] ?? 'sync_failed',
+      }
+    : result
   BrowserWindow.getAllWindows().forEach((w) => {
     try {
-      if (!w.isDestroyed() && w.webContents) w.webContents.send('inbox:newMessages', result)
+      if (!w.isDestroyed() && w.webContents) w.webContents.send('inbox:newMessages', payload)
     } catch {
       /* ignore */
     }
@@ -375,7 +390,7 @@ function startStoredAutoSyncLoopIfMissing(
     db,
     accountId,
     intervalMs,
-    (r) => broadcastInboxNewMessagesFromAutoSync(r),
+    (r, e) => broadcastInboxSnapshotAfterSync(r, e),
     getDbForRemoteDrain,
   )
   activeAutoSyncLoops.set(accountId, loop)
@@ -2365,7 +2380,7 @@ Rules:
       )
     }
 
-    if (result.newMessages > 0) {
+    if (result.ok) {
       try {
         sendToRenderer('inbox:newMessages', result)
       } catch (e: any) {
@@ -4831,10 +4846,11 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
           console.log('[IMAP-AUTO-SYNC] Triggering pull for IMAP account:', acc.id, acc.email)
           try {
             const result = await syncAccountEmails(db, { accountId: acc.id })
-            broadcastInboxNewMessagesFromAutoSync(result)
+            broadcastInboxSnapshotAfterSync(result)
             console.log('[IMAP-AUTO-SYNC] Pull completed for:', acc.id)
           } catch (err) {
             console.error('[IMAP-AUTO-SYNC] Pull failed for:', acc.id, err)
+            broadcastInboxSnapshotAfterSync(null, err)
           }
         }
       } catch (err) {

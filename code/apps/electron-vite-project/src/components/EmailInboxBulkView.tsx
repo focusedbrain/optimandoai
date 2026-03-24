@@ -1644,11 +1644,21 @@ export default function EmailInboxBulkView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onNewMessages?.(() => {
-      if (useEmailInboxStore.getState().syncing) return
+      if (useEmailInboxStore.getState().syncing) {
+        useEmailInboxStore.getState().markPendingInboxRefreshAfterSyncEvent()
+        return
+      }
       void refreshMessages()
     })
     return () => unsub?.()
   }, [refreshMessages])
+
+  useEffect(() => {
+    if (syncing) return
+    if (!useEmailInboxStore.getState().pendingInboxRefreshAfterSyncEvent) return
+    useEmailInboxStore.setState({ pendingInboxRefreshAfterSyncEvent: false })
+    void refreshMessages()
+  }, [syncing, refreshMessages])
 
   useEffect(() => {
     const unsub = window.emailInbox?.onDrainProgress?.((raw) => {

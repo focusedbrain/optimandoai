@@ -761,7 +761,8 @@ export function startAutoSync(
   db: any,
   accountId: string,
   intervalMs: number = 300_000,
-  onNewMessages?: (result: SyncResult) => void,
+  /** Called after each tick (success or failure). On success: `result` is set; on throw/timeout: `err` set. */
+  onSyncComplete?: (result: SyncResult | null, err?: unknown) => void,
   /** Resume background remote-queue drain when bounded inline drain does not finish. */
   getDbForRemoteDrain?: () => Promise<any> | any,
 ): { stop: () => void } {
@@ -792,11 +793,10 @@ export function startAutoSync(
         console.warn('[SyncOrchestrator] Post-sync remote drain:', e?.message)
         if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
       }
-      if (result.newMessages > 0 && onNewMessages) {
-        onNewMessages(result)
-      }
+      if (onSyncComplete) onSyncComplete(result)
     } catch (err: any) {
       console.error('[SyncOrchestrator] Auto-sync tick error:', err?.message)
+      if (onSyncComplete) onSyncComplete(null, err)
     }
     scheduleNext()
   }
