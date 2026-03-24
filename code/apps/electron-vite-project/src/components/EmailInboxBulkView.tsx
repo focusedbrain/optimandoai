@@ -1451,6 +1451,7 @@ function BulkActionCardStructured({
         )}
       </div>
       </div>
+      </div>
       {!(output.draftReply != null && output.draftReply !== '') && (
       <div className="bulk-action-card-buttons">
         {showUndo && (
@@ -1511,7 +1512,6 @@ function BulkActionCardStructured({
         </div>
         </div>
       )}
-      </div>
     </div>
   )
 }

@@ -2156,8 +2156,8 @@ body {
 }
 
 /*
- * Compact collapsed rows: scrollport is .bulk-action-card-content-scroll (wraps body + non-draft footer).
- * Body + sections size to content so scrollHeight includes draft toolbars; sticky footers stay in view.
+ * Compact collapsed rows (Prompt 28): scrollport is .bulk-action-card-content-scroll (body only).
+ * .bulk-action-card-buttons is a sibling — always visible; row max-height unchanged.
  */
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll {
   flex: 1 1 0%;
@@ -2166,6 +2166,15 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
@@ -2196,13 +2205,15 @@ body {
   background: #ffffff;
 }
 
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-buttons {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-buttons {
   flex-shrink: 0;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid #eef0f2;
   background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  min-height: var(--bulk-footer-min-height, 34px);
+  align-items: center;
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-main-summary-body {
@@ -3907,6 +3918,12 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
+/* Prompt 28: card is flex column; scroll lives in .bulk-action-card-content-scroll only; .bulk-action-card-buttons is a fixed sibling */
+.bulk-action-card.bulk-action-card--structured {
+  overflow: hidden;
+  height: 100%;
+}
+
 /* Scroll shell: compact collapsed uses this as the scrollport so footer toolbars can stick; other modes delegate scroll to body/sections */
 .bulk-action-card--structured .bulk-action-card-content-scroll {
   display: flex;
@@ -4878,14 +4895,12 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   flex: 0 0 auto;
-  flex-shrink: 0; /* FIX: viewport clipping */
-  position: sticky; /* FIX: viewport clipping */
-  bottom: 0; /* FIX: viewport clipping */
+  flex-shrink: 0;
   margin-top: 0;
   /* Horizontal inset comes from .bulk-action-card padding — match left strip edge rhythm */
   padding: var(--bulk-footer-pad-y) 0;
   border-top: 1px solid var(--bulk-footer-divider, #e8edf3);
-  background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%)); /* FIX: viewport clipping — sticky bar */
+  background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
   box-sizing: border-box;
   min-height: var(--bulk-footer-min-height, 40px);
