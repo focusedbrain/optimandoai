@@ -168,6 +168,7 @@ import {
   syncAccountEmails,
   startAutoSync,
   updateSyncState,
+  type SyncResult,
 } from './syncOrchestrator'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { bulkQueueDeletion, cancelRemoteDeletion } from './remoteDeletion'
@@ -345,6 +346,64 @@ const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 
 /** Set from `main.ts` with the same getter as inbox — used for post-connect remote queue cleanup. */
 let inboxDbGetterForEmailIpc: (() => Promise<any> | any) | null = null
+
+function broadcastInboxNewMessagesFromAutoSync(result: SyncResult): void {
+  if (result.newMessages <= 0) return
+  BrowserWindow.getAllWindows().forEach((w) => {
+    try {
+      if (!w.isDestroyed() && w.webContents) w.webContents.send('inbox:newMessages', result)
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+/**
+ * Start the per-account auto-sync timer if not already running (reads `sync_interval_ms` from `email_sync_state`).
+ */
+function startStoredAutoSyncLoopIfMissing(
+  db: any,
+  accountId: string,
+  getDbForRemoteDrain?: () => Promise<any> | any,
+): void {
+  if (activeAutoSyncLoops.has(accountId)) return
+  const row = db
+    .prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?')
+    .get(accountId) as { sync_interval_ms?: number } | undefined
+  const intervalMs = row?.sync_interval_ms ?? 300_000
+  const loop = startAutoSync(
+    db,
+    accountId,
+    intervalMs,
+    (r) => broadcastInboxNewMessagesFromAutoSync(r),
+    getDbForRemoteDrain,
+  )
+  activeAutoSyncLoops.set(accountId, loop)
+}
+
+/**
+ * If any account already has inbox auto-sync enabled, turn it on for this account and start its loop.
+ * Used when adding IMAP (or another) account while global Auto is already on in SQLite.
+ */
+function mirrorGlobalAutoSyncToNewAccount(accountId: string): void {
+  void (async () => {
+    try {
+      if (!inboxDbGetterForEmailIpc) return
+      const db =
+        typeof inboxDbGetterForEmailIpc === 'function'
+          ? await inboxDbGetterForEmailIpc()
+          : inboxDbGetterForEmailIpc
+      if (!db) return
+      const anyAuto = db.prepare('SELECT 1 FROM email_sync_state WHERE auto_sync_enabled = 1 LIMIT 1').get()
+      if (!anyAuto) return
+      updateSyncState(db, accountId, { auto_sync_enabled: 1 })
+      startStoredAutoSyncLoopIfMissing(db, accountId, inboxDbGetterForEmailIpc ?? undefined)
+      console.log('[Email IPC] Mirrored global auto-sync to new account:', accountId)
+    } catch (e: any) {
+      console.warn('[Email IPC] mirrorGlobalAutoSyncToNewAccount:', e?.message)
+    }
+  })()
+}
 
 async function runPostEmailConnectFailedQueueCleanup(account: { id: string; email: string }): Promise<void> {
   if (!inboxDbGetterForEmailIpc) return
@@ -762,6 +821,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      mirrorGlobalAutoSyncToNewAccount(account.id)
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectImap error:', error)
@@ -779,6 +839,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         win.webContents.send('email:accountConnected', { provider: 'imap', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      mirrorGlobalAutoSyncToNewAccount(account.id)
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectCustomMailbox error:', error)
@@ -2413,12 +2474,7 @@ Rules:
         activeAutoSyncLoops.delete(accountId)
       }
       if (enabled) {
-        const row = db.prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?').get(accountId) as { sync_interval_ms?: number } | undefined
-        const intervalMs = row?.sync_interval_ms ?? 300_000
-        const loop = startAutoSync(db, accountId, intervalMs, (result) => {
-          if (result.newMessages > 0) sendToRenderer('inbox:newMessages', result)
-        }, resolveDb)
-        activeAutoSyncLoops.set(accountId, loop)
+        startStoredAutoSyncLoopIfMissing(db, accountId, resolveDb)
       }
       return { ok: true }
     } catch (err: any) {
@@ -2445,22 +2501,29 @@ Rules:
     }
   })
 
-  /** Resume auto-sync loops after app restart (rows with auto_sync_enabled = 1). */
+  /**
+   * Resume auto-sync after restart: if **any** account has `auto_sync_enabled = 1`, treat that as global Auto
+   * and enable + start loops for **every** gateway account with `status === 'active'`.
+   * (Legacy DB rows often only had the primary/Microsoft account flagged; IMAP never got a loop.)
+   */
   void (async () => {
     try {
       const db = await resolveDb()
       if (!db) return
-      const rows = db
-        .prepare('SELECT account_id, sync_interval_ms FROM email_sync_state WHERE auto_sync_enabled = 1')
-        .all() as Array<{ account_id: string; sync_interval_ms?: number }>
-      for (const r of rows) {
-        if (activeAutoSyncLoops.has(r.account_id)) continue
-        const intervalMs = r.sync_interval_ms ?? 300_000
-        const loop = startAutoSync(db, r.account_id, intervalMs, (syncRes) => {
-          if (syncRes.newMessages > 0) sendToRenderer('inbox:newMessages', syncRes)
-        }, resolveDb)
-        activeAutoSyncLoops.set(r.account_id, loop)
-        console.log('[Inbox] Resumed auto-sync loop for account', r.account_id, 'interval', intervalMs)
+      const anyAuto = db.prepare('SELECT 1 FROM email_sync_state WHERE auto_sync_enabled = 1 LIMIT 1').get()
+      if (!anyAuto) return
+
+      const list = await emailGateway.listAccounts()
+      const activeIds = list.filter((a) => a.status === 'active').map((a) => a.id)
+
+      for (const accountId of activeIds) {
+        updateSyncState(db, accountId, { auto_sync_enabled: 1 })
+        startStoredAutoSyncLoopIfMissing(db, accountId, resolveDb)
+        const row = db.prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?').get(accountId) as
+          | { sync_interval_ms?: number }
+          | undefined
+        const intervalMs = row?.sync_interval_ms ?? 300_000
+        console.log('[Inbox] Resumed auto-sync loop for account', accountId, 'interval', intervalMs)
       }
     } catch (e) {
       console.warn('[Inbox] Failed to resume auto-sync loops:', (e as Error)?.message)
