@@ -877,6 +877,7 @@ function BulkActionCardStructured({
     output.summaryError === true ||
     summaryTextTrimmed.length > 0 ||
     output.bulkAnalysisStreaming === true
+  const hasDraftText = output.draftReply != null && output.draftReply !== ''
 
   return (
     <div
@@ -1133,7 +1134,7 @@ function BulkActionCardStructured({
           </div>
         </div>
         ) : null}
-        {output.draftReply != null && output.draftReply !== '' && (
+        {hasDraftText && (
           <div
             className={[
               isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : '',
@@ -1361,155 +1362,156 @@ function BulkActionCardStructured({
                 ) : null}
               </div>
             </div>
-            <div
-              className="bulk-draft-actions-toolbar-wrap"
-              style={{ flexShrink: 0, width: '100%', paddingTop: isExpanded ? 16 : 6, boxSizing: 'border-box' }}
-            >
-              <div
-                className="bulk-draft-actions-toolbar"
-                style={{
-                  display: 'flex',
-                  flexWrap: 'nowrap',
-                  overflowX: 'auto',
-                  alignItems: 'center',
-                  gap: isExpanded ? 8 : 4,
-                  paddingTop: isExpanded ? 12 : 6,
-                  paddingBottom: isExpanded ? 0 : 2,
-                }}
-              >
-                {showUndo ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
-                      else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
-                      else handleUndoArchived(msg.id)
-                    }}
-                    title="Move back to inbox"
-                  >
-                    Undo
-                  </button>
-                ) : null}
-                {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onAddDraftAttachment()
-                    }}
-                    title="Add attachment"
-                  >
-                    📎 Attach
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
-                  onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
-                >
-                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via Handshake'}
-                </button>
-                {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
-                    Archive
-                  </button>
-                ) : null}
-                {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') ? (
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
-                    📦 Archive
-                  </button>
-                ) : null}
-                {showAnalyzeButton ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleBulkAnalyze(msg.id)
-                    }}
-                    disabled={analyzeRunning || !!output?.loading}
-                    title="Run full AI triage (classify) for this message"
-                  >
-                    Analyze
-                  </button>
-                ) : null}
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
-                  ✨ Summarize
-                </button>
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
-                  ✍ Draft
-                </button>
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
-                  🗑 Delete
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>
       </div>
       </div>
-      {!(output.draftReply != null && output.draftReply !== '') && (
-      <div className="bulk-action-card-buttons">
-        {showUndo && (
-          <button
-            type="button"
-            className="bulk-action-card-btn bulk-action-card-btn--secondary"
-            onClick={(e) => {
-              e.stopPropagation()
-              if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
-              else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
-              else handleUndoArchived(msg.id)
+      {hasDraftText ? (
+        <div
+          className="bulk-draft-actions-toolbar-wrap"
+          style={{ flexShrink: 0, width: '100%', paddingTop: isExpanded ? 16 : 6, boxSizing: 'border-box' }}
+        >
+          <div
+            className="bulk-draft-actions-toolbar"
+            style={{
+              display: 'flex',
+              flexWrap: 'nowrap',
+              overflowX: 'auto',
+              alignItems: 'center',
+              gap: isExpanded ? 8 : 4,
+              paddingTop: isExpanded ? 12 : 6,
+              paddingBottom: isExpanded ? 0 : 2,
             }}
-            title="Move back to inbox"
           >
-            Undo
-          </button>
-        )}
-        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
-          <button
-            type="button"
-            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-            onClick={() => handleSendDraft(msg, output.draftReply!)}
-          >
-            ✉ Send via Email
-          </button>
-        )}
-        {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
-            📦 Archive
-          </button>
-        )}
-        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
-            Archive
-          </button>
-        )}
-        <div className="bulk-action-card-buttons-secondary">
-          {showAnalyzeButton ? (
+            {showUndo ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
+                  else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
+                  else handleUndoArchived(msg.id)
+                }}
+                title="Move back to inbox"
+              >
+                Undo
+              </button>
+            ) : null}
+            {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAddDraftAttachment()
+                }}
+                title="Add attachment"
+              >
+                📎 Attach
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
+              onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
+            >
+              {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via Handshake'}
+            </button>
+            {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
+              <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
+                Archive
+              </button>
+            ) : null}
+            {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') ? (
+              <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+                📦 Archive
+              </button>
+            ) : null}
+            {showAnalyzeButton ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleBulkAnalyze(msg.id)
+                }}
+                disabled={analyzeRunning || !!output?.loading}
+                title="Run full AI triage (classify) for this message"
+              >
+                Analyze
+              </button>
+            ) : null}
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+              ✨ Summarize
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+              ✍ Draft
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+              🗑 Delete
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bulk-action-card-buttons">
+          {showUndo && (
             <button
               type="button"
               className="bulk-action-card-btn bulk-action-card-btn--secondary"
-              onClick={() => handleBulkAnalyze(msg.id)}
-              disabled={analyzeRunning || !!output?.loading}
-              title="Run full AI triage (classify) for this message"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
+                else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
+                else handleUndoArchived(msg.id)
+              }}
+              title="Move back to inbox"
             >
-              Analyze
+              Undo
             </button>
-          ) : null}
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
-            ✨ Summarize
-          </button>
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
-            ✍ Draft
-          </button>
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
-            🗑 Delete
-          </button>
-        </div>
+          )}
+          {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+              onClick={() => handleSendDraft(msg, output.draftReply!)}
+            >
+              ✉ Send via Email
+            </button>
+          )}
+          {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+              📦 Archive
+            </button>
+          )}
+          {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
+              Archive
+            </button>
+          )}
+          <div className="bulk-action-card-buttons-secondary">
+            {showAnalyzeButton ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={() => handleBulkAnalyze(msg.id)}
+                disabled={analyzeRunning || !!output?.loading}
+                title="Run full AI triage (classify) for this message"
+              >
+                Analyze
+              </button>
+            ) : null}
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+              ✨ Summarize
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+              ✍ Draft
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+              🗑 Delete
+            </button>
+          </div>
         </div>
       )}
     </div>

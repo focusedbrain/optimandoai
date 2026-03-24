@@ -2197,12 +2197,17 @@ body {
   overflow: visible;
 }
 
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-draft-actions-toolbar-wrap {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* Draft toolbar is a sibling of .bulk-action-card-content-scroll (Prompt 28); same fixed footer as .bulk-action-card-buttons */
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured > .bulk-draft-actions-toolbar-wrap {
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
-  background: #ffffff;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px 4px;
+  background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  min-height: var(--bulk-footer-min-height, 34px);
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-buttons {
@@ -4085,7 +4090,7 @@ body {
   min-height: 0;
 }
 
-/* Scrolls the draft card body; sibling .bulk-draft-actions-toolbar-wrap stays fixed at bottom of pane */
+/* Scrolls the draft card body; action toolbar is a sibling of .bulk-action-card-content-scroll on .bulk-action-card */
 .bulk-draft-pane-scroll-region {
   flex: 1 1 0%;
   min-height: 0;
