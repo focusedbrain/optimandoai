@@ -597,20 +597,8 @@ class EmailGateway implements IEmailGateway {
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
 
-    console.error('[GATEWAY] listMessages called:', account.id, account.provider, folder)
-
-    if (account.provider === 'imap') {
-      console.error('[GATEWAY] Using imapFetchReliable for IMAP account:', account.id)
-      const { imapFetchReliable } = await import('./providers/imapFetchReliable')
-      const rawMessages = await imapFetchReliable(account as any, folder, options)
-      console.error('[GATEWAY] imapFetchReliable returned:', rawMessages.length, 'messages')
-      return rawMessages.map((raw: any) => this.sanitizeMessage(raw, accountId))
-    }
-
-    console.error('[GATEWAY] Using provider.fetchMessages for:', account.provider)
     const provider = await this.getConnectedProvider(account)
     const rawMessages = await provider.fetchMessages(folder, options)
-    console.error('[GATEWAY] provider.fetchMessages returned:', rawMessages.length, 'messages')
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }
   

@@ -811,49 +811,39 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    // Force clean reconnect if socket died — gateway may reuse a cached provider whose client is stale
     if (!this.client || !this.isConnected()) {
-      const cfg = this.config
-      if (cfg) {
-        try {
-          await this.disconnect()
-        } catch {
-          /* noop */
-        }
-        await this.connect(cfg)
+      if (this.config) {
+        await this.connect(this.config)
       } else {
-        throw new Error('IMAP client not connected and no config available for reconnect')
+        throw new Error('IMAP not configured')
       }
     }
 
-    const inboxFolder = folder || 'INBOX'
-
     return new Promise((resolve, reject) => {
-      this.client!.openBox(inboxFolder, true, (err, box) => {
+      const timer = setTimeout(() => reject(new Error('IMAP fetch timed out')), 30000)
+
+      this.client!.openBox(folder || 'INBOX', true, (err, box) => {
         if (err) {
+          clearTimeout(timer)
           reject(err)
           return
         }
 
         const total = box.messages.total
         if (total === 0) {
+          clearTimeout(timer)
           resolve([])
           return
         }
 
-        let fetchCount = options?.syncMaxMessages ?? options?.limit ?? 50
-        if (options?.syncFetchAllPages) {
-          fetchCount = Math.min(total, options?.syncMaxMessages ?? 500)
-        }
-        fetchCount = Math.max(1, Math.min(fetchCount, total))
+        let fetchCount = options?.limit ?? 50
+        if (options?.syncFetchAllPages) fetchCount = options?.syncMaxMessages ?? 500
+        fetchCount = Math.min(fetchCount, total, 500)
 
-        /** `toDate` only (Pull More): take oldest sequence range so client-side `before` filter can match. */
-        const seqStart = options?.toDate && !options?.fromDate ? 1 : Math.max(1, total - fetchCount + 1)
-        const seqEnd = options?.toDate && !options?.fromDate ? fetchCount : total
-
+        const start = Math.max(1, total - fetchCount + 1)
         const messages: RawEmailMessage[] = []
 
-        const fetch = this.client!.seq.fetch(`${seqStart}:${seqEnd}`, {
+        const fetch = this.client!.seq.fetch(`${start}:${total}`, {
           bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)'],
           struct: true,
         })
@@ -861,11 +851,10 @@ export class ImapProvider extends BaseEmailProvider {
         fetch.on('message', (msg: ImapConnection.ImapMessage) => {
           const msgData: Partial<RawEmailMessage> = {
             id: '',
-            folder: inboxFolder,
+            folder: folder || 'INBOX',
             flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false },
             labels: [],
           }
-
           msg.on('body', (stream, info) => {
             let buffer = ''
             stream.on('data', (chunk) => {
@@ -887,11 +876,9 @@ export class ImapProvider extends BaseEmailProvider {
               }
             })
           })
-
           msg.once('attributes', (attrs) => {
-            const uidStr = String(attrs.uid)
-            msgData.id = uidStr
-            msgData.uid = uidStr
+            msgData.id = String(attrs.uid)
+            msgData.uid = String(attrs.uid)
             if (attrs.flags) {
               msgData.flags = {
                 seen: attrs.flags.includes('\\Seen'),
@@ -902,7 +889,6 @@ export class ImapProvider extends BaseEmailProvider {
               }
             }
           })
-
           msg.once('end', () => {
             if (msgData.date == null) {
               msgData.date = new Date()
@@ -911,24 +897,22 @@ export class ImapProvider extends BaseEmailProvider {
           })
         })
 
-        fetch.once('error', (fetchErr: Error) => {
-          reject(fetchErr)
+        fetch.once('error', (e) => {
+          clearTimeout(timer)
+          reject(e)
         })
         fetch.once('end', () => {
+          clearTimeout(timer)
           let result = messages
           if (options?.fromDate) {
             const since = new Date(options.fromDate).getTime()
-            if (!Number.isNaN(since)) {
-              result = result.filter((m) => m.date.getTime() >= since)
-            }
+            if (!Number.isNaN(since)) result = result.filter((m) => m.date.getTime() >= since)
           }
           if (options?.toDate) {
             const before = new Date(options.toDate).getTime()
-            if (!Number.isNaN(before)) {
-              result = result.filter((m) => m.date.getTime() < before)
-            }
+            if (!Number.isNaN(before)) result = result.filter((m) => m.date.getTime() < before)
           }
-          resolve(result.sort((a, b) => Number(b.uid || b.id) - Number(a.uid || a.id)))
+          resolve(result.sort((a, b) => Number(b.id) - Number(a.id)))
         })
       })
     })
