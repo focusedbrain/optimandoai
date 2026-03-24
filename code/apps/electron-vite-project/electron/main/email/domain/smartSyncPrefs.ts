@@ -1,6 +1,6 @@
 /**
  * Smart Sync — effective window and batch caps from persisted account.sync.
- * Same defaults for **IMAP** as API providers (30 days / 500 on first pull) to avoid huge mailbox pulls.
+ * Same defaults for **IMAP** as API providers (30 days / 50 per pull cap unless overridden) to limit batch size.
  */
 
 import type { EmailAccountConfig } from '../types'
@@ -21,11 +21,11 @@ export function getEffectiveSyncWindowDays(sync: EmailAccountConfig['sync'] | un
   return out
 }
 
-/** Pull batch size for first sync and Pull More (default 500). */
+/** Pull batch size for first sync and Pull More (default 50). */
 export function getMaxMessagesPerPull(sync: EmailAccountConfig['sync'] | undefined): number {
   const n = sync?.maxMessagesPerPull
   if (typeof n === 'number' && n > 0) return Math.min(5000, Math.max(1, n))
-  return 500
+  return 50 // was 500 — reduced to avoid IPC timeouts on slow IMAP servers
 }
 
 /** ISO lower bound for remote full-sync: only rows on/after this date (null = no filter). */
