@@ -1,52 +1,57 @@
 /**
- * EmailInboxToolbar — Normal inbox: workflow buckets + type + sync (bulk-only batch/Auto-Sort UI lives in Bulk view).
+ * EmailInboxToolbar — Filter tabs, centered Type selector, sync controls, bulk row actions when items selected.
  */
 
 import React from 'react'
 import type { InboxFilter } from '../stores/useEmailInboxStore'
-import { INBOX_WORKFLOW_FILTER_KEYS } from '../stores/useEmailInboxStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 
+// ── Types ──
+
 export interface EmailInboxToolbarProps {
   filter: InboxFilter
   onFilterChange: (partial: Partial<InboxFilter>) => void
-  /** Per-bucket totals (server), same semantics as bulk inbox. */
-  tabCounts: Record<string, number>
-  /** Total rows in the active bucket. */
-  total: number
   accounts: Array<{ id: string; email: string }>
   autoSyncEnabled: boolean
   syncing: boolean
   remoteSyncBusy: boolean
+  /** Same behavior as Bulk Inbox: pull then optional remote reconcile. */
   onUnifiedSync: () => void
+  /** Current sync window in days (0 = all mail in DB). */
   accountSyncWindowDays?: number
   onSyncWindowChange: (days: number) => void | Promise<void>
   onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  /** When every account is IMAP, primary button shows Pull (matches Bulk). */
   pullOnly: boolean
+  bulkMode: boolean
+  onBulkModeChange: (enabled: boolean) => void
+  selectedCount: number
+  onBulkDelete: () => void
+  onBulkArchive: () => void
+  onBulkMoveToPendingReview?: () => void
+  onBulkCategorize?: () => void
 }
 
-const WORKFLOW_LABELS: Record<(typeof INBOX_WORKFLOW_FILTER_KEYS)[number], string> = {
+// ── Filter tabs ──
+
+const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'pending_review', 'deleted'] as const
+const FILTER_LABELS: Record<string, string> = {
   all: 'All',
-  urgent: 'Urgent',
-  pending_delete: 'Pending Delete',
-  pending_review: 'Pending Review',
+  unread: 'Unread',
+  starred: 'Starred',
   archived: 'Archived',
+  pending_delete: 'Pending Delete',
+  pending_review: '⏳ Pending Review',
+  deleted: 'Deleted',
 }
 
-const WORKFLOW_BTN_CLASS: Partial<Record<(typeof INBOX_WORKFLOW_FILTER_KEYS)[number], string>> = {
-  urgent: 'bulk-view-toolbar-filter-btn--urgent',
-  pending_delete: 'bulk-view-toolbar-filter-btn--pending',
-  pending_review: 'bulk-view-toolbar-filter-btn--review',
-  archived: 'bulk-view-toolbar-filter-btn--archived',
-}
+// ── Main component ──
 
 export default function EmailInboxToolbar({
   filter,
   onFilterChange,
-  tabCounts,
-  total,
   accounts,
   autoSyncEnabled,
   syncing,
@@ -56,44 +61,75 @@ export default function EmailInboxToolbar({
   onSyncWindowChange,
   onToggleAutoSync,
   pullOnly,
+  bulkMode: _bulkMode,
+  onBulkModeChange: _onBulkModeChange,
+  selectedCount,
+  onBulkDelete,
+  onBulkArchive,
+  onBulkMoveToPendingReview,
+  onBulkCategorize,
 }: EmailInboxToolbarProps) {
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   return (
-    <div className="bulk-view-toolbar bulk-view-toolbar--stacked email-inbox-normal-toolbar">
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
-        <div className="bulk-view-toolbar-tabs">
-          {INBOX_WORKFLOW_FILTER_KEYS.map((tab) => {
-            const active = filter.filter === tab
-            const count = active ? total : (tabCounts[tab] ?? 0)
-            const extra = WORKFLOW_BTN_CLASS[tab]
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => onFilterChange({ filter: tab })}
-                className={`bulk-view-toolbar-filter-btn${extra ? ` ${extra}` : ''}`}
-                data-active={active}
-              >
-                {WORKFLOW_LABELS[tab]} ({count})
-              </button>
-            )
-          })}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: '12px 14px',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        background: 'var(--color-bg, #0f172a)',
+      }}
+    >
+      {/* Filter tabs row */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {FILTER_TABS.map((tab) => {
+          const active = filter.filter === tab
+          return (
+            <button
+              key={tab}
+              onClick={() => onFilterChange({ filter: tab })}
+              style={{
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 999,
+                border: 'none',
+                background: active ? 'var(--purple-accent, #9333ea)' : '#eee',
+                color: active ? '#fff' : 'var(--color-text, #0f172a)',
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+              }}
+            >
+              {FILTER_LABELS[tab] ?? tab}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Type centered on full toolbar width; sync flush right (balanced by left grid column). */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          gap: 10,
+          width: '100%',
+        }}
+      >
+        <div style={{ minWidth: 0 }} aria-hidden />
+        <div style={{ justifySelf: 'center' }}>
+          <InboxMessageKindSelect
+            id="inbox-message-kind-normal"
+            value={filter.messageKind}
+            onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
+          />
         </div>
-      </div>
-
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
-        <InboxMessageKindSelect
-          id="inbox-message-kind-normal"
-          variant="bulk"
-          value={filter.messageKind}
-          onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
-        />
-      </div>
-
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--main">
-        <div className="bulk-view-toolbar-left" aria-hidden style={{ minWidth: 8 }} />
-        <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+        <div
+          style={{ justifySelf: 'end', minWidth: 0 }}
+          className="bulk-view-toolbar-right bulk-view-toolbar-right--compact"
+        >
           <EmailInboxSyncControls
             accountSyncWindowDays={accountSyncWindowDays}
             onSyncWindowChange={onSyncWindowChange}
@@ -107,6 +143,79 @@ export default function EmailInboxToolbar({
           />
         </div>
       </div>
+
+      {/* Bulk actions (when selectedCount > 0) */}
+      {selectedCount > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }}>
+            {selectedCount} selected
+          </span>
+          <button
+            onClick={onBulkDelete}
+            style={{
+              padding: '5px 10px',
+              fontSize: 10,
+              fontWeight: 600,
+              borderRadius: 4,
+              border: '1px solid rgba(239,68,68,0.3)',
+              background: 'rgba(239,68,68,0.1)',
+              color: '#ef4444',
+              cursor: 'pointer',
+            }}
+          >
+            Delete
+          </button>
+          <button
+            onClick={onBulkArchive}
+            style={{
+              padding: '5px 10px',
+              fontSize: 10,
+              fontWeight: 600,
+              borderRadius: 4,
+              border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+              background: 'var(--color-surface, rgba(255,255,255,0.04))',
+              color: 'var(--color-text, #e2e8f0)',
+              cursor: 'pointer',
+            }}
+          >
+            Archive
+          </button>
+          {onBulkMoveToPendingReview && (
+            <button
+              onClick={onBulkMoveToPendingReview}
+              style={{
+                padding: '5px 10px',
+                fontSize: 10,
+                fontWeight: 600,
+                borderRadius: 4,
+                border: '1px solid rgba(245,158,11,0.4)',
+                background: 'rgba(245,158,11,0.1)',
+                color: '#f59e0b',
+                cursor: 'pointer',
+              }}
+            >
+              Move to Pending Review
+            </button>
+          )}
+          {onBulkCategorize && (
+            <button
+              onClick={onBulkCategorize}
+              style={{
+                padding: '5px 10px',
+                fontSize: 10,
+                fontWeight: 600,
+                borderRadius: 4,
+                border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+                background: 'var(--color-surface, rgba(255,255,255,0.04))',
+                color: 'var(--color-text, #e2e8f0)',
+                cursor: 'pointer',
+              }}
+            >
+              Categorize
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
