@@ -4,7 +4,7 @@
  * Legacy / self-hosted: user-stored client id + client secret (confidential-style exchange).
  */
 
-import { getBuiltinGmailOAuthClientId } from './googleOAuthBuiltin'
+import { getBuiltinGmailOAuthClientId, isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
 
 export type GmailAuthMode = 'pkce' | 'legacy_secret'
@@ -19,7 +19,7 @@ export interface ResolvedGmailOAuth {
  * True when the app can start a Gmail OAuth sign-in without user-pasted OAuth credentials.
  */
 export function isBuiltinGmailOAuthAvailable(): boolean {
-  return !!getBuiltinGmailOAuthClientId()
+  return isBuiltinGmailOAuthConfigured()
 }
 
 /**
@@ -49,7 +49,7 @@ export async function resolveGmailOAuthForConnect(): Promise<ResolvedGmailOAuth>
   }
 
   throw new Error(
-    'Gmail sign-in is not configured. Set WR_DESK_GOOGLE_OAUTH_CLIENT_ID (or ship resources/google-oauth-client-id.txt), or add OAuth credentials under Advanced.',
+    'Gmail sign-in is not configured for this app build. Use a build that includes the app Google OAuth client, or developer OAuth credentials if enabled.',
   )
 }
 

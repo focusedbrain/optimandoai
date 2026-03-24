@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('./googleOAuthBuiltin', () => ({
   getBuiltinGmailOAuthClientId: vi.fn(),
+  isBuiltinGmailOAuthConfigured: vi.fn(),
 }))
 
 vi.mock('./credentials', () => ({
   getCredentialsForOAuth: vi.fn(),
 }))
 
-import { getBuiltinGmailOAuthClientId } from './googleOAuthBuiltin'
+import { getBuiltinGmailOAuthClientId, isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
 import { resolveGmailOAuthForConnect, isBuiltinGmailOAuthAvailable } from './gmailOAuthResolve'
 
@@ -40,6 +41,7 @@ describe('resolveGmailOAuthForConnect', () => {
 
   it('uses builtin client when no user creds', async () => {
     vi.mocked(getBuiltinGmailOAuthClientId).mockReturnValue('builtin.apps.googleusercontent.com')
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
     const r = await resolveGmailOAuthForConnect()
     expect(r.authMode).toBe('pkce')
     expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
@@ -52,7 +54,7 @@ describe('resolveGmailOAuthForConnect', () => {
 
 describe('isBuiltinGmailOAuthAvailable', () => {
   it('reflects builtin id', () => {
-    vi.mocked(getBuiltinGmailOAuthClientId).mockReturnValue('x.apps.googleusercontent.com')
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
     expect(isBuiltinGmailOAuthAvailable()).toBe(true)
   })
 })

@@ -24,7 +24,7 @@ function debugLog(...args: unknown[]): void {
   console.log('[Email Credentials]', ...args)
 }
 import { loadOAuthConfig, saveOAuthConfig } from './providers/gmail'
-import { getBuiltinGmailOAuthClientId } from './googleOAuthBuiltin'
+import { isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
 import { loadOutlookOAuthConfig, saveOutlookOAuthConfig } from './providers/outlook'
 
 export type CredentialSource = 'vault' | 'vault-migrated' | 'temporary' | 'none'
@@ -347,8 +347,7 @@ export async function checkExistingCredentials(
   }
 
   if (provider === 'gmail') {
-    const builtin = getBuiltinGmailOAuthClientId()
-    return { ...result, builtinOAuthAvailable: !!builtin }
+    return { ...result, builtinOAuthAvailable: isBuiltinGmailOAuthConfigured() }
   }
   return result
 }

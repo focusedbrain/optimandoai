@@ -102,9 +102,12 @@ export function EmailConnectWizard({
   /** Gmail: show legacy Google Cloud client id/secret UI (self-hosted / developer). */
   const [showGmailAdvanced, setShowGmailAdvanced] = useState(false)
   /** Gmail OAuth readiness from main process (builtin app id and/or saved developer creds). */
-  const [gmailOAuthMeta, setGmailOAuthMeta] = useState<{ configured: boolean; builtinOAuthAvailable: boolean } | null>(
-    null,
-  )
+  const [gmailOAuthMeta, setGmailOAuthMeta] = useState<{
+    configured: boolean
+    builtinOAuthAvailable: boolean
+    /** Electron / native: show Advanced OAuth UI (env or unpackaged dev). */
+    developerModeEnabled?: boolean
+  } | null>(null)
   const [customForm, setCustomForm] = useState(emptyCustomForm)
   /** Electron reconnect: main process reports whether a password is already saved (value never sent here). */
   const [reconnectHasStoredImapPassword, setReconnectHasStoredImapPassword] = useState(false)
@@ -225,6 +228,7 @@ export function EmailConnectWizard({
     configured: boolean
     developerCredentialsStored?: boolean
     builtinOAuthAvailable?: boolean
+    developerModeEnabled?: boolean
     clientId?: string
     clientSecret?: string
     source?: 'vault' | 'vault-migrated' | 'temporary' | 'none'
@@ -238,6 +242,7 @@ export function EmailConnectWizard({
         configured: !!d?.configured,
         developerCredentialsStored: !!d?.developerCredentialsStored,
         builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
+        developerModeEnabled: d?.developerModeEnabled === true,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
@@ -252,6 +257,7 @@ export function EmailConnectWizard({
         configured: !!d?.configured,
         developerCredentialsStored: !!d?.developerCredentialsStored,
         builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
+        developerModeEnabled: d?.developerModeEnabled === true,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
@@ -485,6 +491,7 @@ export function EmailConnectWizard({
           setGmailOAuthMeta({
             configured: !!check.configured,
             builtinOAuthAvailable: !!check.builtinOAuthAvailable,
+            developerModeEnabled: check.developerModeEnabled === true,
           })
           setShowGmailAdvanced(false)
           const src = check.source as 'vault' | 'vault-migrated' | 'temporary' | undefined
@@ -617,7 +624,9 @@ export function EmailConnectWizard({
       if (!showGmailAdvanced) {
         if (!gmailOAuthMeta?.configured) {
           setCredError(
-            'Google sign-in is not configured for this build. Set WR_DESK_GOOGLE_OAUTH_CLIENT_ID, or open Advanced to use your own OAuth client.',
+            gmailOAuthMeta?.developerModeEnabled
+              ? 'Google sign-in is not configured for this build. Add the app OAuth client id to the build, or use Advanced to supply your own OAuth client.'
+              : 'Google sign-in is not available in this version of the app. Please update the app or contact support.',
           )
           return
         }
@@ -1264,16 +1273,24 @@ export function EmailConnectWizard({
                             lineHeight: 1.5,
                           }}
                         >
-                          Google sign-in is not configured for this build. Set{' '}
-                          <code style={{ fontSize: 10 }}>WR_DESK_GOOGLE_OAUTH_CLIENT_ID</code>, add{' '}
-                          <code style={{ fontSize: 10 }}>google-oauth-client-id.txt</code> to app resources, or open Advanced
-                          to use your own OAuth client.
+                          {gmailOAuthMeta.developerModeEnabled ? (
+                            <>
+                              Google sign-in is not configured for this build. Set the app Google OAuth client id at build
+                              time (environment or bundled resources file), or open Advanced to use your own OAuth client.
+                            </>
+                          ) : (
+                            <>
+                              Google sign-in is not available in this version of the app. Please check for an update or
+                              contact support.
+                            </>
+                          )}
                         </div>
                       )}
                       {existingGmail && (
                         <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 8 }}>
-                          Developer OAuth client credentials are saved — Advanced lets you edit them. Connect Google uses
-                          the configured client (built-in or yours).
+                          {gmailOAuthMeta?.developerModeEnabled
+                            ? 'Custom OAuth client credentials are saved — Advanced lets you edit them. Connect Google uses the configured client (built-in or yours).'
+                            : 'Custom OAuth client credentials are saved. Connect Google uses them to sign in.'}
                         </div>
                       )}
                       {credError && (
@@ -1296,26 +1313,28 @@ export function EmailConnectWizard({
                       >
                         Connect Google
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCredError(null)
-                          setShowGmailAdvanced(true)
-                        }}
-                        style={{
-                          width: '100%',
-                          marginTop: 8,
-                          padding: '8px',
-                          fontSize: '12px',
-                          background: 'transparent',
-                          border: 'none',
-                          color: isPro ? '#64748b' : 'rgba(255,255,255,0.65)',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        Advanced (developer OAuth client)
-                      </button>
+                      {(gmailOAuthMeta?.developerModeEnabled === true || !!existingGmail) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCredError(null)
+                            setShowGmailAdvanced(true)
+                          }}
+                          style={{
+                            width: '100%',
+                            marginTop: 8,
+                            padding: '8px',
+                            fontSize: '12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: isPro ? '#64748b' : 'rgba(255,255,255,0.65)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Advanced (developer OAuth client)
+                        </button>
+                      )}
                     </>
                   ) : existingGmail ? (
                     <>

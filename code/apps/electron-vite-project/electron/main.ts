@@ -2070,6 +2070,22 @@ app.whenReady().then(async () => {
       console.warn('[INTEGRITY] Verification module error:', err.message)
     }
 
+    // ========== GMAIL OAUTH (built-in client id) ==========
+    try {
+      const { isBuiltinGmailOAuthConfigured, isEmailDeveloperModeEnabled } = await import('./main/email/googleOAuthBuiltin')
+      if (app.isPackaged && !isBuiltinGmailOAuthConfigured()) {
+        console.error(
+          '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt.',
+        )
+      } else if (!isBuiltinGmailOAuthConfigured() && isEmailDeveloperModeEnabled()) {
+        console.warn(
+          '[GMAIL-OAUTH] No valid built-in client id — for local dev set GOOGLE_OAUTH_CLIENT_ID or replace apps/electron-vite-project/resources/google-oauth-client-id.txt',
+        )
+      }
+    } catch (e: any) {
+      console.warn('[GMAIL-OAUTH] Startup check failed:', e?.message)
+    }
+
     // ========== AUTH TEST IPC ==========
     // Manual trigger for Keycloak login test (no auto-start)
     ipcMain.handle('auth:test-login', async () => {
@@ -7250,12 +7266,14 @@ app.whenReady().then(async () => {
         const result = await checkExistingCredentials('gmail')
         const canConnect =
           !!result.credentials || result.builtinOAuthAvailable === true
+        const { isEmailDeveloperModeEnabled } = await import('./main/email/googleOAuthBuiltin')
         res.json({
           ok: true,
           data: {
             configured: canConnect,
             developerCredentialsStored: !!result.credentials,
             builtinOAuthAvailable: result.builtinOAuthAvailable === true,
+            developerModeEnabled: isEmailDeveloperModeEnabled(),
             clientId: result.clientId,
             source: result.source,
             credentials: result.credentials,

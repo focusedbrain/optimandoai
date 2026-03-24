@@ -644,6 +644,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:checkGmailCredentials', async () => {
     try {
+      const { isEmailDeveloperModeEnabled } = await import('./googleOAuthBuiltin')
       const result = await checkExistingCredentials('gmail')
       const canConnect =
         !!result.credentials || result.builtinOAuthAvailable === true
@@ -653,6 +654,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
           configured: canConnect,
           developerCredentialsStored: !!result.credentials,
           builtinOAuthAvailable: result.builtinOAuthAvailable === true,
+          developerModeEnabled: isEmailDeveloperModeEnabled(),
           clientId: result.clientId,
           source: result.source,
           credentials: result.credentials,

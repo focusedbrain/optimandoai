@@ -170,6 +170,8 @@ declare global {
           configured: boolean
           developerCredentialsStored?: boolean
           builtinOAuthAvailable?: boolean
+          /** Unpackaged app or WR_DESK_EMAIL_DEVELOPER_MODE / WR_DESK_DEVELOPER_MODE */
+          developerModeEnabled?: boolean
           clientId?: string
           source?: string
           credentials?: unknown
