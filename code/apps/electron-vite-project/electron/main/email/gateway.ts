@@ -94,12 +94,57 @@ function isDiskEncryptedPasswordFlag(v: unknown): boolean {
   return v === true || v === 'true'
 }
 
+/**
+ * After load, successful decrypt sets `_encrypted` false with plaintext in memory.
+ * If decrypt did not produce usable plaintext, `imap`/`smtp` may still be sealed — do not use as IMAP password.
+ */
+function isImapSmtpPasswordStillSealedForDisk(
+  slice: { _encrypted?: boolean; password?: string } | undefined,
+): boolean {
+  return !!slice && isDiskEncryptedPasswordFlag(slice._encrypted)
+}
+
+/**
+ * Ephemeral IMAP paths use `getProvider` + `connect` instead of `getConnectedProvider` — keep the same
+ * sealed-ciphertext / missing-password rules so ciphertext is never sent as the login password.
+ */
+function assertImapCredentialsUsableForConnect(account: EmailAccountConfig): void {
+  if (account.provider !== 'imap') return
+  if (!account.imap) {
+    throw new Error('IMAP password is missing — account may need to be reconnected.')
+  }
+  if (isImapSmtpPasswordStillSealedForDisk(account.imap)) {
+    throw new Error(
+      'Stored IMAP credentials could not be decrypted. Remove the account and connect again, or update credentials.',
+    )
+  }
+  const pw = account.imap.password
+  if (pw == null || String(pw).trim().length === 0) {
+    throw new Error('IMAP password is missing — account may need to be reconnected.')
+  }
+}
+
 function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap') return account
   let next: EmailAccountConfig = { ...account }
   if (next.imap && isDiskEncryptedPasswordFlag(next.imap._encrypted)) {
+    const rawImap = next.imap.password
     try {
-      const plain = decryptValue(next.imap.password)
+      const plain = decryptValue(rawImap)
+      const rawLen = String(rawImap ?? '').trim().length
+      if (rawLen > 0 && plain.length === 0) {
+        console.error('[EmailGateway] IMAP decrypt produced empty plaintext (suspected decrypt failure)', {
+          accountId: account.id,
+          email: account.email,
+          imapEncryptedFlag: next.imap._encrypted,
+          rawLength: rawLen,
+        })
+        return {
+          ...next,
+          status: 'error',
+          lastError: 'Failed to decrypt stored IMAP credentials. Please remove the account and connect again.',
+        }
+      }
       console.log(
         '[Gateway] IMAP decrypt: _encrypted=',
         next.imap._encrypted,
@@ -118,19 +163,39 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
           _encrypted: false,
         },
       }
-    } catch (err) {
-      console.error('[EmailGateway] Failed to decrypt IMAP password for account:', account.id, err)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[EmailGateway] IMAP decrypt threw (unexpected — decryptValue normally does not throw)', {
+        accountId: account.id,
+        email: account.email,
+        imapEncryptedFlag: next.imap._encrypted,
+        errorMessage: msg,
+      })
       return {
         ...next,
         status: 'error',
         lastError: 'Failed to decrypt stored IMAP credentials. Please remove the account and connect again.',
-        imap: next.imap ? { ...next.imap, password: '', _encrypted: false } : undefined,
       }
     }
   }
   if (next.smtp && isDiskEncryptedPasswordFlag(next.smtp._encrypted)) {
+    const rawSmtp = next.smtp.password
     try {
-      const plain = decryptValue(next.smtp.password)
+      const plain = decryptValue(rawSmtp)
+      const rawLen = String(rawSmtp ?? '').trim().length
+      if (rawLen > 0 && plain.length === 0) {
+        console.error('[EmailGateway] SMTP decrypt produced empty plaintext (suspected decrypt failure)', {
+          accountId: account.id,
+          email: account.email,
+          smtpEncryptedFlag: next.smtp._encrypted,
+          rawLength: rawLen,
+        })
+        return {
+          ...next,
+          status: 'error',
+          lastError: 'Failed to decrypt stored SMTP credentials. Please remove the account and connect again.',
+        }
+      }
       console.log(
         '[Gateway] SMTP decrypt: _encrypted=',
         next.smtp._encrypted,
@@ -148,13 +213,18 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
           _encrypted: false,
         },
       }
-    } catch (err) {
-      console.error('[EmailGateway] Failed to decrypt SMTP password for account:', account.id, err)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[EmailGateway] SMTP decrypt threw (unexpected — decryptValue normally does not throw)', {
+        accountId: account.id,
+        email: account.email,
+        smtpEncryptedFlag: next.smtp._encrypted,
+        errorMessage: msg,
+      })
       return {
         ...next,
         status: 'error',
         lastError: 'Failed to decrypt stored SMTP credentials. Please remove the account and connect again.',
-        smtp: next.smtp ? { ...next.smtp, password: '', _encrypted: false } : undefined,
       }
     }
   }
@@ -173,42 +243,72 @@ function mergeImapSmtpCredentials<T extends Record<string, unknown>>(prev: T, pa
 function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap' || !account.imap) return account
   const encAvail = isSecureStorageAvailable()
-  /** Never persist `undefined` — JSON.stringify omits it and the password would be lost on reload. */
-  const imapPlain = String(account.imap.password ?? '')
-  if (imapPlain.length === 0) {
-    console.error('[Gateway] encryptImapSmtpPasswordsForDisk: IMAP password is empty for account', account.id)
-  }
-  const imapEncrypted = encryptValue(imapPlain)
-  console.log(
-    '[Gateway] IMAP encrypt: encAvail=',
-    encAvail,
-    'password length=',
-    imapPlain.length,
-    'encrypted length=',
-    imapEncrypted.length,
-  )
-  const imap = {
-    host: account.imap.host,
-    port: account.imap.port,
-    security: account.imap.security,
-    username: account.imap.username,
-    password: imapEncrypted,
-    _encrypted: encAvail,
-  }
-  const smtpPlain = account.smtp ? String(account.smtp.password ?? '') : ''
-  const smtpEncrypted = account.smtp ? encryptValue(smtpPlain) : ''
-  if (account.smtp) {
+
+  /**
+   * Successful load sets `_encrypted: false` with plaintext in memory before save.
+   * If decrypt failed, `imap`/`smtp` stay sealed (`_encrypted` true + ciphertext) — persist as-is so the next
+   * launch can retry decrypt; do not run `encryptValue` on ciphertext (would double-wrap).
+   */
+  let imap: NonNullable<EmailAccountConfig['imap']>
+  if (isImapSmtpPasswordStillSealedForDisk(account.imap)) {
+    imap = {
+      host: account.imap.host,
+      port: account.imap.port,
+      security: account.imap.security,
+      username: account.imap.username,
+      password: account.imap.password,
+      _encrypted: account.imap._encrypted,
+    }
+    console.log('[Gateway] IMAP encrypt: pass-through sealed blob (decrypt not applied in memory)', account.id)
+  } else {
+    /** Never persist `undefined` — JSON.stringify omits it and the password would be lost on reload. */
+    const imapPlain = String(account.imap.password ?? '')
+    if (imapPlain.length === 0) {
+      console.error('[Gateway] encryptImapSmtpPasswordsForDisk: IMAP password is empty for account', account.id)
+    }
+    const imapEncrypted = encryptValue(imapPlain)
     console.log(
-      '[Gateway] SMTP encrypt: encAvail=',
+      '[Gateway] IMAP encrypt: encAvail=',
       encAvail,
       'password length=',
-      smtpPlain.length,
+      imapPlain.length,
       'encrypted length=',
-      smtpEncrypted.length,
+      imapEncrypted.length,
     )
+    imap = {
+      host: account.imap.host,
+      port: account.imap.port,
+      security: account.imap.security,
+      username: account.imap.username,
+      password: imapEncrypted,
+      _encrypted: encAvail,
+    }
   }
-  const smtp = account.smtp
-    ? {
+
+  let smtp: EmailAccountConfig['smtp']
+  if (account.smtp) {
+    if (isImapSmtpPasswordStillSealedForDisk(account.smtp)) {
+      smtp = {
+        host: account.smtp.host,
+        port: account.smtp.port,
+        security: account.smtp.security,
+        username: account.smtp.username,
+        password: account.smtp.password,
+        _encrypted: account.smtp._encrypted,
+      }
+      console.log('[Gateway] SMTP encrypt: pass-through sealed blob (decrypt not applied in memory)', account.id)
+    } else {
+      const smtpPlain = String(account.smtp.password ?? '')
+      const smtpEncrypted = encryptValue(smtpPlain)
+      console.log(
+        '[Gateway] SMTP encrypt: encAvail=',
+        encAvail,
+        'password length=',
+        smtpPlain.length,
+        'encrypted length=',
+        smtpEncrypted.length,
+      )
+      smtp = {
         host: account.smtp.host,
         port: account.smtp.port,
         security: account.smtp.security,
@@ -216,7 +316,11 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
         password: smtpEncrypted,
         _encrypted: encAvail,
       }
-    : undefined
+    }
+  } else {
+    smtp = undefined
+  }
+
   /** Disk snapshot only — never assign this return value onto `this.accounts` (memory stays plaintext). */
   return { ...account, imap, smtp }
 }
@@ -462,10 +566,12 @@ class EmailGateway implements IEmailGateway {
     }
 
     if (account.provider === 'imap') {
-      const pw = account.imap?.password
-      if (pw == null || String(pw).trim().length === 0) {
-        console.error('[EmailGateway] testConnection: IMAP password missing for', account.id)
-        return { success: false, error: 'IMAP password is missing — account may need to be reconnected.' }
+      try {
+        assertImapCredentialsUsableForConnect(account)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('[EmailGateway] testConnection: IMAP credentials unusable for', account.id, msg)
+        return { success: false, error: msg }
       }
     }
 
@@ -510,8 +616,14 @@ class EmailGateway implements IEmailGateway {
     const smtp = account.smtp
     /** Passwords may be encrypted on disk — infer “same credentials” from usernames only. */
     const smtpUseSame = imap.username === smtp.username
-    const hasImapPassword = typeof imap.password === 'string' && imap.password.length > 0
-    const hasSmtpPassword = typeof smtp.password === 'string' && smtp.password.length > 0
+    const hasImapPassword =
+      typeof imap.password === 'string' &&
+      imap.password.length > 0 &&
+      !isImapSmtpPasswordStillSealedForDisk(imap)
+    const hasSmtpPassword =
+      typeof smtp.password === 'string' &&
+      smtp.password.length > 0 &&
+      !isImapSmtpPasswordStillSealedForDisk(smtp)
     return {
       email: account.email,
       displayName: account.displayName,
@@ -600,6 +712,7 @@ class EmailGateway implements IEmailGateway {
     if (account.provider === 'imap') {
       // IMAP: use ephemeral provider like testConnection does — no cache.
       // Cached IMAP providers go stale and lose this.config after disconnect.
+      assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
       try {
         await provider.connect(account)
@@ -624,6 +737,7 @@ class EmailGateway implements IEmailGateway {
     const account = this.findAccount(accountId)
 
     if (account.provider === 'imap') {
+      assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
       try {
         await provider.connect(account)
@@ -843,6 +957,7 @@ class EmailGateway implements IEmailGateway {
   async listAttachments(accountId: string, messageId: string): Promise<AttachmentMeta[]> {
     const account = this.findAccount(accountId)
     if (account.provider === 'imap') {
+      assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
       try {
         await provider.connect(account)
@@ -887,6 +1002,7 @@ class EmailGateway implements IEmailGateway {
   ): Promise<Buffer | null> {
     const account = this.findAccount(accountId)
     if (account.provider === 'imap') {
+      assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
       try {
         await provider.connect(account)
@@ -912,6 +1028,7 @@ class EmailGateway implements IEmailGateway {
     const account = this.findAccount(accountId)
 
     if (account.provider === 'imap') {
+      assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
       try {
         await provider.connect(account)
@@ -1404,6 +1521,12 @@ class EmailGateway implements IEmailGateway {
     if (account.provider !== 'imap') {
       return { ok: false, error: 'Only IMAP accounts support lifecycle mailbox validation.' }
     }
+    try {
+      assertImapCredentialsUsableForConnect(account)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
     const p = new ImapProvider()
     try {
       await p.connect(account)
@@ -1429,6 +1552,11 @@ class EmailGateway implements IEmailGateway {
     const fallback = baseLabels.length > 0 ? baseLabels : ['INBOX']
     if (!account || account.provider !== 'imap') return fallback
 
+    try {
+      assertImapCredentialsUsableForConnect(account)
+    } catch {
+      return fallback
+    }
     const provider = await this.getProvider(account)
     try {
       await provider.connect(account)
@@ -1538,20 +1666,19 @@ class EmailGateway implements IEmailGateway {
   /**
    * Return a live provider for `account.id`, creating and connecting via `provider.connect(account)` if needed.
    *
-   * **Config source:** The `account` object must be the in-memory row from `this.accounts` (plaintext
-   * IMAP/SMTP passwords after `loadAccounts()` / connect flows). This method does **not** reload
+   * **Config source:** The `account` object must be the in-memory row from `this.accounts` (normally
+   * plaintext IMAP/SMTP after successful `loadAccounts()`; if decrypt failed, row may still be sealed — see
+   * `assertImapCredentialsUsableForConnect`). This method does **not** reload
    * accounts from disk; `saveAccounts()` only writes ciphertext to JSON and does not mutate `this.accounts`.
    */
   private async getConnectedProvider(account: EmailAccountConfig): Promise<IEmailProvider> {
     if (account.provider === 'imap') {
-      const pw = account.imap?.password
-      if (pw == null || String(pw).trim().length === 0) {
-        console.error(
-          '[EmailGateway] IMAP password missing — refusing connect for account',
-          account.id,
-          account.email,
-        )
-        throw new Error('IMAP password is missing — account may need to be reconnected.')
+      try {
+        assertImapCredentialsUsableForConnect(account)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('[EmailGateway] IMAP credentials unusable — refusing connect for account', account.id, msg)
+        throw e instanceof Error ? e : new Error(msg)
       }
     }
 

@@ -69,7 +69,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'build2225',
+    outDir: 'build2227',
     // Disable Vite's modulepreload polyfill — it references `document` and
     // `window` which don't exist in Chrome extension service workers (MV3).
     modulePreload: false,
