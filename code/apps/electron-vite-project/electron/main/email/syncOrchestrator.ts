@@ -260,6 +260,7 @@ function mapToRawEmailMessage(
 // ── Per-account sync serialization (manual Pull + auto-sync ticks share one queue) ──
 
 const syncChains = new Map<string, Promise<unknown>>()
+const syncChainTimestamps = new Map<string, number>()
 
 /** Successful pulls that listed 0 messages and ingested 0 new (per account) — for stuck detection. */
 const consecutiveZeroListingPulls = new Map<string, number>()
@@ -313,24 +314,37 @@ function notePullOutcomeForStuckDetection(
  * Serialized per `accountId` so manual Pull and auto-sync never run concurrently for the same account.
  */
 export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
-  console.error('SYNC_ENTRY', options.accountId, new Date().toISOString())
   const accountId = options.accountId
-  const accountEarly = emailGateway.getAccountConfig(accountId)
-  console.log('[IMAP-PULL-TRACE] syncAccountEmails entry:', {
-    accountId,
-    provider: accountEarly?.provider,
-    hasImapConfig: !!accountEarly?.imap,
-    imapHost: accountEarly?.imap?.host,
-    syncWindowDays: accountEarly?.sync?.syncWindowDays,
-  })
-  emailDebugLog(
-    '[SYNC-DEBUG] syncAccountEmails invoked (serialized per account via syncChains; does not skip if pull lock active)',
-    { accountId, pullMore: options.pullMore === true },
-  )
+  console.error('[SYNC] syncAccountEmails called:', accountId)
+
+  // Clear any stuck chain older than 60 seconds
+  const chainAge = syncChainTimestamps.get(accountId) ?? 0
+  if (chainAge > 0 && Date.now() - chainAge > 60_000) {
+    console.error('[SYNC] Clearing stuck syncChain for:', accountId)
+    syncChains.delete(accountId)
+    syncChainTimestamps.delete(accountId)
+  }
+
   const prev = syncChains.get(accountId) ?? Promise.resolve()
-  const current = prev.then(() => syncAccountEmailsImpl(db, options))
-  syncChains.set(accountId, current.then(() => undefined, () => undefined))
-  return current
+  syncChainTimestamps.set(accountId, Date.now())
+
+  const current = prev.then(
+    () => syncAccountEmailsImpl(db, options),
+    () => syncAccountEmailsImpl(db, options), // also run if previous REJECTED
+  )
+
+  // Wrap in a 45-second timeout so it can NEVER hang forever
+  const withTimeout = Promise.race([
+    current,
+    new Promise<SyncResult>((_, reject) =>
+      setTimeout(() => reject(new Error('syncAccountEmails timed out after 45s')), 45_000),
+    ),
+  ]).finally(() => {
+    syncChainTimestamps.delete(accountId)
+  })
+
+  syncChains.set(accountId, withTimeout.then(() => undefined, () => undefined))
+  return withTimeout
 }
 
 async function syncAccountEmailsImpl(
@@ -338,6 +352,7 @@ async function syncAccountEmailsImpl(
   options: SyncAccountOptions,
 ): Promise<SyncResult> {
   const { accountId, pullMore = false } = options
+  console.error('[SYNC-IMPL] syncAccountEmailsImpl ENTRY:', accountId)
   const result: SyncResult = {
     ok: true,
     newMessages: 0,
@@ -486,6 +501,7 @@ async function syncAccountEmailsImpl(
           try {
             emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
             console.error('SYNC_LIST_CALL', accountId, folder)
+            console.error('[SYNC-IMPL] about to call listMessages:', accountId)
             const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
             const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
             const part = await Promise.race([listPromise, timeoutPromise])
@@ -509,6 +525,7 @@ async function syncAccountEmailsImpl(
         const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
         emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
         console.error('SYNC_LIST_CALL', accountId, folder)
+        console.error('[SYNC-IMPL] about to call listMessages:', accountId)
         const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
         const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
         messages = await Promise.race([listPromise, timeoutPromise])
