@@ -1,82 +1,20 @@
-# IMAP sync pipeline — code & architecture analysis
+# IMAP sync pipeline — code and architecture analysis
 
-**Scope:** Current tree as of this document’s authoring. Traces **auto-sync / manual Pull** from timer or IPC through `syncAccountEmails` → `gateway.listMessages` → provider or simple-pull → ingestion into `inbox_messages`.
-
-**Critical architectural fact:** For **IMAP accounts with a non-empty stored password**, `EmailGateway.listMessages` does **not** call `ImapProvider.fetchMessages`. It calls **`imapSimplePullListMessages`** (`imapSimplePull.ts`), which uses **`client.seq.fetch`** on a **sequence range** and applies **`fromDate` / `toDate` only in `postFilter` (client-side)**. The SEARCH + **`this.client!.fetch` (UID FETCH)** path lives in **`ImapProvider.fetchMessages` → `fetchMessagesSince`**, which runs only when listing goes through **`getConnectedProvider` → `provider.fetchMessages`** (e.g. IMAP without password on that branch, or non-IMAP providers).
+This document traces the **current** main-process path from auto-sync triggers through `syncAccountEmails`, gateway listing, provider fetch, and inbox DB ingestion. Code excerpts are taken from the workspace as of the file timestamps in **§10**.
 
 ---
 
-## 1. Auto-Sync Trigger
+## 1. Auto-sync trigger
 
-### Where the interval/timer is defined
+### Where the interval / timer is defined
 
-**Per-account loop** — `setTimeout` chain in `startAutoSync` (`syncOrchestrator.ts`):
+There are **two** independent mechanisms:
 
-```684:738:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\syncOrchestrator.ts
-export function startAutoSync(
-  db: any,
-  accountId: string,
-  intervalMs: number = 300_000,
-  onNewMessages?: (result: SyncResult) => void,
-  /** Resume background remote-queue drain when bounded inline drain does not finish. */
-  getDbForRemoteDrain?: () => Promise<any> | any,
-): { stop: () => void } {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
+**A) Per-account DB-driven loop** (`sync_interval_ms`, default 5 minutes) via `startAutoSync` in `syncOrchestrator.ts` (see §8).
 
-  const tick = async () => {
-    try {
-      console.log('[AUTO_SYNC] Tick fired for account:', accountId)
-      const row = db.prepare('SELECT auto_sync_enabled FROM email_sync_state WHERE account_id = ?').get(accountId) as { auto_sync_enabled?: number } | undefined
-      if (row?.auto_sync_enabled !== 1) {
-        scheduleNext()
-        return
-      }
+**B) Process-wide IMAP-only interval (2 minutes)** registered at the end of `registerInboxHandlers` in `ipc.ts`:
 
-      const result = await syncAccountEmails(db, { accountId })
-      processPendingPlainEmails(db)
-      processPendingP2PBeapEmails(db)
-      try {
-        if (result.newInboxMessageIds.length > 0) {
-          enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
-        }
-        await drainOrchestratorRemoteQueueBounded(
-          db,
-          getDbForRemoteDrain ? { getDbForDrainContinue: getDbForRemoteDrain } : undefined,
-        )
-        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
-      } catch (e: any) {
-        console.warn('[SyncOrchestrator] Post-sync remote drain:', e?.message)
-        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
-      }
-      if (result.newMessages > 0 && onNewMessages) {
-        onNewMessages(result)
-      }
-    } catch (err: any) {
-      console.error('[SyncOrchestrator] Auto-sync tick error:', err?.message)
-    }
-    scheduleNext()
-  }
-
-  const scheduleNext = () => {
-    timeoutId = setTimeout(tick, intervalMs)
-  }
-
-  tick()
-
-  return {
-    stop() {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-    },
-  }
-}
-```
-
-**Registration / resume** — `ipc.ts` resumes loops for active accounts when any row has `auto_sync_enabled = 1`, and `inbox:toggleAutoSync` starts/stops `startStoredAutoSyncLoopIfMissing` (helper in same file). **Brute-force IMAP** `setInterval` (every 2 minutes) at end of `registerInboxHandlers`:
-
-```4723:4750:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\ipc.ts
+```4723:4750:apps/electron-vite-project/electron/main/email/ipc.ts
   // --- IMAP Auto-Sync (brute force) ---
   // Separate from DB-driven auto_sync loops: periodic pull for every active IMAP account.
   const IMAP_AUTO_SYNC_INTERVAL_MS = 2 * 60 * 1000
@@ -109,26 +47,30 @@ export function startAutoSync(
 
 ### What accounts are iterated
 
-- **DB-driven loop:** One timer **per `accountId`** that has a started loop; each tick only checks **that** account’s `email_sync_state.auto_sync_enabled === 1`. Resume logic loads **all `status === 'active'`** accounts from `emailGateway.listAccounts()` and sets `auto_sync_enabled = 1` + starts a loop for each when **any** row had auto on (see `ipc.ts` ~2506–2533).
-- **Brute-force:** `emailGateway.listAccounts()` then `acc.provider === 'imap' && acc.status === 'active'`.
+- **Brute-force path:** `emailGateway.listAccounts()`, then `acc.provider === 'imap' && acc.status === 'active'`. No `auto_sync_enabled` check on this path.
 
-### Call path to `syncAccountEmails`
+### Call chain
 
-- **Direct:** `await syncAccountEmails(db, { accountId })` inside `startAutoSync` tick and inside brute-force `setInterval`.
+- Both the brute-force interval and `startAutoSync` call **`syncAccountEmails(db, { accountId })`** directly (not a separate wrapper).
 
-### Conditions that skip IMAP (provider / syncMode / authType)
+### Conditions that skip IMAP (auto-sync)
 
-- **`startAutoSync` tick:** Skips pull if `auto_sync_enabled !== 1` for **that** account — **not** provider-specific (same for OAuth and IMAP).
-- **No** `syncMode`, `authType`, or `provider === 'microsoft365'` check in `startAutoSync`.
-- **Brute-force:** Only **non-IMAP** or **non-active** accounts are skipped.
+| Mechanism | Skips when |
+|-----------|------------|
+| **2 min `setInterval`** | `provider !== 'imap'` OR `status !== 'active'` OR DB unavailable |
+| **`startAutoSync` tick** | `email_sync_state.auto_sync_enabled !== 1` for that account (still schedules next timeout) |
+
+There is **no** `syncMode` gate in these triggers. **OAuth vs password** is not filtered here; non-IMAP providers are skipped only by the brute-force filter or by not being IMAP.
 
 ---
 
 ## 2. `syncAccountEmails` entry (`syncOrchestrator.ts`)
 
-### Signature and first ~50 lines (public + start of impl)
+### Function signature and first 50 lines of `syncAccountEmailsImpl`
 
-```314:384:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\syncOrchestrator.ts
+Public entry (`syncAccountEmails` — serialization wrapper only):
+
+```314:333:apps/electron-vite-project/electron/main/email/syncOrchestrator.ts
 export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
   console.error('SYNC_ENTRY', options.accountId, new Date().toISOString())
   const accountId = options.accountId
@@ -149,7 +91,11 @@ export async function syncAccountEmails(db: any, options: SyncAccountOptions): P
   syncChains.set(accountId, current.then(() => undefined, () => undefined))
   return current
 }
+```
 
+First 50 lines of **`syncAccountEmailsImpl`** (signature through start of `pullMore` branch):
+
+```335:384:apps/electron-vite-project/electron/main/email/syncOrchestrator.ts
 async function syncAccountEmailsImpl(
   db: any,
   options: SyncAccountOptions,
@@ -202,42 +148,46 @@ async function syncAccountEmailsImpl(
     })
 
     let listOptions: MessageSearchOptions
+
+    if (pullMore) {
+      const oldestLocal = getOldestInboxReceivedAtIso(db, accountId)
 ```
 
-### Every early `return result` in `syncAccountEmailsImpl` (with conditions)
+(`listOptions` construction continues through line 430 in the same file — see repository for full `bootstrap` / `incremental` branches and the **399** / **407** early returns.)
+
+### Every early `return` inside `syncAccountEmailsImpl` (with condition and line)
 
 | Line | Condition | Effect |
 |------|-----------|--------|
-| **399** | `pullMore === true` and `getOldestInboxReceivedAtIso` is falsy | `result.ok = false`, error string, **`listedFromProvider = 0`**, return |
-| **407** | `pullMore` and invalid `Date` from oldest local | same |
-| **678** | Normal exit (success or prior catch) | `return result` |
+| **399** | `pullMore === true` and `getOldestInboxReceivedAtIso` is null | `result.ok = false`, error message, return |
+| **407** | `pullMore === true` and `new Date(oldestLocal)` is NaN | `result.ok = false`, error message, return |
+| **678** | Normal completion (always reached at end of function) | Returns `result` (success or failure from outer `catch`) |
 
-There is **no** early return before `listMessages` for normal Pull / auto-sync / bootstrap. **Pull More** can return before list (lines 399, 407).
+There are **no other** `return result` statements inside the `try` before the final path; failures in listing/ingest generally accumulate in `result.errors` or hit the outer `catch` (lines 627–649).
 
-**Outer `try` catch (lines ~627–649):** sets `result.ok = false`, appends error, updates sync state — does **not** rethrow; execution continues to final `return result` at **678**.
+### Branch for IMAP with `last_sync_at = null`
 
-### IMAP with `last_sync_at === null`
+- `hasPriorSync` is false → **`bootstrap`** is true (unless `pullMore`).
+- `listOptions` uses **`syncFetchAllPages: true`**, **`syncMaxMessages: maxPerPull`**, and **`fromDate: windowStartIso`** when `windowDays > 0`.
 
-- `hasPriorSync === false`, `pullMore === false` ⇒ **`bootstrap === true`**.
-- Uses branch `else if (bootstrap)` → `listOptions` with `syncFetchAllPages: true`, `syncMaxMessages: maxPerPull`, and **`fromDate: windowStartIso` only if `windowDays > 0`**.
+### Exact values (defaults, first-time IMAP bootstrap)
 
-### Typical bootstrap numbers (defaults)
+From `smartSyncPrefs.ts` (see §10): if account has no usable `sync.syncWindowDays` / `maxAgeDays`, **`getEffectiveSyncWindowDays` → 30**; **`getMaxMessagesPerPull` → 500** unless overridden.
 
-From `smartSyncPrefs.ts` (see §10): **`getEffectiveSyncWindowDays`** default **30**; **`getMaxMessagesPerPull`** default **500**.
+So for a typical first pull:
 
-So for a **new account** with default sync prefs and `windowDays = 30`:
-
-- **`syncWindowDays` (effective):** `30`
+- **`syncWindowDays`:** `30`
 - **`maxMessagesPerPull`:** `500`
-- **`fromDate` on bootstrap:** `windowStartIso` = **now − 30 days** (ISO string). If `sync.syncWindowDays === 0`, **`fromDate` is omitted** (full-window / all-time semantics per orchestrator comment, still capped by `syncMaxMessages`).
+- **`fromDate`:** ISO string for **now minus 30 calendar days in UTC** (`setUTCDate(getUTCDate() - 30)`), e.g. produced in `syncAccountEmailsImpl` as `windowStartIso`
+- If **`syncWindowDays === 0`** (all time): `windowStartIso` stays undefined → bootstrap `listOptions` has **no `fromDate`** (full-window behavior per provider).
 
 ---
 
 ## 3. Folder resolution
 
-### `resolveImapPullFolders` (domain)
+### `resolveImapPullFolders` (base labels)
 
-```17:46:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\domain\imapPullFolders.ts
+```17:46:apps/electron-vite-project/electron/main/email/domain/imapPullFolders.ts
 export function resolveImapPullFolders(account: EmailAccountConfig): string[] {
   if (account.provider !== 'imap') {
     return [account.folders?.inbox?.trim() || 'INBOX']
@@ -272,7 +222,7 @@ export function resolveImapPullFolders(account: EmailAccountConfig): string[] {
 
 ### `resolveImapPullFoldersExpanded` (gateway)
 
-```1282:1308:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\gateway.ts
+```1282:1308:apps/electron-vite-project/electron/main/email/gateway.ts
   async resolveImapPullFoldersExpanded(accountId: string, baseLabels: string[]): Promise<string[]> {
     const account = this.accounts.find((a) => a.id === accountId)
     const fallback = baseLabels.length > 0 ? baseLabels : ['INBOX']
@@ -303,19 +253,66 @@ export function resolveImapPullFolders(account: EmailAccountConfig): string[] {
   }
 ```
 
-### web.de
+### What folders web.de resolves to
 
-There is **no** hard-coded “web.de” host branch. **web.de** uses the same logic: default base **`['INBOX','Spam']`** unless `folders.monitored` overrides; **expanded** paths come from **`ImapProvider.expandPullFoldersForSync`** (LIST-based) when `getConnectedProvider` succeeds.
+There is **no** `web.de`-specific branch. For a default IMAP account (no custom `folders.monitored`), base labels are **`INBOX`** and **`Spam`**. Expansion calls `ImapProvider.expandPullFoldersForSync`, which **`LIST`s** the server, maps those labels to real paths via `imapFindExistingMailboxPathForLabel`, may add a Junk-like mailbox, adds direct `INBOX.*` children (with exclusions), and if the expanded set is empty falls back to **`[this.config.folders?.inbox || 'INBOX']`**:
 
-### Empty folder list?
+```1592:1628:apps/electron-vite-project/electron/main/email/providers/imap.ts
+  async expandPullFoldersForSync(baseLabels: string[]): Promise<string[]> {
+    if (!this.client || !this.config) {
+      throw new Error('Not connected')
+    }
+    const folders = await this.listFolders()
+    const paths: string[] = []
+    const seen = new Set<string>()
+    const add = (p: string) => {
+      const x = p.trim()
+      if (!x) return
+      const k = x.toLowerCase()
+      if (seen.has(k)) return
+      seen.add(k)
+      paths.push(x)
+    }
+    for (const label of baseLabels) {
+      const path = await this.imapFindExistingMailboxPathForLabel(folders, label.trim())
+      if (path) add(path)
+    }
+    const hasSpamLike = paths.some((p) => {
+      const row = folders.find((f) => f.path === p)
+      return row ? this.looksLikeSpamMailbox(row) : false
+    })
+    if (!hasSpamLike) {
+      const junk = folders.find(
+        (f) =>
+          !isLegacyImapMailboxLabel(f.path) &&
+          !isLegacyImapMailboxLabel(f.name) &&
+          this.looksLikeSpamMailbox(f),
+      )
+      if (junk) add(junk.path)
+    }
+    const expanded = await this.expandPullFoldersWithDirectInboxChildren(paths, folders)
+    if (expanded.length === 0) {
+      return [this.config.folders?.inbox || 'INBOX']
+    }
+    return expanded
+  }
+```
 
-`resolveImapPullFolders` always returns a **non-empty** array (`['INBOX', 'Spam']` as last resort). `resolveImapPullFoldersExpanded` returns **`fallback`** which is **`baseLabels` if non-empty else `['INBOX']`**. So **orchestrator’s `pullFolders[0]`** is always defined when `basePullLabels` came from `resolveImapPullFolders`; the **multi-folder branch** runs when **`pullFolders.length > 1`**.
+So for web.de, the concrete paths are **whatever the server returns from LIST** for those logical names (e.g. `INBOX`, localized spam folder), plus optional discovered junk / `INBOX.*` children.
+
+### Can folder resolution yield an empty list?
+
+- **`resolveImapPullFolders`** always returns at least **`['INBOX', 'Spam']`** (or filtered non-empty fallback).
+- **`expandPullFoldersForSync`**: if internal `expanded.length === 0`, it returns **a single-element array** `[config.folders?.inbox || 'INBOX']`, not `[]`.
+- **`syncAccountEmailsImpl`** uses `pullFolders[0] || … || 'INBOX'` for the single-folder branch, so even a hypothetical empty array would still default to **`INBOX`**.
 
 ---
 
-## 4. `gateway.listMessages` (full method)
+## 4. `gateway.listMessages`
 
-```576:592:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\gateway.ts
+### Full method (current)
+
+```576:592:apps/electron-vite-project/electron/main/email/gateway.ts
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
     console.error('GATEWAY_LIST', account.id, account.provider)
@@ -335,11 +332,14 @@ There is **no** hard-coded “web.de” host branch. **web.de** uses the same lo
   }
 ```
 
-### `getConnectedProvider` when listing without simple-pull
+### `getConnectedProvider` on this path?
 
-**Not used** when IMAP has password (branch above). **Used** for OAuth and for IMAP missing password on that check. **Cached provider disconnected:** `getConnectedProvider` reconnects if `!provider.isConnected()` (see excerpt below).
+- **Password IMAP (`imap.password` non-empty):** **`getConnectedProvider` is not used for listing** — listing goes through **`imapSimplePullListMessages`** (standalone connection).
+- **Otherwise:** **`getConnectedProvider(account)`** is used, then **`provider.fetchMessages`**.
 
-```1404:1470:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\gateway.ts
+### Cached but disconnected provider
+
+```1404:1470:apps/electron-vite-project/electron/main/email/gateway.ts
   private async getConnectedProvider(account: EmailAccountConfig): Promise<IEmailProvider> {
     if (account.provider === 'imap') {
       const pw = account.imap?.password
@@ -357,12 +357,12 @@ There is **no** hard-coded “web.de” host branch. **web.de** uses the same lo
     
     if (!provider) {
       provider = await this.getProvider(account)
-      // ... onTokenRefresh ...
+      // ... token refresh omitted ...
       await provider.connect(account)
       // ...
       this.providers.set(account.id, provider)
     } else if (!provider.isConnected()) {
-      // ...
+      // ... logging ...
       await provider.connect(account)
       // ...
     }
@@ -371,17 +371,21 @@ There is **no** hard-coded “web.de” host branch. **web.de** uses the same lo
   }
 ```
 
+If a cached provider exists but **`isConnected()` is false**, the gateway **calls `connect` again** before returning.
+
 ### Options passed to `provider.fetchMessages`
 
-The **same** `options` object passed into `listMessages` (plus orchestrator merges `folder`). Orchestrator passes **`{ ...listOptions, folder }`** where `listOptions` includes `limit`, `syncFetchAllPages`, `syncMaxMessages`, and **`fromDate` / `toDate`** as built in `syncAccountEmailsImpl`.
+The **`options`** argument to `listMessages` is passed through unchanged (plus orchestrator sets `folder` on a copy per folder). For sync, that is the `listOptions` built in `syncOrchestrator.ts` (`limit`, `syncFetchAllPages`, `syncMaxMessages`, `fromDate` / `toDate` as applicable).
 
 ---
 
-## 5. `ImapProvider.fetchMessages` (full method)
+## 5. `ImapProvider.fetchMessages`
 
-**Note:** This runs **only** when `listMessages` does **not** take the `imapSimplePullListMessages` branch.
+**Important:** This method runs for listing only when **`listMessages` does not** take the password-IMAP branch — i.e. IMAP **without** a trimmed password goes through `getConnectedProvider` (which throws if password missing), so in practice **normal password-based IMAP inbox accounts use `imapSimplePullListMessages`, not `ImapProvider.fetchMessages`, for the list step.**
 
-```813:1031:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\providers\imap.ts
+### Full `fetchMessages` method (current)
+
+```813:1031:apps/electron-vite-project/electron/main/email/providers/imap.ts
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     console.error('IMAP_FETCH_ENTRY', folder, options)
     console.error('IMAP_CLIENT_STATE', !!this.client, this.client?.state, this.isConnected())
@@ -427,32 +431,200 @@ The **same** `options` object passed into `listMessages` (plus orchestrator merg
 
     return new Promise((resolve, reject) => {
       this.client!.openBox(folder, true, (err, box) => {
-        // ... seq.fetch paths for !syncAll and syncAll chunking via seq.fetch ...
+        if (err) {
+          reject(err)
+          return
+        }
+
+        const total = box.messages.total
+        emailDebugLog('[SYNC-DEBUG] IMAP fetchMessages seq-range path (no fromDate SINCE)', {
+          folder,
+          openBoxMessageTotal: total,
+          syncAll,
+        })
+        if (total === 0) {
+          emailDebugLog('[SYNC-DEBUG] IMAP fetchMessages: mailbox reports 0 messages — no fetch', { folder })
+          resolve([])
+          return
+        }
+
+        if (!syncAll) {
+          const start = Math.max(1, total - limit + 1)
+          const end = total
+          const messages: RawEmailMessage[] = []
+          const fetch = this.client!.seq.fetch(`${start}:${end}`, {
+            bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+            struct: true,
+          })
+          fetch.on('message', (msg) => {
+            const msgData: Partial<RawEmailMessage> = {
+              id: '',
+              folder,
+              flags: {
+                seen: false,
+                flagged: false,
+                answered: false,
+                draft: false,
+                deleted: false,
+              },
+              labels: [],
+            }
+            msg.on('body', (stream, info) => {
+              let buffer = ''
+              stream.on('data', (chunk) => {
+                buffer += chunk.toString('utf8')
+              })
+              stream.once('end', () => {
+                if (info.which.includes('HEADER')) {
+                  const headers = ImapCtor.parseHeader(buffer)
+                  msgData.subject = headers.subject?.[0] || '(No Subject)'
+                  msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+                  msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+                  msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+                  msgData.date = new Date(headers.date?.[0] || Date.now())
+                  msgData.headers = {
+                    messageId: headers['message-id']?.[0],
+                    inReplyTo: headers['in-reply-to']?.[0],
+                    references: headers.references?.[0]?.split(/\s+/) || [],
+                  }
+                }
+              })
+            })
+            msg.once('attributes', (attrs) => {
+              const uidStr = String(attrs.uid)
+              msgData.id = uidStr
+              msgData.uid = uidStr
+              if (attrs.flags) {
+                msgData.flags = {
+                  seen: attrs.flags.includes('\\Seen'),
+                  flagged: attrs.flags.includes('\\Flagged'),
+                  answered: attrs.flags.includes('\\Answered'),
+                  draft: attrs.flags.includes('\\Draft'),
+                  deleted: attrs.flags.includes('\\Deleted'),
+                }
+              }
+            })
+            msg.once('end', () => {
+              messages.push(msgData as RawEmailMessage)
+            })
+          })
+          fetch.once('error', reject)
+          fetch.once('end', () => {
+            resolve(messages.reverse())
+          })
+          return
+        }
+
+        const all: RawEmailMessage[] = []
+        let startSeq = 1
+        let imapRangeIdx = 0
+
+        const nextRange = () => {
+          if (startSeq > total || all.length >= maxM) {
+            if (syncAll && total > 0) {
+              console.log(`[IMAP] full mailbox fetch done: ${all.length} message(s) from ${total} in folder`)
+            }
+            resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
+            return
+          }
+          imapRangeIdx++
+          const endSeq = Math.min(total, startSeq + chunkSize - 1)
+          const spec = `${startSeq}:${endSeq}`
+          if (syncAll) {
+            console.log(`[IMAP] full mailbox range ${imapRangeIdx}: ${spec} (total msgs=${total}, loaded ${all.length})`)
+          }
+          startSeq = endSeq + 1
+          const batch: RawEmailMessage[] = []
+          const fetch = this.client!.seq.fetch(spec, {
+            bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)', 'TEXT'],
+            struct: true,
+          })
+          fetch.on('message', (msg) => {
+            const msgData: Partial<RawEmailMessage> = {
+              id: '',
+              folder,
+              flags: {
+                seen: false,
+                flagged: false,
+                answered: false,
+                draft: false,
+                deleted: false,
+              },
+              labels: [],
+            }
+            msg.on('body', (stream, info) => {
+              let buffer = ''
+              stream.on('data', (chunk) => {
+                buffer += chunk.toString('utf8')
+              })
+              stream.once('end', () => {
+                if (info.which.includes('HEADER')) {
+                  const headers = ImapCtor.parseHeader(buffer)
+                  msgData.subject = headers.subject?.[0] || '(No Subject)'
+                  msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+                  msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+                  msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+                  msgData.date = new Date(headers.date?.[0] || Date.now())
+                  msgData.headers = {
+                    messageId: headers['message-id']?.[0],
+                    inReplyTo: headers['in-reply-to']?.[0],
+                    references: headers.references?.[0]?.split(/\s+/) || [],
+                  }
+                }
+              })
+            })
+            msg.once('attributes', (attrs) => {
+              const uidStr = String(attrs.uid)
+              msgData.id = uidStr
+              msgData.uid = uidStr
+              if (attrs.flags) {
+                msgData.flags = {
+                  seen: attrs.flags.includes('\\Seen'),
+                  flagged: attrs.flags.includes('\\Flagged'),
+                  answered: attrs.flags.includes('\\Answered'),
+                  draft: attrs.flags.includes('\\Draft'),
+                  deleted: attrs.flags.includes('\\Deleted'),
+                }
+              }
+            })
+            msg.once('end', () => {
+              batch.push(msgData as RawEmailMessage)
+            })
+          })
+          fetch.once('error', reject)
+          fetch.once('end', () => {
+            for (const m of batch) {
+              if (all.length >= maxM) break
+              all.push(m)
+            }
+            nextRange()
+          })
+        }
+
+        nextRange()
       })
     })
   }
 ```
 
-*(The `new Promise` body continues with `seq.fetch` for non-SINCE paths: lines ~856–1030.)*
+### What chooses `fetchMessagesSince` vs `fetchMessagesBeforeExclusive` vs seq-range
 
-### Branch selection
+1. **`toDate` set and `fromDate` unset** → valid date → **`fetchMessagesBeforeExclusive`**
+2. **`fromDate` set** → valid date → **`fetchMessagesSince`**
+3. **`fromDate` invalid** → logs and **falls through** to **seq-range** (`openBox` + `seq.fetch`)
+4. **Neither / no valid `fromDate`** → **seq-range** path
 
-1. **`toDate` set, `fromDate` unset**, valid date → **`fetchMessagesBeforeExclusive`** (Pull More).
-2. **`fromDate` set**, valid date → **`fetchMessagesSince`**.
-3. **`fromDate` invalid string** → logs and falls through to **seq-range / openBox** path.
-4. **No valid `fromDate`** → seq-range path.
+### Bootstrap with `fromDate` set (ImapProvider path)
 
-### Bootstrap with `fromDate` set
-
-Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch chunks).
+**`fetchMessagesSince`** is invoked (SEARCH + UID-based fetch — see §6).
 
 ---
 
-## 6. `fetchMessagesSince` (SEARCH + fetch)
+## 6. `fetchMessagesSince` (SEARCH + fetch path)
 
 ### Full method (current)
 
-```523:673:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\providers\imap.ts
+```523:673:apps/electron-vite-project/electron/main/email/providers/imap.ts
   private fetchMessagesSince(folder: string, since: Date, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
     const limit = options?.limit || 50
     const syncAll = options?.syncFetchAllPages === true
@@ -464,7 +636,42 @@ Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch
     const chunkSize = 60
 
     const attachParser = (msg: ImapConnection.ImapMessage, msgData: Partial<RawEmailMessage>) => {
-      // ... header + attributes ...
+      msg.on('body', (stream, info) => {
+        let buffer = ''
+        stream.on('data', (chunk) => {
+          buffer += chunk.toString('utf8')
+        })
+        stream.once('end', () => {
+          if (info.which.includes('HEADER')) {
+            const headers = ImapCtor.parseHeader(buffer)
+            msgData.subject = headers.subject?.[0] || '(No Subject)'
+            msgData.from = this.parseEmailAddress(headers.from?.[0] || '')
+            msgData.to = this.parseEmailAddresses(headers.to?.[0] || '')
+            msgData.cc = this.parseEmailAddresses(headers.cc?.[0] || '')
+            msgData.date = new Date(headers.date?.[0] || Date.now())
+            msgData.headers = {
+              messageId: headers['message-id']?.[0],
+              inReplyTo: headers['in-reply-to']?.[0],
+              references: headers.references?.[0]?.split(/\s+/) || [],
+            }
+          }
+        })
+      })
+      msg.once('attributes', (attrs) => {
+        const uidStr = String(attrs.uid)
+        /** Same as `id` — IMAP UID for list rows; RFC Message-ID lives only in `headers.messageId`. */
+        msgData.id = uidStr
+        msgData.uid = uidStr
+        if (attrs.flags) {
+          msgData.flags = {
+            seen: attrs.flags.includes('\\Seen'),
+            flagged: attrs.flags.includes('\\Flagged'),
+            answered: attrs.flags.includes('\\Answered'),
+            draft: attrs.flags.includes('\\Draft'),
+            deleted: attrs.flags.includes('\\Deleted'),
+          }
+        }
+      })
     }
 
     return new Promise((resolve, reject) => {
@@ -480,16 +687,28 @@ Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch
             searchCriteria = ['AND', ['SINCE', since], ['BEFORE', before]]
           }
         }
-        // ... emailDebugLog ...
+        emailDebugLog(
+          '[SYNC-DEBUG] IMAP SEARCH (fetchMessagesSince): openBox then SEARCH via node-imap; criteria array → SINCE/BEFORE on wire',
+          {
+            folder,
+            sinceIso: since.toISOString(),
+            sinceInternalDate: since.toString(),
+            toDateOptionIso: options?.toDate ?? null,
+            criteriaJson: syncDebugFormatImapSearchCriteria(searchCriteria),
+          },
+        )
         this.client!.search([searchCriteria], (sErr, uids: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
           const n = uids?.length ?? 0
-          // ...
+          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH result (UIDs from UID SEARCH)', { folder, matchCount: n })
           if (!uids?.length) {
-            // ...
+            emailDebugLog(
+              '[SYNC-DEBUG] IMAP fetchMessagesSince: 0 SEARCH matches — no UID fetch attempted for this folder',
+              { folder },
+            )
             resolve([])
             return
           }
@@ -505,14 +724,20 @@ Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch
 
           const nextChunk = () => {
             if (i >= pick.length) {
-              // ...
+              if (syncAll && pick.length > 0) {
+                console.log(`[IMAP] SINCE fetch done: ${all.length} message(s) from ${pick.length} match(es)`)
+              }
               resolve(all.sort((a, b) => Number(b.id) - Number(a.id)))
               return
             }
             imapChunkIdx++
             const slice = pick.slice(i, i + chunkSize)
             i += chunkSize
-            // ...
+            if (syncAll) {
+              console.log(
+                `[IMAP] SINCE fetch chunk ${imapChunkIdx}: uid ${slice[0]}-${slice[slice.length - 1]} (${slice.length} of ${pick.length} total matches)`,
+              )
+            }
             const spec = slice.join(',')
             const batch: RawEmailMessage[] = []
             // connection.search() returns UIDs, not sequence numbers.
@@ -522,7 +747,22 @@ Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch
               struct: true,
             })
             fetch.on('message', (msg) => {
-              // ...
+              const msgData: Partial<RawEmailMessage> = {
+                id: '',
+                folder,
+                flags: {
+                  seen: false,
+                  flagged: false,
+                  answered: false,
+                  draft: false,
+                  deleted: false,
+                },
+                labels: [],
+              }
+              attachParser(msg, msgData)
+              msg.once('end', () => {
+                batch.push(msgData as RawEmailMessage)
+              })
             })
             fetch.once('error', reject)
             fetch.once('end', () => {
@@ -538,65 +778,41 @@ Takes **`fetchMessagesSince(folder, since, options)`** (SEARCH SINCE + UID fetch
   }
 ```
 
-### CRITICAL: after `search()` → which fetch?
+### After `search()` returns: which fetch?
 
-**Current code uses `this.client!.fetch(spec, { ... })` — UID-based fetch** (not `seq.fetch` for the UID list). Comment in source explicitly states SEARCH returns UIDs.
+**`this.client!.fetch(spec, { ... })`** — **UID-based** `fetch`, **not** `seq.fetch`. The same pattern is used in **`fetchMessagesBeforeExclusive`** (lines 776–781 in the same file).
 
 ### Was the `seq.fetch` → `fetch` fix applied?
 
-**Yes, in `fetchMessagesSince` and `fetchMessagesBeforeExclusive`** (both use `this.client!.fetch` for UID slices). **`imapSimplePullListMessages` still uses `client.seq.fetch`** — by design for that path (sequence range of newest N), not SEARCH UIDs.
+**Yes, in `imap.ts` for `fetchMessagesSince` and `fetchMessagesBeforeExclusive`.** (See comments and `this.client!.fetch` above.)
+
+**Caveat:** **Password IMAP listing does not execute this code**; it uses **`imapSimplePull.ts`**, which still uses **`client.seq.fetch`** for the list phase (see below).
 
 ---
 
 ## 7. Message ingestion
 
-### After list: orchestrator loop
+### Path after `listMessages` returns
 
-For each listed `msg`:
+Inside `syncAccountEmailsImpl` (`syncOrchestrator.ts`):
 
-1. **Dedup:** `existingIds.has(msg.id)` where `existingIds` = all `email_message_id` values in `inbox_messages` for that `account_id` (**`getExistingEmailMessageIds`**). Match is on **list row `id`** (IMAP UID string) vs DB **`email_message_id`**.
+1. `messages = await emailGateway.listMessages(...)` (per folder or merged).
+2. `existingIds = getExistingEmailMessageIds(db, accountId)` — all `email_message_id` values already in `inbox_messages`.
+3. For each `msg` in `messages`:
+   - If **`existingIds.has(msg.id)`** → **`skippedDuplicate++`**, `continue` (no ingest).
+   - Else **`getMessage`**, attachments, **`mapToRawEmailMessage`**, **`detectAndRouteMessage(db, accountId, rawMsg)`**.
 
-```127:137:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\syncOrchestrator.ts
-function getExistingEmailMessageIds(db: any, accountId: string): Set<string> {
-  if (!db) return new Set()
-  try {
-    const rows = db.prepare(
-      'SELECT email_message_id FROM inbox_messages WHERE account_id = ? AND email_message_id IS NOT NULL'
-    ).all(accountId) as Array<{ email_message_id: string }>
-    return new Set(rows.map((r) => r.email_message_id))
-  } catch {
-    return new Set()
-  }
-}
-```
+### Dedup that can skip messages
 
-2. **`getMessage` + `detectAndRouteMessage`:** Full detail fetch then router inserts **`inbox_messages`** (+ attachments, pending tables).
+**Yes.** Deduplication is by **`msg.id`** (sanitized from provider **`raw.id`**, which for IMAP is the **UID** string) against **`inbox_messages.email_message_id`** for that **`account_id`**. If every listed ID is already present, **all are skipped** with no DB insert — this is silent except for counts / logs.
 
-```512:557:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\syncOrchestrator.ts
-      for (const msg of messages) {
-        if (existingIds.has(msg.id)) {
-          skippedDuplicate++
-          continue
-        }
+### Insert requirements (`detectAndRouteMessage`)
 
-        try {
-          const detail = await emailGateway.getMessage(accountId, msg.id)
-          if (!detail) {
-            result.errors.push(`Could not fetch message ${msg.id}`)
-            continue
-          }
-          // ... listAttachments ...
-          const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })
-          const routeResult = await detectAndRouteMessage(db, accountId, rawMsg)
-```
+`messageRouter.ts` always generates **`messageId`** via **`resolveStorageEmailMessageId`** (for IMAP: uid / id / messageId / random UUID), **`inboxMessageId = randomUUID()`**, and runs **`insertInbox.run(...)`** with derived fields. There is **no** pre-insert “skip if duplicate” in `detectAndRouteMessage` itself — dedupe for sync is **solely** the orchestrator’s **`existingIds`** check.
 
-### Dedup “silent skip”
+Core insert (excerpt):
 
-**Yes:** if **every** listed message’s `msg.id` is already in `existingIds`, **`newCount` stays 0** without error (unless `getMessage` fails). **`listedFromProvider`** can still be **> 0**.
-
-### `detectAndRouteMessage` insert (core columns)
-
-```283:313:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\messageRouter.ts
+```283:313:apps/electron-vite-project/electron/main/email/messageRouter.ts
   const insertInbox = db.prepare(`
     INSERT INTO inbox_messages (
       id, source_type, handshake_id, account_id, email_message_id,
@@ -630,178 +846,140 @@ function getExistingEmailMessageIds(db: any, accountId: string): Set<string> {
   )
 ```
 
-**IMAP storage id:** `resolveStorageEmailMessageId` prefers **uid / id** for IMAP (RFC Message-ID separate column).
-
 ---
 
 ## 8. Auto-sync scheduling for IMAP
 
-- **Next tick:** `startAutoSync` always calls **`scheduleNext()`** at end of `tick` (even on error in outer try), so the **same interval** repeats. **No** separate OAuth vs IMAP scheduler in `startAutoSync`.
-- **Brute-force:** Fixed **`setInterval` 2 min** for all active IMAP accounts — **independent** of `auto_sync_enabled`.
-- **Brute-force present:** Yes — see §1 paste from **`ipc.ts` ~4723–4750** and **`console.log('[IMAP-AUTO-SYNC] Registered...')`** at **4750**.
+### After a pull completes — what schedules the next tick?
+
+1. **`startAutoSync`** (`syncOrchestrator.ts`): each tick ends with **`scheduleNext()`** → **`setTimeout(tick, intervalMs)`** (default from DB **`sync_interval_ms`** or 300_000 ms). The first **`tick()`** is invoked immediately when `startAutoSync` is called.
+
+2. **Brute-force 2-minute `setInterval`** (`ipc.ts`): **independent** of per-account state; always fires every 2 minutes for active IMAP accounts.
+
+### Different mechanism for IMAP vs OAuth?
+
+- **OAuth / API providers:** only the **per-account `startAutoSync`** path (when enabled and loop started) — **not** the IMAP-only 2-minute interval.
+- **IMAP:** **both** the per-account loop (if `auto_sync_enabled === 1` and loop registered) **and** the **2-minute** interval (no `auto_sync_enabled` check).
+
+### Brute-force `setInterval` present?
+
+**Yes.** See **§1** (`ipc.ts` lines 4723–4750).
+
+Resume on startup (mirrors global auto to all active accounts and starts stored loops):
+
+```2506:2532:apps/electron-vite-project/electron/main/email/ipc.ts
+  void (async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return
+      const anyAuto = db.prepare('SELECT 1 FROM email_sync_state WHERE auto_sync_enabled = 1 LIMIT 1').get()
+      if (!anyAuto) return
+
+      const list = await emailGateway.listAccounts()
+      const activeIds = list.filter((a) => a.status === 'active').map((a) => a.id)
+
+      for (const accountId of activeIds) {
+        updateSyncState(db, accountId, { auto_sync_enabled: 1 })
+        startStoredAutoSyncLoopIfMissing(db, accountId, resolveDb)
+        const row = db.prepare('SELECT sync_interval_ms FROM email_sync_state WHERE account_id = ?').get(accountId) as
+          | { sync_interval_ms?: number }
+          | undefined
+        const intervalMs = row?.sync_interval_ms ?? 300_000
+        console.log('[Inbox] Resumed auto-sync loop for account', accountId, 'interval', intervalMs)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Failed to resume auto-sync loops:', (e as Error)?.message)
+    }
+  })()
+```
 
 ---
 
-## 9. Error swallowing (non-rethrow highlights)
+## 9. Error swallowing (non-rethrowing `try/catch` along the hot path)
+
+Representative cases that **catch and do not rethrow** (errors become logs, fallbacks, or ignored):
 
 | Location | Behavior |
 |----------|----------|
-| `getExistingEmailMessageIds` | `catch { return new Set() }` — failed query ⇒ **empty dedup set** (could cause duplicate insert attempts / DB errors). |
-| `syncOrchestrator` multi-folder loop | `catch (folderErr)` — **appends** to `result.errors`, **continues** other folders. |
-| `syncOrchestrator` per-message | `catch` — appends error, **continues**. |
-| `syncOrchestrator` attachment fetch | inner `catch { }` — non-fatal. |
-| `syncOrchestrator` `listAttachments` | `catch` — **warn**, continues. |
-| `startAutoSync` post-sync drain | `catch` — **warn**, still `scheduleNext()`. |
-| `startAutoSync` tick outer | `catch` — **console.error**, still `scheduleNext()`. |
-| `imapSimplePullListMessages` `finally` | `client.end()` in **`catch {}`** — ignores end errors. |
-| `gateway.resolveImapPullFoldersExpanded` | `catch` — **warn**, returns **fallback** labels. |
-| `messageRouter` / various JSON parses | `catch { /* ignore */ }` in detection helpers. |
-| Brute-force `setInterval` | per-account **`catch`** logs, **continues** loop. |
+| **`syncOrchestrator.ts` `updateSyncState`** | `catch` → `console.error` only |
+| **`syncOrchestrator.ts` `getExistingEmailMessageIds` / `getOldestInboxReceivedAtIso`** | `catch` → empty `Set` / `null` |
+| **`syncOrchestrator.ts` per-folder list** | `catch` → pushes to `result.errors`, continues other folders |
+| **`syncOrchestrator.ts` `fetchAttachmentBuffer` inner catch** | empty comment “Non-fatal” |
+| **`syncOrchestrator.ts` `listAttachments` failure** | `console.warn`, continues message |
+| **`syncOrchestrator.ts` outer auth `updateAccount` failures** | `console.warn` |
+| **`syncOrchestrator.ts` success branch clear `auth_error`** | empty `catch { /* ignore */ }` |
+| **`syncOrchestrator.ts` `startAutoSync` post-sync drain** | `console.warn`, may still `scheduleOrchestratorRemoteDrain` |
+| **`syncOrchestrator.ts` `startAutoSync` tick** | `console.error` for tick failure, then still `scheduleNext` |
+| **`syncOrchestrator.ts` `maybeRunImapLegacyFolderConsolidation`** | several `catch` paths log/warn only |
+| **`ipc.ts` IMAP `setInterval`** | per-account and outer `catch` → `console.error` only |
+| **`imapSimplePull.ts`** after `ready` | `client.on('error', () => {})` — **swallows** further socket errors on that client |
+| **`gateway.ts` `listMessages` password path** | N/A catch inside list itself — failures reject from `imapSimplePullListMessages` |
 
-**IMAP list** errors on one folder in multi-folder mode **do not abort** the whole sync; they only add to `result.errors`.
+These can **hide** IMAP failures from the UI if callers only look at `SyncResult` and the error was swallowed in a subsystem (e.g. attachment fetch). **Listing** errors for multi-folder IMAP are appended to **`result.errors`** but the sync may still return **`ok: true`**.
 
 ---
 
-## 10. File stats (current workspace)
+## 10. State after refactors — line counts and last modified
 
-| File | Line count (approx.) | Last modified (mtime, local disk) |
-|------|----------------------|-----------------------------------|
-| `electron/main/email/ipc.ts` | 4753 | 2026-03-24 15:50:54 |
-| `electron/main/email/syncOrchestrator.ts` | 743 | 2026-03-24 16:01:06 |
-| `electron/main/email/gateway.ts` | 1579 | 2026-03-24 16:01:26 |
-| `electron/main/email/providers/imap.ts` | 2184 | 2026-03-24 16:01:16 |
-| `electron/main/email/emailDebug.ts` | 34 | 2026-03-24 15:04:02 |
-| `electron/main/email/domain/smartSyncPrefs.ts` | 39 | 2026-03-24 13:51:54 |
+Paths under `apps/electron-vite-project/electron/main/email/`:
 
-*(Paths relative to `apps/electron-vite-project/`.)*
+| File | Lines (`Get-Content \| Measure`) | Last write (local) |
+|------|----------------------------------|--------------------|
+| `ipc.ts` | 4752 | 2026-03-24 16:50:54 |
+| `syncOrchestrator.ts` | 742 | 2026-03-24 17:01:06 |
+| `gateway.ts` | 1578 | 2026-03-24 17:01:26 |
+| `providers/imap.ts` | 2183 | 2026-03-24 17:01:16 |
+| `emailDebug.ts` | 33 | 2026-03-24 16:04:02 |
+| `domain/smartSyncPrefs.ts` | 38 | 2026-03-24 14:51:54 |
 
 ---
 
 ## 11. Diagnosis
 
-### Where IMAP can “fail” or return 0 without a thrown error
+### Where the pipeline can fail or silently return **0** messages
 
-1. **Password IMAP list path (`imapSimplePullListMessages`):**  
-   - **`openBox`** fails → rejected (throws up to orchestrator).  
-   - **`total === 0`** → `[]`.  
-   - **`seq.fetch`** returns headers; **`postFilter`** applies **`fromDate` / `toDate` on `m.date` (header date)**. If server INTERNALDATE vs header **SINCE** window diverges, **all rows can be filtered out** ⇒ **0 messages** after list despite non-empty mailbox.  
-   - **`n`** capped by `total`; `fromDate` forces **`n = Math.max(n, 400)`** then **`min(total, n)`** — only fetches up to **newest N** sequences, then filters — **older mail in window can be missed** if N < count of messages in folder.
+1. **`imapSimplePullListMessages` (password IMAP — default list path)**  
+   - Uses **`seq.fetch`** on the **last N** messages by **sequence number**, then **`postFilter`** applies **`fromDate` / `toDate`** on **`Date` parsed from headers** (`imapSimplePull.ts`).  
+   - **Silent 0:** SEARCH is **not** used; if the **newest N** messages (by seq) all have **internal date \< `fromDate`**, the client-side filter returns **`[]`** even if older mail in the window exists elsewhere in the mailbox.  
+   - **`total === 0`** in mailbox → immediate `[]`.
 
-2. **`ImapProvider.fetchMessages` path (no password branch):**  
-   - **`search`** returns **[]** → resolve **[]** (incremental/bootstrap with SINCE).  
-   - **Not connected** → **throws** `'Not connected'`.
+2. **`ImapProvider.fetchMessagesSince`**  
+   - **`search` returns no UIDs** → **`resolve([])`** (logged under `EMAIL_DEBUG`).
 
-3. **Dedup:** **`existingIds.has(msg.id)`** skips ingestion; **listed count can be positive**, **newMessages 0**.
+3. **Folder / openBox**  
+   - Wrong path → **reject** (error), not silent.
 
-4. **`getMessage` returns null:** Adds error string, **skips** that message.
+4. **Dedup in orchestrator**  
+   - Provider returns messages but **every `msg.id` is already in `inbox_messages`** → **0 new**, not a provider failure.
 
-### Exact fix candidates (illustrative — product decision required)
+5. **`getMessage` returns null**  
+   - Adds to **`result.errors`**, skips that message.
 
-- **Unify or document dual paths:** Either route password IMAP through the same SEARCH/UID strategy as `fetchMessagesSince`, or make `imapSimplePull` use **UID SEARCH + `client.fetch`** when `fromDate` is set, and align date filtering with server criteria instead of only header `Date`.
-- **`postFilter` vs bootstrap:** If keeping simple-pull, consider filtering with a field consistent with IMAP SEARCH (or widen fetched seq range when `fromDate` is set).
-- **Dedup mismatch:** If list `id` and DB `email_message_id` ever diverge (format), fix **sanitized id** or **getExisting** keying.
+### Exact fix targets (high signal)
 
-### Previous fix “lost”?
+| Issue | Suggested change |
+|-------|------------------|
+| Password IMAP list bypasses UID SEARCH + UID FETCH | **Unify listing** with `ImapProvider.fetchMessages` / `fetchMessagesSince` (reuse connected session), **or** implement SEARCH + UID `fetch` inside **`imapSimplePullListMessages`** instead of `seq.fetch` + `postFilter`. **File:** `providers/imapSimplePull.ts` |
+| Brute-force sync ignores `auto_sync_enabled` | If undesired, **gate** the loop in `ipc.ts` on `email_sync_state.auto_sync_enabled` or remove the interval. **File:** `ipc.ts` ~4727 |
+| Multi-folder partial failure | Today errors are pushed to **`result.errors`** but **`ok`** may stay **true** — tighten policy if UI should treat as failure. **File:** `syncOrchestrator.ts` |
 
-The **UID SEARCH → `this.client!.fetch`** fix **is present** in **`fetchMessagesSince` / `fetchMessagesBeforeExclusive`** in the current `imap.ts`. It does **not** apply to **`imapSimplePullListMessages`**, which is the **actual** list path for typical password-based IMAP in `gateway.listMessages`. That split is **by current design**, not an overwritten lost patch in those methods.
+### Was the UID fetch fix lost?
 
----
+**No** — in **`imap.ts`**, `fetchMessagesSince` / `fetchMessagesBeforeExclusive` use **`this.client!.fetch`** (UID fetch).  
+**However**, that fix **does not apply** to the **password-IMAP list path**, which is **`imapSimplePullListMessages`** and still uses **`client.seq.fetch`**.
 
-## Appendix: `imapSimplePull.ts` (password IMAP list — full current file)
-
-```typescript
-/** IMAP list via seq.fetch on newest N by sequence number only (no SEARCH). fromDate filtered client-side. */
-import * as ImapMod from 'imap'
-import type { RawEmailMessage } from './base'
-import type { EmailAccountConfig, MessageSearchOptions } from '../types'
-import { imapUsesImplicitTls } from '../domain/securityModeNormalize'
-
-const ImapCtor = (ImapMod as any).default ?? ImapMod
-
-function parseOne(s: string): { email: string; name?: string } {
-  if (!s) return { email: '' }
-  const m = s.match(/^([^<]*)<([^>]+)>$/)
-  if (m) {
-    const name = m[1].trim().replace(/^["']|["']$/g, '')
-    const email = m[2].trim().toLowerCase()
-    return name ? { email, name } : { email }
-  }
-  return { email: s.trim().toLowerCase() }
-}
-
-function parseMany(h: string): Array<{ email: string; name?: string }> {
-  if (!h) return []
-  const parts: string[] = []
-  let cur = ''
-  let q = false
-  for (const c of h) {
-    if (c === '"') q = !q
-    else if (c === ',' && !q) {
-      if (cur.trim()) parts.push(cur.trim())
-      cur = ''
-    } else cur += c
-  }
-  if (cur.trim()) parts.push(cur.trim())
-  return parts.map(parseOne)
-}
+```35:47:apps/electron-vite-project/electron/main/email/providers/imapSimplePull.ts
 function postFilter(rows: RawEmailMessage[], o?: MessageSearchOptions): RawEmailMessage[] {
   let out = rows
   const ft = o?.fromDate ? new Date(o.fromDate).getTime() : NaN
   if (!Number.isNaN(ft)) out = out.filter((m) => m.date.getTime() >= ft)
   const tt = o?.toDate ? new Date(o.toDate).getTime() : NaN
   if (!Number.isNaN(tt)) out = out.filter((m) => m.date.getTime() < tt)
-  if (o?.unreadOnly) out = out.filter((m) => !m.flags.seen)
-  if (o?.flaggedOnly) out = out.filter((m) => m.flags.flagged)
-  out.sort((a, b) => b.date.getTime() - a.date.getTime())
-  let lim = o?.limit ?? 50
-  if (o?.syncFetchAllPages) lim = o.syncMaxMessages != null ? Math.max(1, o.syncMaxMessages) : out.length
-  return out.length > lim ? out.slice(0, lim) : out
+  // ...
 }
+```
 
-export async function imapSimplePullListMessages(
-  account: EmailAccountConfig,
-  folder: string,
-  options?: MessageSearchOptions,
-): Promise<RawEmailMessage[]> {
-  console.error('IMAP_SIMPLE_PULL_ENTRY', account.id, account.email, folder, {
-    fromDate: options?.fromDate ?? null,
-    toDate: options?.toDate ?? null,
-  })
-  const im = account.imap
-  if (!im?.password?.trim()) throw new Error('IMAP password missing')
-  if (typeof ImapCtor !== 'function') throw new Error('imap module did not load')
-  const client = new ImapCtor({
-    user: im.username,
-    password: im.password,
-    host: im.host,
-    port: im.port,
-    tls: imapUsesImplicitTls(im.security),
-    tlsOptions: { rejectUnauthorized: false },
-    connTimeout: 10000,
-    authTimeout: 10000,
-  })
-  await new Promise<void>((resolve, reject) => {
-    client.once('error', reject)
-    client.once('ready', () => {
-      client.removeAllListeners('error')
-      client.on('error', () => {})
-      resolve()
-    })
-    client.connect()
-  })
-  console.error('IMAP_SIMPLE_PULL_CONNECTED', account.id, !!client, (client as any)?.state)
-  try {
-    const rows = await new Promise<RawEmailMessage[]>((resolve, reject) => {
-      client.openBox(folder, true, (err: Error | null, box?: { messages: { total: number } }) => {
-        if (err) {
-          reject(err)
-          return
-        }
-        const total = box?.messages.total ?? 0
-        if (total === 0) {
-          resolve([])
-          return
-        }
+```93:104:apps/electron-vite-project/electron/main/email/providers/imapSimplePull.ts
         let n = Math.max(1, options?.limit ?? 50)
         if (options?.syncFetchAllPages && options.syncMaxMessages != null) {
           n = Math.max(n, Math.min(Math.max(1, options.syncMaxMessages), 50000))
@@ -811,71 +989,30 @@ export async function imapSimplePullListMessages(
         const start = Math.max(1, total - n + 1)
         const acc: RawEmailMessage[] = []
         const fetch = client.seq.fetch(`${start}:${total}`, {
-          bodies: ['HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)'],
-          struct: true,
-        })
-        const blank = { seen: false, flagged: false, answered: false, draft: false, deleted: false }
-        fetch.on('message', (msg: any) => {
-          const msgData: Partial<RawEmailMessage> = { id: '', folder, flags: { ...blank }, labels: [] }
-          msg.on('body', (stream: NodeJS.ReadableStream, info: { which: string }) => {
-            let buf = ''
-            stream.on('data', (c: Buffer | string) => {
-              buf += c.toString('utf8')
-            })
-            stream.once('end', () => {
-              if (!info.which.includes('HEADER')) return
-              const h = ImapCtor.parseHeader(buf)
-              msgData.subject = h.subject?.[0] || '(No Subject)'
-              msgData.from = parseOne(h.from?.[0] || '')
-              msgData.to = parseMany(h.to?.[0] || '')
-              msgData.cc = parseMany(h.cc?.[0] || '')
-              msgData.date = new Date(h.date?.[0] || Date.now())
-              msgData.headers = {
-                messageId: h['message-id']?.[0],
-                inReplyTo: h['in-reply-to']?.[0],
-                references: h.references?.[0]?.split(/\s+/) || [],
-              }
-            })
-          })
-          msg.once('attributes', (attrs: { uid?: number; flags?: string[] }) => {
-            msgData.id = String(attrs.uid ?? '')
-            msgData.uid = msgData.id
-            if (attrs.flags) {
-              msgData.flags = {
-                seen: attrs.flags.includes('\\Seen'),
-                flagged: attrs.flags.includes('\\Flagged'),
-                answered: attrs.flags.includes('\\Answered'),
-                draft: attrs.flags.includes('\\Draft'),
-                deleted: attrs.flags.includes('\\Deleted'),
-              }
-            }
-          })
-          msg.once('end', () => acc.push(msgData as RawEmailMessage))
-        })
-        fetch.once('error', reject)
-        fetch.once('end', () => resolve(acc))
-      })
-    })
-    return postFilter(rows, options)
-  } finally {
-    try {
-      client.end()
-    } catch {}
-  }
-}
 ```
-
-*(Source: `apps/electron-vite-project/electron/main/email/providers/imapSimplePull.ts`.)*
 
 ---
 
-## Register handler log (actual)
+## Appendix — `smartSyncPrefs` (defaults referenced above)
 
-```1275:1281:c:\Users\oscar\OneDrive\Desktop\Work\dev\optimandoai\code_clean\code\apps\electron-vite-project\electron\main\email\ipc.ts
-export function registerInboxHandlers(
-  getDb: () => Promise<any> | any,
-  mainWindow?: BrowserWindow | null,
-  _getAnthropicApiKey?: GetAnthropicApiKey,
-): void {
-  console.log('[INBOX-IPC] registerInboxHandlers called')
+```10:29:apps/electron-vite-project/electron/main/email/domain/smartSyncPrefs.ts
+export function getEffectiveSyncWindowDays(sync: EmailAccountConfig['sync'] | undefined): number {
+  let out: number
+  if (!sync) out = 30
+  else if (typeof sync.syncWindowDays === 'number' && sync.syncWindowDays >= 0) out = sync.syncWindowDays
+  else if (sync.maxAgeDays > 0) out = sync.maxAgeDays
+  else out = 30
+  emailDebugLog('[SYNC-DEBUG] getEffectiveSyncWindowDays', {
+    rawSync: sync ?? null,
+    effectiveDays: out,
+    note: 'UI “90d” only applies if sync.syncWindowDays (or legacy maxAgeDays) is persisted on the account',
+  })
+  return out
+}
+
+export function getMaxMessagesPerPull(sync: EmailAccountConfig['sync'] | undefined): number {
+  const n = sync?.maxMessagesPerPull
+  if (typeof n === 'number' && n > 0) return Math.min(5000, Math.max(1, n))
+  return 500
+}
 ```

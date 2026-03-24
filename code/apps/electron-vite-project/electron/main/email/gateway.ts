@@ -39,7 +39,6 @@ import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
-import { imapSimplePullListMessages } from './providers/imapSimplePull'
 import { saveZohoOAuthConfig } from './credentials'
 import {
   sanitizeHtmlToText,
@@ -573,20 +572,13 @@ class EmailGateway implements IEmailGateway {
   // Message Operations
   // =================================================================
   
+  // All providers (including IMAP) use getConnectedProvider → provider.fetchMessages.
+  // IMAP uses UID SEARCH + UID FETCH (fetchMessagesSince), not seq.fetch + postFilter.
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
-    console.error('GATEWAY_LIST', account.id, account.provider)
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
-
-    if (account.provider === 'imap' && account.imap?.password?.trim()) {
-      console.error('GATEWAY_LIST_PATH', account.id, 'imapSimplePullListMessages')
-      const rawMessages = await imapSimplePullListMessages(account, folder, options)
-      return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
-    }
-
     const provider = await this.getConnectedProvider(account)
-    console.error('GATEWAY_LIST_PATH', account.id, 'provider.fetchMessages', account.provider)
     const rawMessages = await provider.fetchMessages(folder, options)
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }
