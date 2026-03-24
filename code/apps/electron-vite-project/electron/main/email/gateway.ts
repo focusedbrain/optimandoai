@@ -597,18 +597,51 @@ class EmailGateway implements IEmailGateway {
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
 
+    if (account.provider === 'imap') {
+      // IMAP: use ephemeral provider like testConnection does — no cache.
+      // Cached IMAP providers go stale and lose this.config after disconnect.
+      const provider = await this.getProvider(account)
+      try {
+        await provider.connect(account)
+        const rawMessages = await provider.fetchMessages(folder, options)
+        return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
+      } finally {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
+    // OAuth providers: use cached provider (stable, token-refreshing)
     const provider = await this.getConnectedProvider(account)
     const rawMessages = await provider.fetchMessages(folder, options)
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }
-  
+
   async getMessage(accountId: string, messageId: string): Promise<SanitizedMessageDetail | null> {
     const account = this.findAccount(accountId)
+
+    if (account.provider === 'imap') {
+      const provider = await this.getProvider(account)
+      try {
+        await provider.connect(account)
+        const raw = await provider.fetchMessage(messageId)
+        if (!raw) return null
+        return this.sanitizeMessageDetail(raw, accountId)
+      } finally {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
     const provider = await this.getConnectedProvider(account)
-    
     const raw = await provider.fetchMessage(messageId)
     if (!raw) return null
-    
     return this.sanitizeMessageDetail(raw, accountId)
   }
   
@@ -1304,34 +1337,30 @@ class EmailGateway implements IEmailGateway {
 
   /**
    * IMAP Pull: resolve `INBOX`/`Spam` labels to LIST paths, add Junk if discoverable, add direct INBOX.* children
-   * (excluding lifecycle / legacy / standard anchors). Uses the live cached provider session.
+   * (excluding lifecycle / legacy / standard anchors). Ephemeral IMAP session (same pattern as testConnection).
    */
   async resolveImapPullFoldersExpanded(accountId: string, baseLabels: string[]): Promise<string[]> {
     const account = this.accounts.find((a) => a.id === accountId)
     const fallback = baseLabels.length > 0 ? baseLabels : ['INBOX']
-    if (!account || account.provider !== 'imap') {
-      return fallback
-    }
+    if (!account || account.provider !== 'imap') return fallback
+
+    const provider = await this.getProvider(account)
     try {
-      const provider = await this.getConnectedProvider(account)
-      const expand = (provider as ImapProvider).expandPullFoldersForSync
+      await provider.connect(account)
+      const expand = (provider as any).expandPullFoldersForSync
       if (typeof expand === 'function') {
         const expanded = await expand.call(provider, baseLabels.length > 0 ? baseLabels : ['INBOX'])
-        emailDebugLog('[SYNC-DEBUG] resolveImapPullFoldersExpanded', {
-          accountId,
-          baseLabels,
-          expanded,
-        })
-        return expanded
+        return expanded.length > 0 ? expanded : fallback
       }
     } catch (e: any) {
-      console.warn('[EmailGateway] resolveImapPullFoldersExpanded failed, using base labels:', e?.message || e)
+      console.warn('[EmailGateway] resolveImapPullFoldersExpanded failed:', e?.message)
+    } finally {
+      try {
+        await provider.disconnect()
+      } catch {
+        /* noop */
+      }
     }
-    emailDebugLog('[SYNC-DEBUG] resolveImapPullFoldersExpanded fallback (non-IMAP or expand missing / error)', {
-      accountId,
-      baseLabels,
-      fallback,
-    })
     return fallback
   }
 
