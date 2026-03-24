@@ -22,6 +22,7 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
+import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 
 // ── Relative date ──
@@ -40,6 +41,28 @@ function formatRelativeDate(isoString: string): string {
   if (diffH < 24) return `${diffH}h`
   if (diffD < 7) return `${diffD}d`
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
+}
+
+/** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
+function getMessageAiPreviewLine(msg: InboxMessage): string | null {
+  let text = ''
+  const raw = msg.ai_analysis_json
+  if (raw) {
+    const parsed = tryParseAnalysis(raw)
+    if (parsed) {
+      text = (parsed.summary || parsed.urgencyReason || '').trim()
+    } else {
+      try {
+        const o = JSON.parse(raw) as Record<string, unknown>
+        const s = o.summary ?? o.reason ?? o.urgencyReason
+        if (typeof s === 'string') text = s.trim()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (!text && msg.sort_reason) text = String(msg.sort_reason).trim()
+  return text || null
 }
 
 // ── InboxDetailAiPanel (right column: multi-section AI dashboard) ──
@@ -67,6 +90,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [editedDraft, setEditedDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
+  const [draftSubFocused, setDraftSubFocused] = useState(false)
   const [analysisExpanded, setAnalysisExpanded] = useState(true)
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
@@ -232,6 +256,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setDraft(null)
     setEditedDraft('')
     setActionChecked({})
+    setDraftSubFocused(false)
     setAnalysisExpanded(true)
     draftRefineDisconnect()
     runAnalysisStream()
@@ -438,18 +463,21 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       <div className="inbox-detail-ai-advisory-banner">
         AI suggestions — you decide what to do
       </div>
-      <div className="inbox-detail-ai-actions">
-        <button type="button" onClick={handleSummarize} disabled={summarizeLoading || draftLoading}>
-          {summarizeLoading ? 'Summarizing…' : 'Summarize'}
+      <div className="bulk-action-card-buttons inbox-detail-ai-primary-actions">
+        <button type="button" className="bulk-action-card-btn" onClick={handleSummarize} disabled={summarizeLoading || draftLoading}>
+          {summarizeLoading ? '…' : '✨ Summarize'}
         </button>
-        <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
-          {draftLoading ? 'Generating…' : draft ? 'Regenerate' : 'Draft Reply'}
+        <button type="button" className="bulk-action-card-btn" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
+          {draftLoading ? '…' : '✏️ Draft'}
         </button>
-        {onDelete && messageId && (
-          <button type="button" className="inbox-detail-ai-btn-delete" onClick={handleDelete}>
-            Delete
+        <button type="button" className="bulk-action-card-btn" onClick={() => void runAnalysisStream()} disabled={analysisLoading}>
+          {analysisLoading ? '…' : '🔍 Analyze'}
+        </button>
+        {onDelete && messageId ? (
+          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--danger" onClick={handleDelete}>
+            🗑️ Delete
           </button>
-        )}
+        ) : null}
       </div>
       <div className="inbox-detail-ai-scroll">
         {analysisError && (
@@ -570,19 +598,23 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         </div>
       </div>
 
-      {/* Draft below analysis scroll — same flex chain as bulk-view-ai (split vertical space, no max-height cap) */}
+      {/* Draft — flows in same scroll as analysis (.inbox-detail-ai-inner) */}
       <div
         className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
         ref={draftRef}
-        style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
       >
         <div className="ai-section-draft-header">
+          {draft && draftSubFocused ? (
+            <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>
+              ✏️
+            </span>
+          ) : null}
           <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
           {draft && (
             <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
           )}
         </div>
-        <div className="inbox-detail-ai-row-value" style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
+        <div className="inbox-detail-ai-row-value">
           {draftLoading ? (
             <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
           ) : draft ? (
@@ -602,10 +634,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 onChange={(e) => setEditedDraft(e.target.value)}
                 onClick={handleDraftRefineConnect}
                 onFocus={() => {
+                  setDraftSubFocused(true)
                   useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                   handleDraftRefineConnect()
                 }}
-                onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
+                onBlur={() => {
+                  setDraftSubFocused(false)
+                  useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                }}
                 className="inbox-detail-ai-draft-textarea"
                 placeholder="Edit draft before sending…"
               />
@@ -637,18 +673,40 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   ))}
                 </div>
               )}
-              <div className="inbox-detail-ai-draft-actions">
-                {isDepackaged && (
-                  <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
-                    📎 Attach
+              <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions" style={{ width: '100%' }}>
+                <div
+                  className="bulk-draft-actions-toolbar"
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '10px 0' }}
+                >
+                  {isDepackaged && (
+                    <button
+                      type="button"
+                      className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                      onClick={handleAddAttachment}
+                      title="Add attachment"
+                    >
+                      📎 Attach
+                    </button>
+                  )}
+                  {message && onSendDraft && !draftError && (
+                    <button
+                      type="button"
+                      className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                      onClick={handleSend}
+                      disabled={sending}
+                    >
+                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                    </button>
+                  )}
+                  {onArchive && messageId ? (
+                    <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
+                      Archive
+                    </button>
+                  ) : null}
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
+                    Regenerate
                   </button>
-                )}
-                <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
-                {message && onSendDraft && !draftError && (
-                  <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
-                    {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                  </button>
-                )}
+                </div>
               </div>
             </>
           ) : (
@@ -670,6 +728,7 @@ interface InboxMessageRowProps {
   onSelect: () => void
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 function InboxMessageRow({
@@ -680,6 +739,7 @@ function InboxMessageRow({
   onSelect,
   onToggleMultiSelect,
   onMouseEnter,
+  onNavigateToHandshake,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
@@ -756,6 +816,9 @@ function InboxMessageRow({
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+          {onNavigateToHandshake ? (
+            <InboxHandshakeNavIconButton message={message} onNavigateToHandshake={onNavigateToHandshake} />
+          ) : null}
           <div className="msg-sender" style={{ minWidth: 0, flex: 1 }}>
             <span
               className="msg-sender-name"
@@ -799,6 +862,19 @@ function InboxMessageRow({
         >
           {message.subject || '(No subject)'}
         </div>
+        {(() => {
+          const preview = getMessageAiPreviewLine(message)
+          if (!preview) return null
+          return (
+            <div
+              className="bulk-view-message-preview-line"
+              style={{ fontStyle: 'italic', fontSize: '0.85em', opacity: 0.7, marginTop: 2 }}
+            >
+              {preview.slice(0, 120)}
+              {preview.length > 120 ? '…' : ''}
+            </div>
+          )
+        })()}
         {bodyPreview && (
           <div
             style={{
@@ -832,19 +908,6 @@ function InboxMessageRow({
               {message.sort_category}
             </span>
           )}
-          {message.handshake_id && (
-            <span
-              style={{
-                fontSize: 9,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-                color: 'var(--purple-accent, #9333ea)',
-              }}
-            >
-              🤝
-            </span>
-          )}
         </div>
       </div>
     </div>
@@ -859,6 +922,7 @@ export interface EmailInboxViewProps {
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
   onSelectAttachment?: (attachmentId: string | null) => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxView({
@@ -867,6 +931,7 @@ export default function EmailInboxView({
   onSelectMessage,
   selectedAttachmentId: selectedAttachmentIdProp,
   onSelectAttachment,
+  onNavigateToHandshake,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -878,6 +943,7 @@ export default function EmailInboxView({
     selectedMessage,
     selectedAttachmentId,
     filter,
+    tabCounts,
     bulkMode,
     multiSelectIds,
     analysisCache,
@@ -1429,6 +1495,15 @@ export default function EmailInboxView({
       >
         <EmailInboxToolbar
           filter={filter}
+          tabCounts={{
+            all: tabCounts.all ?? 0,
+            urgent: tabCounts.urgent ?? 0,
+            pending_delete: tabCounts.pending_delete ?? 0,
+            pending_review: tabCounts.pending_review ?? 0,
+            archived: tabCounts.archived ?? 0,
+          }}
+          messageKind={filter.messageKind}
+          onMessageKindChange={(kind) => setFilter({ messageKind: kind, sourceType: 'all' })}
           onFilterChange={(partial) => setFilter(partial)}
           accounts={accounts}
           autoSyncEnabled={autoSyncEnabled}
@@ -1516,6 +1591,7 @@ export default function EmailInboxView({
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
+                onNavigateToHandshake={onNavigateToHandshake}
               />
             ))
           )}
@@ -1529,7 +1605,7 @@ export default function EmailInboxView({
             borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           }}
         >
-          {total} message{total !== 1 ? 's' : ''}
+          {total} message(s) in this tab ({messages.length} loaded)
         </div>
       </div>
 

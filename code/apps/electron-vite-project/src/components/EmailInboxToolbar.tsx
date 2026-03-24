@@ -1,17 +1,30 @@
 /**
- * EmailInboxToolbar — Filter tabs, source type, sync controls (shared with Bulk Inbox), bulk row actions when items selected.
+ * EmailInboxToolbar — Workflow filter tabs (with counts), sync controls (shared with Bulk Inbox), bulk row actions when items selected.
  */
 
 import React from 'react'
 import type { InboxFilter } from '../stores/useEmailInboxStore'
+import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
+import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 
 // ── Types ──
+
+export type EmailInboxToolbarTabCounts = {
+  all: number
+  urgent: number
+  pending_delete: number
+  pending_review: number
+  archived: number
+}
 
 export interface EmailInboxToolbarProps {
   filter: InboxFilter
   onFilterChange: (partial: Partial<InboxFilter>) => void
+  tabCounts: EmailInboxToolbarTabCounts
+  messageKind: InboxMessageKindFilter
+  onMessageKindChange: (kind: InboxMessageKindFilter) => void
   accounts: Array<{ id: string; email: string }>
   autoSyncEnabled: boolean
   syncing: boolean
@@ -33,33 +46,25 @@ export interface EmailInboxToolbarProps {
   onBulkCategorize?: () => void
 }
 
-// ── Filter tabs ──
+// ── Filter tabs (aligned with Bulk Inbox workflow buckets) ──
 
-const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'pending_review', 'deleted'] as const
-const FILTER_LABELS: Record<string, string> = {
+const FILTER_TABS = ['all', 'urgent', 'pending_delete', 'pending_review', 'archived'] as const
+const FILTER_LABELS: Record<(typeof FILTER_TABS)[number], string> = {
   all: 'All',
-  unread: 'Unread',
-  starred: 'Starred',
-  archived: 'Archived',
+  urgent: 'Urgent',
   pending_delete: 'Pending Delete',
-  pending_review: '⏳ Pending Review',
-  deleted: 'Deleted',
+  pending_review: 'Pending Review',
+  archived: 'Archived',
 }
-
-// ── Source type tabs ──
-
-const SOURCE_TABS = [
-  { value: 'all' as const, label: 'All' },
-  { value: 'email_beap' as const, label: 'BEAP' },
-  { value: 'email_plain' as const, label: 'Plain' },
-  { value: 'direct_beap' as const, label: 'Direct' },
-]
 
 // ── Main component ──
 
 export default function EmailInboxToolbar({
   filter,
   onFilterChange,
+  tabCounts,
+  messageKind,
+  onMessageKindChange,
   accounts,
   autoSyncEnabled,
   syncing,
@@ -110,36 +115,23 @@ export default function EmailInboxToolbar({
                 textTransform: 'capitalize',
               }}
             >
-              {FILTER_LABELS[tab] ?? tab}
+              {FILTER_LABELS[tab]} ({tabCounts[tab]})
             </button>
           )
         })}
       </div>
 
-      {/* Source type filter row + sync (Bulk Inbox controls) */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {SOURCE_TABS.map(({ value, label }) => {
-          const active = filter.sourceType === value
-          return (
-            <button
-              key={value}
-              onClick={() => onFilterChange({ sourceType: value })}
-              style={{
-                padding: '4px 10px',
-                fontSize: 10,
-                fontWeight: 600,
-                borderRadius: 6,
-                border: `1px solid ${active ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-                background: active ? 'var(--purple-accent-muted, rgba(147,51,234,0.2))' : 'transparent',
-                color: active ? 'var(--purple-accent, #9333ea)' : 'var(--color-text-muted, #94a3b8)',
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          )
-        })}
+      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
+        <InboxMessageKindSelect
+          id="inbox-message-kind-normal"
+          variant="bulk"
+          value={messageKind}
+          onChange={onMessageKindChange}
+        />
+      </div>
 
+      {/* Sync row */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 8 }} />
 
         <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">

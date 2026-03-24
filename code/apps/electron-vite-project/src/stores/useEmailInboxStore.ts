@@ -372,7 +372,10 @@ export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFi
   return out
 }
 
-/** Fast per-tab totals: one `listMessages` call per tab with limit 1 (uses SQL COUNT). */
+/**
+ * Fast per-tab totals: one `listMessages` call per workflow tab with `limit: 1` (server `total` = SQL COUNT).
+ * Shared by Bulk (`loadBulkInboxSnapshotPaginated` / `fetchAllMessages`) and Normal (`loadPagedListSnapshot` / `fetchMessages`).
+ */
 async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<Record<string, number>> {
   const bridge = getBridge()
   if (!bridge?.listMessages) return {}
@@ -450,7 +453,10 @@ async function loadBulkInboxSnapshotPaginated(get: () => EmailInboxState): Promi
   }
 }
 
-/** Non-bulk inbox: first page only (50 rows) + workflow tab counts (same as bulk). */
+/**
+ * Normal Inbox: first page (50 rows) + `tabCounts` in one round-trip pair with the Bulk path
+ * (`fetchBulkTabCountsServer` + `listMessages`). `fetchMessages` applies this snapshot — no separate mount-only count fetch.
+ */
 async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
   messages: InboxMessage[]
   total: number
@@ -616,7 +622,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         set({
           messages: snapshot.messages,
           total: snapshot.total,
-          tabCounts: snapshot.tabCounts,
+          tabCounts: snapshot.tabCounts, // workflow tabs: loadPagedListSnapshot → fetchBulkTabCountsServer (same as Bulk)
           loading: false,
           error: null,
           analysisCache: snapshot.analysisCache,
