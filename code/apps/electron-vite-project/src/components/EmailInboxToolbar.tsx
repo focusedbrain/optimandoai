@@ -1,5 +1,6 @@
 /**
- * EmailInboxToolbar — Normal inbox: workflow buckets + type + sync (bulk-only batch/Auto-Sort UI lives in Bulk view).
+ * EmailInboxToolbar — Normal inbox: workflow bucket pills (same semantics as Bulk) + centered Type + sync.
+ * Layout matches pre-refactor inbox toolbar (8e1a0aba); bulk batch row / mode toggle live in Bulk view only.
  */
 
 import React from 'react'
@@ -35,13 +36,6 @@ const WORKFLOW_LABELS: Record<(typeof INBOX_WORKFLOW_FILTER_KEYS)[number], strin
   archived: 'Archived',
 }
 
-const WORKFLOW_BTN_CLASS: Partial<Record<(typeof INBOX_WORKFLOW_FILTER_KEYS)[number], string>> = {
-  urgent: 'bulk-view-toolbar-filter-btn--urgent',
-  pending_delete: 'bulk-view-toolbar-filter-btn--pending',
-  pending_review: 'bulk-view-toolbar-filter-btn--review',
-  archived: 'bulk-view-toolbar-filter-btn--archived',
-}
-
 export default function EmailInboxToolbar({
   filter,
   onFilterChange,
@@ -60,40 +54,64 @@ export default function EmailInboxToolbar({
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   return (
-    <div className="bulk-view-toolbar bulk-view-toolbar--stacked email-inbox-normal-toolbar">
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
-        <div className="bulk-view-toolbar-tabs">
-          {INBOX_WORKFLOW_FILTER_KEYS.map((tab) => {
-            const active = filter.filter === tab
-            const count = active ? total : (tabCounts[tab] ?? 0)
-            const extra = WORKFLOW_BTN_CLASS[tab]
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => onFilterChange({ filter: tab })}
-                className={`bulk-view-toolbar-filter-btn${extra ? ` ${extra}` : ''}`}
-                data-active={active}
-              >
-                {WORKFLOW_LABELS[tab]} ({count})
-              </button>
-            )
-          })}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: '12px 14px',
+        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+        background: 'var(--color-bg, #0f172a)',
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {INBOX_WORKFLOW_FILTER_KEYS.map((tab) => {
+          const active = filter.filter === tab
+          const count = active ? total : (tabCounts[tab] ?? 0)
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => onFilterChange({ filter: tab })}
+              style={{
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 999,
+                border: 'none',
+                background: active ? 'var(--purple-accent, #9333ea)' : '#eee',
+                color: active ? '#fff' : 'var(--color-text, #0f172a)',
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+              }}
+            >
+              {WORKFLOW_LABELS[tab]} ({count})
+            </button>
+          )
+        })}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          gap: 10,
+          width: '100%',
+        }}
+      >
+        <div style={{ minWidth: 0 }} aria-hidden />
+        <div style={{ justifySelf: 'center' }}>
+          <InboxMessageKindSelect
+            id="inbox-message-kind-normal"
+            value={filter.messageKind}
+            onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
+          />
         </div>
-      </div>
-
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
-        <InboxMessageKindSelect
-          id="inbox-message-kind-normal"
-          variant="bulk"
-          value={filter.messageKind}
-          onChange={(messageKind) => onFilterChange({ messageKind, sourceType: 'all' })}
-        />
-      </div>
-
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--main">
-        <div className="bulk-view-toolbar-left" aria-hidden style={{ minWidth: 8 }} />
-        <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+        <div
+          style={{ justifySelf: 'end', minWidth: 0 }}
+          className="bulk-view-toolbar-right bulk-view-toolbar-right--compact"
+        >
           <EmailInboxSyncControls
             accountSyncWindowDays={accountSyncWindowDays}
             onSyncWindowChange={onSyncWindowChange}
