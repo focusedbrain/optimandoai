@@ -39,7 +39,6 @@ import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
-import { imapFetchReliable } from './providers/imapFetchReliable'
 import { saveZohoOAuthConfig } from './credentials'
 import {
   sanitizeHtmlToText,
@@ -593,20 +592,25 @@ class EmailGateway implements IEmailGateway {
   // Message Operations
   // =================================================================
   
-  // IMAP: dedicated `imapFetchReliable` (fresh connection, seq.fetch, timeout) — no stale cached provider.
-  // OAuth providers: getConnectedProvider → provider.fetchMessages.
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
 
+    console.error('[GATEWAY] listMessages called:', account.id, account.provider, folder)
+
     if (account.provider === 'imap') {
-      const rawMessages = await imapFetchReliable(account, folder, options)
-      return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
+      console.error('[GATEWAY] Using imapFetchReliable for IMAP account:', account.id)
+      const { imapFetchReliable } = await import('./providers/imapFetchReliable')
+      const rawMessages = await imapFetchReliable(account as any, folder, options)
+      console.error('[GATEWAY] imapFetchReliable returned:', rawMessages.length, 'messages')
+      return rawMessages.map((raw: any) => this.sanitizeMessage(raw, accountId))
     }
 
+    console.error('[GATEWAY] Using provider.fetchMessages for:', account.provider)
     const provider = await this.getConnectedProvider(account)
     const rawMessages = await provider.fetchMessages(folder, options)
+    console.error('[GATEWAY] provider.fetchMessages returned:', rawMessages.length, 'messages')
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }
   

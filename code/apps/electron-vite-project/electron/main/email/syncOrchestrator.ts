@@ -486,7 +486,9 @@ async function syncAccountEmailsImpl(
           try {
             emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
             console.error('SYNC_LIST_CALL', accountId, folder)
-            const part = await emailGateway.listMessages(accountId, { ...listOptions, folder })
+            const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
+            const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
+            const part = await Promise.race([listPromise, timeoutPromise])
             for (const m of part) {
               const k = `${m.folder || folder}|${m.id}`
               if (seen.has(k)) continue
@@ -507,7 +509,9 @@ async function syncAccountEmailsImpl(
         const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
         emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
         console.error('SYNC_LIST_CALL', accountId, folder)
-        messages = await emailGateway.listMessages(accountId, { ...listOptions, folder })
+        const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
+        const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
+        messages = await Promise.race([listPromise, timeoutPromise])
       }
       console.error('SYNC_LIST_RESULT', accountId, messages?.length)
       const existingIds = getExistingEmailMessageIds(db, accountId)
