@@ -64,6 +64,7 @@ import type {
 } from './domain/orchestratorRemoteTypes'
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
+import { normalizeSecurityMode } from './domain/securityModeNormalize'
 
 /** New-account sync defaults; `syncWindowDays` 0 = all mail, else clamp to a sane range. */
 function normalizeNewAccountSyncWindowDays(syncWindowDays?: number): number {
@@ -87,10 +88,15 @@ function newAccountSyncBlock(syncWindowDays?: number): NonNullable<EmailAccountC
   }
 }
 
+/** Disk JSON may use boolean `true` or a mistaken string `"true"` — both mean "password field is sealed for disk". */
+function isDiskEncryptedPasswordFlag(v: unknown): boolean {
+  return v === true || v === 'true'
+}
+
 function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap') return account
   let next: EmailAccountConfig = { ...account }
-  if (next.imap && next.imap._encrypted === true) {
+  if (next.imap && isDiskEncryptedPasswordFlag(next.imap._encrypted)) {
     try {
       const plain = decryptValue(next.imap.password)
       console.log(
@@ -121,7 +127,7 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
       }
     }
   }
-  if (next.smtp && next.smtp._encrypted === true) {
+  if (next.smtp && isDiskEncryptedPasswordFlag(next.smtp._encrypted)) {
     try {
       const plain = decryptValue(next.smtp.password)
       console.log(
@@ -627,6 +633,10 @@ class EmailGateway implements IEmailGateway {
   /**
    * Ensure a live provider session exists before draining remote orchestrator queue rows.
    * Avoids marking rows `processing` when IMAP/OAuth cannot connect (fail fast, terminal `failed`).
+   *
+   * **Timeout vs auth:** Uses an outer race longer than node-imap’s ~10s connect/auth timeouts so slow
+   * servers (e.g. busy IMAP) are less likely to hit this cap. Handshake timeouts return a **non-auth**
+   * message; real auth failures still use the “authentication” wording.
    */
   async ensureConnectedForOrchestratorOperation(
     accountId: string,
@@ -638,7 +648,7 @@ class EmailGateway implements IEmailGateway {
         error: 'Account not found (disconnected or removed). Clear queue rows or reconnect.',
       }
     }
-    const CONNECT_TIMEOUT_MS = 15_000
+    const CONNECT_TIMEOUT_MS = 25_000
     try {
       await Promise.race([
         (async () => {
@@ -649,7 +659,12 @@ class EmailGateway implements IEmailGateway {
         })(),
         new Promise<never>((_, reject) =>
           setTimeout(
-            () => reject(new Error('Connection handshake timed out — reconnect required.')),
+            () =>
+              reject(
+                new Error(
+                  `Connection handshake timed out after ${CONNECT_TIMEOUT_MS}ms — server or network may be slow.`,
+                ),
+              ),
             CONNECT_TIMEOUT_MS,
           ),
         ),
@@ -657,6 +672,15 @@ class EmailGateway implements IEmailGateway {
       return { ok: true }
     } catch (e: any) {
       const msg = (e?.message || String(e)).slice(0, 500)
+      const handshakeTimeout =
+        /connection handshake timed out|handshake timed out/i.test(msg) ||
+        /\bETIMEDOUT\b/i.test(msg)
+      if (handshakeTimeout) {
+        return {
+          ok: false,
+          error: `Mail server connection timed out (${msg}). Usually network or server slowness — not necessarily a wrong password.`,
+        }
+      }
       return { ok: false, error: `Account authentication failed — reconnect required (${msg})` }
     }
   }
@@ -664,6 +688,12 @@ class EmailGateway implements IEmailGateway {
   /**
    * Drop the cached provider and open a new session (used when IMAP/webmail closes idle connections
    * mid-drain). Does not change persisted account credentials.
+   *
+   * **Credentials:** Uses the current in-memory `EmailAccountConfig` from `this.accounts` — the same
+   * object loaded at startup (with IMAP passwords decrypted by `loadAccounts`) or updated via
+   * `updateAccount` / `updateImapCredentials`. Does **not** re-read `email-accounts.json` or re-run
+   * decryption; if the file changed on disk while the app is running, restart (or reconnect through UI)
+   * to pick up changes.
    */
   async forceReconnect(accountId: string): Promise<void> {
     const account = this.accounts.find((a) => a.id === accountId)
@@ -1037,6 +1067,8 @@ class EmailGateway implements IEmailGateway {
     syncWindowDays?: number
   }): Promise<EmailAccountInfo> {
     // Create account config for IMAP
+    const imapSecurity = normalizeSecurityMode(config.security, 'ssl')
+    const smtpSecurityNorm = normalizeSecurityMode(config.smtpSecurity ?? config.security, imapSecurity)
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
       displayName: config.displayName || config.email,
       email: config.email,
@@ -1045,14 +1077,14 @@ class EmailGateway implements IEmailGateway {
       imap: {
         host: config.host,
         port: config.port,
-        security: config.security,
+        security: imapSecurity,
         username: config.username,
         password: config.password
       },
       smtp: config.smtpHost ? {
         host: config.smtpHost,
         port: config.smtpPort || 587,
-        security: config.smtpSecurity ?? config.security,
+        security: smtpSecurityNorm,
         username: config.smtpUsername ?? config.username,
         password: config.smtpPassword ?? config.password
       } : undefined,
@@ -1101,6 +1133,9 @@ class EmailGateway implements IEmailGateway {
       throw new Error('SMTP password is missing.')
     }
 
+    const imapSecurity = normalizeSecurityMode(payload.imapSecurity, 'ssl')
+    const smtpSecurity = normalizeSecurityMode(payload.smtpSecurity, 'starttls')
+
     const now = Date.now()
     const orchRemote = orchestratorRemoteFromImapLifecycleFields(payload)
     const draft: EmailAccountConfig = {
@@ -1112,14 +1147,14 @@ class EmailGateway implements IEmailGateway {
       imap: {
         host: payload.imapHost.trim(),
         port: payload.imapPort,
-        security: payload.imapSecurity,
+        security: imapSecurity,
         username: imapUser,
         password: imapPass
       },
       smtp: {
         host: payload.smtpHost.trim(),
         port: payload.smtpPort,
-        security: payload.smtpSecurity,
+        security: smtpSecurity,
         username: smtpUser,
         password: smtpPass
       },
@@ -1135,6 +1170,7 @@ class EmailGateway implements IEmailGateway {
       ...(orchRemote ? { orchestratorRemote: orchRemote } : {})
     }
 
+    /** Ephemeral probe only — never added to `this.providers`; first sync uses a new cached provider. */
     const imapProbe = new ImapProvider()
     const imapTest = await imapProbe.testConnection(draft)
     if (!imapTest.success) {
@@ -1301,6 +1337,13 @@ class EmailGateway implements IEmailGateway {
     }
   }
   
+  /**
+   * Return a live provider for `account.id`, creating and connecting via `provider.connect(account)` if needed.
+   *
+   * **Config source:** The `account` object must be the in-memory row from `this.accounts` (plaintext
+   * IMAP/SMTP passwords after `loadAccounts()` / connect flows). This method does **not** reload
+   * accounts from disk; `saveAccounts()` only writes ciphertext to JSON and does not mutate `this.accounts`.
+   */
   private async getConnectedProvider(account: EmailAccountConfig): Promise<IEmailProvider> {
     let provider = this.providers.get(account.id)
     
@@ -1324,10 +1367,30 @@ class EmailGateway implements IEmailGateway {
           console.log('[EmailGateway] New tokens persisted to disk')
         }
       }
-      
+
+      console.log('[IMAP-DEBUG] connect attempt:', {
+        provider: account.provider,
+        host: account.imap?.host,
+        port: account.imap?.port,
+        security: account.imap?.security,
+        username: account.imap?.username,
+        hasPassword: !!account.imap?.password,
+        passwordLength: account.imap?.password?.length ?? 0,
+        encrypted: account.imap?._encrypted,
+      })
       await provider.connect(account)
       this.providers.set(account.id, provider)
     } else if (!provider.isConnected()) {
+      console.log('[IMAP-DEBUG] connect attempt:', {
+        provider: account.provider,
+        host: account.imap?.host,
+        port: account.imap?.port,
+        security: account.imap?.security,
+        username: account.imap?.username,
+        hasPassword: !!account.imap?.password,
+        passwordLength: account.imap?.password?.length ?? 0,
+        encrypted: account.imap?._encrypted,
+      })
       await provider.connect(account)
     }
     

@@ -31,6 +31,15 @@ type Provider = 'gmail' | 'outlook' | 'zoho' | 'custom'
 type ResultType = 'success' | 'failure'
 type SecurityModeUi = 'ssl' | 'starttls' | 'none'
 
+/** Align reconnect hints / legacy values with `<select>` option values (`ssl` | `starttls` | `none`). */
+function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityModeUi {
+  const k = typeof v === 'string' ? v.toLowerCase().trim().replace(/\s+/g, '') : ''
+  if (k === 'ssl' || k === 'tls' || k === 'ssl/tls' || k === 'imaps') return 'ssl'
+  if (k === 'starttls') return 'starttls'
+  if (k === 'none' || k === 'plain') return 'none'
+  return fallback
+}
+
 declare global {
   interface Window {
     emailAccounts?: {
@@ -183,12 +192,12 @@ export function EmailConnectWizard({
           displayName: String(h.displayName ?? h.email ?? ''),
           imapHost: String(h.imapHost ?? ''),
           imapPort: String(h.imapPort ?? '993'),
-          imapSecurity: (h.imapSecurity as SecurityModeUi) ?? 'ssl',
+          imapSecurity: coerceSecurityModeUi(h.imapSecurity, 'ssl'),
           imapUsername: String(h.imapUsername ?? ''),
           imapPassword: '',
           smtpHost: String(h.smtpHost ?? ''),
           smtpPort: String(h.smtpPort ?? '587'),
-          smtpSecurity: (h.smtpSecurity as SecurityModeUi) ?? 'starttls',
+          smtpSecurity: coerceSecurityModeUi(h.smtpSecurity, 'starttls'),
           smtpUseSameCredentials: h.smtpUseSameCredentials !== false,
           smtpUsername: String(h.smtpUsername ?? ''),
           smtpPassword: '',
@@ -2003,9 +2012,12 @@ export function EmailConnectWizard({
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
+                    {/* option `value` is canonical SecurityMode — not the label text (see types.SecurityMode / IMAP_PRESETS). */}
                     <select
                       value={customForm.imapSecurity}
-                      onChange={(e) => setCustomForm((p) => ({ ...p, imapSecurity: e.target.value as SecurityModeUi }))}
+                      onChange={(e) =>
+                        setCustomForm((p) => ({ ...p, imapSecurity: coerceSecurityModeUi(e.target.value, p.imapSecurity) }))
+                      }
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     >
                       <option value="ssl">SSL/TLS (typical port 993)</option>
@@ -2074,7 +2086,9 @@ export function EmailConnectWizard({
                     <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
                     <select
                       value={customForm.smtpSecurity}
-                      onChange={(e) => setCustomForm((p) => ({ ...p, smtpSecurity: e.target.value as SecurityModeUi }))}
+                      onChange={(e) =>
+                        setCustomForm((p) => ({ ...p, smtpSecurity: coerceSecurityModeUi(e.target.value, p.smtpSecurity) }))
+                      }
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     >
                       <option value="starttls">STARTTLS (typical port 587)</option>

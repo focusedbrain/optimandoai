@@ -153,6 +153,7 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
+import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
 import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
 import {
@@ -386,6 +387,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
     'email:connectImap', 'email:connectCustomMailbox',
+    'email:diagnoseImap',
     'email:validateImapLifecycleRemote',
     'email:listMessages', 'email:getMessage', 'email:markAsRead', 'email:markAsUnread', 'email:flagMessage',
     'email:listAttachments', 'email:extractAttachmentText', 'email:sendReply', 'email:sendEmail', 'email:sendBeapEmail',
@@ -446,6 +448,49 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     } catch (error: any) {
       console.error('[Email IPC] testConnection error:', error)
       return { ok: false, error: error.message }
+    }
+  })
+
+  /**
+   * Debug-only: raw node-imap TCP/login test with explicit credentials (no gateway cache, no disk).
+   */
+  ipcMain.handle('email:diagnoseImap', async (_e, raw: unknown) => {
+    try {
+      const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+      if (!p) {
+        return { ok: false, error: 'Expected object { host, port, security, username, password }' }
+      }
+      const host = typeof p.host === 'string' ? p.host.trim() : ''
+      if (!host || host.length > 253 || /\s/.test(host)) {
+        return { ok: false, error: 'host: invalid (1–253 chars, no whitespace)' }
+      }
+      const portNum = typeof p.port === 'number' ? p.port : parseInt(String(p.port ?? '').trim(), 10)
+      if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        return { ok: false, error: 'port: expected integer 1–65535' }
+      }
+      const sec = p.security
+      if (sec !== 'ssl' && sec !== 'starttls' && sec !== 'none') {
+        return { ok: false, error: 'security: expected ssl | starttls | none' }
+      }
+      const username = typeof p.username === 'string' ? p.username.trim() : ''
+      if (!username || username.length > 320) {
+        return { ok: false, error: 'username: non-empty string required (max 320 chars)' }
+      }
+      const password = typeof p.password === 'string' ? p.password : ''
+      if (!password || password.length > 2048) {
+        return { ok: false, error: 'password: non-empty string required (max 2048 chars)' }
+      }
+      const data = await runDiagnoseImapStandalone({
+        host,
+        port: portNum,
+        security: sec,
+        username,
+        password,
+      })
+      return { ok: true, data }
+    } catch (error: any) {
+      console.error('[Email IPC] diagnoseImap error:', error)
+      return { ok: false, error: error.message ?? String(error) }
     }
   })
 

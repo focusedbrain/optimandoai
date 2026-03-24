@@ -30,6 +30,7 @@ import type {
 } from '../domain/orchestratorRemoteTypes'
 import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
 import { imapFoldersMatchExact, isLegacyImapMailboxLabel } from '../domain/imapLegacyFolders'
+import { imapUsesImplicitTls, smtpTransportTlsFlags } from '../domain/securityModeNormalize'
 
 export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
 
@@ -181,11 +182,12 @@ function inferMailboxHierarchyFromList(folders: FolderInfo[], inboxLogical: stri
 
 /** Nodemailer transport options aligned with SecurityMode (SSL/465 vs STARTTLS/587). */
 export function createSmtpTransport(smtp: NonNullable<EmailAccountConfig['smtp']>) {
+  const { secure, requireTLS } = smtpTransportTlsFlags(smtp.security)
   return nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
-    secure: smtp.security === 'ssl',
-    requireTLS: smtp.security === 'starttls',
+    secure,
+    requireTLS,
     auth: {
       user: smtp.username,
       pass: smtp.password
@@ -232,12 +234,22 @@ export class ImapProvider extends BaseEmailProvider {
     }
 
     return new Promise((resolve, reject) => {
+      const useImplicitTls = imapUsesImplicitTls(config.imap!.security)
+      console.log('[IMAP-DEBUG] ImapCtor config:', {
+        user: config.imap!.username,
+        host: config.imap!.host,
+        port: config.imap!.port,
+        securityRaw: config.imap!.security,
+        tls: useImplicitTls,
+        hasPassword: !!config.imap!.password,
+        passwordLength: config.imap!.password?.length ?? 0,
+      })
       const client = new ImapCtor({
         user: config.imap!.username,
         password: config.imap!.password,
         host: config.imap!.host,
         port: config.imap!.port,
-        tls: config.imap!.security === 'ssl',
+        tls: useImplicitTls,
         tlsOptions: { rejectUnauthorized: false },
         connTimeout: 10000,
         authTimeout: 10000
@@ -252,6 +264,7 @@ export class ImapProvider extends BaseEmailProvider {
        * and IPC returns "reply was never sent". Always attach a persistent handler post-ready.
        */
       const onConnectError = (err: Error) => {
+        console.log('[IMAP-DEBUG] connection error raw:', err)
         console.error('[IMAP] Connection error:', err)
         this.connected = false
         reject(err)

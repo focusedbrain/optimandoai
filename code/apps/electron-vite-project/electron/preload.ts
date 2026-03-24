@@ -174,6 +174,35 @@ function assertCustomMailboxPayload(v: unknown): {
   }
 }
 
+/** DevTools IMAP wire test — forwards plaintext credentials to main (debug only). */
+function assertDiagnoseImapParams(v: unknown): {
+  host: string
+  port: number
+  security: 'ssl' | 'starttls' | 'none'
+  username: string
+  password: string
+} {
+  if (!v || typeof v !== 'object') throw new Error('diagnoseImap: expected object')
+  const o = v as Record<string, unknown>
+  return {
+    host: assertHostLike(o.host, 'host'),
+    port: assertMailboxPort(o.port, 'port'),
+    security: assertSecurityMode(o.security, 'security'),
+    username: (() => {
+      const u = typeof o.username === 'string' ? o.username.trim() : ''
+      if (!u || u.length > 320) throw new Error('diagnoseImap.username: non-empty string required (max 320)')
+      return u
+    })(),
+    password: (() => {
+      const pwd = typeof o.password === 'string' ? o.password : ''
+      if (!pwd || pwd.length > 2048) {
+        throw new Error('diagnoseImap.password: non-empty string required (max 2048 chars)')
+      }
+      return pwd
+    })(),
+  }
+}
+
 function assertTheme(v: unknown): string {
   const ALLOWED = new Set(['default', 'dark', 'professional', 'pro', 'standard'])
   const s = assertString(v, 'theme')
@@ -597,6 +626,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     ipcRenderer.invoke('email:connectZoho', displayName, syncWindowDays),
   connectCustomMailbox: (payload: unknown) =>
     ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
+  /** Debug: raw node-imap session; returns `{ ok, data?: { success, events, error?, tlsInfo? } }`. */
+  diagnoseImap: (params: unknown) => ipcRenderer.invoke('email:diagnoseImap', assertDiagnoseImapParams(params)),
   validateImapLifecycleRemote: (accountId: string) =>
     ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
   setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
