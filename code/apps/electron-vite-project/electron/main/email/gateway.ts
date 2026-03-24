@@ -39,6 +39,7 @@ import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
+import { imapSimplePullListMessages } from './providers/imapSimplePull'
 import { saveZohoOAuthConfig } from './credentials'
 import {
   sanitizeHtmlToText,
@@ -574,19 +575,17 @@ class EmailGateway implements IEmailGateway {
   
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
-    console.log('[IMAP-PULL-TRACE] listMessages called:', {
-      accountId: account.id,
-      provider: account.provider,
-      folder: options?.folder,
-      fromDate: options?.fromDate,
-    })
-    const provider = await this.getConnectedProvider(account)
-
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
+
+    if (account.provider === 'imap' && account.imap?.password?.trim()) {
+      const rawMessages = await imapSimplePullListMessages(account, folder, options)
+      return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
+    }
+
+    const provider = await this.getConnectedProvider(account)
     const rawMessages = await provider.fetchMessages(folder, options)
-    
-    return rawMessages.map(raw => this.sanitizeMessage(raw, accountId))
+    return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }
   
   async getMessage(accountId: string, messageId: string): Promise<SanitizedMessageDetail | null> {
