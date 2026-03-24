@@ -4022,21 +4022,25 @@ body {
   min-height: 0;
   overflow: visible;
 }
-.bulk-draft-show-analysis-btn {
+/* Prompt 30 — Bulk structured draft pane (header + textarea unified chrome) */
+.bulk-action-card .bulk-draft-show-analysis-btn {
   flex-shrink: 0;
   margin: 0;
-  padding: 4px 10px;
   font-size: 10px;
   font-weight: 600;
-  color: #5b21b6;
-  background: #f5f3ff;
-  border: 1px solid #c4b5fd;
-  border-radius: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #e2e5e9;
+  background: #ffffff;
+  color: #4a5568;
   cursor: pointer;
+  white-space: nowrap;
 }
-.bulk-draft-show-analysis-btn:hover {
-  background: #ede9fe;
-  border-color: #a78bfa;
+
+.bulk-action-card .bulk-draft-show-analysis-btn:hover {
+  background: #f7f8fa;
+  border-color: #cbd2d9;
+  color: #4a5568;
 }
 
 /* Recommended + reasoning flow in the card body scroll (Prompt 29 — no inner scroll / max-height) */
@@ -4087,6 +4091,121 @@ body {
   min-height: 0;
 }
 
+.bulk-action-card .bulk-draft-pane-with-toolbar {
+  margin-top: 8px;
+  overflow: visible;
+  height: auto;
+  max-height: none;
+}
+
+.bulk-action-card .bulk-draft-pane-card {
+  border: 1px solid #e9e5f5;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.08);
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.bulk-action-card .bulk-draft-pane-card--connected {
+  border-width: 2px;
+  border-color: var(--color-primary, #7c3aed);
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.12), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.bulk-action-card .bulk-draft-pane-titlebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f8f7ff;
+  border-bottom: 1px solid #e9e5f5;
+  border-radius: 7px 7px 0 0;
+  box-sizing: border-box;
+}
+
+.bulk-action-card.bulk-action-card--expanded .bulk-draft-pane-titlebar {
+  padding: 10px 14px;
+}
+
+.bulk-action-card .bulk-draft-pane-titlebar-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6d28d9;
+}
+
+.bulk-action-card.bulk-action-card--expanded .bulk-draft-pane-titlebar-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.bulk-action-card .bulk-draft-pane-titlebar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bulk-action-card .bulk-draft-pane-refine-hint {
+  font-size: 10px;
+  font-weight: 400;
+  color: #a0aec0;
+  cursor: default;
+  line-height: 1.3;
+}
+
+.bulk-action-card .bulk-draft-pane-refine-hint:hover {
+  color: #7c3aed;
+}
+
+.bulk-action-card .bulk-draft-pane-chat-hint {
+  display: block;
+  flex-shrink: 0;
+  margin-left: 0;
+  padding: 6px 10px 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #94a3b8;
+  opacity: 0.95;
+}
+
+.bulk-action-card .bulk-draft-editor-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.bulk-action-card.bulk-action-card--expanded .bulk-draft-editor-shell {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.bulk-action-card .bulk-draft-editor-frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.bulk-action-card.bulk-action-card--expanded .bulk-draft-editor-frame {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
 /* Draft chrome stacks in document flow; .bulk-action-card-body scrolls overflow */
 .bulk-draft-pane-scroll-region {
   flex: 0 1 auto;
@@ -4097,8 +4216,41 @@ body {
 }
 
 .bulk-action-card .bulk-draft-editor-textarea {
+  width: 100%;
+  min-height: 120px;
   max-height: none;
+  height: auto;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #2d3748;
+  background: #fffef5;
+  border: none;
+  border-top: 1px solid #ede9fe;
+  border-radius: 0 0 7px 7px;
+  resize: vertical;
+  font-family: inherit;
   box-sizing: border-box;
+  overflow-y: visible;
+}
+
+.bulk-action-card .bulk-draft-editor-textarea:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px #7c3aed, 0 0 0 2px rgba(124, 58, 237, 0.1);
+}
+
+.bulk-action-card.bulk-action-card--expanded .bulk-draft-editor-textarea.bulk-draft-editor-textarea--expanded {
+  min-height: 260px;
+  height: 100%;
+  flex: 1 1 0%;
+  resize: none;
+  overflow-y: auto;
+}
+
+.bulk-view--compact .bulk-action-card .bulk-draft-editor-textarea:not(.bulk-draft-editor-textarea--expanded) {
+  font-size: 12px;
+  padding: 8px 10px;
+  min-height: 120px;
 }
 
 .bulk-action-card .bulk-action-card-reasoning-box {

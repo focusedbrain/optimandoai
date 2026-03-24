@@ -1175,65 +1175,27 @@ function BulkActionCardStructured({
                     handleDraftRefineConnect()
                   }
                 }}
-                className="flex h-full min-h-0 w-full flex-col"
+                className={`bulk-draft-pane-card flex h-full min-h-0 w-full flex-col${isConnected ? ' bulk-draft-pane-card--connected' : ''}`}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
                   height: isExpanded ? '100%' : 'auto',
                   minHeight: 0,
                   width: '100%',
-                  borderRadius: 16,
-                  border: isConnected ? '2px solid var(--color-primary, #7c3aed)' : '1px solid #c4b5fd',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(124, 58, 237, 0.12), 0 1px 2px rgba(0, 0, 0, 0.05)',
                   boxSizing: 'border-box',
                 }}
               >
-                <div
-                  className="bulk-draft-pane-titlebar"
-                  style={{
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: isExpanded ? 8 : 6,
-                    borderBottom: '1px solid #cbd5e1',
-                    background: '#e2e8f0',
-                    padding: isExpanded ? '12px 16px' : '6px 10px',
-                    borderRadius: '16px 16px 0 0',
-                  }}
-                >
+                <div className="bulk-draft-pane-titlebar">
                   {isDraftSubFocused ? (
                     <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>
                       ✏️
                     </span>
                   ) : null}
-                  <span
-                    style={{
-                      fontSize: isExpanded ? 11 : 9,
-                      fontWeight: 600,
-                      letterSpacing: isExpanded ? '0.08em' : '0.06em',
-                      textTransform: 'uppercase',
-                      color: '#6d28d9',
-                    }}
-                  >
-                    DRAFT — EDIT BEFORE SENDING
-                  </span>
+                  <span className="bulk-draft-pane-titlebar-label">DRAFT — EDIT BEFORE SENDING</span>
                   {(draftExpanded || (hideAnalysisChrome && hasFullStructured)) ? (
-                    <span
-                      style={{
-                        marginLeft: 'auto',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexShrink: 0,
-                        flexWrap: 'wrap',
-                        justifyContent: 'flex-end',
-                      }}
-                    >
+                    <span className="bulk-draft-pane-titlebar-actions">
                       {draftExpanded ? (
-                        <span className="bulk-action-card-connect-hint" style={{ marginLeft: 0 }}>
-                          click to refine with AI ↑
-                        </span>
+                        <span className="bulk-draft-pane-refine-hint">click to refine with AI ↑</span>
                       ) : null}
                       {hideAnalysisChrome && hasFullStructured ? (
                         <button
@@ -1252,41 +1214,18 @@ function BulkActionCardStructured({
                   ) : null}
                 </div>
                 {isConnected ? (
-                  <span
-                    className="bulk-action-card-connect-hint"
-                    style={{ display: 'block', flexShrink: 0, padding: '8px 16px 0', fontSize: 11, opacity: 0.55 }}
-                  >
+                  <span className="bulk-draft-pane-chat-hint">
                     Connected to chat ↑ — type instructions to refine
                   </span>
                 ) : null}
                 <div
-                  className={`w-full flex-col p-4 bulk-draft-editor-shell ${isExpanded ? 'flex min-h-0 flex-1' : 'flex'}`}
-                  style={{
-                    flex: isExpanded ? 1 : '0 1 auto',
-                    minHeight: isExpanded ? 0 : undefined,
-                    width: '100%',
-                    padding: isExpanded ? 16 : 6,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    boxSizing: 'border-box',
-                  }}
+                  className={`bulk-draft-editor-shell w-full flex flex-col ${isExpanded ? 'min-h-0 flex-1' : ''}`}
                 >
                   <div
-                    className={`w-full flex-col bulk-draft-editor-frame ${isExpanded ? 'flex min-h-0 flex-1' : 'flex'}`}
-                    style={{
-                      flex: isExpanded ? 1 : '0 1 auto',
-                      minHeight: isExpanded ? 0 : undefined,
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      borderRadius: 12,
-                      border: '1px solid #cbd5e1',
-                      background: '#f1f5f9',
-                      boxSizing: 'border-box',
-                    }}
+                    className={`bulk-draft-editor-frame w-full flex flex-col ${isExpanded ? 'min-h-0 flex-1' : ''}`}
                   >
                     <textarea
-                      className={`bulk-draft-editor-textarea w-full max-w-full ${isExpanded ? 'min-h-[260px] h-full flex-1 resize-none overflow-y-auto' : 'min-h-[120px] resize-y overflow-y-visible'}`}
+                      className={`bulk-draft-editor-textarea w-full max-w-full${isExpanded ? ' bulk-draft-editor-textarea--expanded' : ''}`}
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -1306,24 +1245,6 @@ function BulkActionCardStructured({
                         }
                       }}
                       placeholder="Edit draft before sending…"
-                      style={{
-                        width: '100%',
-                        height: isExpanded ? '100%' : 'auto',
-                        minHeight: isExpanded ? 260 : 120,
-                        flex: isExpanded ? 1 : undefined,
-                        resize: isExpanded ? 'none' : 'vertical',
-                        overflowY: isExpanded ? 'auto' : 'visible',
-                        borderRadius: 12,
-                        background: '#f8fafc',
-                        padding: isExpanded ? '12px 16px' : '6px 10px',
-                        fontSize: isExpanded ? 14 : 12,
-                        lineHeight: isExpanded ? 1.6 : 1.45,
-                        outline: 'none',
-                        border: 'none',
-                        boxSizing: 'border-box',
-                        fontFamily: 'inherit',
-                        color: '#334155',
-                      }}
                     />
                   </div>
                 </div>
