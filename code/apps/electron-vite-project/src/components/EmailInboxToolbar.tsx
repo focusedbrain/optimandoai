@@ -1,6 +1,8 @@
 /**
- * EmailInboxToolbar — Normal inbox: workflow bucket pills (same semantics as Bulk) + centered Type + sync.
- * Layout matches pre-refactor inbox toolbar (8e1a0aba); bulk batch row / mode toggle live in Bulk view only.
+ * EmailInboxToolbar — Filter tabs, centered Type selector, sync controls, bulk row actions when items selected.
+ *
+ * Normal inbox: first row uses bulk-aligned workflow buckets with counts; integrated multi-select row removed
+ * (Bulk Inbox screen handles batch tools). Layout/styles unchanged from b5292106^ / 8e1a0aba.
  */
 
 import React from 'react'
@@ -9,6 +11,8 @@ import { INBOX_WORKFLOW_FILTER_KEYS } from '../stores/useEmailInboxStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
+
+// ── Types ──
 
 export interface EmailInboxToolbarProps {
   filter: InboxFilter
@@ -21,10 +25,13 @@ export interface EmailInboxToolbarProps {
   autoSyncEnabled: boolean
   syncing: boolean
   remoteSyncBusy: boolean
+  /** Same behavior as Bulk Inbox: pull then optional remote reconcile. */
   onUnifiedSync: () => void
+  /** Current sync window in days (0 = all mail in DB). */
   accountSyncWindowDays?: number
   onSyncWindowChange: (days: number) => void | Promise<void>
   onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  /** When every account is IMAP, primary button shows Pull (matches Bulk). */
   pullOnly: boolean
 }
 
@@ -35,6 +42,8 @@ const WORKFLOW_LABELS: Record<(typeof INBOX_WORKFLOW_FILTER_KEYS)[number], strin
   pending_review: 'Pending Review',
   archived: 'Archived',
 }
+
+// ── Main component ──
 
 export default function EmailInboxToolbar({
   filter,
@@ -64,6 +73,7 @@ export default function EmailInboxToolbar({
         background: 'var(--color-bg, #0f172a)',
       }}
     >
+      {/* Filter tabs row — same pill styles as pre-b5292106; keys match bulk workflow buckets */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {INBOX_WORKFLOW_FILTER_KEYS.map((tab) => {
           const active = filter.filter === tab
@@ -91,6 +101,7 @@ export default function EmailInboxToolbar({
         })}
       </div>
 
+      {/* Type centered on full toolbar width; sync flush right (balanced by left grid column). */}
       <div
         style={{
           display: 'grid',

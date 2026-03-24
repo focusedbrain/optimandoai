@@ -882,7 +882,7 @@ export default function EmailInboxView({
     if (primaryAccountId) loadSyncState(primaryAccountId)
   }, [primaryAccountId, loadSyncState])
 
-  /** Normal inbox view: never use integrated multi-select / bulk row (Bulk Inbox is a separate screen). */
+  /** Normal inbox: integrated bulk selection row removed — keep store off bulk mode. */
   useEffect(() => {
     setBulkMode(false)
     clearMultiSelect()
