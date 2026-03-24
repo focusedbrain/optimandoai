@@ -2470,6 +2470,12 @@ Rules:
       run()
 
       try {
+        db.prepare('DELETE FROM inbox_remote_queue WHERE account_id = ?').run(id)
+      } catch {
+        /* optional legacy table */
+      }
+
+      try {
         clearConsecutiveZeroListingPulls(id)
       } catch {}
 

@@ -2113,6 +2113,110 @@ export default function EmailInboxBulkView({
     [addRemoteSyncLog, refreshMessages, refreshRemoteDebugQueue],
   )
 
+  const handleFullResetAccount = useCallback(
+    async (accountId: string, label: string) => {
+      const fn = window.emailAccounts?.fullResetAccount
+      if (!fn) {
+        addRemoteSyncLog('fullResetAccount not in bridge (update app)')
+        return
+      }
+      if (
+        !window.confirm(
+          'Delete ALL messages and sync state for this account? This cannot be undone.',
+        )
+      ) {
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = (await fn(accountId)) as {
+          ok?: boolean
+          error?: string
+          deletedMessages?: number
+        }
+        if (r?.ok) {
+          addRemoteSyncLog(
+            `Full reset (${label}): OK — deleted ${r.deletedMessages ?? 0} message row(s)`,
+          )
+        } else {
+          addRemoteSyncLog(`Full reset (${label}): ${r?.error ?? 'failed'}`)
+        }
+        await refreshMessages()
+        await refreshRemoteDebugQueue()
+        await refreshInboxSyncBackendState({
+          syncTargetIds: autoSyncEligibleAccountIds,
+          primaryAccountId: primaryAccountId ?? null,
+        })
+      } catch (e: unknown) {
+        addRemoteSyncLog(`Full reset (${label}): ${e instanceof Error ? e.message : String(e)}`)
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [
+      addRemoteSyncLog,
+      refreshMessages,
+      refreshRemoteDebugQueue,
+      refreshInboxSyncBackendState,
+      autoSyncEligibleAccountIds,
+      primaryAccountId,
+    ],
+  )
+
+  const handleFullResetAllAccounts = useCallback(async () => {
+    const active = providerAccounts.filter((a) => a.status === 'active')
+    if (active.length === 0) {
+      addRemoteSyncLog('Full reset ALL: no active accounts')
+      return
+    }
+    if (
+      !window.confirm(
+        `Delete ALL messages and sync state for ${active.length} account(s)? This cannot be undone.`,
+      )
+    ) {
+      return
+    }
+    const fn = window.emailAccounts?.fullResetAccount
+    if (!fn) {
+      addRemoteSyncLog('fullResetAccount not in bridge (update app)')
+      return
+    }
+    setRemoteDebugLoading(true)
+    try {
+      for (const a of active) {
+        const label = `${a.email} · ${a.provider}`
+        try {
+          const r = (await fn(a.id)) as { ok?: boolean; error?: string; deletedMessages?: number }
+          if (r?.ok) {
+            addRemoteSyncLog(
+              `Full reset (${label}): OK — deleted ${r.deletedMessages ?? 0} message row(s)`,
+            )
+          } else {
+            addRemoteSyncLog(`Full reset (${label}): ${r?.error ?? 'failed'}`)
+          }
+        } catch (e: unknown) {
+          addRemoteSyncLog(`Full reset (${label}): ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      await refreshMessages()
+      await refreshRemoteDebugQueue()
+      await refreshInboxSyncBackendState({
+        syncTargetIds: autoSyncEligibleAccountIds,
+        primaryAccountId: primaryAccountId ?? null,
+      })
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [
+    providerAccounts,
+    addRemoteSyncLog,
+    refreshMessages,
+    refreshRemoteDebugQueue,
+    refreshInboxSyncBackendState,
+    autoSyncEligibleAccountIds,
+    primaryAccountId,
+  ])
+
   const handleTestMoveOne = useCallback(async () => {
     const id = displayMessages[0]?.id
     if (!id) {
@@ -4511,6 +4615,72 @@ export default function EmailInboxBulkView({
                         {op}: {opAgg[op]?.pending ?? 0} pending, {opAgg[op]?.failed ?? 0} failed
                       </div>
                     ))}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>Connected accounts — full reset (local DB)</div>
+                      <button
+                        type="button"
+                        disabled={remoteDebugLoading || providerAccounts.filter((a) => a.status === 'active').length === 0}
+                        onClick={() => void handleFullResetAllAccounts()}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          background: '#b91c1c',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: remoteDebugLoading ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        Full Reset ALL
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      Removes inbox rows and sync state for this device only. Does not disconnect the account in the gateway.
+                    </div>
+                    {providerAccounts.filter((a) => a.status === 'active').length === 0 ? (
+                      <div style={{ color: MUTED, fontSize: 11 }}>No active connected accounts.</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.6 }}>
+                        {providerAccounts
+                          .filter((a) => a.status === 'active')
+                          .map((a) => (
+                            <li key={a.id} style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                              <span>
+                                <strong>{a.email}</strong> · {a.provider} · {a.status}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={remoteDebugLoading}
+                                onClick={() =>
+                                  void handleFullResetAccount(a.id, `${a.email} · ${a.provider}`)
+                                }
+                                style={{
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  background: '#b91c1c',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  cursor: remoteDebugLoading ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                Full Reset
+                              </button>
+                            </li>
+                          ))}
+                      </ul>
+                    )}
                   </section>
                   <section style={{ marginBottom: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Per account (queue)</div>
