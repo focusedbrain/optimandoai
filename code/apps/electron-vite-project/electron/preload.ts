@@ -627,6 +627,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   connectCustomMailbox: (payload: unknown) =>
     ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
   resetSyncState: (accountId: string) => ipcRenderer.invoke('inbox:resetSyncState', accountId),
+  /** Wipes all inbox + sync state for this account (messages, attachments, queue, sync row). Gateway credentials unchanged. */
+  fullResetAccount: (accountId: string) => ipcRenderer.invoke('inbox:fullResetAccount', accountId),
   /** Dev only — raw node-imap session (IPC not registered in production main). */
   ...(import.meta.env.DEV
     ? {

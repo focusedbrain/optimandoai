@@ -124,6 +124,14 @@ declare global {
       deleteAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
       /** Clears inbox DB sync cursor so the next Pull runs a full bootstrap window again. */
       resetSyncState?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
+      fullResetAccount?: (accountId: string) => Promise<{
+        ok: boolean
+        error?: string
+        deletedMessages?: number
+        deletedRemoteQueueRows?: number
+        deletedDeletionQueueRows?: number
+        deletedPlainEmailInboxRows?: number
+      }>
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void
