@@ -372,14 +372,26 @@ class EmailGateway implements IEmailGateway {
     if (index === -1) {
       throw new Error('Account not found')
     }
-    
-    this.accounts[index] = {
-      ...this.accounts[index],
-      ...updates,
-      id, // Prevent ID change
-      updatedAt: Date.now()
+
+    const prev = this.accounts[index]
+    /** Pull nested creds out so we can merge — a bare `{ ...prev, ...updates }` replaces entire `imap`/`smtp`
+     * and drops `password` whenever `updates.imap` omits it (partial spread from refactors / IPC). */
+    const { imap: patchImap, smtp: patchSmtp, ...restUpdates } = updates
+    const merged: EmailAccountConfig = {
+      ...prev,
+      ...restUpdates,
+      id,
+      updatedAt: Date.now(),
     }
-    
+    if (patchImap !== undefined) {
+      merged.imap = prev.imap ? { ...prev.imap, ...patchImap } : patchImap
+    }
+    if (patchSmtp !== undefined) {
+      merged.smtp = prev.smtp ? { ...prev.smtp, ...patchSmtp } : patchSmtp
+    }
+
+    this.accounts[index] = merged
+
     saveAccounts(this.accounts)
     
     // Disconnect existing provider if connected
@@ -428,7 +440,15 @@ class EmailGateway implements IEmailGateway {
       // For new accounts being tested before save
       return { success: false, error: 'Account not found' }
     }
-    
+
+    if (account.provider === 'imap') {
+      const pw = account.imap?.password
+      if (pw == null || String(pw).trim().length === 0) {
+        console.error('[EmailGateway] testConnection: IMAP password missing for', account.id)
+        return { success: false, error: 'IMAP password is missing — account may need to be reconnected.' }
+      }
+    }
+
     try {
       const provider = await this.getProvider(account)
       const result = await provider.testConnection(account)
@@ -1181,16 +1201,27 @@ class EmailGateway implements IEmailGateway {
       ...(orchRemote ? { orchestratorRemote: orchRemote } : {})
     }
 
+    /**
+     * Probe on a **copy** of `imap`/`smtp` so `ImapProvider.connect` (`this.config = config`) never aliases
+     * the object we will persist; also re-apply passwords from the wizard payload on the saved row so they
+     * cannot be cleared by any probe-side mutation.
+     */
+    const probeDraft: EmailAccountConfig = {
+      ...draft,
+      imap: { ...draft.imap },
+      smtp: draft.smtp ? { ...draft.smtp } : undefined,
+    }
+
     /** Ephemeral probe only — never added to `this.providers`; first sync uses a new cached provider. */
     const imapProbe = new ImapProvider()
-    const imapTest = await imapProbe.testConnection(draft)
+    const imapTest = await imapProbe.testConnection(probeDraft)
     if (!imapTest.success) {
       throw new Error(
         `IMAP check failed: ${imapTest.error || 'Could not connect or log in.'} Check IMAP host, port, security (SSL/TLS on 993 vs STARTTLS on 143), username, and password or app password.`
       )
     }
 
-    const smtpTest = await ImapProvider.testSmtpConnection(draft)
+    const smtpTest = await ImapProvider.testSmtpConnection(probeDraft)
     if (!smtpTest.success) {
       throw new Error(
         `SMTP check failed: ${smtpTest.error || 'Could not connect or authenticate.'} IMAP succeeded. Verify SMTP host, port (often 587 + STARTTLS or 465 + SSL), security mode, and credentials.`
@@ -1201,7 +1232,9 @@ class EmailGateway implements IEmailGateway {
       ...draft,
       id: generateId(),
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      imap: { ...draft.imap, password: imapPass },
+      smtp: draft.smtp ? { ...draft.smtp, password: smtpPass } : undefined,
     }
     this.accounts.push(account)
     saveAccounts(this.accounts)
@@ -1367,6 +1400,18 @@ class EmailGateway implements IEmailGateway {
    * accounts from disk; `saveAccounts()` only writes ciphertext to JSON and does not mutate `this.accounts`.
    */
   private async getConnectedProvider(account: EmailAccountConfig): Promise<IEmailProvider> {
+    if (account.provider === 'imap') {
+      const pw = account.imap?.password
+      if (pw == null || String(pw).trim().length === 0) {
+        console.error(
+          '[EmailGateway] IMAP password missing — refusing connect for account',
+          account.id,
+          account.email,
+        )
+        throw new Error('IMAP password is missing — account may need to be reconnected.')
+      }
+    }
+
     let provider = this.providers.get(account.id)
     
     if (!provider) {
