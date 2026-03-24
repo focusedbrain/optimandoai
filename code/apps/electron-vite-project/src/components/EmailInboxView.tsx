@@ -1428,21 +1428,10 @@ export default function EmailInboxView({
 
   useEffect(() => {
     const unsub = window.emailInbox?.onNewMessages?.(() => {
-      if (useEmailInboxStore.getState().syncing) {
-        useEmailInboxStore.getState().markPendingInboxRefreshAfterSyncEvent()
-        return
-      }
       void fetchMessages()
     })
     return () => unsub?.()
   }, [fetchMessages])
-
-  useEffect(() => {
-    if (syncing) return
-    if (!useEmailInboxStore.getState().pendingInboxRefreshAfterSyncEvent) return
-    useEmailInboxStore.setState({ pendingInboxRefreshAfterSyncEvent: false })
-    void fetchMessages()
-  }, [syncing, fetchMessages])
 
   useEffect(() => {
     const add = useEmailInboxStore.getState().addRemoteSyncLog
