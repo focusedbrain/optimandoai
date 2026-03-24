@@ -3,7 +3,7 @@
  *
  * **Model (Smart Sync)**
  * - **First run** (no `last_sync_at`): pull up to `maxMessagesPerPull` (default 500) within `syncWindowDays` (default 30; **0** = all time, same cap).
- * - **Bootstrap with 0 listed / 0 new:** do **not** set `last_sync_at` so the next Pull retries the full window (avoids “stuck incremental” after a failed first list).
+ * - **Bootstrap or incremental with 0 listed / 0 new** (and not Pull More): do **not** advance `last_sync_at` so the next pull retries the same window (avoids anchor drift when the provider list is empty but mail exists — e.g. IMAP SEARCH/folder quirks).
  * - **Auto-sync / manual Pull** (after first sync): incremental from `last_sync_at` only (new mail).
  * - **Pull More** (`pullMore: true`): next batch older than `MIN(received_at)` in DB, capped at `maxMessagesPerPull`.
  * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP SEARCH + fetch chunks).
@@ -30,6 +30,7 @@ import { ImapProvider } from './providers/imap'
 import { resolveImapPullFolders } from './domain/imapPullFolders'
 import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'
 import { getEffectiveSyncWindowDays, getMaxMessagesPerPull } from './domain/smartSyncPrefs'
+import { shouldSkipAdvancingLastSyncAt } from './domain/syncLastSyncAnchorPolicy'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 
 // ── Types ──
@@ -446,6 +447,10 @@ async function syncAccountEmailsImpl(
     let plainCount = 0
     let lastUidSeen = lastUid
     let cursorSeen = syncCursor
+    /** For post-pull IMAP summary log (inner `try` scope does not expose `pullFolders`). */
+    let pullFoldersResolved: string[] = []
+    let detailFetchOk = 0
+    let detailFetchMiss = 0
 
     emailDebugLog('[SYNC-DEBUG] SyncPullLock before list+fetch', {
       accountId,
@@ -459,6 +464,7 @@ async function syncAccountEmailsImpl(
         accountCfg?.provider === 'imap'
           ? await emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
           : basePullLabels
+      pullFoldersResolved = pullFolders
       emailDebugLog('[SYNC-DEBUG] resolved IMAP pull folder list (expanded)', {
         accountId,
         basePullLabels,
@@ -518,9 +524,11 @@ async function syncAccountEmailsImpl(
         try {
           const detail = await emailGateway.getMessage(accountId, msg.id)
           if (!detail) {
+            detailFetchMiss++
             result.errors.push(`Could not fetch message ${msg.id}`)
             continue
           }
+          detailFetchOk++
 
           const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
           // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.
@@ -589,13 +597,41 @@ async function syncAccountEmailsImpl(
 
     const totalSynced = (stateRow?.total_synced as number | undefined) ?? 0
     const nextLastSyncAt = new Date().toISOString()
-    const skipAdvanceLastSyncAt =
-      bootstrap && messages.length === 0 && newCount === 0
+    const skipAdvanceLastSyncAt = shouldSkipAdvancingLastSyncAt({
+      pullMore,
+      listedFromProvider: messages.length,
+      newIngestedCount: newCount,
+    })
+
+    if (accountCfg?.provider === 'imap') {
+      const syncMode = pullMore ? 'pullMore' : bootstrap ? 'bootstrap' : 'incremental'
+      console.error(
+        '[IMAP-SYNC-SUMMARY]',
+        JSON.stringify({
+          accountId,
+          provider: 'imap',
+          folders: pullFoldersResolved,
+          syncMode,
+          windowDays,
+          syncMaxMessages: listOptions.syncMaxMessages ?? null,
+          fromDate: listOptions.fromDate ?? null,
+          toDate: listOptions.toDate ?? null,
+          last_sync_at_before: lastSyncAt ?? null,
+          listed: messages.length,
+          deduped: skippedDuplicate,
+          fetch_ok: detailFetchOk,
+          fetch_miss: detailFetchMiss,
+          inserted: newCount,
+          errorCount: result.errors.length,
+          advance_last_sync_at: !skipAdvanceLastSyncAt,
+        }),
+      )
+    }
 
     if (skipAdvanceLastSyncAt) {
       emailDebugWarn(
-        '[SYNC-DEBUG] Bootstrap sync returned 0 messages — NOT advancing last_sync_at so next pull retries the full window.',
-        { accountId, listedFromProvider: messages.length, newMessagesIngested: newCount },
+        '[SYNC-DEBUG] Sync returned 0 listed and 0 new — NOT advancing last_sync_at (retry same window on next pull).',
+        { accountId, bootstrap, pullMore, listedFromProvider: messages.length, newMessagesIngested: newCount },
       )
     } else {
       emailDebugLog('[SYNC-DEBUG] updating last_sync_at after sync', {
