@@ -842,10 +842,33 @@ class EmailGateway implements IEmailGateway {
   
   async listAttachments(accountId: string, messageId: string): Promise<AttachmentMeta[]> {
     const account = this.findAccount(accountId)
+    if (account.provider === 'imap') {
+      const provider = await this.getProvider(account)
+      try {
+        await provider.connect(account)
+        const raw = await provider.listAttachments(messageId)
+        return raw.map(att => ({
+          id: att.id,
+          filename: att.filename,
+          mimeType: att.mimeType,
+          size: att.size,
+          contentId: att.contentId,
+          isInline: att.isInline,
+          isTextExtractable: supportsTextExtraction(att.mimeType)
+        }))
+      } finally {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
     const provider = await this.getConnectedProvider(account)
-    
+
     const raw = await provider.listAttachments(messageId)
-    
+
     return raw.map(att => ({
       id: att.id,
       filename: att.filename,
@@ -856,55 +879,117 @@ class EmailGateway implements IEmailGateway {
       isTextExtractable: supportsTextExtraction(att.mimeType)
     }))
   }
-  
+
   async fetchAttachmentBuffer(
     accountId: string,
     messageId: string,
     attachmentId: string,
   ): Promise<Buffer | null> {
     const account = this.findAccount(accountId)
+    if (account.provider === 'imap') {
+      const provider = await this.getProvider(account)
+      try {
+        await provider.connect(account)
+        return provider.fetchAttachment(messageId, attachmentId)
+      } finally {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
     const provider = await this.getConnectedProvider(account)
     return provider.fetchAttachment(messageId, attachmentId)
   }
 
   async extractAttachmentText(
-    accountId: string, 
-    messageId: string, 
-    attachmentId: string
+    accountId: string,
+    messageId: string,
+    attachmentId: string,
   ): Promise<ExtractedAttachmentText> {
     const account = this.findAccount(accountId)
+
+    if (account.provider === 'imap') {
+      const provider = await this.getProvider(account)
+      try {
+        await provider.connect(account)
+        const attachments = await provider.listAttachments(messageId)
+        const attachment = attachments.find(a => a.id === attachmentId)
+
+        if (!attachment) {
+          throw new Error('Attachment not found')
+        }
+
+        if (!supportsTextExtraction(attachment.mimeType)) {
+          throw new Error(`Text extraction not supported for ${attachment.mimeType}`)
+        }
+
+        const buffer = await provider.fetchAttachment(messageId, attachmentId)
+        if (!buffer) {
+          throw new Error('Could not fetch attachment content')
+        }
+
+        if (isPdfFile(attachment.mimeType, attachment.filename)) {
+          const result = await extractPdfText(buffer)
+          return {
+            attachmentId,
+            text: result.text,
+            pageCount: result.pageCount,
+            warnings: result.warnings,
+          }
+        }
+
+        if (
+          attachment.mimeType.startsWith('text/') ||
+          attachment.mimeType === 'application/json' ||
+          attachment.mimeType === 'application/vnd.beap+json'
+        ) {
+          return {
+            attachmentId,
+            text: buffer.toString('utf-8'),
+          }
+        }
+
+        throw new Error(`Unsupported file type: ${attachment.mimeType}`)
+      } finally {
+        try {
+          await provider.disconnect()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
     const provider = await this.getConnectedProvider(account)
-    
-    // Get attachment metadata first
+
     const attachments = await provider.listAttachments(messageId)
     const attachment = attachments.find(a => a.id === attachmentId)
-    
+
     if (!attachment) {
       throw new Error('Attachment not found')
     }
-    
+
     if (!supportsTextExtraction(attachment.mimeType)) {
       throw new Error(`Text extraction not supported for ${attachment.mimeType}`)
     }
-    
-    // Fetch attachment content
+
     const buffer = await provider.fetchAttachment(messageId, attachmentId)
     if (!buffer) {
       throw new Error('Could not fetch attachment content')
     }
-    
-    // Extract text based on type
+
     if (isPdfFile(attachment.mimeType, attachment.filename)) {
       const result = await extractPdfText(buffer)
       return {
         attachmentId,
         text: result.text,
         pageCount: result.pageCount,
-        warnings: result.warnings
+        warnings: result.warnings,
       }
     }
-    
-    // For plain text and JSON-based files (incl. .beap capsules)
+
     if (
       attachment.mimeType.startsWith('text/') ||
       attachment.mimeType === 'application/json' ||
@@ -912,10 +997,10 @@ class EmailGateway implements IEmailGateway {
     ) {
       return {
         attachmentId,
-        text: buffer.toString('utf-8')
+        text: buffer.toString('utf-8'),
       }
     }
-    
+
     throw new Error(`Unsupported file type: ${attachment.mimeType}`)
   }
   

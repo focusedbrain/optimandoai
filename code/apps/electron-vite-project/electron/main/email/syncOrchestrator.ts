@@ -483,10 +483,21 @@ async function syncAccountEmailsImpl(
     markPullActive(accountId)
     try {
       const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
-      const pullFolders =
-        accountCfg?.provider === 'imap'
-          ? await emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
-          : basePullLabels
+      let pullFolders: string[]
+      if (accountCfg?.provider === 'imap') {
+        const expandPromise = emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
+        const expandTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('resolveImapPullFoldersExpanded timed out after 30s')), 30_000),
+        )
+        try {
+          pullFolders = await Promise.race([expandPromise, expandTimeout])
+        } catch (e: any) {
+          console.warn('[SyncOrchestrator] resolveImapPullFoldersExpanded failed or timed out:', e?.message ?? e)
+          pullFolders = basePullLabels
+        }
+      } else {
+        pullFolders = basePullLabels
+      }
       pullFoldersResolved = pullFolders
       emailDebugLog('[SYNC-DEBUG] resolved IMAP pull folder list (expanded)', {
         accountId,
