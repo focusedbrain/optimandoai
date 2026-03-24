@@ -1,5 +1,9 @@
 import React, { useMemo } from 'react'
-import { parseBracketedAccountSyncMessage, isAuthSyncFailureMessage } from '../utils/syncFailureUi'
+import {
+  parseBracketedAccountSyncMessage,
+  classifySyncFailureMessage,
+  type SyncFailureKind,
+} from '../utils/syncFailureUi'
 
 const MUTED = '#64748b'
 
@@ -19,7 +23,7 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
       accountId: string
       email: string
       isImap: boolean
-      isAuth: boolean
+      kind: SyncFailureKind
     }> = []
     const seen = new Set<string>()
     for (const line of warnings) {
@@ -32,13 +36,13 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
         const acc = accounts.find((a) => a.id === accountId)
         const email = acc?.email || accountId.slice(0, 8) + '…'
         const isImap = acc?.provider === 'imap' || (!acc && message.toLowerCase().includes('imap'))
-        const isAuth = isAuthSyncFailureMessage(message)
+        const kind = classifySyncFailureMessage(message)
         out.push({
           key: accountId,
           accountId,
           email,
           isImap,
-          isAuth,
+          kind,
         })
       } else if (!seen.has('__unscoped__')) {
         seen.add('__unscoped__')
@@ -47,7 +51,7 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
           accountId: '',
           email: 'Email account',
           isImap: true,
-          isAuth: isAuthSyncFailureMessage(line),
+          kind: classifySyncFailureMessage(line),
         })
       }
     }
@@ -79,15 +83,15 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
               border: '1px solid rgba(251,191,36,0.4)',
             }}
           >
-            {r.isAuth && r.isImap ? (
+            {r.kind === 'auth' && r.isImap ? (
               <>
                 <div style={{ marginBottom: 6 }}>
                   <span style={{ marginRight: 6 }}>⚠️</span>
-                  <strong>{r.email}</strong>: Authentication failed.
+                  <strong>{r.email}</strong>: Authentication failed (live sync cannot update).
                 </div>
                 <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.4 }}>
-                  IMAP password may be incorrect or expired. For providers like web.de, create an app password in the
-                  provider&apos;s security settings.
+                  IMAP password may be incorrect or expired. For providers like web.de, use the full email as username,
+                  enable IMAP in the provider, and create an app password if required.
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {r.accountId ? (
@@ -112,9 +116,26 @@ export function SyncFailureBanner({ warnings, accounts, onUpdateCredentials, onR
                   )}
                 </div>
               </>
+            ) : r.kind === 'timeout' ? (
+              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                <strong>{r.email}</strong>: Live sync timed out. Messages you see may be from this device only until sync
+                completes. Try again in a moment or reduce the sync window in settings.
+              </div>
+            ) : r.kind === 'tls' ? (
+              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                <strong>{r.email}</strong>: TLS/SSL issue reaching the mail server. For web.de use host{' '}
+                <code style={{ fontSize: 10 }}>imap.web.de</code>, port <code style={{ fontSize: 10 }}>993</code>, and
+                SSL/TLS (not STARTTLS on that port).
+              </div>
+            ) : r.kind === 'network' ? (
+              <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                <strong>{r.email}</strong>: Network error — could not reach the mail server. Check your connection or VPN.
+                Cached messages may still be shown.
+              </div>
             ) : (
               <div style={{ fontSize: 11, lineHeight: 1.45 }}>
-                <strong>{r.email}</strong>: Connection issue. Check the account in Email Accounts or try again.
+                <strong>{r.email}</strong>: Live sync failed. Cached messages may still be shown. Check the account in
+                Email Accounts or try again.
               </div>
             )}
           </div>

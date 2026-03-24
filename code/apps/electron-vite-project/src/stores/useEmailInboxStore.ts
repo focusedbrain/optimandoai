@@ -1267,12 +1267,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       }
 
       if (!res.ok) {
+        const failWarnings = res.syncWarnings?.length
+          ? res.syncWarnings.map((w: string) => `[${accountId}] ${w}`)
+          : [`[${accountId}] ${res.error ?? 'Sync failed'}`]
         set({
           syncing: false,
           bulkBackgroundRefresh: false,
           loading: false,
-          error: res.error ?? 'Sync failed',
-          lastSyncWarnings: null,
+          error: null,
+          lastSyncWarnings: failWarnings,
         })
         return
       }
@@ -1329,13 +1332,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         }
       }
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sync failed'
       set({
         syncing: false,
         bulkBackgroundRefresh: false,
         loading: false,
         bulkLoadingMore: false,
-        error: err instanceof Error ? err.message : 'Sync failed',
-        lastSyncWarnings: null,
+        error: null,
+        lastSyncWarnings: [`[${accountId}] ${msg}`],
       })
     }
   },
@@ -1372,12 +1376,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       }
 
       if (!res.ok) {
+        const failWarnings = res.syncWarnings?.length
+          ? res.syncWarnings.map((w: string) => `[${accountId}] ${w}`)
+          : [`[${accountId}] ${res.error ?? 'Pull More failed'}`]
         set({
           syncing: false,
           bulkBackgroundRefresh: false,
           loading: false,
-          error: res.error ?? 'Pull More failed',
-          lastSyncWarnings: null,
+          error: null,
+          lastSyncWarnings: failWarnings,
         })
         return
       }
@@ -1434,13 +1441,14 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
         }
       }
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Pull More failed'
       set({
         syncing: false,
         bulkBackgroundRefresh: false,
         loading: false,
         bulkLoadingMore: false,
-        error: err instanceof Error ? err.message : 'Pull More failed',
-        lastSyncWarnings: null,
+        error: null,
+        lastSyncWarnings: [`[${accountId}] ${msg}`],
       })
     }
   },
@@ -1527,8 +1535,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
           syncing: false,
           bulkBackgroundRefresh: false,
           loading: false,
-          error: errorOut,
-          lastSyncWarnings: null,
+          error: null,
+          lastSyncWarnings: warnings.length ? warnings : [`[__unscoped__] ${errorOut}`],
         })
         return
       }

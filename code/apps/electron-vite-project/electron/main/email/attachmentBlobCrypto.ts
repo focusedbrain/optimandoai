@@ -58,7 +58,11 @@ export function writeEncryptedAttachmentFile(
   const safeName = sanitizeFilename(filename) || 'attachment'
   const ext = path.extname(safeName) || ''
   const baseName = path.basename(safeName, ext) || 'file'
-  const storagePath = path.join(dir, `${attId}_${baseName}${ext}`)
+  /** Windows and cross-platform safe segment (attId may include ':' from legacy keys or delimiters). */
+  const safeAttSegment = String(attId)
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 180)
+  const storagePath = path.join(dir, `${safeAttSegment}_${baseName}${ext}`)
   fs.writeFileSync(storagePath, ciphertext)
   const keyB64 = key.toString('base64')
   return {

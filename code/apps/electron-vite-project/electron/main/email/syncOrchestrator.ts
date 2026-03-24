@@ -267,6 +267,13 @@ const consecutiveZeroListingPulls = new Map<string, number>()
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+/**
+ * Hard cap for one full sync run (folder resolve + list + per-message fetch).
+ * Must exceed inner races (e.g. 30s folder expand + 30s list) and allow slow IMAP bootstrap (web.de, large mailboxes).
+ * A 45s cap caused false "timed out" failures while the server was still working.
+ */
+const SYNC_ACCOUNT_EMAILS_MAX_MS = 300_000
+
 /** Call from `inbox:resetSyncState` so streak does not carry over after a manual reset. */
 export function clearConsecutiveZeroListingPulls(accountId: string): void {
   const id = String(accountId ?? '').trim()
@@ -333,11 +340,18 @@ export async function syncAccountEmails(db: any, options: SyncAccountOptions): P
     () => syncAccountEmailsImpl(db, options), // also run if previous REJECTED
   )
 
-  // Wrap in a 45-second timeout so it can NEVER hang forever
   const withTimeout = Promise.race([
     current,
     new Promise<SyncResult>((_, reject) =>
-      setTimeout(() => reject(new Error('syncAccountEmails timed out after 45s')), 45_000),
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `syncAccountEmails timed out after ${Math.round(SYNC_ACCOUNT_EMAILS_MAX_MS / 1000)}s`,
+            ),
+          ),
+        SYNC_ACCOUNT_EMAILS_MAX_MS,
+      ),
     ),
   ]).finally(() => {
     syncChainTimestamps.delete(accountId)
@@ -474,6 +488,7 @@ async function syncAccountEmailsImpl(
     let pullFoldersResolved: string[] = []
     let detailFetchOk = 0
     let detailFetchMiss = 0
+    let loggedFirstFetchOk = false
 
     emailDebugLog('[SYNC-DEBUG] SyncPullLock before list+fetch', {
       accountId,
@@ -569,6 +584,13 @@ async function syncAccountEmailsImpl(
             continue
           }
           detailFetchOk++
+          if (!loggedFirstFetchOk) {
+            loggedFirstFetchOk = true
+            emailDebugLog('[SYNC-DEBUG] first provider message body fetch succeeded', {
+              accountId,
+              messageId: msg.id,
+            })
+          }
 
           const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
           // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.

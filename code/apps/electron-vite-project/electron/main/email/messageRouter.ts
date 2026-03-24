@@ -132,6 +132,16 @@ function extractHandshakeId(parsed: Record<string, unknown>): string | null {
   return null
 }
 
+/**
+ * Primary key for `inbox_attachments.id`. Provider attachment ids are only unique per remote
+ * message; prefixing with our inbox row id avoids PRIMARY KEY collisions across local messages.
+ */
+export function makeInboxAttachmentStorageId(inboxMessageId: string, providerAttachmentId: string | undefined): string {
+  const trimmed = typeof providerAttachmentId === 'string' ? providerAttachmentId.trim() : ''
+  if (trimmed.length > 0) return `${inboxMessageId}__${trimmed}`
+  return randomUUID()
+}
+
 // ── Main router ──
 
 /**
@@ -290,29 +300,7 @@ export async function detectAndRouteMessage(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  insertInbox.run(
-    inboxMessageId,
-    detectedType === 'beap' ? 'email_beap' : 'email_plain',
-    handshakeId,
-    accountId,
-    messageId,
-    fromAddr,
-    fromName,
-    JSON.stringify(toAddrs),
-    JSON.stringify(ccAddrs),
-    subject,
-    bodyText,
-    bodyHtml,
-    beapPackageJson,
-    hasAttachments ? 1 : 0,
-    attachments.length,
-    receivedAt,
-    now,
-    imapRemoteMailbox,
-    imapRfcMessageId,
-  )
-
-  // Store attachments to disk and register in inbox_attachments
+  // Store attachments to disk and register in inbox_attachments (sync path only — PDF extraction runs after commit)
   const insertAtt = db.prepare(`
     INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -336,6 +324,81 @@ export async function detectAndRouteMessage(
     WHERE id = ?
   `)
 
+  type RoutedAtt = (typeof attachments)[number]
+  const routed: Array<{ attId: string; att: RoutedAtt }> = []
+
+  const runAttachmentIngestTx = db.transaction(() => {
+    insertInbox.run(
+      inboxMessageId,
+      detectedType === 'beap' ? 'email_beap' : 'email_plain',
+      handshakeId,
+      accountId,
+      messageId,
+      fromAddr,
+      fromName,
+      JSON.stringify(toAddrs),
+      JSON.stringify(ccAddrs),
+      subject,
+      bodyText,
+      bodyHtml,
+      beapPackageJson,
+      hasAttachments ? 1 : 0,
+      attachments.length,
+      receivedAt,
+      now,
+      imapRemoteMailbox,
+      imapRfcMessageId,
+    )
+
+    for (const att of attachments) {
+      const attId = makeInboxAttachmentStorageId(inboxMessageId, att.id)
+      let storagePath: string | null = null
+      let encKey: string | null = null
+      let encIv: string | null = null
+      let encTag: string | null = null
+      let storageEncrypted = 0
+      if (att.content && att.content.length > 0) {
+        try {
+          const w = writeEncryptedAttachmentFile(inboxMessageId, attId, att.filename, att.content)
+          storagePath = w.storagePath
+          encKey = w.encryptionKeyStored
+          encIv = w.ivB64
+          encTag = w.tagB64
+          storageEncrypted = 1
+        } catch (e) {
+          console.warn('[MessageRouter] Failed to store attachment:', att.filename, e)
+        }
+      }
+      insertAtt.run(
+        attId,
+        inboxMessageId,
+        att.filename || 'attachment',
+        att.contentType || 'application/octet-stream',
+        att.size ?? 0,
+        att.contentId ?? null,
+        storagePath,
+        now,
+      )
+      if (storageEncrypted && encKey && encIv && encTag) {
+        updateAttEncryption.run(encKey, encIv, encTag, storageEncrypted, attId)
+      }
+
+      if (att.content && att.content.length > 0) {
+        const contentSha256 = createHash('sha256').update(att.content).digest('hex')
+        updateContentSha256.run(contentSha256, attId)
+      }
+
+      routed.push({ attId, att })
+    }
+  })
+
+  try {
+    runAttachmentIngestTx()
+  } catch (e) {
+    routed.length = 0
+    throw e
+  }
+
   /** Metadata for plain_email_inbox JSON (includes PDF text when extracted at ingest). */
   const plainAttachmentMeta: Array<{
     id: string
@@ -349,43 +412,10 @@ export async function detectAndRouteMessage(
     extracted_text_sha256?: string
   }> = []
 
-  for (const att of attachments) {
-    const attId = att.id || randomUUID()
-    let storagePath: string | null = null
-    let encKey: string | null = null
-    let encIv: string | null = null
-    let encTag: string | null = null
-    let storageEncrypted = 0
-    if (att.content && att.content.length > 0) {
-      try {
-        const w = writeEncryptedAttachmentFile(inboxMessageId, attId, att.filename, att.content)
-        storagePath = w.storagePath
-        encKey = w.encryptionKeyStored
-        encIv = w.ivB64
-        encTag = w.tagB64
-        storageEncrypted = 1
-      } catch (e) {
-        console.warn('[MessageRouter] Failed to store attachment:', att.filename, e)
-      }
-    }
-    insertAtt.run(
-      attId,
-      inboxMessageId,
-      att.filename || 'attachment',
-      att.contentType || 'application/octet-stream',
-      att.size ?? 0,
-      att.contentId ?? null,
-      storagePath,
-      now,
-    )
-    if (storageEncrypted && encKey && encIv && encTag) {
-      updateAttEncryption.run(encKey, encIv, encTag, storageEncrypted, attId)
-    }
-
+  for (const { attId, att } of routed) {
     let contentSha256: string | undefined
     if (att.content && att.content.length > 0) {
       contentSha256 = createHash('sha256').update(att.content).digest('hex')
-      updateContentSha256.run(contentSha256, attId)
     }
 
     let extractedText: string | undefined

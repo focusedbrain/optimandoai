@@ -2,7 +2,7 @@
  * Bulk inbox — attachment rows rendered inside `.bulk-view-message-attachments-footer` (anchored bottom bar of the left pane).
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   useEmailInboxStore,
   type InboxAttachment,
@@ -10,14 +10,32 @@ import {
 } from '../stores/useEmailInboxStore'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { InboxDocumentReaderModal } from './InboxDocumentReaderModal'
-import { isPdfAttachment } from './InboxAttachmentRow'
 import '../components/handshakeViewTypes'
+import {
+  hydrationAfterGetMessageIpcError,
+  hydrationAfterGetMessageReject,
+  hydrationAfterGetMessageSuccess,
+} from './bulkInboxAttachmentHydration'
+
+function isPdfAttachment(contentType: string | null, filename: string): boolean {
+  const ct = (contentType || '').toLowerCase()
+  const fn = (filename || '').toLowerCase()
+  return /pdf/i.test(ct) || fn.endsWith('.pdf')
+}
 
 function formatKb(sizeBytes: number | null): string {
   if (sizeBytes == null || sizeBytes < 0) return '—'
   if (sizeBytes < 1024) return `${sizeBytes} B`
   return `${Math.round(sizeBytes / 1024)} KB`
 }
+
+/** Hydration when list payload omits attachment rows but DB flags say attachments exist. */
+type AttachmentHydrationState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'loaded'; attachments: InboxAttachment[] }
+  | { phase: 'empty' }
+  | { phase: 'error'; message: string }
 
 export interface BulkInboxAttachmentsStripProps {
   msg: InboxMessage
@@ -34,33 +52,77 @@ export function BulkInboxAttachmentsStrip({
 }: BulkInboxAttachmentsStripProps) {
   const mergeMessageAttachments = useEmailInboxStore((s) => s.mergeMessageAttachments)
   const [localAttachments, setLocalAttachments] = useState<InboxAttachment[] | undefined>(msg.attachments)
+  const [hydration, setHydration] = useState<AttachmentHydrationState>(() => {
+    if (msg.has_attachments === 1 && !(msg.attachments && msg.attachments.length > 0)) {
+      return { phase: 'loading' }
+    }
+    return { phase: 'idle' }
+  })
+  /** After a successful fetch (any outcome), skip re-fetch for this message id when list still omits rows. */
+  const fetchSettledForIdRef = useRef<string | null>(null)
   const [readerAtt, setReaderAtt] = useState<InboxAttachment | null>(null)
   const [originalAtt, setOriginalAtt] = useState<InboxAttachment | null>(null)
 
+  /** When the server/list already includes attachment rows, prefer them and clear fetch guard. */
   useEffect(() => {
-    setLocalAttachments(msg.attachments)
+    if (msg.attachments && msg.attachments.length > 0) {
+      setLocalAttachments(msg.attachments)
+      setHydration({ phase: 'loaded', attachments: msg.attachments })
+      fetchSettledForIdRef.current = null
+    }
   }, [msg.attachments, msg.id])
 
   useEffect(() => {
-    if (msg.has_attachments !== 1) return
+    if (msg.has_attachments !== 1) {
+      fetchSettledForIdRef.current = null
+      setHydration({ phase: 'idle' })
+      return
+    }
     const atts = msg.attachments
     if (atts && atts.length > 0) return
+    if (fetchSettledForIdRef.current === msg.id) return
+
     let cancelled = false
-    window.emailInbox?.getMessage?.(msg.id).then((res) => {
-      if (cancelled || !res?.ok || !res.data) return
-      const row = res.data as InboxMessage
-      const next = row.attachments
-      if (next?.length) {
-        setLocalAttachments(next)
-        mergeMessageAttachments(msg.id, next)
+    setHydration({ phase: 'loading' })
+
+    const p = window.emailInbox?.getMessage?.(msg.id)
+    if (!p || typeof p.then !== 'function') {
+      fetchSettledForIdRef.current = msg.id
+      setHydration({
+        phase: 'error',
+        message: 'Attachment loader unavailable.',
+      })
+      return
+    }
+
+    p.then((res) => {
+      if (cancelled) return
+      fetchSettledForIdRef.current = msg.id
+      if (!res?.ok || !res.data) {
+        setHydration(hydrationAfterGetMessageIpcError(res as { error?: string } | null))
+        return
       }
+      const row = res.data as InboxMessage
+      const next = row.attachments ?? []
+      setLocalAttachments(next)
+      mergeMessageAttachments(msg.id, next)
+      setHydration(hydrationAfterGetMessageSuccess(next))
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      fetchSettledForIdRef.current = msg.id
+      setHydration(hydrationAfterGetMessageReject(err))
     })
+
     return () => {
       cancelled = true
     }
   }, [msg.id, msg.has_attachments, msg.attachments, mergeMessageAttachments])
 
-  const attachments = localAttachments ?? msg.attachments ?? []
+  const attachments =
+    localAttachments ??
+    (hydration.phase === 'loaded' ? hydration.attachments : undefined) ??
+    msg.attachments ??
+    []
 
   const handleSelectChat = useCallback(
     (att: InboxAttachment) => {
@@ -82,7 +144,40 @@ export function BulkInboxAttachmentsStrip({
   }, [originalAtt])
 
   if (msg.has_attachments !== 1) return null
+
   if (!attachments.length) {
+    if (hydration.phase === 'loading') {
+      return (
+        <div
+          className="bulk-message-attachments-strip bulk-message-attachments-strip--loading bulk-message-footer-inner bulk-view-attachments-strip"
+          data-subfocus="attachment"
+        >
+          Loading attachments…
+        </div>
+      )
+    }
+    if (hydration.phase === 'error') {
+      return (
+        <div
+          className="bulk-message-attachments-strip bulk-message-footer-inner bulk-view-attachments-strip bulk-message-attachments-strip--error"
+          data-subfocus="attachment"
+          role="status"
+        >
+          {hydration.message}
+        </div>
+      )
+    }
+    if (hydration.phase === 'empty') {
+      return (
+        <div
+          className="bulk-message-attachments-strip bulk-message-footer-inner bulk-view-attachments-strip bulk-message-attachments-strip--empty"
+          data-subfocus="attachment"
+          role="status"
+        >
+          No attachments found for this message.
+        </div>
+      )
+    }
     return (
       <div
         className="bulk-message-attachments-strip bulk-message-attachments-strip--loading bulk-message-footer-inner bulk-view-attachments-strip"

@@ -244,22 +244,29 @@ export class ImapProvider extends BaseEmailProvider {
     }
 
     return new Promise((resolve, reject) => {
-      const useImplicitTls = imapUsesImplicitTls(config.imap!.security)
-      emailDebugLog('[IMAP-DEBUG] ImapCtor config:', {
+      const host = String(config.imap!.host ?? '').trim()
+      const port = Number(config.imap!.port) || 993
+      /** Port 993 is implicit TLS everywhere; mis-saved "STARTTLS" must not disable TLS on this port (web.de / GMX). */
+      const useImplicitTls = imapUsesImplicitTls(config.imap!.security) || port === 993
+      emailDebugLog('[IMAP-DEBUG] connect start → ImapCtor', {
         user: config.imap!.username,
-        host: config.imap!.host,
-        port: config.imap!.port,
+        host,
+        port,
         securityRaw: config.imap!.security,
         tls: useImplicitTls,
         hasPassword: !!config.imap!.password,
       })
+      console.log('[IMAP] connect start', { host, port, tls: useImplicitTls })
       const client = new ImapCtor({
         user: config.imap!.username,
         password: config.imap!.password,
-        host: config.imap!.host,
-        port: config.imap!.port,
+        host,
+        port,
         tls: useImplicitTls,
-        tlsOptions: { rejectUnauthorized: false },
+        tlsOptions: {
+          rejectUnauthorized: false,
+          ...(host ? { servername: host } : {}),
+        },
         connTimeout: 10000,
         authTimeout: 10000
       })
@@ -274,7 +281,7 @@ export class ImapProvider extends BaseEmailProvider {
        */
       const onConnectError = (err: Error) => {
         emailDebugLog('[IMAP-DEBUG] connection error raw:', err)
-        console.error('[IMAP] Connection error:', err)
+        console.error('[IMAP] connect/auth failed before ready:', err?.message || err)
         this.connected = false
         reject(err)
       }
@@ -288,7 +295,7 @@ export class ImapProvider extends BaseEmailProvider {
           console.error('[IMAP] Runtime connection error (listener prevents process crash):', err?.message || err)
           this.connected = false
         })
-        console.log('[IMAP] Connected to:', config.imap!.host)
+        console.log('[IMAP] TLS/session ready (authenticated):', host)
         this.refreshImapCapabilitiesSnapshot()
         this.connected = true
         void this.warmImapNamespacePattern().catch((e: any) => {
@@ -298,7 +305,7 @@ export class ImapProvider extends BaseEmailProvider {
       })
 
       client.once('end', () => {
-        console.log('[IMAP] Connection ended')
+        console.log('[IMAP] disconnect: connection ended (server or client close)')
         this.connected = false
         /** Dead socket must not satisfy `applyOrchestratorRemoteOperation` — forces full reconnect via gateway. */
         this.client = null
@@ -575,6 +582,7 @@ export class ImapProvider extends BaseEmailProvider {
           reject(err)
           return
         }
+        console.log('[IMAP] mailbox open OK (read-only):', folder)
         let searchCriteria: any = ['SINCE', since]
         if (options?.toDate) {
           const before = new Date(options.toDate)
