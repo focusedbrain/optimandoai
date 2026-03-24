@@ -793,8 +793,11 @@ body {
 .inbox-detail-workspace {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 0;
   min-width: 0;
+  min-height: 0;
+  align-self: stretch;
   overflow: hidden;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -810,6 +813,7 @@ body {
 .inbox-detail-message {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -855,9 +859,12 @@ body {
   background: rgba(124, 58, 237, 0.25);
 }
 
+/* Match bulk-view-ai: fill grid cell height so inner flex chain gets a definite main size */
 .inbox-detail-ai {
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -913,11 +920,14 @@ body {
   display: none !important;
 }
 
+/* Match bulk-view-ai-inner: stretch to column height, min-height 0 for nested scroll areas */
 .inbox-detail-ai-inner {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0%;
+  align-self: stretch;
   min-height: 0;
+  height: 100%;
   margin: 8px 10px 10px 8px;
   padding: 16px;
   overflow: hidden;
@@ -945,19 +955,14 @@ body {
   border-radius: 10px 10px 0 0;
 }
 
-.inbox-detail-ai-scroll {
-  flex: 1;
+/* Analysis-only scroll stack — shares vertical space with draft row (sibling), like bulk AI column */
+.inbox-detail-ai-inner > .inbox-detail-ai-scroll {
+  flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-}
-/* FIX-ISSUE-4: When draft exists, analysis scroll takes only needed space; draft fills the rest */
-[data-has-draft="true"] .inbox-detail-ai-scroll {
-  flex: 0 1 auto;
-  max-height: 45%;
-  min-height: 0;
 }
 
 .ai-analysis-toggle {
@@ -979,17 +984,21 @@ body {
   color: #334155;
 }
 
+/* No fixed max-height — parent .inbox-detail-ai-scroll scrolls; avoids empty space below card */
 .ai-analysis-body {
   flex-shrink: 0;
-  overflow: hidden;
-  max-height: 800px;
-  transition: max-height 0.2s ease;
+  overflow: visible;
 }
 .ai-analysis-body[data-collapsed="true"] {
   max-height: 0;
   padding: 0;
   margin: 0;
   overflow: hidden;
+  border: none;
+  transition: max-height 0.2s ease;
+}
+.ai-analysis-body[data-collapsed="false"] {
+  max-height: none;
 }
 
 /* Compact always-visible rows (no accordions) */

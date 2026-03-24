@@ -434,7 +434,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const isDepackaged = message?.source_type === 'email_plain'
 
   return (
-    <div className="inbox-detail-ai-inner inbox-detail-ai-premium" data-has-draft={draft ? 'true' : undefined}>
+    <div className="inbox-detail-ai-inner inbox-detail-ai-premium">
       <div className="inbox-detail-ai-advisory-banner">
         AI suggestions — you decide what to do
       </div>
@@ -568,92 +568,92 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               </div>
             </div>
         </div>
+      </div>
 
-        {/* Draft Reply — always below, outside collapsible; fills height when draft exists */}
-        <div
-          className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
-          ref={draftRef}
-          style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
-        >
-          <div className="ai-section-draft-header">
-            <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
-            {draft && (
-              <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
-            )}
-          </div>
-          <div className="inbox-detail-ai-row-value" style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
-            {draftLoading ? (
-              <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
-            ) : draft ? (
-              <>
-                {draftRefineConnected && draftRefineMessageId === messageId && (
-                  <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
-                )}
-                {draftError && (
-                  <div className="inbox-detail-ai-error-banner">
-                    <span>Draft generation failed.</span>
-                    <button type="button" onClick={handleRetryDraft}>Retry</button>
-                  </div>
-                )}
-                <textarea
-                  ref={draftTextareaRef}
-                  value={editedDraft || draft}
-                  onChange={(e) => setEditedDraft(e.target.value)}
-                  onClick={handleDraftRefineConnect}
-                  onFocus={() => {
-                    useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                    handleDraftRefineConnect()
-                  }}
-                  onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
-                  className="inbox-detail-ai-draft-textarea"
-                  placeholder="Edit draft before sending…"
-                />
-                {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
-                  <div className="inbox-detail-ai-refined-preview">
-                    <div className="inbox-detail-ai-refined-header">
-                      <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
-                      <button
-                        type="button"
-                        className="inbox-detail-ai-accept-refinement"
-                        onClick={acceptRefinement}
-                        title="Apply refined draft"
-                        aria-label="Apply refined draft"
-                      >
-                        ✓ Accept
-                      </button>
-                    </div>
-                    <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
-                  </div>
-                )}
-                {attachments.length > 0 && (
-                  <div className="draft-attachments">
-                    {attachments.map((a, i) => (
-                      <div key={i} className="attachment-chip">
-                        <span>{a.name}</span>
-                        <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                        <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="inbox-detail-ai-draft-actions">
-                  {isDepackaged && (
-                    <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
-                      📎 Attach
-                    </button>
-                  )}
-                  <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
-                  {message && onSendDraft && !draftError && (
-                    <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
-                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                    </button>
-                  )}
+      {/* Draft below analysis scroll — same flex chain as bulk-view-ai (split vertical space, no max-height cap) */}
+      <div
+        className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
+        ref={draftRef}
+        style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
+      >
+        <div className="ai-section-draft-header">
+          <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
+          {draft && (
+            <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
+          )}
+        </div>
+        <div className="inbox-detail-ai-row-value" style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
+          {draftLoading ? (
+            <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
+          ) : draft ? (
+            <>
+              {draftRefineConnected && draftRefineMessageId === messageId && (
+                <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
+              )}
+              {draftError && (
+                <div className="inbox-detail-ai-error-banner">
+                  <span>Draft generation failed.</span>
+                  <button type="button" onClick={handleRetryDraft}>Retry</button>
                 </div>
-              </>
-            ) : (
-              <span className="inbox-detail-ai-muted">{analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click &quot;Draft Reply&quot; to generate.'}</span>
-            )}
-          </div>
+              )}
+              <textarea
+                ref={draftTextareaRef}
+                value={editedDraft || draft}
+                onChange={(e) => setEditedDraft(e.target.value)}
+                onClick={handleDraftRefineConnect}
+                onFocus={() => {
+                  useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                  handleDraftRefineConnect()
+                }}
+                onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
+                className="inbox-detail-ai-draft-textarea"
+                placeholder="Edit draft before sending…"
+              />
+              {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
+                <div className="inbox-detail-ai-refined-preview">
+                  <div className="inbox-detail-ai-refined-header">
+                    <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
+                    <button
+                      type="button"
+                      className="inbox-detail-ai-accept-refinement"
+                      onClick={acceptRefinement}
+                      title="Apply refined draft"
+                      aria-label="Apply refined draft"
+                    >
+                      ✓ Accept
+                    </button>
+                  </div>
+                  <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
+                </div>
+              )}
+              {attachments.length > 0 && (
+                <div className="draft-attachments">
+                  {attachments.map((a, i) => (
+                    <div key={i} className="attachment-chip">
+                      <span>{a.name}</span>
+                      <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                      <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="inbox-detail-ai-draft-actions">
+                {isDepackaged && (
+                  <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
+                    📎 Attach
+                  </button>
+                )}
+                <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
+                {message && onSendDraft && !draftError && (
+                  <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
+                    {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <span className="inbox-detail-ai-muted">{analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click &quot;Draft Reply&quot; to generate.'}</span>
+          )}
         </div>
       </div>
     </div>
@@ -1371,7 +1371,9 @@ export default function EmailInboxView({
       style={{
         display: 'grid',
         gridTemplateColumns: gridCols,
+        gridTemplateRows: 'minmax(0, 1fr)',
         height: '100%',
+        minHeight: 0,
         overflow: 'hidden',
         background: 'var(--color-bg, #0f172a)',
         color: 'var(--color-text, #e2e8f0)',
@@ -1652,7 +1654,10 @@ export default function EmailInboxView({
 
       {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
       {selectedMessageId && (
-        <div className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}>
+        <div
+          className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}
+          style={{ minHeight: 0 }}
+        >
           <div className="inbox-detail-message">
             <EmailMessageDetail
               message={selectedMessage}
