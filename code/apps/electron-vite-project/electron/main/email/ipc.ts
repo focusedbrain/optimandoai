@@ -2323,8 +2323,15 @@ Rules:
   }
 
   ipcMain.handle('inbox:syncAccount', async (_e, accountId: string) => {
+    console.log('[IMAP-PULL-TRACE] syncAccount called for:', accountId)
     try {
-      return await runInboxAccountPullKind(accountId, 'pull')
+      try {
+        return await runInboxAccountPullKind(accountId, 'pull')
+      } catch (err) {
+        console.error('[IMAP-PULL-TRACE] syncAccount CRASHED:', err)
+        console.error('[IMAP-PULL-TRACE] stack:', (err as Error)?.stack)
+        throw err
+      }
     } catch (err: any) {
       console.error('[Inbox] inbox:syncAccount unhandled error:', err)
       return { ok: false, error: err?.message ?? 'Sync failed (unhandled)' }

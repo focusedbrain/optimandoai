@@ -807,6 +807,14 @@ export class ImapProvider extends BaseEmailProvider {
   }
 
   async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    console.log('[IMAP-PULL-TRACE] ImapProvider.fetchMessages entry:', {
+      hasClient: !!this.client,
+      isConnected: this.isConnected(),
+      folder,
+      fromDate: options?.fromDate,
+      maxResults: (options as { maxResults?: number } | undefined)?.maxResults,
+    })
+
     if (!this.client) {
       throw new Error('Not connected')
     }

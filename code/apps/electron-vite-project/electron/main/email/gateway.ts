@@ -554,6 +554,12 @@ class EmailGateway implements IEmailGateway {
   
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
+    console.log('[IMAP-PULL-TRACE] listMessages called:', {
+      accountId: account.id,
+      provider: account.provider,
+      folder: options?.folder,
+      fromDate: options?.fromDate,
+    })
     const provider = await this.getConnectedProvider(account)
 
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
@@ -1394,6 +1400,9 @@ class EmailGateway implements IEmailGateway {
         encrypted: account.imap?._encrypted,
       })
       await provider.connect(account)
+      if (account.provider === 'imap') {
+        console.log('[IMAP-PULL-TRACE] provider connected, isConnected:', provider.isConnected())
+      }
       this.providers.set(account.id, provider)
     } else if (!provider.isConnected()) {
       emailDebugLog('[IMAP-DEBUG] connect attempt:', {
@@ -1406,6 +1415,9 @@ class EmailGateway implements IEmailGateway {
         encrypted: account.imap?._encrypted,
       })
       await provider.connect(account)
+      if (account.provider === 'imap') {
+        console.log('[IMAP-PULL-TRACE] provider connected, isConnected:', provider.isConnected())
+      }
     }
     
     return provider

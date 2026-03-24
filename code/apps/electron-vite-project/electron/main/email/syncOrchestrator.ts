@@ -313,6 +313,14 @@ function notePullOutcomeForStuckDetection(
  */
 export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
   const accountId = options.accountId
+  const accountEarly = emailGateway.getAccountConfig(accountId)
+  console.log('[IMAP-PULL-TRACE] syncAccountEmails entry:', {
+    accountId,
+    provider: accountEarly?.provider,
+    hasImapConfig: !!accountEarly?.imap,
+    imapHost: accountEarly?.imap?.host,
+    syncWindowDays: accountEarly?.sync?.syncWindowDays,
+  })
   emailDebugLog(
     '[SYNC-DEBUG] syncAccountEmails invoked (serialized per account via syncChains; does not skip if pull lock active)',
     { accountId, pullMore: options.pullMore === true },
