@@ -629,6 +629,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   resetSyncState: (accountId: string) => ipcRenderer.invoke('inbox:resetSyncState', accountId),
   /** Wipes all inbox + sync state for this account (messages, attachments, queue, sync row). Gateway credentials unchanged. */
   fullResetAccount: (accountId: string) => ipcRenderer.invoke('inbox:fullResetAccount', accountId),
+  /** DevTools: dump sync/state-related table schemas + sample rows (see inbox:debugDumpSyncState). */
+  debugDumpSyncState: () => ipcRenderer.invoke('inbox:debugDumpSyncState'),
   /** Dev only — raw node-imap session (IPC not registered in production main). */
   ...(import.meta.env.DEV
     ? {

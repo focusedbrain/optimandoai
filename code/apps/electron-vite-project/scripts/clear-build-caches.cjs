@@ -52,6 +52,7 @@ function clearBuildCaches() {
     'build802',
     'build807',
     'build82',
+    'build12',
     'build812',
     'build712',
     'build72',

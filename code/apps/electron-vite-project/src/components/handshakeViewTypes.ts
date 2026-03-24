@@ -129,6 +129,8 @@ declare global {
         error?: string
         results?: string[]
       }>
+      /** DevTools: schemas + sample rows for tables whose names include sync or state. */
+      debugDumpSyncState?: () => Promise<{ ok: boolean; dump?: Record<string, unknown>; error?: string }>
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void

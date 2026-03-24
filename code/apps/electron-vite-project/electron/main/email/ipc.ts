@@ -1284,6 +1284,7 @@ export function registerInboxHandlers(
     'inbox:pullMore',
     'inbox:resetSyncState',
     'inbox:fullResetAccount',
+    'inbox:debugDumpSyncState',
     'inbox:patchAccountSyncPreferences',
     'inbox:toggleAutoSync',
     'inbox:getSyncState',
@@ -2474,6 +2475,26 @@ Rules:
           results.push(`${table}: error - ${e?.message ?? String(e)}`)
         }
       }
+
+      // Also try common sync state tables with different key column names (last_sync_at survives if key isn't account_id)
+      const syncStateTables = [
+        { table: 'email_sync_state', keyCol: 'account_id' },
+        { table: 'email_sync_state', keyCol: 'id' },
+        { table: 'email_sync_state', keyCol: 'accountId' },
+        { table: 'sync_state', keyCol: 'account_id' },
+        { table: 'sync_state', keyCol: 'id' },
+      ]
+
+      for (const { table, keyCol } of syncStateTables) {
+        try {
+          const del = db.prepare(`DELETE FROM ${sqliteIdent(table)} WHERE ${sqliteIdent(keyCol)} = ?`).run(accountId)
+          if (del.changes > 0) {
+            results.push(`${table} (key=${keyCol}): ${del.changes} rows deleted`)
+          }
+        } catch {
+          /* table or column may not exist */
+        }
+      }
     } finally {
       try {
         db.exec('PRAGMA foreign_keys = ON')
@@ -2490,6 +2511,29 @@ Rules:
 
     console.log('[FULL-RESET] Account', accountId, 'reset results:', results)
     return { ok: true, results }
+  })
+
+  ipcMain.handle('inbox:debugDumpSyncState', async () => {
+    const ident = (name: string) => `"${String(name).replace(/"/g, '""')}"`
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'DB unavailable' }
+
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+      const dump: Record<string, any> = {}
+
+      for (const t of tables as { name: string }[]) {
+        if (t.name.toLowerCase().includes('sync') || t.name.toLowerCase().includes('state')) {
+          const schema = db.prepare(`PRAGMA table_info(${ident(t.name)})`).all()
+          const rows = db.prepare(`SELECT * FROM ${ident(t.name)} LIMIT 5`).all()
+          dump[t.name] = { schema, sampleRows: rows }
+        }
+      }
+
+      return { ok: true, dump }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
   })
 
   ipcMain.handle('inbox:patchAccountSyncPreferences', async (_e, accountId: string, partial: unknown) => {
