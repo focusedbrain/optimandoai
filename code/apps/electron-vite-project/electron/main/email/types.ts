@@ -304,6 +304,13 @@ export interface EmailAccountConfig {
     refreshToken: string
     expiresAt: number
     scope: string
+    /**
+     * Google OAuth client id used when this refresh token was issued.
+     * Required when mixing built-in PKCE clients with legacy user-supplied OAuth apps.
+     */
+    oauthClientId?: string
+    /** Legacy user-supplied OAuth app: refresh included client_secret. PKCE accounts omit. */
+    gmailRefreshUsesSecret?: boolean
   }
   
   /** IMAP credentials (for imap provider) */

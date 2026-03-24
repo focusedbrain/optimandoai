@@ -619,15 +619,25 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   /**
    * Set Gmail OAuth credentials (vault if unlocked, else plain file)
    */
-  ipcMain.handle('email:setGmailCredentials', async (_e, clientId: string, clientSecret: string, storeInVault: boolean = true) => {
-    try {
-      const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
-      return { ok: result.ok, savedToVault: result.savedToVault }
-    } catch (error: any) {
-      console.error('[Email IPC] setGmailCredentials error:', error)
-      return { ok: false, error: error.message }
-    }
-  })
+  ipcMain.handle(
+    'email:setGmailCredentials',
+    async (_e, clientId: string, clientSecret: string | undefined, storeInVault: boolean = true) => {
+      try {
+        if (!clientId?.trim()) {
+          return { ok: false, error: 'clientId is required' }
+        }
+        const result = await saveCredentials(
+          'gmail',
+          { clientId: clientId.trim(), clientSecret: clientSecret?.trim() },
+          storeInVault,
+        )
+        return { ok: result.ok, savedToVault: result.savedToVault }
+      } catch (error: any) {
+        console.error('[Email IPC] setGmailCredentials error:', error)
+        return { ok: false, error: error.message }
+      }
+    },
+  )
 
   /**
    * Check Gmail credentials with honest source (vault / vault-migrated / temporary / none)
@@ -635,10 +645,14 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   ipcMain.handle('email:checkGmailCredentials', async () => {
     try {
       const result = await checkExistingCredentials('gmail')
+      const canConnect =
+        !!result.credentials || result.builtinOAuthAvailable === true
       return {
         ok: true,
         data: {
-          configured: !!result.credentials,
+          configured: canConnect,
+          developerCredentialsStored: !!result.credentials,
+          builtinOAuthAvailable: result.builtinOAuthAvailable === true,
           clientId: result.clientId,
           source: result.source,
           credentials: result.credentials,

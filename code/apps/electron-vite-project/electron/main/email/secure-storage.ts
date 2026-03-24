@@ -105,6 +105,10 @@ export interface OAuthTokens {
   refreshToken: string
   expiresAt: number
   scope?: string
+  /** Gmail: client id used when the refresh token was issued (not encrypted). */
+  oauthClientId?: string
+  /** Gmail: legacy OAuth app used client_secret on refresh (not encrypted). */
+  gmailRefreshUsesSecret?: boolean
 }
 
 /**
@@ -115,14 +119,18 @@ export function encryptOAuthTokens(tokens: OAuthTokens): {
   accessToken: string
   refreshToken: string
   expiresAt: number
-  scope?: string
+  scope: string
+  oauthClientId?: string
+  gmailRefreshUsesSecret?: boolean
   _encrypted: boolean
 } {
   return {
     accessToken: encryptValue(tokens.accessToken),
     refreshToken: encryptValue(tokens.refreshToken),
     expiresAt: tokens.expiresAt,
-    scope: tokens.scope,
+    scope: tokens.scope ?? '',
+    oauthClientId: tokens.oauthClientId,
+    gmailRefreshUsesSecret: tokens.gmailRefreshUsesSecret,
     _encrypted: isSecureStorageAvailable()
   }
 }
@@ -135,6 +143,8 @@ export function decryptOAuthTokens(stored: {
   refreshToken: string
   expiresAt: number
   scope?: string
+  oauthClientId?: string
+  gmailRefreshUsesSecret?: boolean
   _encrypted?: boolean
 }): OAuthTokens {
   // If explicitly marked as not encrypted, return as-is
@@ -144,7 +154,9 @@ export function decryptOAuthTokens(stored: {
       accessToken: stored.accessToken,
       refreshToken: stored.refreshToken,
       expiresAt: stored.expiresAt,
-      scope: stored.scope
+      scope: stored.scope,
+      oauthClientId: stored.oauthClientId,
+      gmailRefreshUsesSecret: stored.gmailRefreshUsesSecret,
     }
   }
   
@@ -155,7 +167,9 @@ export function decryptOAuthTokens(stored: {
     accessToken: decryptValue(stored.accessToken),
     refreshToken: decryptValue(stored.refreshToken),
     expiresAt: stored.expiresAt,
-    scope: stored.scope
+    scope: stored.scope,
+    oauthClientId: stored.oauthClientId,
+    gmailRefreshUsesSecret: stored.gmailRefreshUsesSecret,
   }
 }
 

@@ -11,6 +11,7 @@ import { app, shell } from 'electron'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
+import { randomBytes, createHash } from 'node:crypto'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -33,6 +34,18 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
+import { logOAuthDiagnostic } from '../googleOAuthBuiltin'
+import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
+
+function base64url(buf: Buffer): string {
+  return buf.toString('base64url')
+}
+function oauthRandomString(bytes = 32): string {
+  return base64url(randomBytes(bytes))
+}
+function sha256base64url(input: string): string {
+  return createHash('sha256').update(input).digest('base64url')
+}
 
 /**
  * Gmail API scopes
@@ -53,7 +66,7 @@ function getOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials
  */
-export function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
+export function loadOAuthConfig(): { clientId: string; clientSecret?: string } | null {
   try {
     const configPath = getOAuthConfigPath()
     if (fs.existsSync(configPath)) {
@@ -66,12 +79,14 @@ export function loadOAuthConfig(): { clientId: string; clientSecret: string } | 
 }
 
 /**
- * Save OAuth client credentials
+ * Save OAuth client credentials (secret optional for PKCE-only developer entries).
  */
-export function saveOAuthConfig(clientId: string, clientSecret: string): void {
+export function saveOAuthConfig(clientId: string, clientSecret?: string): void {
   try {
     const configPath = getOAuthConfigPath()
-    fs.writeFileSync(configPath, JSON.stringify({ clientId, clientSecret }), 'utf-8')
+    const payload: { clientId: string; clientSecret?: string } = { clientId }
+    if (clientSecret) payload.clientSecret = clientSecret
+    fs.writeFileSync(configPath, JSON.stringify(payload), 'utf-8')
   } catch (err) {
     console.error('[Gmail] Error saving OAuth config:', err)
   }
@@ -85,6 +100,8 @@ export class GmailProvider extends BaseEmailProvider {
   private tokenExpiresAt: number = 0
   /** User-label name → Gmail label id */
   private wrDeskLabelIdCache: Map<string, string> = new Map()
+  /** PKCE code_verifier for the in-flight browser OAuth only; cleared after token exchange. */
+  private pkceVerifier: string | null = null
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -560,30 +577,41 @@ export class GmailProvider extends BaseEmailProvider {
    * - Concurrent request prevention
    * - State machine for flow management
    */
-  async startOAuthFlow(email?: string): Promise<EmailAccountConfig['oauth']> {
-    const oauthConfig = await getCredentialsForOAuth('gmail')
-    if (!oauthConfig) {
-      throw new Error('OAuth client credentials not configured. Please set up Google Cloud Console credentials.')
+  /**
+   * @param resolved Optional pre-resolved client (avoids double resolve when gateway merges oauth metadata).
+   */
+  async startOAuthFlow(
+    email?: string,
+    resolved?: ResolvedGmailOAuth,
+  ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
+    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
+    this.pkceVerifier = null
+    let codeChallenge: string | undefined
+    if (oauthConfig.authMode === 'pkce') {
+      this.pkceVerifier = oauthRandomString(32)
+      codeChallenge = sha256base64url(this.pkceVerifier)
     }
-    
+
+    logOAuthDiagnostic('oauth_start', {
+      provider: 'gmail',
+      authMode: oauthConfig.authMode,
+      hasVerifier: !!this.pkceVerifier,
+    })
+
     // Check if another OAuth flow is in progress
     if (oauthServerManager.isFlowInProgress()) {
       throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
     }
-    
+
     console.log('[Gmail] Starting OAuth flow using centralized server manager...')
     console.log('[Gmail] Current OAuth state:', oauthServerManager.getState())
-    
+
     try {
-      // Start OAuth flow with the server manager
-      // This will start the server, wait for callback, and return the result
       const flowPromise = oauthServerManager.startOAuthFlow('gmail', 5 * 60 * 1000)
-      
-      // Build auth URL with dynamic port from the manager
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
+
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, email, oauthConfig.authMode, codeChallenge)
       console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
-      
-      // Open browser
+
       try {
         await shell.openExternal(authUrl)
         console.log('[Gmail] Browser opened successfully')
@@ -592,29 +620,35 @@ export class GmailProvider extends BaseEmailProvider {
         await oauthServerManager.cancelFlow()
         throw new Error('Failed to open browser for authentication')
       }
-      
-      // Wait for callback
+
       console.log('[Gmail] Waiting for OAuth callback...')
       const result = await flowPromise
-      
+
+      logOAuthDiagnostic('oauth_callback_received', {
+        provider: 'gmail',
+        success: result.success,
+        error: result.error,
+      })
+
       if (!result.success) {
+        logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'callback', reason: result.error })
         throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
       }
-      
+
       if (!result.code) {
         throw new Error('No authorization code received')
       }
-      
+
       console.log('[Gmail] Auth code received, exchanging for tokens...')
-      
-      // Exchange code for tokens
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, this.pkceVerifier)
+      this.pkceVerifier = null
+      logOAuthDiagnostic('token_exchange_success', { provider: 'gmail'})
       console.log('[Gmail] Tokens received!')
-      
       return tokens
     } catch (err: any) {
       console.error('[Gmail] OAuth flow error:', err.message || err)
-      // Ensure cleanup happens
+      logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'flow', error: err?.message })
+      this.pkceVerifier = null
       await oauthServerManager.cancelFlow().catch(() => {})
       throw err
     }
@@ -624,10 +658,14 @@ export class GmailProvider extends BaseEmailProvider {
    * Build the OAuth authorization URL
    * Uses dynamic port from the OAuth server manager
    */
-  private buildAuthUrl(clientId: string, email?: string): string {
-    // Get the callback URL from the OAuth server manager (with dynamic port)
+  private buildAuthUrl(
+    clientId: string,
+    email: string | undefined,
+    authMode: ResolvedGmailOAuth['authMode'],
+    codeChallenge: string | undefined,
+  ): string {
     const redirectUri = oauthServerManager.getCallbackUrl()
-    
+
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -635,28 +673,45 @@ export class GmailProvider extends BaseEmailProvider {
       scope: GMAIL_SCOPES.join(' '),
       access_type: 'offline',
       prompt: 'consent',
-      ...(email ? { login_hint: email } : {})
+      ...(email ? { login_hint: email } : {}),
     })
-    
+    if (authMode === 'pkce' && codeChallenge) {
+      params.set('code_challenge', codeChallenge)
+      params.set('code_challenge_method', 'S256')
+    }
+
     console.log('[Gmail] Redirect URI:', redirectUri)
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
-  
+
   private async exchangeCodeForTokens(
-    oauthConfig: { clientId: string; clientSecret: string },
-    code: string
-  ): Promise<EmailAccountConfig['oauth']> {
-    // Use the same redirect URI that was used for authorization
+    oauthConfig: ResolvedGmailOAuth,
+    code: string,
+    codeVerifier: string | null,
+  ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const redirectUri = oauthServerManager.getCallbackUrl()
-    
+
     return new Promise((resolve, reject) => {
-      const postData = new URLSearchParams({
+      const body = new URLSearchParams({
         code,
         client_id: oauthConfig.clientId,
-        client_secret: oauthConfig.clientSecret,
         redirect_uri: redirectUri,
-        grant_type: 'authorization_code'
-      }).toString()
+        grant_type: 'authorization_code',
+      })
+      if (oauthConfig.authMode === 'pkce') {
+        if (!codeVerifier) {
+          reject(new Error('PKCE: missing code_verifier'))
+          return
+        }
+        body.set('code_verifier', codeVerifier)
+      } else if (oauthConfig.clientSecret) {
+        body.set('client_secret', oauthConfig.clientSecret)
+      } else {
+        reject(new Error('Gmail OAuth: client secret required for legacy flow'))
+        return
+      }
+
+      const postData = body.toString()
       
       const options = {
         hostname: 'oauth2.googleapis.com',
@@ -675,13 +730,20 @@ export class GmailProvider extends BaseEmailProvider {
           try {
             const json = JSON.parse(data)
             if (json.error) {
+              logOAuthDiagnostic('token_exchange_failure', {
+                provider: 'gmail',
+                stage: 'authorization_code',
+                error: json.error,
+              })
               reject(new Error(json.error_description || json.error))
             } else {
               resolve({
                 accessToken: json.access_token,
                 refreshToken: json.refresh_token,
                 expiresAt: Date.now() + (json.expires_in * 1000),
-                scope: json.scope
+                scope: typeof json.scope === 'string' ? json.scope : '',
+                oauthClientId: oauthConfig.clientId,
+                gmailRefreshUsesSecret: oauthConfig.authMode === 'legacy_secret',
               })
             }
           } catch (err) {
@@ -705,18 +767,39 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = await getCredentialsForOAuth('gmail')
-    if (!oauthConfig || !this.refreshToken) {
+    const stored = this.config?.oauth
+    const userCreds = await getCredentialsForOAuth('gmail')
+    if (!this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
-    
+
+    const clientId =
+      stored?.oauthClientId && stored.oauthClientId.trim()
+        ? stored.oauthClientId.trim()
+        : userCreds && 'clientId' in userCreds
+          ? userCreds.clientId
+          : null
+    if (!clientId) {
+      throw new Error('Cannot refresh token: missing OAuth client id')
+    }
+
+    const useSecret = stored?.gmailRefreshUsesSecret === true
+    const secret =
+      useSecret && userCreds && 'clientSecret' in userCreds && userCreds.clientSecret
+        ? userCreds.clientSecret
+        : undefined
+
     return new Promise((resolve, reject) => {
-      const postData = new URLSearchParams({
-        client_id: oauthConfig.clientId,
-        client_secret: oauthConfig.clientSecret,
+      const body = new URLSearchParams({
+        client_id: clientId,
         refresh_token: this.refreshToken!,
-        grant_type: 'refresh_token'
-      }).toString()
+        grant_type: 'refresh_token',
+      })
+      if (useSecret && secret) {
+        body.set('client_secret', secret)
+      }
+
+      const postData = body.toString()
       
       const options = {
         hostname: 'oauth2.googleapis.com',
@@ -735,24 +818,27 @@ export class GmailProvider extends BaseEmailProvider {
           try {
             const json = JSON.parse(data)
             if (json.error) {
+              logOAuthDiagnostic('token_refresh_failure', {
+                provider: 'gmail',
+                error: json.error,
+              })
               reject(new Error(json.error_description || json.error))
             } else {
+              logOAuthDiagnostic('token_refresh_success', { provider: 'gmail' })
               this.accessToken = json.access_token
-              // Google may return a new refresh token
               if (json.refresh_token) {
                 this.refreshToken = json.refresh_token
               }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
-              
-              // Persist new tokens via callback
+
               if (this.onTokenRefresh && this.refreshToken) {
                 this.onTokenRefresh({
                   accessToken: this.accessToken!,
                   refreshToken: this.refreshToken,
-                  expiresAt: this.tokenExpiresAt
+                  expiresAt: this.tokenExpiresAt,
                 })
               }
-              
+
               resolve()
             }
           } catch (err) {

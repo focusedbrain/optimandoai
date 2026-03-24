@@ -134,6 +134,80 @@ declare global {
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void
+      /** Gmail / Outlook / Zoho connect + credential checks (EmailConnectWizard; preload bridge). */
+      connectGmail?: (
+        displayName?: string,
+        syncWindowDays?: number,
+      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      connectOutlook?: (
+        displayName?: string,
+        syncWindowDays?: number,
+      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      connectZoho?: (
+        displayName?: string,
+        syncWindowDays?: number,
+      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      setGmailCredentials?: (
+        clientId: string,
+        clientSecret?: string,
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      setOutlookCredentials?: (
+        clientId: string,
+        clientSecret?: string,
+        tenantId?: string,
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      setZohoCredentials?: (
+        clientId: string,
+        clientSecret: string,
+        datacenter?: 'com' | 'eu',
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      checkGmailCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          developerCredentialsStored?: boolean
+          builtinOAuthAvailable?: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+        }
+        error?: string
+      }>
+      checkOutlookCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+        }
+        error?: string
+      }>
+      checkZohoCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+        }
+        error?: string
+      }>
+      checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
+      connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{
+        ok: boolean
+        data?: { id: string; email: string; provider: string }
+        error?: string
+      }>
     }
     email?: {
       sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>

@@ -40,43 +40,8 @@ function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityMod
   return fallback
 }
 
-declare global {
-  interface Window {
-    emailAccounts?: {
-      connectGmail?: (
-        displayName?: string,
-        syncWindowDays?: number,
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      connectOutlook?: (
-        displayName?: string,
-        syncWindowDays?: number,
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      setGmailCredentials?: (clientId: string, clientSecret: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
-      setOutlookCredentials?: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
-      setZohoCredentials?: (
-        clientId: string,
-        clientSecret: string,
-        datacenter?: 'com' | 'eu',
-        storeInVault?: boolean,
-      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
-      connectZoho?: (
-        displayName?: string,
-        syncWindowDays?: number,
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      checkGmailCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
-      checkOutlookCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
-      checkZohoCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
-      checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
-      listAccounts?: () => Promise<{ ok: boolean; data?: unknown[] }>
-      connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      getImapReconnectHints?: (accountId: string) => Promise<{ ok: boolean; data?: Record<string, unknown> | null; error?: string }>
-      updateImapCredentials?: (
-        accountId: string,
-        creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
-      ) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
-    }
-  }
-}
+/** Single `Window.emailAccounts` merge — see `electron-vite-project/src/components/handshakeViewTypes.ts`. */
+/// <reference path="../../../../electron-vite-project/src/components/handshakeViewTypes.ts" />
 
 const isElectron = (): boolean =>
   typeof window !== 'undefined' && typeof (window as any).emailAccounts?.connectGmail === 'function'
@@ -134,6 +99,12 @@ export function EmailConnectWizard({
   const [vaultUnlocked, setVaultUnlocked] = useState<boolean | undefined>(undefined)
   const [storeInVault, setStoreInVault] = useState(true)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  /** Gmail: show legacy Google Cloud client id/secret UI (self-hosted / developer). */
+  const [showGmailAdvanced, setShowGmailAdvanced] = useState(false)
+  /** Gmail OAuth readiness from main process (builtin app id and/or saved developer creds). */
+  const [gmailOAuthMeta, setGmailOAuthMeta] = useState<{ configured: boolean; builtinOAuthAvailable: boolean } | null>(
+    null,
+  )
   const [customForm, setCustomForm] = useState(emptyCustomForm)
   /** Electron reconnect: main process reports whether a password is already saved (value never sent here). */
   const [reconnectHasStoredImapPassword, setReconnectHasStoredImapPassword] = useState(false)
@@ -165,6 +136,8 @@ export function EmailConnectWizard({
     setVaultUnlocked(undefined)
     setStoreInVault(true)
     setSaveFeedback(null)
+    setShowGmailAdvanced(false)
+    setGmailOAuthMeta(null)
     setCustomForm(emptyCustomForm())
     setReconnectHasStoredImapPassword(false)
     setConnectSyncWindowDays(30)
@@ -250,6 +223,8 @@ export function EmailConnectWizard({
   // Platform API helpers — returns honest source (vault / vault-migrated / temporary / none)
   const checkGmailCreds = useCallback(async (): Promise<{
     configured: boolean
+    developerCredentialsStored?: boolean
+    builtinOAuthAvailable?: boolean
     clientId?: string
     clientSecret?: string
     source?: 'vault' | 'vault-migrated' | 'temporary' | 'none'
@@ -261,6 +236,8 @@ export function EmailConnectWizard({
       const d = res.data
       return {
         configured: !!d?.configured,
+        developerCredentialsStored: !!d?.developerCredentialsStored,
+        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
@@ -273,6 +250,8 @@ export function EmailConnectWizard({
       const d = res.data
       return {
         configured: !!d?.configured,
+        developerCredentialsStored: !!d?.developerCredentialsStored,
+        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
@@ -356,7 +335,7 @@ export function EmailConnectWizard({
     return { configured: false }
   }, [])
 
-  const saveGmailCreds = useCallback(async (clientId: string, clientSecret: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
+  const saveGmailCreds = useCallback(async (clientId: string, clientSecret?: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
     if (isElectron()) {
       const res = await (window as any).emailAccounts?.setGmailCredentials?.(clientId, clientSecret, storeInVaultOpt ?? true)
       return { ok: !!res?.ok, savedToVault: res?.savedToVault }
@@ -503,8 +482,13 @@ export function EmailConnectWizard({
       if (p === 'gmail') {
         try {
           const check = await checkGmailCreds()
+          setGmailOAuthMeta({
+            configured: !!check.configured,
+            builtinOAuthAvailable: !!check.builtinOAuthAvailable,
+          })
+          setShowGmailAdvanced(false)
           const src = check.source as 'vault' | 'vault-migrated' | 'temporary' | undefined
-          if (check.configured && src) {
+          if (check.developerCredentialsStored && check.clientId && src) {
             setExistingGmail({
               clientId: check.clientId || '',
               clientSecret: check.clientSecret,
@@ -521,6 +505,7 @@ export function EmailConnectWizard({
           }
         } catch {
           setExistingGmail(null)
+          setGmailOAuthMeta(null)
         }
       } else if (p === 'zoho') {
         try {
@@ -629,12 +614,30 @@ export function EmailConnectWizard({
       return
     }
     if (provider === 'gmail') {
-      const c = gmailCreds
-      if (!c.clientId?.trim() || !c.clientSecret?.trim()) {
-        setCredError('Please enter both Client ID and Client Secret')
+      if (!showGmailAdvanced) {
+        if (!gmailOAuthMeta?.configured) {
+          setCredError(
+            'Google sign-in is not configured for this build. Set WR_DESK_GOOGLE_OAUTH_CLIENT_ID, or open Advanced to use your own OAuth client.',
+          )
+          return
+        }
+        if (connectSyncWindowDays === 0) {
+          const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+          if (!ok) return
+        }
+        setStep('connecting')
+        setConnecting(true)
+        setConnectingElapsed(0)
+        setConnectingTimedOut(false)
         return
       }
-      const res = await saveGmailCreds(c.clientId.trim(), c.clientSecret.trim(), storeInVault)
+      const c = gmailCreds
+      const gmailClientId = c.clientId?.trim()
+      if (!gmailClientId) {
+        setCredError('Client ID is required')
+        return
+      }
+      const res = await saveGmailCreds(gmailClientId, c.clientSecret?.trim() || undefined, storeInVault)
       if (!res.ok) {
         setCredError('Failed to save credentials')
         return
@@ -644,7 +647,7 @@ export function EmailConnectWizard({
           ? '🔐 Credentials stored in vault'
           : storeInVault
             ? '⚠️ Vault save failed — credentials stored temporarily in file'
-            : '💾 Credentials saved to file'
+            : '💾 Credentials saved to file',
       )
       setTimeout(() => setSaveFeedback(null), 4000)
     } else if (provider === 'zoho') {
@@ -697,6 +700,8 @@ export function EmailConnectWizard({
   }, [
     provider,
     gmailCreds,
+    showGmailAdvanced,
+    gmailOAuthMeta,
     outlookCreds,
     zohoCreds,
     storeInVault,
@@ -1217,6 +1222,7 @@ export function EmailConnectWizard({
 
               {/* Vault status (for new saves) — only when no existing creds or source is none */}
               {provider !== 'custom' &&
+                !(provider === 'gmail' && !showGmailAdvanced) &&
                 !(provider === 'gmail' && existingGmail) &&
                 !(provider === 'outlook' && existingOutlook) &&
                 !(provider === 'zoho' && existingZoho) &&
@@ -1227,6 +1233,7 @@ export function EmailConnectWizard({
                 </div>
               )}
               {provider !== 'custom' &&
+                !(provider === 'gmail' && !showGmailAdvanced) &&
                 !(provider === 'gmail' && existingGmail) &&
                 !(provider === 'outlook' && existingOutlook) &&
                 !(provider === 'zoho' && existingZoho) &&
@@ -1239,7 +1246,78 @@ export function EmailConnectWizard({
 
               {provider === 'gmail' && (
                 <>
-                  {existingGmail ? (
+                  {!showGmailAdvanced ? (
+                    <>
+                      <div style={{ fontSize: '12px', lineHeight: 1.55, color: mutedColor, marginBottom: 10 }}>
+                        Sign in with Google in your browser. Your password is not stored — only OAuth tokens (and refresh
+                        tokens are encrypted when the vault is unlocked).
+                      </div>
+                      {gmailOAuthMeta && !gmailOAuthMeta.configured && (
+                        <div
+                          style={{
+                            padding: '10px 12px',
+                            background: isPro ? '#fef3c7' : 'rgba(245,158,11,0.2)',
+                            borderRadius: '8px',
+                            marginBottom: 10,
+                            fontSize: '11px',
+                            color: isPro ? '#92400e' : 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          Google sign-in is not configured for this build. Set{' '}
+                          <code style={{ fontSize: 10 }}>WR_DESK_GOOGLE_OAUTH_CLIENT_ID</code>, add{' '}
+                          <code style={{ fontSize: 10 }}>google-oauth-client-id.txt</code> to app resources, or open Advanced
+                          to use your own OAuth client.
+                        </div>
+                      )}
+                      {existingGmail && (
+                        <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 8 }}>
+                          Developer OAuth client credentials are saved — Advanced lets you edit them. Connect Google uses
+                          the configured client (built-in or yours).
+                        </div>
+                      )}
+                      {credError && (
+                        <div style={{ fontSize: '12px', color: '#dc2626', marginBottom: 8 }}>{credError}</div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveAndConnect}
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Connect Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCredError(null)
+                          setShowGmailAdvanced(true)
+                        }}
+                        style={{
+                          width: '100%',
+                          marginTop: 8,
+                          padding: '8px',
+                          fontSize: '12px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: isPro ? '#64748b' : 'rgba(255,255,255,0.65)',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Advanced (developer OAuth client)
+                      </button>
+                    </>
+                  ) : existingGmail ? (
                     <>
                       {existingGmail.source === 'vault' && (
                         <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '8px' }}>🔐 Credentials stored securely in your vault</div>
@@ -1263,7 +1341,7 @@ export function EmailConnectWizard({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret</label>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret (legacy)</label>
                         <input
                           type={showSecret ? 'text' : 'password'}
                           value={gmailCreds.clientSecret}
@@ -1304,7 +1382,7 @@ export function EmailConnectWizard({
                             cursor: 'pointer',
                           }}
                         >
-                          Connect with existing credentials
+                          Connect with saved client
                         </button>
                         <button
                           onClick={handleSaveAndConnect}
@@ -1323,20 +1401,23 @@ export function EmailConnectWizard({
                           Update credentials
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowGmailAdvanced(false)}
+                        style={{ marginTop: 10, fontSize: '12px', background: 'none', border: 'none', color: isPro ? '#3b82f6' : '#60a5fa', cursor: 'pointer' }}
+                      >
+                        ← Back to simple sign-in
+                      </button>
                     </>
                   ) : (
                     <>
                       <div style={{ padding: '12px', background: isPro ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)', borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px', fontSize: '11px', color: isPro ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.6' }}>
-                        <strong>For Gmail:</strong>
-                        <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
-                          <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}>Google Cloud Console</a></li>
-                          <li>Create a project or select an existing one</li>
-                          <li>Enable the Gmail API</li>
-                          <li>Credentials → Create OAuth 2.0 Client ID</li>
-                          <li>Application type: Web application</li>
-                          <li>Add redirect URI: http://localhost:{OAUTH_CALLBACK_PORT}/callback</li>
-                          <li>Copy Client ID and Client Secret below</li>
-                        </ol>
+                        <strong>Developer OAuth (optional):</strong> create a Google Cloud OAuth client (Desktop or Web with
+                        loopback). Enable Gmail API. Add authorized redirect URIs:{' '}
+                        <code style={{ fontSize: 10 }}>http://127.0.0.1:51249/callback</code> through{' '}
+                        <code style={{ fontSize: 10 }}>http://127.0.0.1:51258/callback</code> (the app may pick any port in
+                        that range). Client secret is only required for legacy confidential clients; PKCE works with client
+                        id alone.
                       </div>
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client ID *</label>
@@ -1349,12 +1430,12 @@ export function EmailConnectWizard({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret *</label>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret (optional for PKCE)</label>
                         <input
                           type="password"
                           value={gmailCreds.clientSecret}
                           onChange={(e) => setGmailCreds((p) => ({ ...p, clientSecret: e.target.value }))}
-                          placeholder="GOCSPX-xxxxxxxxx"
+                          placeholder="Leave empty if using PKCE-only client"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                         />
                       </div>
@@ -1385,6 +1466,13 @@ export function EmailConnectWizard({
                         }}
                       >
                         Save & Connect
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowGmailAdvanced(false)}
+                        style={{ marginTop: 10, fontSize: '12px', background: 'none', border: 'none', color: isPro ? '#3b82f6' : '#60a5fa', cursor: 'pointer' }}
+                      >
+                        ← Back to simple sign-in
                       </button>
                     </>
                   )}

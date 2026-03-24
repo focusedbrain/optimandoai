@@ -7248,10 +7248,14 @@ app.whenReady().then(async () => {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
         const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
         const result = await checkExistingCredentials('gmail')
+        const canConnect =
+          !!result.credentials || result.builtinOAuthAvailable === true
         res.json({
           ok: true,
           data: {
-            configured: !!result.credentials,
+            configured: canConnect,
+            developerCredentialsStored: !!result.credentials,
+            builtinOAuthAvailable: result.builtinOAuthAvailable === true,
             clientId: result.clientId,
             source: result.source,
             credentials: result.credentials,
@@ -7270,13 +7274,17 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/credentials/gmail')
         const { clientId, clientSecret } = req.body
-        if (!clientId || !clientSecret) {
-          res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
+        if (!clientId) {
+          res.status(400).json({ ok: false, error: 'clientId is required' })
           return
         }
         const { saveCredentials } = await import('./main/email/credentials')
         const storeInVault = req.body.storeInVault !== false
-        const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
+        const result = await saveCredentials(
+          'gmail',
+          { clientId, clientSecret: typeof clientSecret === 'string' ? clientSecret : undefined },
+          storeInVault,
+        )
         res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)

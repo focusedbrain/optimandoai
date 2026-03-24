@@ -640,7 +640,7 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     : {}),
   validateImapLifecycleRemote: (accountId: string) =>
     ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
-  setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
+  setGmailCredentials: (clientId: string, clientSecret?: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
   setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId, storeInVault ?? true),

@@ -36,6 +36,7 @@ import {
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
+import { resolveGmailOAuthForConnect } from './gmailOAuthResolve'
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
@@ -168,7 +169,7 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
       console.error('[EmailGateway] IMAP decrypt threw (unexpected — decryptValue normally does not throw)', {
         accountId: account.id,
         email: account.email,
-        imapEncryptedFlag: next.imap._encrypted,
+        imapEncryptedFlag: account.imap?._encrypted,
         errorMessage: msg,
       })
       return {
@@ -218,7 +219,7 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
       console.error('[EmailGateway] SMTP decrypt threw (unexpected — decryptValue normally does not throw)', {
         accountId: account.id,
         email: account.email,
-        smtpEncryptedFlag: next.smtp._encrypted,
+        smtpEncryptedFlag: account.smtp?._encrypted,
         errorMessage: msg,
       })
       return {
@@ -355,7 +356,15 @@ function loadAccounts(): EmailAccountConfig[] {
         if (account.oauth) {
           try {
             const decrypted = decryptOAuthTokens(account.oauth as any)
-            next = { ...next, oauth: decrypted }
+            const oauth: NonNullable<EmailAccountConfig['oauth']> = {
+              accessToken: decrypted.accessToken,
+              refreshToken: decrypted.refreshToken,
+              expiresAt: decrypted.expiresAt,
+              scope: decrypted.scope ?? '',
+              oauthClientId: decrypted.oauthClientId,
+              gmailRefreshUsesSecret: decrypted.gmailRefreshUsesSecret,
+            }
+            next = { ...next, oauth }
           } catch (err) {
             console.error('[EmailGateway] Failed to decrypt tokens for account:', account.id, err)
             next = {
@@ -1231,7 +1240,7 @@ class EmailGateway implements IEmailGateway {
   /**
    * Set up Gmail OAuth credentials
    */
-  setGmailOAuthCredentials(clientId: string, clientSecret: string): void {
+  setGmailOAuthCredentials(clientId: string, clientSecret?: string): void {
     saveOAuthConfig(clientId, clientSecret)
   }
   
@@ -1239,11 +1248,20 @@ class EmailGateway implements IEmailGateway {
    * Start Gmail OAuth flow and create account
    */
   async connectGmailAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
-    const oauth = await gmailProvider.startOAuthFlow()
+    const resolved = await resolveGmailOAuthForConnect()
+    const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
+    const oauth: NonNullable<EmailAccountConfig['oauth']> = {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+      scope: typeof tokens.scope === 'string' ? tokens.scope : '',
+      oauthClientId: resolved.clientId,
+      gmailRefreshUsesSecret: resolved.authMode === 'legacy_secret',
+    }
 
     /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */
     const emailFromProfile = await gmailProvider.fetchProfileEmailAddress(oauth)
-    
+
     // Create account config
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
       displayName: displayName || 'Gmail Account',
@@ -1456,7 +1474,7 @@ class EmailGateway implements IEmailGateway {
      */
     const probeDraft: EmailAccountConfig = {
       ...draft,
-      imap: { ...draft.imap },
+      imap: { ...draft.imap! },
       smtp: draft.smtp ? { ...draft.smtp } : undefined,
     }
 
@@ -1481,7 +1499,7 @@ class EmailGateway implements IEmailGateway {
       id: generateId(),
       createdAt: now,
       updatedAt: now,
-      imap: { ...draft.imap, password: imapPass },
+      imap: { ...draft.imap!, password: imapPass },
       smtp: draft.smtp ? { ...draft.smtp, password: smtpPass } : undefined,
     }
     this.accounts.push(account)

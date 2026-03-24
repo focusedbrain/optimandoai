@@ -24,6 +24,7 @@ function debugLog(...args: unknown[]): void {
   console.log('[Email Credentials]', ...args)
 }
 import { loadOAuthConfig, saveOAuthConfig } from './providers/gmail'
+import { getBuiltinGmailOAuthClientId } from './googleOAuthBuiltin'
 import { loadOutlookOAuthConfig, saveOutlookOAuthConfig } from './providers/outlook'
 
 export type CredentialSource = 'vault' | 'vault-migrated' | 'temporary' | 'none'
@@ -54,6 +55,8 @@ export interface CheckResult {
   credentials: GmailCreds | OutlookCreds | ZohoCreds | null
   clientId?: string
   hasSecret: boolean
+  /** Gmail: app-owned client id is configured (env / resources); end users can connect without pasting OAuth credentials. */
+  builtinOAuthAvailable?: boolean
 }
 
 const GMAIL_VAULT_TITLE = 'Gmail OAuth Client Credentials'
@@ -114,7 +117,7 @@ export function loadFromFile(
 ): GmailCreds | OutlookCreds | ZohoCreds | null {
   if (provider === 'gmail') {
     const c = loadOAuthConfig()
-    return c ? { clientId: c.clientId, clientSecret: c.clientSecret } : null
+    return c ? { clientId: c.clientId, clientSecret: c.clientSecret || undefined } : null
   }
   if (provider === 'zoho') {
     return loadZohoOAuthConfig()
@@ -151,8 +154,8 @@ export async function loadFromVault(
     if (provider === 'gmail') {
       const clientId = getField('client_id')
       const clientSecret = getField('client_secret')
-      if (!clientId || !clientSecret) return null
-      return { clientId, clientSecret }
+      if (!clientId) return null
+      return { clientId, clientSecret: clientSecret || undefined }
     }
     if (provider === 'zoho') {
       const clientId = getField('client_id')
@@ -214,11 +217,11 @@ export async function saveToVault(
         ? [
             { key: 'service_name', value: 'Google Gmail', encrypted: false, type: 'text' as const },
             { key: 'key_name', value: gmailCreds.clientId, encrypted: false, type: 'text' as const },
-            { key: 'secret', value: gmailCreds.clientSecret, encrypted: true, type: 'password' as const },
+            { key: 'secret', value: gmailCreds.clientSecret ?? '', encrypted: true, type: 'password' as const },
             { key: 'endpoint', value: 'https://accounts.google.com', encrypted: false, type: 'text' as const },
             { key: 'notes', value: 'Auto-saved by WR Desk Email Connect Wizard', encrypted: false, type: 'text' as const },
             { key: 'client_id', value: gmailCreds.clientId, encrypted: false, type: 'text' as const },
-            { key: 'client_secret', value: gmailCreds.clientSecret, encrypted: true, type: 'password' as const },
+            { key: 'client_secret', value: gmailCreds.clientSecret ?? '', encrypted: true, type: 'password' as const },
           ]
         : provider === 'zoho'
           ? [
@@ -312,32 +315,42 @@ export async function checkExistingCredentials(
   provider: 'gmail' | 'outlook' | 'zoho',
 ): Promise<CheckResult> {
   const vaultUnlocked = isVaultUnlocked()
+  let result: CheckResult
 
   if (vaultUnlocked) {
     const vaultCreds = await loadFromVault(provider)
     if (vaultCreds) {
       const clientId = 'clientId' in vaultCreds ? vaultCreds.clientId : ''
       const hasSecret = !!(vaultCreds as any).clientSecret
-      return { source: 'vault', credentials: vaultCreds, clientId, hasSecret }
+      result = { source: 'vault', credentials: vaultCreds, clientId, hasSecret }
+    } else {
+      const fileCreds = loadFromFile(provider)
+      if (fileCreds) {
+        await saveToVault(provider, fileCreds)
+        deletePlainFile(provider)
+        const clientId = 'clientId' in fileCreds ? fileCreds.clientId : ''
+        const hasSecret = !!(fileCreds as any).clientSecret
+        result = { source: 'vault-migrated', credentials: fileCreds, clientId, hasSecret }
+      } else {
+        result = { source: 'none', credentials: null, hasSecret: false }
+      }
     }
+  } else {
     const fileCreds = loadFromFile(provider)
     if (fileCreds) {
-      await saveToVault(provider, fileCreds)
-      deletePlainFile(provider)
       const clientId = 'clientId' in fileCreds ? fileCreds.clientId : ''
       const hasSecret = !!(fileCreds as any).clientSecret
-      return { source: 'vault-migrated', credentials: fileCreds, clientId, hasSecret }
+      result = { source: 'temporary', credentials: fileCreds, clientId, hasSecret }
+    } else {
+      result = { source: 'none', credentials: null, hasSecret: false }
     }
-    return { source: 'none', credentials: null, hasSecret: false }
   }
 
-  const fileCreds = loadFromFile(provider)
-  if (fileCreds) {
-    const clientId = 'clientId' in fileCreds ? fileCreds.clientId : ''
-    const hasSecret = !!(fileCreds as any).clientSecret
-    return { source: 'temporary', credentials: fileCreds, clientId, hasSecret }
+  if (provider === 'gmail') {
+    const builtin = getBuiltinGmailOAuthClientId()
+    return { ...result, builtinOAuthAvailable: !!builtin }
   }
-  return { source: 'none', credentials: null, hasSecret: false }
+  return result
 }
 
 /**
@@ -375,7 +388,8 @@ export async function saveCredentials(
     }
   }
   if (provider === 'gmail') {
-    saveOAuthConfig((creds as GmailCreds).clientId, (creds as GmailCreds).clientSecret)
+    const g = creds as GmailCreds
+    saveOAuthConfig(g.clientId, g.clientSecret)
   } else if (provider === 'zoho') {
     const z = creds as ZohoCreds
     saveZohoOAuthConfig(z.clientId, z.clientSecret, z.datacenter === 'eu' ? 'eu' : 'com')
