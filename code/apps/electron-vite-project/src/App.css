@@ -890,10 +890,6 @@ body {
   background: #ffffff;
 }
 
-.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-advisory-banner {
-  display: none !important;
-}
-
 .inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar {
   flex-direction: column;
   flex-wrap: nowrap;
@@ -923,7 +919,7 @@ body {
   display: none !important;
 }
 
-/* Single scroll: all analysis + draft content scrolls inside this card */
+/* Normal AI card: outer shell flex; active tab section owns vertical scroll */
 .inbox-detail-ai-inner {
   display: flex;
   flex-direction: column;
@@ -933,7 +929,7 @@ body {
   margin: 8px 10px 10px 8px;
   padding: 16px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -947,23 +943,17 @@ body {
   color: #334155;
 }
 
-.inbox-detail-ai-advisory-banner {
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  padding: 8px 12px;
-  margin: -16px -16px 12px -16px;
-  background: rgba(124, 58, 237, 0.06);
-  border-bottom: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 10px 10px 0 0;
-}
-
-/* Former nested scroll region — content flows in parent .inbox-detail-ai-inner scroll */
+/* Former nested scroll region — fills below action bar; section inside scrolls */
 .inbox-detail-ai-inner > .inbox-detail-ai-scroll {
-  flex-shrink: 0;
-  overflow: visible;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.inbox-detail-ai-inner > .inbox-detail-ai-scroll > .inbox-detail-ai-error-banner {
+  flex-shrink: 0;
 }
 
 .ai-analysis-toggle {
@@ -1141,13 +1131,18 @@ body {
   background: #fee2e2;
 }
 
-/* Legacy section styles (kept for bulk view if needed) */
-.inbox-detail-ai-section {
-  border-bottom: 1px solid #f1f5f9;
-  padding: 12px 16px;
+/* Normal AI tab panels only (not used in Bulk inbox) */
+.inbox-detail-ai-inner .inbox-detail-ai-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 12px;
+  border-bottom: none;
+  overscroll-behavior: contain;
 }
 
-.inbox-detail-ai-section:last-child {
+.inbox-detail-ai-inner .inbox-detail-ai-section:last-child {
   border-bottom: none;
 }
 
@@ -1434,22 +1429,52 @@ body {
 
 .inbox-detail-ai-draft-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: nowrap;
   flex-shrink: 0;
+  align-items: center;
 }
 
-/* Sticky draft footer inside the single scroll container (.inbox-detail-ai-inner) */
+/* Sticky draft footer at bottom of draft tab scrollport */
 .inbox-detail-ai-inner .inbox-detail-ai-draft-actions {
   position: sticky;
   bottom: 0;
   z-index: 2;
-  margin-top: 12px;
+  margin-top: 8px;
   margin-bottom: 0;
-  padding: 8px 0;
+  padding: 6px 0;
   background: #ffffff;
   box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.inbox-detail-ai-inner .inbox-detail-ai-draft-actions .bulk-draft-actions-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  border-top: none;
+  background: transparent;
+  box-shadow: none;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.inbox-detail-ai-inner .inbox-detail-ai-draft-actions .bulk-action-card-btn,
+.inbox-detail-ai-inner .inbox-detail-ai-draft-actions button {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  min-height: 24px;
+  border-radius: 4px;
+  line-height: 1.2;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .inbox-detail-ai-btn-primary {
@@ -1517,6 +1542,10 @@ body {
 }
 
 /* Normal Inbox AI — compact action bar */
+.inbox-detail-ai-inner > .inbox-detail-ai-action-bar {
+  flex-shrink: 0;
+}
+
 .inbox-detail-ai-action-bar {
   display: flex;
   flex-wrap: nowrap;
@@ -1563,6 +1592,38 @@ body {
 .inbox-detail-ai-action-btn--danger:hover {
   background: #fef2f2;
   border-color: #f87171;
+}
+
+.inbox-detail-ai-action-btn--active {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #7c3aed;
+  font-weight: 600;
+}
+
+.inbox-detail-ai-action-btn--active:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+
+.inbox-detail-ai-section--tab-panel {
+  border-bottom: none;
+}
+
+.inbox-detail-ai-inner .inbox-detail-ai-section-heading {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.inbox-detail-ai-inner .inbox-detail-ai-section-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e293b;
+  margin-bottom: 12px;
 }
 
 .inbox-detail-ai-output {

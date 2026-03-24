@@ -91,7 +91,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [draftSubFocused, setDraftSubFocused] = useState(false)
-  const [analysisExpanded, setAnalysisExpanded] = useState(true)
+  const [activeAiSection, setActiveAiSection] = useState<'analysis' | 'summary' | 'draft'>('analysis')
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -257,13 +257,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setEditedDraft('')
     setActionChecked({})
     setDraftSubFocused(false)
-    setAnalysisExpanded(true)
     draftRefineDisconnect()
     runAnalysisStream()
     return () => {
       streamCleanupRef.current?.()
     }
   }, [messageId, runAnalysisStream, draftRefineDisconnect])
+
+  useEffect(() => {
+    setActiveAiSection('analysis')
+  }, [messageId])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -278,10 +281,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   useEffect(() => {
     onCollapsedChange?.(false)
   }, [onCollapsedChange])
-
-  const toggleAnalysisExpanded = useCallback(() => {
-    setAnalysisExpanded((prev) => !prev)
-  }, [])
 
   /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5). */
   const handleDraftRefineConnect = useCallback(() => {
@@ -472,37 +471,41 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   return (
     <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
-      <div className="inbox-detail-ai-advisory-banner">
-        AI suggestions — you decide what to do
-      </div>
       <div className="inbox-detail-ai-action-bar">
         <button
           type="button"
-          className="inbox-detail-ai-action-btn"
-          onClick={handleSummarize}
-          disabled={summarizeLoading}
-          aria-label="Regenerate summary"
-          title="Regenerate summary"
+          className={`inbox-detail-ai-action-btn${activeAiSection === 'summary' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          onClick={() => {
+            setActiveAiSection('summary')
+            const hasSummary = !!(analysis?.summary ?? '').trim()
+            if (!hasSummary && !summarizeLoading) void handleSummarize()
+          }}
+          aria-label="Show summary"
+          aria-pressed={activeAiSection === 'summary'}
         >
           {summarizeLoading ? '…' : '✨ Summary'}
         </button>
         <button
           type="button"
-          className="inbox-detail-ai-action-btn"
-          onClick={handleDraftReply}
-          disabled={draftLoading}
-          aria-label="Generate draft reply"
-          title="Generate draft reply"
+          className={`inbox-detail-ai-action-btn${activeAiSection === 'draft' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          onClick={() => {
+            setActiveAiSection('draft')
+            if (!draft && !draftLoading) void handleDraftReply()
+          }}
+          aria-label="Show draft reply"
+          aria-pressed={activeAiSection === 'draft'}
         >
           {draftLoading ? '…' : '✏️ Draft'}
         </button>
         <button
           type="button"
-          className="inbox-detail-ai-action-btn"
-          onClick={() => void runAnalysisStream()}
-          disabled={analysisLoading}
-          aria-label="Re-run analysis"
-          title="Re-run analysis"
+          className={`inbox-detail-ai-action-btn${activeAiSection === 'analysis' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          onClick={() => {
+            setActiveAiSection('analysis')
+            if (!analysis && !analysisLoading) void runAnalysisStream()
+          }}
+          aria-label="Show analysis"
+          aria-pressed={activeAiSection === 'analysis'}
         >
           {analysisLoading ? '…' : '🔍 Analysis'}
         </button>
@@ -512,7 +515,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             className="inbox-detail-ai-action-btn inbox-detail-ai-action-btn--danger"
             onClick={handleDelete}
             aria-label="Delete email"
-            title="Delete email"
           >
             🗑️ Delete
           </button>
@@ -526,20 +528,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {/* Collapsible analysis header */}
-        <div
-          className="ai-analysis-toggle"
-          onClick={toggleAnalysisExpanded}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && toggleAnalysisExpanded()}
-        >
-          <span>Analysis</span>
-          <span>{analysisExpanded ? '▾' : '▸'}</span>
-        </div>
-
-        {/* Collapsible analysis body — toggles visibility via data-collapsed, panel width unchanged */}
-        <div className="ai-analysis-body" data-collapsed={!analysisExpanded}>
+        {activeAiSection === 'analysis' && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <div className="ai-analysis-body">
             {/* Response Needed */}
             <div className="inbox-detail-ai-row">
               <span className="inbox-detail-ai-row-label">Response Needed</span>
@@ -641,10 +632,45 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 )}
               </div>
             </div>
-        </div>
-      </div>
+            </div>
+          </div>
+        )}
 
-      {/* Draft — flows in same scroll as analysis (.inbox-detail-ai-inner) */}
+        {activeAiSection === 'summary' && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <div className="inbox-detail-ai-section-heading">SUMMARY</div>
+            <div className="inbox-detail-ai-section-body" ref={summaryRef}>
+              {summarizeLoading ? (
+                <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} aria-busy="true" />
+              ) : analysisLoading && !receivedFields.has('summary') ? (
+                <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
+              ) : (analysis?.summary ?? '').trim() ? (
+                <span className="inbox-detail-ai-text">{analysis?.summary}</span>
+              ) : (
+                <span className="inbox-detail-ai-muted">Click Summary to generate…</span>
+              )}
+            </div>
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Urgency</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('urgencyScore') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis ? (
+                  <InboxUrgencyMeter
+                    score={analysis.urgencyScore}
+                    variant="panel"
+                    reason={analysis.urgencyReason || '—'}
+                  />
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeAiSection === 'draft' && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
       <div
         className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
         ref={draftRef}
@@ -719,11 +745,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   ))}
                 </div>
               )}
-              <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions" style={{ width: '100%' }}>
-                <div
-                  className="bulk-draft-actions-toolbar"
-                  style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '10px 0' }}
-                >
+              <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+                <div className="bulk-draft-actions-toolbar">
                   {isDepackaged && (
                     <button
                       type="button"
@@ -756,9 +779,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               </div>
             </>
           ) : (
-            <span className="inbox-detail-ai-muted">{analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click &quot;Draft Reply&quot; to generate.'}</span>
+            <span className="inbox-detail-ai-muted">
+              {analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click “Draft” above to generate.'}
+            </span>
           )}
         </div>
+      </div>
+          </div>
+        )}
       </div>
     </div>
   )
