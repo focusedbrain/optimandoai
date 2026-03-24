@@ -1076,11 +1076,11 @@ body {
   display: flex;
   flex-direction: column;
 }
-/* Draft grows in the single scroll parent; textarea caps height with its own scroll as fallback */
+/* Expanded draft: grow with viewport; scroll only past max-height */
 .inbox-detail-ai-row-draft.ai-draft-expanded .inbox-detail-ai-draft-textarea {
   flex: none;
-  min-height: 100px;
-  max-height: 300px;
+  min-height: 160px;
+  max-height: 50vh;
   resize: vertical;
   overflow-y: auto;
 }
@@ -1334,18 +1334,19 @@ body {
 
 .inbox-detail-ai-draft-textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 160px;
   padding: 12px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
   font-family: inherit;
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #334155;
+  border: 1px solid #e2e5e9;
+  border-radius: 8px;
+  color: #2d3748;
   resize: vertical;
   overflow-y: visible;
   box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .inbox-detail-ai-refined-preview {
@@ -2367,35 +2368,38 @@ body {
   border-color: #6d28d9;
 }
 
-.inbox-toolbar-sync-row {
+/* Normal Inbox — Type + Sync stacked, left-aligned (Prompt 27) */
+.inbox-toolbar-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #eef0f2;
+}
+
+.inbox-toolbar-settings-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
   align-items: center;
-}
-
-.inbox-toolbar-sync-spacer {
-  flex: 1;
-  min-width: 8px;
-}
-
-.email-inbox-toolbar .bulk-view-toolbar-row--message-kind {
-  padding-top: 0;
-  padding-bottom: 0;
-  min-height: 0;
-}
-
-.email-inbox-toolbar .inbox-message-kind-toolbar {
   gap: 6px;
 }
 
-.email-inbox-toolbar .inbox-message-kind-select--bulk {
+.inbox-toolbar-settings-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  min-width: 32px;
+  flex-shrink: 0;
+}
+
+.inbox-toolbar-settings-row .inbox-message-kind-select--bulk {
+  flex: 1;
   min-width: min(148px, 100%);
   max-width: 100%;
 }
 
-.email-inbox-toolbar .bulk-view-toolbar-right--compact {
-  gap: 6px;
+.email-inbox-toolbar .inbox-toolbar-settings {
+  border-bottom-color: var(--color-border, rgba(255, 255, 255, 0.12));
 }
 
 .bulk-view-toolbar-row--message-kind {

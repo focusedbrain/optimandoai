@@ -97,20 +97,18 @@ export default function EmailInboxToolbar({
         })}
       </div>
 
-      <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
-        <InboxMessageKindSelect
-          id="inbox-message-kind-normal"
-          variant="bulk"
-          value={messageKind}
-          onChange={onMessageKindChange}
-        />
-      </div>
-
-      {/* Sync row */}
-      <div className="inbox-toolbar-sync-row">
-        <div className="inbox-toolbar-sync-spacer" aria-hidden />
-
-        <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+      <div className="inbox-toolbar-settings">
+        <div className="inbox-toolbar-settings-row">
+          <span className="inbox-toolbar-settings-label">Type</span>
+          <InboxMessageKindSelect
+            id="inbox-message-kind-normal"
+            variant="bulk"
+            suppressBuiltInLabel
+            value={messageKind}
+            onChange={onMessageKindChange}
+          />
+        </div>
+        <div className="inbox-toolbar-settings-row">
           <EmailInboxSyncControls
             accountSyncWindowDays={accountSyncWindowDays}
             onSyncWindowChange={onSyncWindowChange}
