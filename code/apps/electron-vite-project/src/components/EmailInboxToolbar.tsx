@@ -3,7 +3,7 @@
  */
 
 import React from 'react'
-import type { InboxFilter } from '../stores/useEmailInboxStore'
+import type { InboxFilter, InboxTabCounts } from '../stores/useEmailInboxStore'
 import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
@@ -11,18 +11,10 @@ import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 
 // ── Types ──
 
-export type EmailInboxToolbarTabCounts = {
-  all: number
-  urgent: number
-  pending_delete: number
-  pending_review: number
-  archived: number
-}
-
 export interface EmailInboxToolbarProps {
   filter: InboxFilter
   onFilterChange: (partial: Partial<InboxFilter>) => void
-  tabCounts: EmailInboxToolbarTabCounts
+  tabCounts: InboxTabCounts
   messageKind: InboxMessageKindFilter
   onMessageKindChange: (kind: InboxMessageKindFilter) => void
   accounts: Array<{ id: string; email: string }>

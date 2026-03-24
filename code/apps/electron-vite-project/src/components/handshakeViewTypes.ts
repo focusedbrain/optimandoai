@@ -101,7 +101,15 @@ declare global {
         }>
         error?: string
       }>
-      sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
+      sendEmail: (
+        accountId: string,
+        payload: {
+          to: string[]
+          subject: string
+          bodyText: string
+          attachments?: { filename: string; mimeType: string; contentBase64: string }[]
+        },
+      ) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
       validateImapLifecycleRemote?: (accountId: string) => Promise<
         | { ok: true; result: { ok: boolean; entries: Array<{ role: string; mailbox: string; exists: boolean; created?: boolean; error?: string }> } }
         | { ok: false; error: string }
@@ -307,4 +315,16 @@ export interface EmailInboxBridge {
   getAiRules: () => Promise<string>
   saveAiRules: (content: string) => Promise<{ ok: boolean; error?: string }>
   getAiRulesDefault: () => Promise<string>
+  /** Native file picker for compose attachments ({ name, path, size } per file). */
+  showOpenDialogForAttachments?: () => Promise<{
+    ok: boolean
+    data?: { files: Array<{ name: string; path: string; size: number }> }
+    error?: string
+  }>
+  /** Read file from disk as base64 for outbound email attachment. */
+  readFileForAttachment?: (filePath: string) => Promise<{
+    ok: boolean
+    data?: { filename: string; mimeType: string; contentBase64: string }
+    error?: string
+  }>
 }

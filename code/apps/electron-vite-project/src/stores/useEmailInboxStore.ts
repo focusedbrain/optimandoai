@@ -102,6 +102,36 @@ export const INBOX_WORKFLOW_FILTER_KEYS = [
   'archived',
 ] as const
 
+/** Per-tab totals for workflow toolbar (Normal + Bulk). */
+export type InboxTabCounts = {
+  all: number
+  urgent: number
+  pending_delete: number
+  pending_review: number
+  archived: number
+}
+
+/** Default tab counts; use for store init and safe fallbacks. */
+export const EMPTY_INBOX_TAB_COUNTS: InboxTabCounts = {
+  all: 0,
+  urgent: 0,
+  pending_delete: 0,
+  pending_review: 0,
+  archived: 0,
+}
+
+/** Coerce any partial/loose server or derived map to a full InboxTabCounts. */
+export function normalizeInboxTabCounts(raw: Record<string, number> | Partial<InboxTabCounts> | null | undefined): InboxTabCounts {
+  const r = raw ?? {}
+  return {
+    all: typeof r.all === 'number' ? r.all : 0,
+    urgent: typeof r.urgent === 'number' ? r.urgent : 0,
+    pending_delete: typeof r.pending_delete === 'number' ? r.pending_delete : 0,
+    pending_review: typeof r.pending_review === 'number' ? r.pending_review : 0,
+    archived: typeof r.archived === 'number' ? r.archived : 0,
+  }
+}
+
 /** Map legacy tabs (Unread / Starred / Deleted) to All so normal inbox stays workflow-only. */
 export function coerceInboxWorkflowFilter(f: unknown): InboxFilter['filter'] {
   const s = String(f ?? '')
@@ -134,7 +164,7 @@ interface EmailInboxState {
    */
   allMessages: InboxMessage[]
   /** Per-tab totals from fast COUNT via `inbox:listMessages` (limit 1) — not derived from loaded rows. */
-  tabCounts: Record<string, number>
+  tabCounts: InboxTabCounts
   messages: InboxMessage[]
   total: number
   loading: boolean
@@ -282,14 +312,17 @@ const INBOX_LIST_PAGE_SIZE = 500
 /** Bulk inbox UI: rows per page (server LIMIT). */
 const BULK_UI_PAGE_SIZE = 50
 
-function listBridgeOptionsFromFilter(filter: InboxFilter): {
+/** `inbox:listMessages` / `listMessageIds` — matches `EmailInboxBridge` (preload passes through to main). */
+type ListMessagesBridgeOptions = {
   filter: string
   sourceType?: string
-  messageKind?: InboxMessageKindFilter
+  messageKind?: 'handshake' | 'depackaged'
   handshakeId?: string
   category?: string
   search?: string
-} {
+}
+
+function listBridgeOptionsFromFilter(filter: InboxFilter): ListMessagesBridgeOptions {
   return {
     filter: filter.filter,
     sourceType: filter.sourceType === 'all' ? undefined : filter.sourceType,
@@ -357,15 +390,9 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
 }
 
 /** Derive tab counts for bulk toolbar labels (same list scope as `inboxFilter`). */
-export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFilter): Record<string, number> {
-  const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
-    'all',
-    'urgent',
-    'pending_delete',
-    'pending_review',
-    'archived',
-  ]
-  const out: Record<string, number> = {}
+export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFilter): InboxTabCounts {
+  const filters: Array<keyof InboxTabCounts> = ['all', 'urgent', 'pending_delete', 'pending_review', 'archived']
+  const out: InboxTabCounts = { ...EMPTY_INBOX_TAB_COUNTS }
   for (const f of filters) {
     out[f] = filterByInboxFilter(allMessages, { ...baseFilter, filter: f }).length
   }
@@ -376,16 +403,10 @@ export function deriveTabCounts(allMessages: InboxMessage[], baseFilter: InboxFi
  * Fast per-tab totals: one `listMessages` call per workflow tab with `limit: 1` (server `total` = SQL COUNT).
  * Shared by Bulk (`loadBulkInboxSnapshotPaginated` / `fetchAllMessages`) and Normal (`loadPagedListSnapshot` / `fetchMessages`).
  */
-async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<Record<string, number>> {
+async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<InboxTabCounts> {
   const bridge = getBridge()
-  if (!bridge?.listMessages) return {}
-  const filters: Array<'all' | 'urgent' | 'pending_delete' | 'pending_review' | 'archived'> = [
-    'all',
-    'urgent',
-    'pending_delete',
-    'pending_review',
-    'archived',
-  ]
+  if (!bridge?.listMessages) return { ...EMPTY_INBOX_TAB_COUNTS }
+  const filters: Array<keyof InboxTabCounts> = ['all', 'urgent', 'pending_delete', 'pending_review', 'archived']
   const out: Record<string, number> = {}
   try {
     for (const f of filters) {
@@ -401,15 +422,15 @@ async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<Record
       out[f] = typeof res.data.total === 'number' ? res.data.total : 0
     }
   } catch {
-    return out
+    return normalizeInboxTabCounts(out)
   }
-  return out
+  return normalizeInboxTabCounts(out)
 }
 
 /** Bulk inbox: first page only + tab counts (no full-tab drain). */
 async function loadBulkInboxSnapshotPaginated(get: () => EmailInboxState): Promise<{
   allMessages: InboxMessage[]
-  tabCounts: Record<string, number>
+  tabCounts: InboxTabCounts
   messages: InboxMessage[]
   total: number
   bulkAiOutputs: AiOutputs
@@ -461,7 +482,7 @@ async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
   messages: InboxMessage[]
   total: number
   analysisCache: Record<string, NormalInboxAiResult>
-  tabCounts: Record<string, number>
+  tabCounts: InboxTabCounts
 } | null> {
   const bridge = getBridge()
   if (!bridge?.listMessages) return null
@@ -500,7 +521,7 @@ async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
 
 export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   allMessages: [],
-  tabCounts: {},
+  tabCounts: { ...EMPTY_INBOX_TAB_COUNTS },
   messages: [],
   total: 0,
   loading: false,

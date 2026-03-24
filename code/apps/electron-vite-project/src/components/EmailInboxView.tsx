@@ -344,18 +344,29 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         const summaryText = data!.summary!
         manualSummaryOverrideRef.current = { messageId, summary: summaryText }
         setAnalysis((prev) => {
-          const next = prev
-            ? { ...prev, summary: summaryText }
-            : {
-                needsReply: false,
-                needsReplyReason: '',
-                summary: summaryText,
-                urgencyScore: 5,
-                urgencyReason: '',
-                actionItems: [],
-                archiveRecommendation: 'keep',
-                archiveReason: '',
-              }
+          const next: NormalInboxAiResult =
+            prev === null
+              ? {
+                  needsReply: false,
+                  needsReplyReason: '',
+                  summary: summaryText,
+                  urgencyScore: 5,
+                  urgencyReason: '',
+                  actionItems: [],
+                  archiveRecommendation: 'keep',
+                  archiveReason: '',
+                }
+              : {
+                  needsReply: prev.needsReply,
+                  needsReplyReason: prev.needsReplyReason,
+                  summary: summaryText,
+                  urgencyScore: prev.urgencyScore,
+                  urgencyReason: prev.urgencyReason,
+                  actionItems: prev.actionItems,
+                  archiveRecommendation: prev.archiveRecommendation,
+                  archiveReason: prev.archiveReason,
+                  ...(prev.draftReply !== undefined ? { draftReply: prev.draftReply } : {}),
+                }
           useEmailInboxStore.getState().setAnalysisCache(messageId, next)
           return next
         })
@@ -406,8 +417,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const handleAddAttachment = useCallback(async () => {
     if (!window.emailInbox?.showOpenDialogForAttachments) return
     const res = await window.emailInbox.showOpenDialogForAttachments()
-    if (res?.ok && res?.data?.files?.length) {
-      setAttachments((prev) => [...prev, ...res.data.files])
+    const picked = res?.ok ? res.data?.files : undefined
+    if (picked?.length) {
+      setAttachments((prev) => [...prev, ...picked])
     }
   }, [])
 
