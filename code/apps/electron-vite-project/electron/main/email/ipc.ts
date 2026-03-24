@@ -1277,6 +1277,8 @@ export function registerInboxHandlers(
   mainWindow?: BrowserWindow | null,
   _getAnthropicApiKey?: GetAnthropicApiKey,
 ): void {
+  console.log('[INBOX-IPC] registerInboxHandlers called')
+
   const channels = [
     'inbox:syncAccount',
     'inbox:pullMore',
@@ -4717,5 +4719,34 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
       resolve({ success: false })
     })
   })
+
+  // --- IMAP Auto-Sync (brute force) ---
+  // Separate from DB-driven auto_sync loops: periodic pull for every active IMAP account.
+  const IMAP_AUTO_SYNC_INTERVAL_MS = 2 * 60 * 1000
+
+  setInterval(() => {
+    void (async () => {
+      try {
+        const accounts = await emailGateway.listAccounts()
+        const db = await resolveDb()
+        if (!db) return
+
+        for (const acc of accounts) {
+          if (acc.provider !== 'imap' || acc.status !== 'active') continue
+          console.log('[IMAP-AUTO-SYNC] Triggering pull for IMAP account:', acc.id, acc.email)
+          try {
+            await syncAccountEmails(db, { accountId: acc.id })
+            console.log('[IMAP-AUTO-SYNC] Pull completed for:', acc.id)
+          } catch (err) {
+            console.error('[IMAP-AUTO-SYNC] Pull failed for:', acc.id, err)
+          }
+        }
+      } catch (err) {
+        console.error('[IMAP-AUTO-SYNC] Error:', err)
+      }
+    })()
+  }, IMAP_AUTO_SYNC_INTERVAL_MS)
+
+  console.log('[IMAP-AUTO-SYNC] Registered IMAP auto-sync interval (every 2 min)')
 }
 
