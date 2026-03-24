@@ -575,15 +575,18 @@ class EmailGateway implements IEmailGateway {
   
   async listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]> {
     const account = this.findAccount(accountId)
+    console.error('GATEWAY_LIST', account.id, account.provider)
     const effectiveFolders = getFoldersForAccountOperation(account, options?.mailboxId)
     const folder = options?.folder ?? effectiveFolders.inbox
 
     if (account.provider === 'imap' && account.imap?.password?.trim()) {
+      console.error('GATEWAY_LIST_PATH', account.id, 'imapSimplePullListMessages')
       const rawMessages = await imapSimplePullListMessages(account, folder, options)
       return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
     }
 
     const provider = await this.getConnectedProvider(account)
+    console.error('GATEWAY_LIST_PATH', account.id, 'provider.fetchMessages', account.provider)
     const rawMessages = await provider.fetchMessages(folder, options)
     return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
   }

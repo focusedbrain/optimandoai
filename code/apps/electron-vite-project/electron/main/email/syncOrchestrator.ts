@@ -312,6 +312,7 @@ function notePullOutcomeForStuckDetection(
  * Serialized per `accountId` so manual Pull and auto-sync never run concurrently for the same account.
  */
 export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
+  console.error('SYNC_ENTRY', options.accountId, new Date().toISOString())
   const accountId = options.accountId
   const accountEarly = emailGateway.getAccountConfig(accountId)
   console.log('[IMAP-PULL-TRACE] syncAccountEmails entry:', {
@@ -394,6 +395,7 @@ async function syncAccountEmailsImpl(
         result.errors.push('Pull More: no local messages — run Pull first.')
         result.ok = false
         result.listedFromProvider = 0
+        console.error('SYNC_RETURN_LINE_399', accountId)
         return result
       }
       const t = new Date(oldestLocal).getTime()
@@ -401,6 +403,7 @@ async function syncAccountEmailsImpl(
         result.errors.push('Pull More: invalid oldest message date in local DB.')
         result.ok = false
         result.listedFromProvider = 0
+        console.error('SYNC_RETURN_LINE_407', accountId)
         return result
       }
       const beforeIso = new Date(t - 1).toISOString()
@@ -468,6 +471,7 @@ async function syncAccountEmailsImpl(
         for (const folder of pullFolders) {
           try {
             emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
+            console.error('SYNC_LIST_CALL', accountId, folder)
             const part = await emailGateway.listMessages(accountId, { ...listOptions, folder })
             for (const m of part) {
               const k = `${m.folder || folder}|${m.id}`
@@ -488,8 +492,10 @@ async function syncAccountEmailsImpl(
       } else {
         const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
         emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
+        console.error('SYNC_LIST_CALL', accountId, folder)
         messages = await emailGateway.listMessages(accountId, { ...listOptions, folder })
       }
+      console.error('SYNC_LIST_RESULT', accountId, messages?.length)
       const existingIds = getExistingEmailMessageIds(db, accountId)
       skippedDuplicate = 0
 
@@ -668,6 +674,7 @@ async function syncAccountEmailsImpl(
     }
   }
 
+  console.error('SYNC_RETURN_LINE_678', accountId)
   return result
 }
 

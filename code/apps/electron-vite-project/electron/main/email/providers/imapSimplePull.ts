@@ -51,6 +51,10 @@ export async function imapSimplePullListMessages(
   folder: string,
   options?: MessageSearchOptions,
 ): Promise<RawEmailMessage[]> {
+  console.error('IMAP_SIMPLE_PULL_ENTRY', account.id, account.email, folder, {
+    fromDate: options?.fromDate ?? null,
+    toDate: options?.toDate ?? null,
+  })
   const im = account.imap
   if (!im?.password?.trim()) throw new Error('IMAP password missing')
   if (typeof ImapCtor !== 'function') throw new Error('imap module did not load')
@@ -73,6 +77,7 @@ export async function imapSimplePullListMessages(
     })
     client.connect()
   })
+  console.error('IMAP_SIMPLE_PULL_CONNECTED', account.id, !!client, (client as any)?.state)
   try {
     const rows = await new Promise<RawEmailMessage[]>((resolve, reject) => {
       client.openBox(folder, true, (err: Error | null, box?: { messages: { total: number } }) => {
