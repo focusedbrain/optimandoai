@@ -162,11 +162,23 @@ function decryptImapSmtpPasswords(account: EmailAccountConfig): EmailAccountConf
   return next
 }
 
+/**
+ * Shallow-merge nested IMAP/SMTP patches without letting explicit `undefined` wipe passwords.
+ * `{ ...prev, ...patch }` sets `password: undefined` when the patch omits it but the IPC layer passes undefined.
+ */
+function mergeImapSmtpCredentials<T extends Record<string, unknown>>(prev: T, patch: Partial<T>): T {
+  const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>
+  return { ...prev, ...defined }
+}
+
 function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap' || !account.imap) return account
   const encAvail = isSecureStorageAvailable()
   /** Never persist `undefined` — JSON.stringify omits it and the password would be lost on reload. */
   const imapPlain = String(account.imap.password ?? '')
+  if (imapPlain.length === 0) {
+    console.error('[Gateway] encryptImapSmtpPasswordsForDisk: IMAP password is empty for account', account.id)
+  }
   const imapEncrypted = encryptValue(imapPlain)
   console.log(
     '[Gateway] IMAP encrypt: encAvail=',
@@ -206,6 +218,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
         _encrypted: encAvail,
       }
     : undefined
+  /** Disk snapshot only — never assign this return value onto `this.accounts` (memory stays plaintext). */
   return { ...account, imap, smtp }
 }
 
@@ -262,7 +275,8 @@ function loadAccounts(): EmailAccountConfig[] {
 }
 
 /**
- * Save accounts to disk with encryption of OAuth tokens
+ * Save accounts to disk with encryption of OAuth tokens.
+ * Does **not** mutate the `accounts` array — in-memory rows keep plaintext IMAP/SMTP passwords after write.
  */
 function saveAccounts(accounts: EmailAccountConfig[]): void {
   try {
@@ -276,7 +290,7 @@ function saveAccounts(accounts: EmailAccountConfig[]): void {
       fs.mkdirSync(dir, { recursive: true })
     }
     
-    // Encrypt OAuth tokens and IMAP/SMTP passwords before saving
+    // Encrypt OAuth tokens and IMAP/SMTP passwords before saving (encrypted snapshot only)
     const encryptedAccounts = accounts.map(account => {
       let next = account
       if (account.oauth) {
@@ -385,10 +399,16 @@ class EmailGateway implements IEmailGateway {
       updatedAt: Date.now(),
     }
     if (patchImap !== undefined) {
-      merged.imap = prev.imap ? { ...prev.imap, ...patchImap } : patchImap
+      merged.imap = prev.imap
+        ? mergeImapSmtpCredentials(prev.imap as Record<string, unknown>, patchImap as Partial<Record<string, unknown>>) as
+            NonNullable<EmailAccountConfig['imap']>
+        : (patchImap as NonNullable<EmailAccountConfig['imap']>)
     }
     if (patchSmtp !== undefined) {
-      merged.smtp = prev.smtp ? { ...prev.smtp, ...patchSmtp } : patchSmtp
+      merged.smtp = prev.smtp
+        ? mergeImapSmtpCredentials(prev.smtp as Record<string, unknown>, patchSmtp as Partial<Record<string, unknown>>) as
+            NonNullable<EmailAccountConfig['smtp']>
+        : (patchSmtp as NonNullable<EmailAccountConfig['smtp']>)
     }
 
     this.accounts[index] = merged
@@ -1238,7 +1258,23 @@ class EmailGateway implements IEmailGateway {
       smtp: draft.smtp ? { ...draft.smtp, password: smtpPass } : undefined,
     }
     this.accounts.push(account)
+    console.error('[PERSIST-CHECK] About to save IMAP account:', {
+      id: account.id,
+      hasImapPassword: !!account.imap?.password,
+      imapPasswordLength: account.imap?.password?.length ?? 0,
+    })
     saveAccounts(this.accounts)
+
+    const saved = this.accounts.find((a) => a.id === account.id)
+    if (saved?.provider === 'imap' && (!saved.imap?.password || String(saved.imap.password).trim() === '')) {
+      console.error('[CRITICAL] IMAP password was lost during save — restoring from connect payload')
+      if (saved.imap) {
+        saved.imap.password = imapPass
+        if (saved.smtp) saved.smtp.password = smtpPass
+      }
+      saveAccounts(this.accounts)
+    }
+
     console.log('[EmailGateway] Custom IMAP+SMTP account saved:', account.id, account.email)
     return this.toAccountInfo(account)
   }
