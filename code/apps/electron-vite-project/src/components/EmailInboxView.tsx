@@ -1096,8 +1096,8 @@ export default function EmailInboxView({
     deleteMessages,
     setCategory,
     syncAllAccounts,
-    toggleAutoSync,
-    loadSyncState,
+    toggleAutoSyncForActiveAccounts,
+    refreshInboxSyncBackendState,
     accountSyncWindowDays,
     patchAccountSyncPreferences,
   } = useEmailInboxStore()
@@ -1105,10 +1105,14 @@ export default function EmailInboxView({
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
+  const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
 
   useEffect(() => {
-    if (primaryAccountId) loadSyncState(primaryAccountId)
-  }, [primaryAccountId, loadSyncState])
+    void refreshInboxSyncBackendState({
+      syncTargetIds: autoSyncEligibleAccountIds,
+      primaryAccountId: primaryAccountId ?? null,
+    })
+  }, [autoSyncEligibleAccountIds, primaryAccountId, refreshInboxSyncBackendState])
 
   useEffect(() => {
     setAiPanelCollapsed(false)
@@ -1301,6 +1305,14 @@ export default function EmailInboxView({
       await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
     },
     [primaryAccountId, patchAccountSyncPreferences],
+  )
+
+  const handleToggleAutoSyncAll = useCallback(
+    (enabled: boolean) => {
+      if (autoSyncEligibleAccountIds.length === 0) return
+      void toggleAutoSyncForActiveAccounts(enabled, autoSyncEligibleAccountIds, primaryAccountId ?? null)
+    },
+    [autoSyncEligibleAccountIds, primaryAccountId, toggleAutoSyncForActiveAccounts],
   )
 
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
@@ -1649,7 +1661,8 @@ export default function EmailInboxView({
           onUnifiedSync={() => void handleUnifiedSync()}
           accountSyncWindowDays={accountSyncWindowDays}
           onSyncWindowChange={handleSyncWindowChange}
-          onToggleAutoSync={toggleAutoSync}
+          autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
+          onToggleAutoSync={handleToggleAutoSyncAll}
           pullOnly={inboxToolbarPullOnly}
           bulkMode={bulkMode}
           onBulkModeChange={setBulkMode}

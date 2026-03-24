@@ -9,8 +9,11 @@ export interface EmailInboxSyncControlsProps {
   accountSyncWindowDays: number
   onSyncWindowChange: (days: number) => void | Promise<void>
   primaryAccountId: string | null | undefined
+  /** Active (or fallback) account rows that participate in Pull / Auto-sync. */
+  autoSyncEligibleAccountIds: string[]
   autoSyncEnabled: boolean
-  onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  /** When true, enables background pull for every id in `autoSyncEligibleAccountIds`. */
+  onToggleAutoSync: (enabled: boolean) => void
   onUnifiedSync: () => void
   syncing: boolean
   remoteSyncBusy: boolean
@@ -27,6 +30,7 @@ export default function EmailInboxSyncControls({
   accountSyncWindowDays,
   onSyncWindowChange,
   primaryAccountId,
+  autoSyncEligibleAccountIds,
   autoSyncEnabled,
   onToggleAutoSync,
   onUnifiedSync,
@@ -54,12 +58,13 @@ export default function EmailInboxSyncControls({
         <option value={90}>90d</option>
         <option value={365}>1y</option>
       </select>
-      <label className="bulk-view-sync-label bulk-view-sync-label--compact" title="Auto-sync every few minutes">
+      <label className="bulk-view-sync-label bulk-view-sync-label--compact" title="Auto-sync every few minutes (all connected accounts)">
         <input
           type="checkbox"
           checked={autoSyncEnabled}
+          disabled={autoSyncEligibleAccountIds.length === 0}
           onChange={() => {
-            if (primaryAccountId) onToggleAutoSync(primaryAccountId, !autoSyncEnabled)
+            if (autoSyncEligibleAccountIds.length > 0) onToggleAutoSync(!autoSyncEnabled)
           }}
         />
         Auto

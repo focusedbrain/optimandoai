@@ -186,7 +186,7 @@ interface EmailInboxState {
   bulkCompactMode: boolean
   bulkAiOutputs: AiOutputs
   autoSyncEnabled: boolean
-  /** Account sync window (days); 0 = all mail. Loaded with `loadSyncState`. */
+  /** Account sync window (days); 0 = all mail. Loaded from the primary account row. */
   accountSyncWindowDays: number
   syncing: boolean
   lastSyncAt: string | null
@@ -263,9 +263,21 @@ interface EmailInboxState {
   ) => Promise<boolean>
   /** Pull for each account (sequential IPC); one UI refresh at the end. */
   syncAllAccounts: (accountIds: string[]) => Promise<void>
+  /** Enable/disable background pull for every eligible account (not just the default row). */
+  toggleAutoSyncForActiveAccounts: (
+    enabled: boolean,
+    accountIds: string[],
+    primaryAccountId: string | null,
+  ) => Promise<void>
+  /** Single-account IPC (legacy); prefer `toggleAutoSyncForActiveAccounts` from Inbox UI. */
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<void>
-  /** Load autoSyncEnabled from backend for the given account. Call when Inbox view mounts. */
+  /** Load sync window from `primaryAccountId` only. */
   loadSyncState: (accountId: string) => Promise<void>
+  /** Auto checkbox = all `syncTargetIds` have auto_sync on; window prefs from primary. */
+  refreshInboxSyncBackendState: (opts: {
+    syncTargetIds: string[]
+    primaryAccountId: string | null
+  }) => Promise<void>
   setAnalysisCache: (messageId: string, result: NormalInboxAiResult) => void
   clearAnalysisCache: () => void
   /** Pass `{ toggle: true }` so a second call with the same id clears selection (bulk draft chrome). Omit or false = always select that id. */
@@ -1574,6 +1586,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
+  toggleAutoSyncForActiveAccounts: async (enabled, accountIds, primaryAccountId) => {
+    const bridge = getBridge()
+    if (!bridge?.toggleAutoSync || accountIds.length === 0) return
+    for (const id of accountIds) {
+      await bridge.toggleAutoSync(id, enabled)
+    }
+    await get().refreshInboxSyncBackendState({ syncTargetIds: accountIds, primaryAccountId })
+  },
+
   toggleAutoSync: async (accountId, enabled) => {
     const bridge = getBridge()
     if (!bridge?.toggleAutoSync) return
@@ -1583,28 +1604,45 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
+  refreshInboxSyncBackendState: async ({ syncTargetIds, primaryAccountId }) => {
+    const bridge = getBridge()
+    if (!bridge?.getSyncState) return
+    try {
+      let allOn = syncTargetIds.length > 0
+      for (const id of syncTargetIds) {
+        const res = await bridge.getSyncState(id)
+        const row =
+          res.ok && res.data
+            ? (res.data as { auto_sync_enabled?: number; syncPreferences?: { syncWindowDays?: number } })
+            : null
+        if (!row || row.auto_sync_enabled !== 1) allOn = false
+      }
+      let days: number | undefined
+      if (primaryAccountId) {
+        const res = await bridge.getSyncState(primaryAccountId)
+        if (res.ok && res.data) {
+          const sp = (res.data as { syncPreferences?: { syncWindowDays?: number } }).syncPreferences
+          if (typeof sp?.syncWindowDays === 'number') days = sp.syncWindowDays
+        }
+      }
+      set({
+        autoSyncEnabled: syncTargetIds.length > 0 && allOn,
+        ...(typeof days === 'number' ? { accountSyncWindowDays: days } : {}),
+      })
+    } catch {
+      /* ignore */
+    }
+  },
+
   loadSyncState: async (accountId) => {
     const bridge = getBridge()
     if (!bridge?.getSyncState) return
     try {
       const res = await bridge.getSyncState(accountId)
-      if (!res.ok) return
-      if (res.data) {
-        const row = res.data as {
-          auto_sync_enabled?: number
-          syncPreferences?: { syncWindowDays?: number }
-        }
-        const days =
-          typeof row.syncPreferences?.syncWindowDays === 'number'
-            ? row.syncPreferences.syncWindowDays
-            : undefined
-        set({
-          autoSyncEnabled: row.auto_sync_enabled === 1,
-          ...(days !== undefined ? { accountSyncWindowDays: days } : {}),
-        })
-      } else {
-        set({ autoSyncEnabled: false })
-      }
+      if (!res.ok || !res.data) return
+      const row = res.data as { syncPreferences?: { syncWindowDays?: number } }
+      const days = row.syncPreferences?.syncWindowDays
+      if (typeof days === 'number') set({ accountSyncWindowDays: days })
     } catch {
       /* ignore */
     }

@@ -1550,8 +1550,8 @@ export default function EmailInboxBulkView({
     autoSyncEnabled,
     syncing,
     syncAllAccounts,
-    toggleAutoSync,
-    loadSyncState,
+    toggleAutoSyncForActiveAccounts,
+    refreshInboxSyncBackendState,
     accountSyncWindowDays,
     patchAccountSyncPreferences,
     editingDraftForMessageId,
@@ -1605,8 +1605,8 @@ export default function EmailInboxBulkView({
       autoSyncEnabled: s.autoSyncEnabled,
       syncing: s.syncing,
       syncAllAccounts: s.syncAllAccounts,
-      toggleAutoSync: s.toggleAutoSync,
-      loadSyncState: s.loadSyncState,
+      toggleAutoSyncForActiveAccounts: s.toggleAutoSyncForActiveAccounts,
+      refreshInboxSyncBackendState: s.refreshInboxSyncBackendState,
       accountSyncWindowDays: s.accountSyncWindowDays,
       patchAccountSyncPreferences: s.patchAccountSyncPreferences,
       editingDraftForMessageId: s.editingDraftForMessageId,
@@ -1621,6 +1621,7 @@ export default function EmailInboxBulkView({
   )
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
+  const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
   const tabCounts = useMemo(() => {
@@ -1635,8 +1636,11 @@ export default function EmailInboxBulkView({
   }, [storeTabCounts])
 
   useEffect(() => {
-    if (primaryAccountId) loadSyncState(primaryAccountId)
-  }, [primaryAccountId, loadSyncState])
+    void refreshInboxSyncBackendState({
+      syncTargetIds: autoSyncEligibleAccountIds,
+      primaryAccountId: primaryAccountId ?? null,
+    })
+  }, [autoSyncEligibleAccountIds, primaryAccountId, refreshInboxSyncBackendState])
 
   useEffect(() => {
     const unsub = window.emailInbox?.onNewMessages?.(() => {
@@ -1715,6 +1719,14 @@ export default function EmailInboxBulkView({
       await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
     },
     [primaryAccountId, patchAccountSyncPreferences],
+  )
+
+  const handleToggleAutoSyncAll = useCallback(
+    (enabled: boolean) => {
+      if (autoSyncEligibleAccountIds.length === 0) return
+      void toggleAutoSyncForActiveAccounts(enabled, autoSyncEligibleAccountIds, primaryAccountId ?? null)
+    },
+    [autoSyncEligibleAccountIds, primaryAccountId, toggleAutoSyncForActiveAccounts],
   )
 
   const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
@@ -4110,8 +4122,9 @@ export default function EmailInboxBulkView({
               accountSyncWindowDays={accountSyncWindowDays}
               onSyncWindowChange={handleSyncWindowChange}
               primaryAccountId={primaryAccountId}
+              autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
               autoSyncEnabled={autoSyncEnabled}
-              onToggleAutoSync={toggleAutoSync}
+              onToggleAutoSync={handleToggleAutoSyncAll}
               onUnifiedSync={() => void handleUnifiedSync()}
               syncing={syncing}
               remoteSyncBusy={remoteSyncBusy}

@@ -26,7 +26,8 @@ export interface EmailInboxToolbarProps {
   /** Current sync window in days (0 = all mail in DB). */
   accountSyncWindowDays?: number
   onSyncWindowChange: (days: number) => void | Promise<void>
-  onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  autoSyncEligibleAccountIds: string[]
+  onToggleAutoSync: (enabled: boolean) => void
   /** When every account is IMAP, primary button shows Pull (matches Bulk). */
   pullOnly: boolean
   bulkMode: boolean
@@ -64,6 +65,7 @@ export default function EmailInboxToolbar({
   onUnifiedSync,
   accountSyncWindowDays = 30,
   onSyncWindowChange,
+  autoSyncEligibleAccountIds,
   onToggleAutoSync,
   pullOnly,
   bulkMode: _bulkMode,
@@ -113,6 +115,7 @@ export default function EmailInboxToolbar({
             accountSyncWindowDays={accountSyncWindowDays}
             onSyncWindowChange={onSyncWindowChange}
             primaryAccountId={primaryAccountId}
+            autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
             autoSyncEnabled={autoSyncEnabled}
             onToggleAutoSync={onToggleAutoSync}
             onUnifiedSync={onUnifiedSync}
