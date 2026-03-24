@@ -21,11 +21,8 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
-import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
-import { sortSourceWeightingFromMessageRow } from '../lib/inboxSortSourceWeighting'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import '../components/handshakeViewTypes'
-import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 
 // ── Relative date ──
 
@@ -93,7 +90,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
-      const sortW = message ? sortSourceWeightingFromMessageRow(message) : undefined
       const tri = reconcileAnalyzeTriage(
         {
           urgencyScore: cached.urgencyScore,
@@ -101,8 +97,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           urgencyReason: cached.urgencyReason,
           summary: cached.summary,
         },
-        { subject: message?.subject, body: message?.body_text },
-        sortW
+        { subject: message?.subject, body: message?.body_text }
       )
       const cachedAdj = {
         ...cached,
@@ -173,7 +168,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisLoading(false)
       const final = tryParseAnalysis(accumulatedText)
       if (final) {
-        const sortW = message ? sortSourceWeightingFromMessageRow(message) : undefined
         const tri = reconcileAnalyzeTriage(
           {
             urgencyScore: final.urgencyScore,
@@ -181,8 +175,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             urgencyReason: final.urgencyReason,
             summary: final.summary,
           },
-          { subject: message?.subject, body: message?.body_text },
-          sortW
+          { subject: message?.subject, body: message?.body_text }
         )
         let adjusted = {
           ...final,
@@ -228,7 +221,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
     }
-  }, [messageId, message?.subject, message?.body_text, message?.source_type, message?.handshake_id])
+  }, [messageId, message?.subject, message?.body_text])
 
   useEffect(() => {
     if (!messageId) return
@@ -652,7 +645,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
                   {message && onSendDraft && !draftError && (
                     <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
-                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via Handshake'}
+                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
                     </button>
                   )}
                 </div>
@@ -677,7 +670,6 @@ interface InboxMessageRowProps {
   onSelect: () => void
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
-  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 function InboxMessageRow({
@@ -688,9 +680,8 @@ function InboxMessageRow({
   onSelect,
   onToggleMultiSelect,
   onMouseEnter,
-  onNavigateToHandshake,
 }: InboxMessageRowProps) {
-  const isHandshakeKind = deriveInboxMessageKind(message) === 'handshake'
+  const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -737,16 +728,15 @@ function InboxMessageRow({
             lineHeight: 1,
             color: 'var(--purple-accent, #a78bfa)',
           }}
-          title="Focused — chat/search scoped to this message"
+          title="Focused message — chat/search scoped to this BEAP message"
           aria-hidden
         >
           👉
         </span>
       )}
 
-      {/* Kind badge (aligned with Type filter: Handshake vs Depackaged) */}
+      {/* Source badge */}
       <div
-        title={isHandshakeKind ? 'Handshake' : 'Depackaged'}
         style={{
           flexShrink: 0,
           width: 24,
@@ -757,11 +747,11 @@ function InboxMessageRow({
           justifyContent: 'center',
           fontSize: 12,
           fontWeight: 700,
-          background: isHandshakeKind ? 'var(--purple-accent, #9333ea)' : 'rgba(107,114,128,0.5)',
+          background: isBeap ? 'var(--purple-accent, #9333ea)' : 'rgba(107,114,128,0.5)',
           color: '#fff',
         }}
       >
-        {isHandshakeKind ? 'B' : '✉'}
+        {isBeap ? 'B' : '✉'}
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -842,9 +832,19 @@ function InboxMessageRow({
               {message.sort_category}
             </span>
           )}
-          {onNavigateToHandshake ? (
-            <InboxHandshakeNavIconButton message={message} onNavigateToHandshake={onNavigateToHandshake} />
-          ) : null}
+          {message.handshake_id && (
+            <span
+              style={{
+                fontSize: 9,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
+                color: 'var(--purple-accent, #9333ea)',
+              }}
+            >
+              🤝
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -859,8 +859,6 @@ export interface EmailInboxViewProps {
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
   onSelectAttachment?: (attachmentId: string | null) => void
-  /** Open Handshakes view and select this relationship (when message has navigable handshake id). */
-  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxView({
@@ -869,7 +867,6 @@ export default function EmailInboxView({
   onSelectMessage,
   selectedAttachmentId: selectedAttachmentIdProp,
   onSelectAttachment,
-  onNavigateToHandshake,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -1517,7 +1514,6 @@ export default function EmailInboxView({
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
-                onNavigateToHandshake={onNavigateToHandshake}
               />
             ))
           )}
