@@ -422,18 +422,26 @@ async function syncAccountEmailsImpl(
         ...(windowStartIso ? { fromDate: windowStartIso } : {}),
       }
     } else {
-      /** Incremental: only messages newer than last successful sync (auto-sync + manual Pull after bootstrap). */
+      /**
+       * Incremental: start slightly before `last_sync_at` so IMAP SINCE / Graph `ge` / Gmail `after:`
+       * do not drop mail on the same clock tick as the anchor. Overlap rows dedupe via `existingIds`.
+       */
+      const overlapMs = 60_000
+      const anchorMs = new Date(lastSyncAt as string).getTime()
+      const incrementalFrom = Number.isNaN(anchorMs)
+        ? (lastSyncAt as string)
+        : new Date(anchorMs - overlapMs).toISOString()
       listOptions = {
         limit: 200,
         syncFetchAllPages: true,
-        fromDate: lastSyncAt as string,
+        fromDate: incrementalFrom,
       }
     }
 
     emailDebugLog('[SYNC-DEBUG] listOptions for provider listMessages', {
       accountId,
       mode: pullMore ? 'pullMore' : bootstrap ? 'bootstrap' : 'incremental',
-      incrementalUsesLastSyncAt: !pullMore && !bootstrap ? (lastSyncAt as string) : null,
+      last_sync_at_anchor: !pullMore && !bootstrap ? (lastSyncAt as string) : null,
       fromDate: listOptions.fromDate ?? null,
       toDate: listOptions.toDate ?? null,
       syncMaxMessages: listOptions.syncMaxMessages,
