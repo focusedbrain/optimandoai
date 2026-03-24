@@ -1875,7 +1875,7 @@ body {
 
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-message,
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-ai {
-  min-height: 120px;
+  min-height: 200px;
 }
 
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-message-inner,
@@ -2034,7 +2034,8 @@ body {
 
 .bulk-view--compact .bulk-action-card-main-summary-body {
   font-size: 10px;
-  max-height: min(20vh, 140px);
+  max-height: none;
+  overflow: visible;
 }
 
 .bulk-view--compact .bulk-action-card-main-summary-loading,
@@ -2156,10 +2157,9 @@ body {
 }
 
 /*
- * Compact collapsed rows (Prompt 28): scrollport is .bulk-action-card-content-scroll (body only).
- * .bulk-action-card-buttons is a sibling — always visible; row max-height unchanged.
+ * Compact collapsed (Prompt 29): single scroll on .bulk-action-card-body; footers stay fixed.
  */
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll {
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
   flex: 1 1 0%;
   min-height: 0;
   overflow-x: hidden;
@@ -2168,19 +2168,13 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll::-webkit-scrollbar {
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body::-webkit-scrollbar {
   width: 3px;
 }
 
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-content-scroll::-webkit-scrollbar-thumb {
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body::-webkit-scrollbar-thumb {
   background: #d1d5db;
   border-radius: 3px;
-}
-
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-body {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow: visible;
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections,
@@ -2197,7 +2191,7 @@ body {
   overflow: visible;
 }
 
-/* Draft toolbar is a sibling of .bulk-action-card-content-scroll (Prompt 28); same fixed footer as .bulk-action-card-buttons */
+/* Draft toolbar is a sibling of .bulk-action-card-body (Prompt 29); same fixed footer as .bulk-action-card-buttons */
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured > .bulk-draft-actions-toolbar-wrap {
   display: flex;
   flex-direction: column;
@@ -2232,15 +2226,16 @@ body {
   overflow: hidden;
 }
 
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--loading .bulk-action-card-state-content,
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--failure .bulk-action-card-state-content,
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--guidance .bulk-action-card-state-content,
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--fallback .bulk-action-card-fallback-content {
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--loading .bulk-action-card-body,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--failure .bulk-action-card-body,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--guidance .bulk-action-card-body,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--fallback .bulk-action-card-body {
   flex: 1 1 0%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .bulk-view-compact-hint {
@@ -3821,8 +3816,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: visible;
 }
 
 .bulk-action-card-state-label {
@@ -3866,7 +3862,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 0;
   padding: 8px 0 var(--bulk-footer-pad-y);
   border-top: 1px solid var(--bulk-footer-divider, #e8edf3);
   background: var(--bulk-footer-bg, linear-gradient(180deg, #fafbfc 0%, #ffffff 100%));
@@ -3903,11 +3899,12 @@ body {
 }
 
 .bulk-action-card-fallback-content {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: visible;
 }
 
 /* --- Bulk Action Card (structured AI output) --- */
@@ -3923,39 +3920,57 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
-/* Prompt 28: card is flex column; scroll lives in .bulk-action-card-content-scroll only; .bulk-action-card-buttons is a fixed sibling */
+/* Prompt 29: card flex column; ONLY .bulk-action-card-body scrolls; footers (.bulk-action-card-buttons / draft toolbar) are siblings */
 .bulk-action-card.bulk-action-card--structured {
   overflow: hidden;
   height: 100%;
-}
-
-/* Scroll shell: compact collapsed uses this as the scrollport so footer toolbars can stick; other modes delegate scroll to body/sections */
-.bulk-action-card--structured .bulk-action-card-content-scroll {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0%;
   min-height: 0;
-  overflow: hidden;
-}
-
-/* Content stack (autosort + header + scrollable sections) — separate from footer button row so controls stay anchored */
-.bulk-action-card--structured .bulk-action-card-body {
-  flex: 1 1 0%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.bulk-action-card--expanded {
-  gap: 8px;
 }
 
 .bulk-action-card--loading,
+.bulk-action-card--failure,
+.bulk-action-card--fallback,
 .bulk-action-card--guidance {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Single scrollport for all card variants that use .bulk-action-card-body */
+.bulk-action-card--structured .bulk-action-card-body,
+.bulk-action-card--loading .bulk-action-card-body,
+.bulk-action-card--failure .bulk-action-card-body,
+.bulk-action-card--fallback .bulk-action-card-body,
+.bulk-action-card--guidance .bulk-action-card-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.bulk-action-card-body::-webkit-scrollbar {
+  width: 3px;
+}
+
+.bulk-action-card-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+.bulk-action-card-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bulk-action-card--expanded {
+  gap: 8px;
 }
 
 .bulk-action-card-header {
@@ -3973,41 +3988,39 @@ body {
   text-transform: uppercase;
 }
 
-/* Structured sections — flex column; recommended action + draft; draft gets full space when present */
+/* Structured sections — natural height; card body is the only vertical scroll */
 .bulk-action-card--structured .bulk-action-card-sections {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
   width: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
+  overflow: visible;
   animation: bulk-action-card-reveal 0.18s ease-out;
 }
 .bulk-action-card--structured .bulk-action-card-sections--has-draft {
-  overflow: hidden;  /* draft region flex: 1 fills; no scroll on container */
-  flex: 1 1 0%;
+  overflow: visible;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
-/* Manual Draft / draft-only: hide analysis chrome — card + sections + draft chain must consume full AI column */
+/* Manual Draft / draft-only: hide analysis chrome */
 .bulk-action-card--structured.bulk-action-card--draft-compose-focus {
   flex: 1 1 0%;
   min-height: 0;
 }
 .bulk-action-card--structured.bulk-action-card--draft-compose-focus .bulk-action-card-sections--has-draft {
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
+  overflow: visible;
 }
-/* Same flex shell whenever a draft exists — not only draft-compose-focus — so toolbar stays pinned */
 .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-draft-pane-with-toolbar {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .bulk-draft-show-analysis-btn {
   flex-shrink: 0;
@@ -4026,33 +4039,17 @@ body {
   border-color: #a78bfa;
 }
 
-/* When draft exists: “Why / reasoning” can be huge — cap & scroll so the draft pane gets real height */
+/* Recommended + reasoning flow in the card body scroll (Prompt 29 — no inner scroll / max-height) */
 .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
   flex: 0 1 auto;
-  flex-shrink: 1;
   min-height: 0;
-  /* vh/px so this works even when % max-height can’t resolve from parent */
-  max-height: min(36vh, 280px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-/* Collapsed bulk row (~320px content): give the draft editor flex space — tight “recommended” + chrome */
-.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
-  max-height: min(11vh, 68px);
-  padding-top: 2px;
-  padding-bottom: 2px;
-}
-
-/* Compact + collapsed: unified scroll on .bulk-action-card-body — do not cap recommended row (avoids tiny nested scroll). */
-.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
   max-height: none;
   overflow: visible;
-  min-height: 0;
 }
-.bulk-view--compact .bulk-view-row--expanded .bulk-action-card--structured .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
-  max-height: min(30vh, 180px);
+
+.bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections--has-draft > .bulk-action-card-row--recommended {
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 .bulk-action-card--structured:not(.bulk-action-card--expanded) .bulk-action-card-sections {
@@ -4090,13 +4087,23 @@ body {
   min-height: 0;
 }
 
-/* Scrolls the draft card body; action toolbar is a sibling of .bulk-action-card-content-scroll on .bulk-action-card */
+/* Draft chrome stacks in document flow; .bulk-action-card-body scrolls overflow */
 .bulk-draft-pane-scroll-region {
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
+}
+
+.bulk-action-card .bulk-draft-editor-textarea {
+  max-height: none;
+  box-sizing: border-box;
+}
+
+.bulk-action-card .bulk-action-card-reasoning-box {
+  overflow: visible;
+  max-height: none;
 }
 
 .bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card-sections--has-draft .bulk-action-card-main-summary {
@@ -4392,8 +4399,9 @@ body {
   color: #0f172a;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: min(28vh, 220px);
-  overflow-y: auto;
+  overflow: visible;
+  height: auto;
+  max-height: none;
 }
 
 .bulk-action-card-main-summary-loading {
@@ -4556,9 +4564,10 @@ body {
 .bulk-action-card-reasoning {
   font-size: 13px;
   line-height: 1.5;
-  color: #334155;
   color: #1e293b;
   font-weight: 500;
+  overflow: visible;
+  max-height: none;
 }
 
 .bulk-action-card-row-draft .bulk-action-card-row-value {
@@ -4742,8 +4751,8 @@ body {
   color: #1e293b;
   white-space: pre-wrap;
   word-break: break-word;
-  overflow-y: auto;
-  flex: 1;
+  overflow: visible;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
@@ -4759,7 +4768,7 @@ body {
 
 .bulk-action-card-summary--expanded {
   white-space: pre-wrap;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .bulk-action-card-reason {

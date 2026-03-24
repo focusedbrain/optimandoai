@@ -884,7 +884,6 @@ function BulkActionCardStructured({
       className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
       style={{ borderLeftColor: effectiveBorderColor }}
     >
-      <div className="bulk-action-card-content-scroll">
       <div className="bulk-action-card-body">
       {output.autosortOutcome === 'retained' && output.autosortRetainExplanation ? (
         <div
@@ -1261,10 +1260,10 @@ function BulkActionCardStructured({
                   </span>
                 ) : null}
                 <div
-                  className="flex min-h-0 w-full flex-1 flex-col p-4 bulk-draft-editor-shell"
+                  className={`w-full flex-col p-4 bulk-draft-editor-shell ${isExpanded ? 'flex min-h-0 flex-1' : 'flex'}`}
                   style={{
-                    flex: 1,
-                    minHeight: 0,
+                    flex: isExpanded ? 1 : '0 1 auto',
+                    minHeight: isExpanded ? 0 : undefined,
                     width: '100%',
                     padding: isExpanded ? 16 : 6,
                     display: 'flex',
@@ -1273,10 +1272,10 @@ function BulkActionCardStructured({
                   }}
                 >
                   <div
-                    className="flex min-h-0 w-full flex-1 flex-col bulk-draft-editor-frame"
+                    className={`w-full flex-col bulk-draft-editor-frame ${isExpanded ? 'flex min-h-0 flex-1' : 'flex'}`}
                     style={{
-                      flex: 1,
-                      minHeight: 0,
+                      flex: isExpanded ? 1 : '0 1 auto',
+                      minHeight: isExpanded ? 0 : undefined,
                       width: '100%',
                       display: 'flex',
                       flexDirection: 'column',
@@ -1287,7 +1286,7 @@ function BulkActionCardStructured({
                     }}
                   >
                     <textarea
-                      className={`h-full w-full resize-none overflow-y-auto bulk-draft-editor-textarea ${isExpanded ? 'min-h-[260px]' : 'min-h-0'}`}
+                      className={`bulk-draft-editor-textarea w-full max-w-full ${isExpanded ? 'min-h-[260px] h-full flex-1 resize-none overflow-y-auto' : 'min-h-[120px] resize-y overflow-y-visible'}`}
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -1309,11 +1308,11 @@ function BulkActionCardStructured({
                       placeholder="Edit draft before sending…"
                       style={{
                         width: '100%',
-                        height: '100%',
-                        minHeight: isExpanded ? 260 : 48,
-                        flex: 1,
-                        resize: 'none',
-                        overflowY: 'auto',
+                        height: isExpanded ? '100%' : 'auto',
+                        minHeight: isExpanded ? 260 : 120,
+                        flex: isExpanded ? 1 : undefined,
+                        resize: isExpanded ? 'none' : 'vertical',
+                        overflowY: isExpanded ? 'auto' : 'visible',
                         borderRadius: 12,
                         background: '#f8fafc',
                         padding: isExpanded ? '12px 16px' : '6px 10px',
@@ -1364,7 +1363,6 @@ function BulkActionCardStructured({
             </div>
           </div>
         )}
-      </div>
       </div>
       </div>
       {hasDraftText ? (
@@ -3584,9 +3582,11 @@ export default function EmailInboxBulkView({
       if (output?.loading) {
         return (
           <div className="bulk-action-card bulk-action-card--loading">
-            <div className="bulk-action-card-state-content">
-              <span className="bulk-action-card-state-label">Analyzing</span>
-              <span className="bulk-action-card-state-detail">AI is processing this message…</span>
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-state-content">
+                <span className="bulk-action-card-state-label">Analyzing</span>
+                <span className="bulk-action-card-state-detail">AI is processing this message…</span>
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -3644,9 +3644,11 @@ export default function EmailInboxBulkView({
                   : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
-            <div className="bulk-action-card-state-content bulk-action-card-failure-content">
-              <span className="bulk-action-card-state-label bulk-action-card-failure-label">{failTitle}</span>
-              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{failDetail}</span>
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-state-content bulk-action-card-failure-content">
+                <span className="bulk-action-card-state-label bulk-action-card-failure-label">{failTitle}</span>
+                <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{failDetail}</span>
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -3741,7 +3743,8 @@ export default function EmailInboxBulkView({
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
-            <div className="bulk-action-card-fallback-content">
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-fallback-content">
               {(output.summaryError || output.draftError) && (
                 <div className="bulk-action-card-error-banner">
                   {output.summaryError && (
@@ -3767,6 +3770,7 @@ export default function EmailInboxBulkView({
                   <div className="bulk-action-card-row-value">{output.summary}</div>
                 </div>
               )}
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -3827,11 +3831,13 @@ export default function EmailInboxBulkView({
       const guidanceAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
       return (
         <div className="bulk-action-card bulk-action-card--guidance">
-          <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
-            <span className="bulk-action-card-state-label bulk-action-card-guidance-label">Not yet analyzed</span>
-            <span className="bulk-action-card-state-detail bulk-action-card-guidance-detail">
-              This message has not been analyzed. Select messages above and click <strong>AI Auto-Sort</strong> in the toolbar to analyze the batch, or use per-message actions below.
-            </span>
+          <div className="bulk-action-card-body">
+            <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
+              <span className="bulk-action-card-state-label bulk-action-card-guidance-label">Not yet analyzed</span>
+              <span className="bulk-action-card-state-detail bulk-action-card-guidance-detail">
+                This message has not been analyzed. Select messages above and click <strong>AI Auto-Sort</strong> in the toolbar to analyze the batch, or use per-message actions below.
+              </span>
+            </div>
           </div>
           <div className="bulk-action-card-actions-row bulk-action-card-actions-row--secondary">
             {showUndo && (
