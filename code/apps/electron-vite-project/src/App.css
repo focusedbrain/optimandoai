@@ -898,6 +898,13 @@ body {
   border-bottom: none;
 }
 
+.inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar .inbox-detail-ai-section-toggle {
+  padding: 6px 8px;
+  font-size: 10px;
+  justify-content: center;
+  flex: none;
+}
+
 .inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar .inbox-detail-ai-action-btn {
   padding: 6px 8px;
   font-size: 10px;
@@ -1555,6 +1562,72 @@ body {
   flex-shrink: 0;
   margin-bottom: 14px;
   box-sizing: border-box;
+  align-items: stretch;
+}
+
+/* Section toggle buttons with checkbox (multi-select visibility) */
+.inbox-detail-ai-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border: 1px solid #e2e5e9;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #4a5568;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 30px;
+  transition: all 0.15s ease;
+  flex: 1;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.inbox-detail-ai-section-toggle:hover {
+  background: #f7f8fa;
+  border-color: #cbd2d9;
+}
+
+.inbox-detail-ai-section-toggle--active {
+  background: #f5f0ff;
+  color: #6d28d9;
+  border-color: #c4b5fd;
+  font-weight: 600;
+}
+
+.inbox-detail-ai-section-toggle--active:hover {
+  background: #ede9fe;
+  border-color: #a78bfa;
+}
+
+.inbox-detail-ai-section-toggle-check {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.inbox-detail-ai-section-toggle--active .inbox-detail-ai-section-toggle-check {
+  opacity: 1;
+  color: #7c3aed;
+}
+
+.inbox-detail-ai-section-toggle:not(.inbox-detail-ai-section-toggle--active) {
+  opacity: 0.7;
+}
+
+.inbox-detail-ai-section-toggle:not(.inbox-detail-ai-section-toggle--active):hover {
+  opacity: 1;
+}
+
+.inbox-detail-ai-action-bar-delete {
+  flex: 0 0 auto;
+  min-width: 36px;
+  padding: 4px 10px;
+  justify-content: center;
 }
 
 .inbox-detail-ai-action-btn {
@@ -1592,18 +1665,6 @@ body {
 .inbox-detail-ai-action-btn--danger:hover {
   background: #fef2f2;
   border-color: #f87171;
-}
-
-.inbox-detail-ai-action-btn--active {
-  background: #7c3aed;
-  color: #ffffff;
-  border-color: #7c3aed;
-  font-weight: 600;
-}
-
-.inbox-detail-ai-action-btn--active:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
 }
 
 .inbox-detail-ai-section--tab-panel {

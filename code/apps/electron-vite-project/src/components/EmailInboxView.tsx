@@ -91,7 +91,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [draftSubFocused, setDraftSubFocused] = useState(false)
-  const [activeAiSection, setActiveAiSection] = useState<'analysis' | 'summary' | 'draft'>('analysis')
+  const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -257,16 +257,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setEditedDraft('')
     setActionChecked({})
     setDraftSubFocused(false)
+    setVisibleSections(new Set(['summary', 'draft', 'analysis']))
     draftRefineDisconnect()
     runAnalysisStream()
     return () => {
       streamCleanupRef.current?.()
     }
   }, [messageId, runAnalysisStream, draftRefineDisconnect])
-
-  useEffect(() => {
-    setActiveAiSection('analysis')
-  }, [messageId])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -467,6 +464,20 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setActionChecked((prev) => ({ ...prev, [idx]: !prev[idx] }))
   }, [])
 
+  const toggleSection = useCallback((section: string) => {
+    setVisibleSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) {
+        if (next.size > 1) {
+          next.delete(section)
+        }
+      } else {
+        next.add(section)
+      }
+      return next
+    })
+  }, [])
+
   const isDepackaged = message?.source_type === 'email_plain'
 
   return (
@@ -474,49 +485,66 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       <div className="inbox-detail-ai-action-bar">
         <button
           type="button"
-          className={`inbox-detail-ai-action-btn${activeAiSection === 'summary' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('summary') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
           onClick={() => {
-            setActiveAiSection('summary')
-            const hasSummary = !!(analysis?.summary ?? '').trim()
-            if (!hasSummary && !summarizeLoading) void handleSummarize()
+            const willShow = !visibleSections.has('summary')
+            toggleSection('summary')
+            if (willShow && !(analysis?.summary ?? '').trim() && !summarizeLoading) {
+              void handleSummarize()
+            }
           }}
-          aria-label="Show summary"
-          aria-pressed={activeAiSection === 'summary'}
+          aria-pressed={visibleSections.has('summary')}
+          aria-label="Toggle summary section"
         >
-          {summarizeLoading ? '…' : '✨ Summary'}
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('summary') ? '☑' : '☐'}
+          </span>
+          <span>Summary</span>
         </button>
         <button
           type="button"
-          className={`inbox-detail-ai-action-btn${activeAiSection === 'draft' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('draft') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
           onClick={() => {
-            setActiveAiSection('draft')
-            if (!draft && !draftLoading) void handleDraftReply()
+            const willShow = !visibleSections.has('draft')
+            toggleSection('draft')
+            if (willShow && !draft && !draftLoading) {
+              void handleDraftReply()
+            }
           }}
-          aria-label="Show draft reply"
-          aria-pressed={activeAiSection === 'draft'}
+          aria-pressed={visibleSections.has('draft')}
+          aria-label="Toggle draft section"
         >
-          {draftLoading ? '…' : '✏️ Draft'}
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('draft') ? '☑' : '☐'}
+          </span>
+          <span>Draft</span>
         </button>
         <button
           type="button"
-          className={`inbox-detail-ai-action-btn${activeAiSection === 'analysis' ? ' inbox-detail-ai-action-btn--active' : ''}`}
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('analysis') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
           onClick={() => {
-            setActiveAiSection('analysis')
-            if (!analysis && !analysisLoading) void runAnalysisStream()
+            const willShow = !visibleSections.has('analysis')
+            toggleSection('analysis')
+            if (willShow && !analysis && !analysisLoading) {
+              void runAnalysisStream()
+            }
           }}
-          aria-label="Show analysis"
-          aria-pressed={activeAiSection === 'analysis'}
+          aria-pressed={visibleSections.has('analysis')}
+          aria-label="Toggle analysis section"
         >
-          {analysisLoading ? '…' : '🔍 Analysis'}
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('analysis') ? '☑' : '☐'}
+          </span>
+          <span>Analysis</span>
         </button>
         {onDelete && messageId ? (
           <button
             type="button"
-            className="inbox-detail-ai-action-btn inbox-detail-ai-action-btn--danger"
+            className="inbox-detail-ai-action-btn inbox-detail-ai-action-btn--danger inbox-detail-ai-action-bar-delete"
             onClick={handleDelete}
             aria-label="Delete email"
           >
-            🗑️ Delete
+            🗑️
           </button>
         ) : null}
       </div>
@@ -528,7 +556,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {activeAiSection === 'analysis' && (
+        {visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="ai-analysis-body">
             {/* Response Needed */}
@@ -636,7 +664,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {activeAiSection === 'summary' && (
+        {visibleSections.has('summary') && !visibleSections.has('analysis') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div className="inbox-detail-ai-section-heading">SUMMARY</div>
             <div className="inbox-detail-ai-section-body" ref={summaryRef}>
@@ -647,7 +675,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
               ) : (analysis?.summary ?? '').trim() ? (
                 <span className="inbox-detail-ai-text">{analysis?.summary}</span>
               ) : (
-                <span className="inbox-detail-ai-muted">Click Summary to generate…</span>
+                <span className="inbox-detail-ai-muted">Use the Summary checkbox to generate…</span>
               )}
             </div>
             <div className="inbox-detail-ai-row">
@@ -669,7 +697,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {activeAiSection === 'draft' && (
+        {visibleSections.has('draft') && (
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
       <div
         className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
@@ -745,44 +773,46 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   ))}
                 </div>
               )}
-              <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
-                <div className="bulk-draft-actions-toolbar">
-                  {isDepackaged && (
-                    <button
-                      type="button"
-                      className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                      onClick={handleAddAttachment}
-                      title="Add attachment"
-                    >
-                      📎 Attach
-                    </button>
-                  )}
-                  {message && onSendDraft && !draftError && (
-                    <button
-                      type="button"
-                      className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                      onClick={handleSend}
-                      disabled={sending}
-                    >
-                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                    </button>
-                  )}
-                  {onArchive && messageId ? (
-                    <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
-                      Archive
-                    </button>
-                  ) : null}
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
-                    Regenerate
-                  </button>
-                </div>
-              </div>
             </>
           ) : (
             <span className="inbox-detail-ai-muted">
-              {analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click “Draft” above to generate.'}
+              {analysis?.needsReply ? 'Draft will appear with analysis…' : 'Turn on the Draft checkbox above to generate.'}
             </span>
           )}
+          {visibleSections.has('draft') && draft ? (
+            <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+              <div className="bulk-draft-actions-toolbar">
+                {isDepackaged && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                    onClick={handleAddAttachment}
+                    title="Add attachment"
+                  >
+                    📎 Attach
+                  </button>
+                )}
+                {message && onSendDraft && !draftError && (
+                  <button
+                    type="button"
+                    className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                    onClick={handleSend}
+                    disabled={sending}
+                  >
+                    {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                  </button>
+                )}
+                {onArchive && messageId ? (
+                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
+                    Archive
+                  </button>
+                ) : null}
+                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
+                  Regenerate
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
           </div>
