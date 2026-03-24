@@ -65,6 +65,7 @@ import type {
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
 import { normalizeSecurityMode } from './domain/securityModeNormalize'
+import { emailDebugLog } from './emailDebug'
 
 /** New-account sync defaults; `syncWindowDays` 0 = all mail, else clamp to a sane range. */
 function normalizeNewAccountSyncWindowDays(syncWindowDays?: number): number {
@@ -486,6 +487,8 @@ class EmailGateway implements IEmailGateway {
       /** True when a non-empty password is in memory (passwords are never sent to the renderer). */
       hasImapPassword,
       hasSmtpPassword,
+      syncWindowDays:
+        typeof account.sync?.syncWindowDays === 'number' ? account.sync.syncWindowDays : undefined,
     }
   }
 
@@ -1117,6 +1120,8 @@ class EmailGateway implements IEmailGateway {
    */
   async connectCustomImapSmtpAccount(payload: CustomImapSmtpConnectPayload): Promise<EmailAccountInfo> {
     validateCustomImapSmtpPayload(payload)
+    /** Wizard / preload always send a number; normalize for API callers that omit the field. */
+    const connectSyncWindowDays = normalizeNewAccountSyncWindowDays(payload.syncWindowDays)
     const email = payload.email.trim()
     const imapUser = (payload.imapUsername?.trim() || email).trim()
     const imapPass = payload.imapPassword.trim()
@@ -1163,7 +1168,7 @@ class EmailGateway implements IEmailGateway {
         inbox: 'INBOX',
         sent: 'Sent'
       },
-      sync: newAccountSyncBlock(payload.syncWindowDays),
+      sync: newAccountSyncBlock(connectSyncWindowDays),
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -1243,11 +1248,22 @@ class EmailGateway implements IEmailGateway {
       const provider = await this.getConnectedProvider(account)
       const expand = (provider as ImapProvider).expandPullFoldersForSync
       if (typeof expand === 'function') {
-        return await expand.call(provider, baseLabels.length > 0 ? baseLabels : ['INBOX'])
+        const expanded = await expand.call(provider, baseLabels.length > 0 ? baseLabels : ['INBOX'])
+        emailDebugLog('[SYNC-DEBUG] resolveImapPullFoldersExpanded', {
+          accountId,
+          baseLabels,
+          expanded,
+        })
+        return expanded
       }
     } catch (e: any) {
       console.warn('[EmailGateway] resolveImapPullFoldersExpanded failed, using base labels:', e?.message || e)
     }
+    emailDebugLog('[SYNC-DEBUG] resolveImapPullFoldersExpanded fallback (non-IMAP or expand missing / error)', {
+      accountId,
+      baseLabels,
+      fallback,
+    })
     return fallback
   }
 
@@ -1368,27 +1384,25 @@ class EmailGateway implements IEmailGateway {
         }
       }
 
-      console.log('[IMAP-DEBUG] connect attempt:', {
+      emailDebugLog('[IMAP-DEBUG] connect attempt:', {
         provider: account.provider,
         host: account.imap?.host,
         port: account.imap?.port,
         security: account.imap?.security,
         username: account.imap?.username,
         hasPassword: !!account.imap?.password,
-        passwordLength: account.imap?.password?.length ?? 0,
         encrypted: account.imap?._encrypted,
       })
       await provider.connect(account)
       this.providers.set(account.id, provider)
     } else if (!provider.isConnected()) {
-      console.log('[IMAP-DEBUG] connect attempt:', {
+      emailDebugLog('[IMAP-DEBUG] connect attempt:', {
         provider: account.provider,
         host: account.imap?.host,
         port: account.imap?.port,
         security: account.imap?.security,
         username: account.imap?.username,
         hasPassword: !!account.imap?.password,
-        passwordLength: account.imap?.password?.length ?? 0,
         encrypted: account.imap?._encrypted,
       })
       await provider.connect(account)

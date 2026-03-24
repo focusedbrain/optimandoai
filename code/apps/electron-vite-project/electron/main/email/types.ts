@@ -438,6 +438,8 @@ export interface ImapReconnectHints {
   hasImapPassword?: boolean
   /** True when a non-empty SMTP password exists in main-process memory. */
   hasSmtpPassword?: boolean
+  /** Persisted Smart Sync window (for reconnect wizard; mirrors account.sync.syncWindowDays). */
+  syncWindowDays?: number
 }
 
 // =============================================================================

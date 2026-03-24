@@ -4,6 +4,7 @@
 
 import * as ImapMod from 'imap'
 import { imapUsesImplicitTls } from './domain/securityModeNormalize'
+import { emailDebugLog } from './emailDebug'
 
 const ImapCtor = (ImapMod as any).default ?? ImapMod
 
@@ -34,7 +35,7 @@ export function runDiagnoseImapStandalone(p: DiagnoseImapParams): Promise<Diagno
   const log = (line: string) => {
     const entry = `[${new Date().toISOString()}] ${line}`
     events.push(entry)
-    console.log('[email:diagnoseImap]', entry)
+    emailDebugLog('[email:diagnoseImap]', entry)
   }
 
   const implicitTls = imapUsesImplicitTls(p.security)

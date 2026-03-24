@@ -122,6 +122,8 @@ declare global {
         creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
       ) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
       deleteAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
+      /** Clears inbox DB sync cursor so the next Pull runs a full bootstrap window again. */
+      resetSyncState?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void

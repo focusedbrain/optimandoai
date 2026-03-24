@@ -111,7 +111,7 @@ function assertCustomMailboxPayload(v: unknown): {
   imapLifecyclePendingReviewMailbox?: string
   imapLifecyclePendingDeleteMailbox?: string
   imapLifecycleTrashMailbox?: string
-  syncWindowDays?: number
+  syncWindowDays: number
 } {
   if (!v || typeof v !== 'object') throw new Error('customMailbox: expected object')
   const o = v as Record<string, unknown>
@@ -144,7 +144,7 @@ function assertCustomMailboxPayload(v: unknown): {
   const lifeReview = optionalImapLifecycleMailbox(o.imapLifecyclePendingReviewMailbox, 'imapLifecyclePendingReviewMailbox')
   const lifeDelete = optionalImapLifecycleMailbox(o.imapLifecyclePendingDeleteMailbox, 'imapLifecyclePendingDeleteMailbox')
   const lifeTrash = optionalImapLifecycleMailbox(o.imapLifecycleTrashMailbox, 'imapLifecycleTrashMailbox')
-  let syncWindowDays: number | undefined
+  let syncWindowDays = 30
   if (o.syncWindowDays !== undefined && o.syncWindowDays !== null) {
     const n = typeof o.syncWindowDays === 'number' ? o.syncWindowDays : parseInt(String(o.syncWindowDays).trim(), 10)
     if (!Number.isInteger(n) || n < 0) {
@@ -170,7 +170,7 @@ function assertCustomMailboxPayload(v: unknown): {
     ...(lifeReview ? { imapLifecyclePendingReviewMailbox: lifeReview } : {}),
     ...(lifeDelete ? { imapLifecyclePendingDeleteMailbox: lifeDelete } : {}),
     ...(lifeTrash ? { imapLifecycleTrashMailbox: lifeTrash } : {}),
-    ...(syncWindowDays !== undefined ? { syncWindowDays } : {}),
+    syncWindowDays,
   }
 }
 
@@ -626,8 +626,14 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     ipcRenderer.invoke('email:connectZoho', displayName, syncWindowDays),
   connectCustomMailbox: (payload: unknown) =>
     ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
-  /** Debug: raw node-imap session; returns `{ ok, data?: { success, events, error?, tlsInfo? } }`. */
-  diagnoseImap: (params: unknown) => ipcRenderer.invoke('email:diagnoseImap', assertDiagnoseImapParams(params)),
+  resetSyncState: (accountId: string) => ipcRenderer.invoke('inbox:resetSyncState', accountId),
+  /** Dev only — raw node-imap session (IPC not registered in production main). */
+  ...(import.meta.env.DEV
+    ? {
+        diagnoseImap: (params: unknown) =>
+          ipcRenderer.invoke('email:diagnoseImap', assertDiagnoseImapParams(params)),
+      }
+    : {}),
   validateImapLifecycleRemote: (accountId: string) =>
     ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
   setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>

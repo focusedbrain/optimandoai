@@ -3,6 +3,7 @@
  *
  * **Model (Smart Sync)**
  * - **First run** (no `last_sync_at`): pull up to `maxMessagesPerPull` (default 500) within `syncWindowDays` (default 30; **0** = all time, same cap).
+ * - **Bootstrap with 0 listed / 0 new:** do **not** set `last_sync_at` so the next Pull retries the full window (avoids “stuck incremental” after a failed first list).
  * - **Auto-sync / manual Pull** (after first sync): incremental from `last_sync_at` only (new mail).
  * - **Pull More** (`pullMore: true`): next batch older than `MIN(received_at)` in DB, capped at `maxMessagesPerPull`.
  * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP SEARCH + fetch chunks).
@@ -20,7 +21,8 @@ import {
 } from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
-import { markPullActive, markPullInactive } from './syncPullLock'
+import { emailDebugLog, emailDebugWarn } from './emailDebug'
+import { isPullActive, markPullActive, markPullInactive } from './syncPullLock'
 
 /** Re-export for callers that already import sync orchestrator (Sync Remote clears locks via ipc → syncPullLock). */
 export { clearAllPullActiveLocks } from './syncPullLock'
@@ -258,12 +260,63 @@ function mapToRawEmailMessage(
 
 const syncChains = new Map<string, Promise<unknown>>()
 
+/** Successful pulls that listed 0 messages and ingested 0 new (per account) — for stuck detection. */
+const consecutiveZeroListingPulls = new Map<string, number>()
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/** Call from `inbox:resetSyncState` so streak does not carry over after a manual reset. */
+export function clearConsecutiveZeroListingPulls(accountId: string): void {
+  const id = String(accountId ?? '').trim()
+  if (!id) return
+  consecutiveZeroListingPulls.delete(id)
+}
+
+function notePullOutcomeForStuckDetection(
+  accountId: string,
+  opts: {
+    ok: boolean
+    /** `last_sync_at` from DB at the start of this sync run (before any update). */
+    lastSyncAtBeforeRun: string | undefined
+    listedFromProvider: number
+    newMessages: number
+  },
+): void {
+  const id = String(accountId ?? '').trim()
+  if (!id || !opts.ok) return
+
+  const listed = opts.listedFromProvider
+  const newM = opts.newMessages
+  if (listed === 0 && newM === 0) {
+    const next = (consecutiveZeroListingPulls.get(id) ?? 0) + 1
+    consecutiveZeroListingPulls.set(id, next)
+
+    const anchor = opts.lastSyncAtBeforeRun
+    if (anchor) {
+      const t = new Date(anchor).getTime()
+      if (!Number.isNaN(t) && Date.now() - t > MS_PER_DAY && next >= 3) {
+        emailDebugWarn('[SYNC-DEBUG] Account may be stuck — consider resetting sync state.', {
+          accountId: id,
+          last_sync_at_at_start_of_run: anchor,
+          consecutive_zero_listing_pulls: next,
+        })
+      }
+    }
+  } else {
+    consecutiveZeroListingPulls.set(id, 0)
+  }
+}
+
 /**
  * Sync emails for an account: pull from provider, deduplicate, route through message detection.
  * Serialized per `accountId` so manual Pull and auto-sync never run concurrently for the same account.
  */
 export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
   const accountId = options.accountId
+  emailDebugLog(
+    '[SYNC-DEBUG] syncAccountEmails invoked (serialized per account via syncChains; does not skip if pull lock active)',
+    { accountId, pullMore: options.pullMore === true },
+  )
   const prev = syncChains.get(accountId) ?? Promise.resolve()
   const current = prev.then(() => syncAccountEmailsImpl(db, options))
   syncChains.set(accountId, current.then(() => undefined, () => undefined))
@@ -308,11 +361,28 @@ async function syncAccountEmailsImpl(
     const hasPriorSync = Boolean(lastSyncAt)
     const bootstrap = !hasPriorSync && !pullMore
 
+    emailDebugLog('[SYNC-DEBUG] sync prefs + DB sync state', {
+      accountId,
+      provider: accountCfg?.provider,
+      rawAccountSync: accountCfg?.sync ?? null,
+      windowDays,
+      windowStartIsoForBootstrap: windowStartIso ?? '(none — all time)',
+      maxPerPull,
+      last_sync_at: lastSyncAt ?? null,
+      hasPriorSync,
+      bootstrap,
+      pullMore,
+    })
+
     let listOptions: MessageSearchOptions
 
     if (pullMore) {
       const oldestLocal = getOldestInboxReceivedAtIso(db, accountId)
       if (!oldestLocal) {
+        emailDebugLog(
+          '[SYNC-DEBUG] list fetch NOT attempted: Pull More aborted — no local messages (oldest received_at)',
+          { accountId },
+        )
         result.errors.push('Pull More: no local messages — run Pull first.')
         result.ok = false
         result.listedFromProvider = 0
@@ -348,6 +418,15 @@ async function syncAccountEmailsImpl(
       }
     }
 
+    emailDebugLog('[SYNC-DEBUG] listOptions for provider listMessages', {
+      accountId,
+      mode: pullMore ? 'pullMore' : bootstrap ? 'bootstrap' : 'incremental',
+      incrementalUsesLastSyncAt: !pullMore && !bootstrap ? (lastSyncAt as string) : null,
+      fromDate: listOptions.fromDate ?? null,
+      toDate: listOptions.toDate ?? null,
+      syncMaxMessages: listOptions.syncMaxMessages,
+    })
+
     /** Hold during list + per-message fetch so remote mirror cannot move mail out of INBOX mid-pull. */
     let messages: Awaited<ReturnType<typeof emailGateway.listMessages>> = []
     let skippedDuplicate = 0
@@ -357,6 +436,11 @@ async function syncAccountEmailsImpl(
     let lastUidSeen = lastUid
     let cursorSeen = syncCursor
 
+    emailDebugLog('[SYNC-DEBUG] SyncPullLock before list+fetch', {
+      accountId,
+      pullLockAlreadyActive: isPullActive(accountId),
+      note: 'isPullActive only defers remote-queue moves; sync still runs',
+    })
     markPullActive(accountId)
     try {
       const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
@@ -364,11 +448,18 @@ async function syncAccountEmailsImpl(
         accountCfg?.provider === 'imap'
           ? await emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
           : basePullLabels
+      emailDebugLog('[SYNC-DEBUG] resolved IMAP pull folder list (expanded)', {
+        accountId,
+        basePullLabels,
+        pullFolders,
+        provider: accountCfg?.provider ?? 'unknown',
+      })
       if (accountCfg?.provider === 'imap' && pullFolders.length > 1) {
         const merged: SanitizedMessage[] = []
         const seen = new Set<string>()
         for (const folder of pullFolders) {
           try {
+            emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
             const part = await emailGateway.listMessages(accountId, { ...listOptions, folder })
             for (const m of part) {
               const k = `${m.folder || folder}|${m.id}`
@@ -388,6 +479,7 @@ async function syncAccountEmailsImpl(
         messages = merged
       } else {
         const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
+        emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
         messages = await emailGateway.listMessages(accountId, { ...listOptions, folder })
       }
       const existingIds = getExistingEmailMessageIds(db, accountId)
@@ -396,6 +488,12 @@ async function syncAccountEmailsImpl(
       console.log(
         `[SyncOrchestrator] Provider returned ${messages.length} message(s) (bootstrap=${bootstrap}, pullMore=${pullMore}, fromDate=${listOptions.fromDate ?? 'none'}, toDate=${listOptions.toDate ?? 'none'}, pullFolders=${pullFolders.join(',')})`,
       )
+      if (messages.length === 0) {
+        emailDebugLog(
+          '[SYNC-DEBUG] provider list returned 0 messages after fetch was attempted (not “skipped”) — check IMAP SEARCH/SINCE, folder path, or incremental last_sync_at window',
+          { accountId, bootstrap, pullMore, last_sync_at_used: lastSyncAt ?? null },
+        )
+      }
 
       for (const msg of messages) {
         if (existingIds.has(msg.id)) {
@@ -476,13 +574,41 @@ async function syncAccountEmailsImpl(
     )
 
     const totalSynced = (stateRow?.total_synced as number | undefined) ?? 0
-    updateSyncState(db, accountId, {
-      last_sync_at: new Date().toISOString(),
+    const nextLastSyncAt = new Date().toISOString()
+    const skipAdvanceLastSyncAt =
+      bootstrap && messages.length === 0 && newCount === 0
+
+    if (skipAdvanceLastSyncAt) {
+      emailDebugWarn(
+        '[SYNC-DEBUG] Bootstrap sync returned 0 messages — NOT advancing last_sync_at so next pull retries the full window.',
+        { accountId, listedFromProvider: messages.length, newMessagesIngested: newCount },
+      )
+    } else {
+      emailDebugLog('[SYNC-DEBUG] updating last_sync_at after sync', {
+        accountId,
+        previous_last_sync_at: lastSyncAt ?? null,
+        next_last_sync_at: nextLastSyncAt,
+        listedFromProvider: messages.length,
+        newMessagesIngested: newCount,
+        bootstrap,
+      })
+    }
+
+    const syncUpdates: EmailSyncStateUpdates = {
+      ...(skipAdvanceLastSyncAt ? {} : { last_sync_at: nextLastSyncAt }),
       last_uid: lastUidSeen,
       sync_cursor: cursorSeen,
       total_synced: totalSynced + newCount,
       last_error: undefined,
       last_error_at: undefined,
+    }
+    updateSyncState(db, accountId, syncUpdates)
+
+    notePullOutcomeForStuckDetection(accountId, {
+      ok: true,
+      lastSyncAtBeforeRun: lastSyncAt,
+      listedFromProvider: messages.length,
+      newMessages: newCount,
     })
   } catch (err: any) {
     result.ok = false

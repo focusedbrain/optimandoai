@@ -31,6 +31,7 @@ import type {
 import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
 import { imapFoldersMatchExact, isLegacyImapMailboxLabel } from '../domain/imapLegacyFolders'
 import { imapUsesImplicitTls, smtpTransportTlsFlags } from '../domain/securityModeNormalize'
+import { emailDebugLog } from '../emailDebug'
 
 export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
 
@@ -41,6 +42,15 @@ const ImapCtor = (ImapMod as any).default ?? ImapMod
 type ImapConnection = ImapApi
 
 type ImapNamespaceInfo = { prefix: string; delimiter: string }
+
+/** Log node-imap SEARCH criteria; nested Dates → ISO (wire format uses IMAP date, typically server-local per node-imap). */
+function syncDebugFormatImapSearchCriteria(criteria: unknown): string {
+  try {
+    return JSON.stringify(criteria, (_k, v) => (v instanceof Date ? (v as Date).toISOString() : v))
+  } catch {
+    return String(criteria)
+  }
+}
 
 function normalizeImapPrefix(raw: unknown): string {
   if (raw == null || raw === 'NIL') return ''
@@ -235,14 +245,13 @@ export class ImapProvider extends BaseEmailProvider {
 
     return new Promise((resolve, reject) => {
       const useImplicitTls = imapUsesImplicitTls(config.imap!.security)
-      console.log('[IMAP-DEBUG] ImapCtor config:', {
+      emailDebugLog('[IMAP-DEBUG] ImapCtor config:', {
         user: config.imap!.username,
         host: config.imap!.host,
         port: config.imap!.port,
         securityRaw: config.imap!.security,
         tls: useImplicitTls,
         hasPassword: !!config.imap!.password,
-        passwordLength: config.imap!.password?.length ?? 0,
       })
       const client = new ImapCtor({
         user: config.imap!.username,
@@ -264,7 +273,7 @@ export class ImapProvider extends BaseEmailProvider {
        * and IPC returns "reply was never sent". Always attach a persistent handler post-ready.
        */
       const onConnectError = (err: Error) => {
-        console.log('[IMAP-DEBUG] connection error raw:', err)
+        emailDebugLog('[IMAP-DEBUG] connection error raw:', err)
         console.error('[IMAP] Connection error:', err)
         this.connected = false
         reject(err)
@@ -573,12 +582,28 @@ export class ImapProvider extends BaseEmailProvider {
             searchCriteria = ['AND', ['SINCE', since], ['BEFORE', before]]
           }
         }
+        emailDebugLog(
+          '[SYNC-DEBUG] IMAP SEARCH (fetchMessagesSince): openBox then SEARCH via node-imap; criteria array → SINCE/BEFORE on wire',
+          {
+            folder,
+            sinceIso: since.toISOString(),
+            sinceInternalDate: since.toString(),
+            toDateOptionIso: options?.toDate ?? null,
+            criteriaJson: syncDebugFormatImapSearchCriteria(searchCriteria),
+          },
+        )
         this.client!.search([searchCriteria], (sErr, seqnums: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
+          const n = seqnums?.length ?? 0
+          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH result (sequence numbers)', { folder, matchCount: n })
           if (!seqnums?.length) {
+            emailDebugLog(
+              '[SYNC-DEBUG] IMAP fetchMessagesSince: 0 SEARCH matches — no seq.fetch attempted for this folder',
+              { folder },
+            )
             resolve([])
             return
           }
@@ -703,12 +728,21 @@ export class ImapProvider extends BaseEmailProvider {
           reject(err)
           return
         }
-        this.client!.search([['BEFORE', before]], (sErr, seqnums: number[]) => {
+        const beforeCriteria: any[] = ['BEFORE', before]
+        emailDebugLog('[SYNC-DEBUG] IMAP SEARCH (fetchMessagesBeforeExclusive)', {
+          folder,
+          beforeIso: before.toISOString(),
+          criteriaJson: syncDebugFormatImapSearchCriteria(beforeCriteria),
+        })
+        this.client!.search([beforeCriteria], (sErr, seqnums: number[]) => {
           if (sErr) {
             reject(sErr)
             return
           }
+          const n = seqnums?.length ?? 0
+          emailDebugLog('[SYNC-DEBUG] IMAP SEARCH BEFORE result (sequence numbers)', { folder, matchCount: n })
           if (!seqnums?.length) {
+            emailDebugLog('[SYNC-DEBUG] IMAP fetchMessagesBeforeExclusive: 0 matches — no fetch', { folder })
             resolve([])
             return
           }
@@ -777,6 +811,14 @@ export class ImapProvider extends BaseEmailProvider {
       throw new Error('Not connected')
     }
 
+    emailDebugLog('[SYNC-DEBUG] ImapProvider.fetchMessages entry', {
+      folder,
+      fromDate: options?.fromDate ?? null,
+      toDate: options?.toDate ?? null,
+      syncFetchAllPages: options?.syncFetchAllPages === true,
+      syncMaxMessages: options?.syncMaxMessages ?? null,
+    })
+
     const limit = options?.limit || 50
     const syncAll = options?.syncFetchAllPages === true
     const maxM = syncAll
@@ -798,6 +840,10 @@ export class ImapProvider extends BaseEmailProvider {
       if (!Number.isNaN(since.getTime())) {
         return this.fetchMessagesSince(folder, since, options)
       }
+      emailDebugLog(
+        '[SYNC-DEBUG] IMAP fetchMessages: fromDate present but invalid — falling through to seq-range path (no SINCE SEARCH)',
+        { folder, fromDate: options.fromDate },
+      )
     }
 
     return new Promise((resolve, reject) => {
@@ -808,7 +854,13 @@ export class ImapProvider extends BaseEmailProvider {
         }
 
         const total = box.messages.total
+        emailDebugLog('[SYNC-DEBUG] IMAP fetchMessages seq-range path (no fromDate SINCE)', {
+          folder,
+          openBoxMessageTotal: total,
+          syncAll,
+        })
         if (total === 0) {
+          emailDebugLog('[SYNC-DEBUG] IMAP fetchMessages: mailbox reports 0 messages — no fetch', { folder })
           resolve([])
           return
         }

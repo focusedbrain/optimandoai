@@ -4,13 +4,21 @@
  */
 
 import type { EmailAccountConfig } from '../types'
+import { emailDebugLog } from '../emailDebug'
 
 /** 7 / 30 / 90 / 0 (all mail). Default 30 when unset. */
 export function getEffectiveSyncWindowDays(sync: EmailAccountConfig['sync'] | undefined): number {
-  if (!sync) return 30
-  if (typeof sync.syncWindowDays === 'number' && sync.syncWindowDays >= 0) return sync.syncWindowDays
-  if (sync.maxAgeDays > 0) return sync.maxAgeDays
-  return 30
+  let out: number
+  if (!sync) out = 30
+  else if (typeof sync.syncWindowDays === 'number' && sync.syncWindowDays >= 0) out = sync.syncWindowDays
+  else if (sync.maxAgeDays > 0) out = sync.maxAgeDays
+  else out = 30
+  emailDebugLog('[SYNC-DEBUG] getEffectiveSyncWindowDays', {
+    rawSync: sync ?? null,
+    effectiveDays: out,
+    note: 'UI “90d” only applies if sync.syncWindowDays (or legacy maxAgeDays) is persisted on the account',
+  })
+  return out
 }
 
 /** Pull batch size for first sync and Pull More (default 500). */

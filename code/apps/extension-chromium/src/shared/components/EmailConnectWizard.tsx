@@ -187,6 +187,10 @@ export function EmailConnectWizard({
         setStep('credentials')
         setCredError(null)
         setReconnectHasStoredImapPassword(h.hasImapPassword === true)
+        const sw = h.syncWindowDays
+        if (typeof sw === 'number' && Number.isInteger(sw) && sw >= 0) {
+          setConnectSyncWindowDays(sw)
+        }
         setCustomForm({
           email: String(h.email ?? ''),
           displayName: String(h.displayName ?? h.email ?? ''),
@@ -2126,6 +2130,42 @@ export function EmailConnectWizard({
                       </div>
                     </>
                   )}
+                  <div style={{ marginTop: 14, marginBottom: 4 }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: textColor,
+                      }}
+                    >
+                      <span style={{ whiteSpace: 'nowrap' }}>Initial sync window:</span>
+                      <select
+                        value={connectSyncWindowDays}
+                        onChange={(e) => setConnectSyncWindowDays(parseInt(e.target.value, 10))}
+                        style={{
+                          fontSize: 12,
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: `1px solid ${borderColor}`,
+                          background: inputBg,
+                          color: textColor,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <option value={7}>Last 7 days</option>
+                        <option value={30}>Last 30 days</option>
+                        <option value={90}>Last 90 days</option>
+                        <option value={0}>All mail (warning)</option>
+                      </select>
+                    </label>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 6 }}>
+                      Saved on the account as <code style={{ fontSize: 10 }}>sync.syncWindowDays</code> — must match what you expect for the first Pull.
+                    </div>
+                  </div>
                   {credError && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px' }}>{credError}</div>}
                   <button
                     type="button"
