@@ -127,10 +127,7 @@ declare global {
       fullResetAccount?: (accountId: string) => Promise<{
         ok: boolean
         error?: string
-        deletedMessages?: number
-        deletedRemoteQueueRows?: number
-        deletedDeletionQueueRows?: number
-        deletedPlainEmailInboxRows?: number
+        results?: string[]
       }>
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
@@ -191,6 +188,8 @@ export interface EmailInboxBridge {
   ) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
   getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  /** Wipes local DB rows with this account_id across all tables (see main process). */
+  fullResetAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string; results?: string[] }>
   onNewMessages: (handler: (data: unknown) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void

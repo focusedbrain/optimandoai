@@ -2113,33 +2113,32 @@ export default function EmailInboxBulkView({
     [addRemoteSyncLog, refreshMessages, refreshRemoteDebugQueue],
   )
 
+  const invokeFullResetAccountBridge = useCallback(async (accountId: string) => {
+    const bridge = window.emailInbox?.fullResetAccount ?? window.emailAccounts?.fullResetAccount
+    if (!bridge) {
+      return { ok: false as const, error: 'fullResetAccount not in bridge (update app)' }
+    }
+    return bridge(accountId) as Promise<{ ok: boolean; error?: string; results?: string[] }>
+  }, [])
+
   const handleFullResetAccount = useCallback(
-    async (accountId: string, label: string) => {
-      const fn = window.emailAccounts?.fullResetAccount
-      if (!fn) {
-        addRemoteSyncLog('fullResetAccount not in bridge (update app)')
-        return
-      }
+    async (accountId: string, email: string) => {
       if (
         !window.confirm(
-          'Delete ALL messages and sync state for this account? This cannot be undone.',
+          `DELETE all messages and sync data for ${email}? Cannot be undone.`,
         )
       ) {
         return
       }
       setRemoteDebugLoading(true)
       try {
-        const r = (await fn(accountId)) as {
-          ok?: boolean
-          error?: string
-          deletedMessages?: number
-        }
-        if (r?.ok) {
-          addRemoteSyncLog(
-            `Full reset (${label}): OK — deleted ${r.deletedMessages ?? 0} message row(s)`,
-          )
+        const result = await invokeFullResetAccountBridge(accountId)
+        console.log('[FULL-RESET]', accountId, result)
+        window.alert(JSON.stringify(result, null, 2))
+        if (result.ok && Array.isArray(result.results)) {
+          addRemoteSyncLog(`Full reset (${email}): ${result.results.join(' · ')}`)
         } else {
-          addRemoteSyncLog(`Full reset (${label}): ${r?.error ?? 'failed'}`)
+          addRemoteSyncLog(`Full reset (${email}): ${result.error ?? 'failed'}`)
         }
         await refreshMessages()
         await refreshRemoteDebugQueue()
@@ -2148,13 +2147,16 @@ export default function EmailInboxBulkView({
           primaryAccountId: primaryAccountId ?? null,
         })
       } catch (e: unknown) {
-        addRemoteSyncLog(`Full reset (${label}): ${e instanceof Error ? e.message : String(e)}`)
+        const msg = e instanceof Error ? e.message : String(e)
+        addRemoteSyncLog(`Full reset (${email}): ${msg}`)
+        window.alert(msg)
       } finally {
         setRemoteDebugLoading(false)
       }
     },
     [
       addRemoteSyncLog,
+      invokeFullResetAccountBridge,
       refreshMessages,
       refreshRemoteDebugQueue,
       refreshInboxSyncBackendState,
@@ -2171,45 +2173,42 @@ export default function EmailInboxBulkView({
     }
     if (
       !window.confirm(
-        `Delete ALL messages and sync state for ${active.length} account(s)? This cannot be undone.`,
+        'DELETE all messages and sync data for ALL accounts? Cannot be undone.',
       )
     ) {
       return
     }
-    const fn = window.emailAccounts?.fullResetAccount
-    if (!fn) {
-      addRemoteSyncLog('fullResetAccount not in bridge (update app)')
-      return
-    }
     setRemoteDebugLoading(true)
     try {
-      for (const a of active) {
-        const label = `${a.email} · ${a.provider}`
-        try {
-          const r = (await fn(a.id)) as { ok?: boolean; error?: string; deletedMessages?: number }
-          if (r?.ok) {
-            addRemoteSyncLog(
-              `Full reset (${label}): OK — deleted ${r.deletedMessages ?? 0} message row(s)`,
-            )
-          } else {
-            addRemoteSyncLog(`Full reset (${label}): ${r?.error ?? 'failed'}`)
-          }
-        } catch (e: unknown) {
-          addRemoteSyncLog(`Full reset (${label}): ${e instanceof Error ? e.message : String(e)}`)
+      for (const account of active) {
+        const result = await invokeFullResetAccountBridge(account.id)
+        console.log('[FULL-RESET]', account.id, result)
+        if (result.ok && Array.isArray(result.results)) {
+          addRemoteSyncLog(
+            `Full reset (${account.email}): ${result.results.join(' · ')}`,
+          )
+        } else {
+          addRemoteSyncLog(`Full reset (${account.email}): ${result.error ?? 'failed'}`)
         }
       }
+      window.alert('All accounts reset')
       await refreshMessages()
       await refreshRemoteDebugQueue()
       await refreshInboxSyncBackendState({
         syncTargetIds: autoSyncEligibleAccountIds,
         primaryAccountId: primaryAccountId ?? null,
       })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addRemoteSyncLog(`Full reset ALL: ${msg}`)
+      window.alert(msg)
     } finally {
       setRemoteDebugLoading(false)
     }
   }, [
     providerAccounts,
     addRemoteSyncLog,
+    invokeFullResetAccountBridge,
     refreshMessages,
     refreshRemoteDebugQueue,
     refreshInboxSyncBackendState,
@@ -4642,7 +4641,7 @@ export default function EmailInboxBulkView({
                           cursor: remoteDebugLoading ? 'not-allowed' : 'pointer',
                         }}
                       >
-                        Full Reset ALL
+                        Reset ALL Accounts
                       </button>
                     </div>
                     <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
@@ -4662,9 +4661,7 @@ export default function EmailInboxBulkView({
                               <button
                                 type="button"
                                 disabled={remoteDebugLoading}
-                                onClick={() =>
-                                  void handleFullResetAccount(a.id, `${a.email} · ${a.provider}`)
-                                }
+                                onClick={() => void handleFullResetAccount(a.id, a.email)}
                                 style={{
                                   fontSize: 11,
                                   padding: '3px 8px',

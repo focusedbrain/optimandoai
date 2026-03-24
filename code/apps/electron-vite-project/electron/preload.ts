@@ -687,6 +687,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:patchAccountSyncPreferences', accountId, partial),
   toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
   getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),
+  fullResetAccount: (accountId: string) => ipcRenderer.invoke('inbox:fullResetAccount', accountId),
   onNewMessages: (handler: (data: unknown) => void) => {
     const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
     ipcRenderer.on('inbox:newMessages', fn)

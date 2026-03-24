@@ -2442,66 +2442,54 @@ Rules:
     }
   })
 
-  ipcMain.handle('inbox:fullResetAccount', async (_e, accountId: string) => {
+  ipcMain.handle('inbox:fullResetAccount', async (_e, rawAccountId: unknown) => {
+    const accountId = String(rawAccountId ?? '').trim()
+    if (!accountId) return { ok: false, error: 'accountId required' }
+
+    let db: any
     try {
-      const id = String(accountId ?? '').trim()
-      if (!id) return { ok: false, error: 'accountId required' }
-      const db = await resolveDb()
-      if (!db) return { ok: false, error: 'Database unavailable' }
-
-      let deletedMessages = 0
-      let deletedQueue = 0
-      let deletedDeletionQueue = 0
-      let deletedPlainInbox = 0
-
-      const run = db.transaction(() => {
-        const q1 = db.prepare('DELETE FROM remote_orchestrator_mutation_queue WHERE account_id = ?').run(id) as {
-          changes?: number
-        }
-        deletedQueue = typeof q1?.changes === 'number' ? q1.changes : 0
-        const q2 = db.prepare('DELETE FROM deletion_queue WHERE account_id = ?').run(id) as { changes?: number }
-        deletedDeletionQueue = typeof q2?.changes === 'number' ? q2.changes : 0
-        const q3 = db.prepare('DELETE FROM plain_email_inbox WHERE account_id = ?').run(id) as { changes?: number }
-        deletedPlainInbox = typeof q3?.changes === 'number' ? q3.changes : 0
-        const q4 = db.prepare('DELETE FROM inbox_messages WHERE account_id = ?').run(id) as { changes?: number }
-        deletedMessages = typeof q4?.changes === 'number' ? q4.changes : 0
-        db.prepare('DELETE FROM email_sync_state WHERE account_id = ?').run(id)
-      })
-      run()
-
-      try {
-        db.prepare('DELETE FROM inbox_remote_queue WHERE account_id = ?').run(id)
-      } catch {
-        /* optional legacy table */
-      }
-
-      try {
-        clearConsecutiveZeroListingPulls(id)
-      } catch {}
-
-      console.log(
-        '[FULL-RESET] Account fully reset:',
-        id,
-        'deletedMessages:',
-        deletedMessages,
-        'remoteQueue:',
-        deletedQueue,
-        'deletionQueue:',
-        deletedDeletionQueue,
-        'plainEmailInbox:',
-        deletedPlainInbox,
-      )
-      return {
-        ok: true,
-        deletedMessages,
-        deletedRemoteQueueRows: deletedQueue,
-        deletedDeletionQueueRows: deletedDeletionQueue,
-        deletedPlainEmailInboxRows: deletedPlainInbox,
-      }
-    } catch (e: any) {
-      console.error('[FULL-RESET] Failed:', e)
-      return { ok: false, error: e?.message ?? 'fullResetAccount failed' }
+      db = await resolveDb()
+    } catch {
+      return { ok: false, error: 'DB resolve failed' }
     }
+    if (!db) return { ok: false, error: 'Database unavailable' }
+
+    const sqliteIdent = (name: string) => `"${String(name).replace(/"/g, '""')}"`
+    const results: string[] = []
+
+    try {
+      db.exec('PRAGMA foreign_keys = OFF')
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
+      const tableNames = tables.map((t) => t.name).filter((n) => n && !n.startsWith('sqlite_'))
+
+      for (const table of tableNames) {
+        try {
+          const cols = db.prepare(`PRAGMA table_info(${sqliteIdent(table)})`).all() as { name: string }[]
+          const hasAccountId = cols.some((c) => c.name === 'account_id')
+          if (!hasAccountId) continue
+          const del = db.prepare(`DELETE FROM ${sqliteIdent(table)} WHERE account_id = ?`).run(accountId)
+          const ch = typeof del?.changes === 'number' ? del.changes : 0
+          results.push(`${table}: ${ch} rows deleted`)
+        } catch (e: any) {
+          results.push(`${table}: error - ${e?.message ?? String(e)}`)
+        }
+      }
+    } finally {
+      try {
+        db.exec('PRAGMA foreign_keys = ON')
+      } catch {
+        /* noop */
+      }
+    }
+
+    try {
+      clearConsecutiveZeroListingPulls(accountId)
+    } catch {
+      /* noop */
+    }
+
+    console.log('[FULL-RESET] Account', accountId, 'reset results:', results)
+    return { ok: true, results }
   })
 
   ipcMain.handle('inbox:patchAccountSyncPreferences', async (_e, accountId: string, partial: unknown) => {
