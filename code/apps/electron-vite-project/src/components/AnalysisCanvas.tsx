@@ -151,13 +151,13 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
   // Helper to get runtime state display
   const getRuntimeStateDisplay = (state: RuntimeState) => {
     const stateMap: Record<RuntimeState, { label: string; icon: string; color: string; isIdle?: boolean }> = {
-      idle: { label: 'Ready & Listening', icon: '­ƒôí', color: '#10b981', isIdle: true },
-      receiving: { label: 'Receiving / depackaging', icon: '­ƒôÑ', color: '#3b82f6' },
+      idle: { label: 'Ready & Listening', icon: '📡', color: '#10b981', isIdle: true },
+      receiving: { label: 'Receiving / depackaging', icon: '📥', color: '#3b82f6' },
       initializing: { label: 'Session initializing', icon: '⚡', color: '#f59e0b' },
-      running: { label: 'Running operation', icon: '­ƒöä', color: '#10b981' },
-      awaiting_confirmation: { label: 'Awaiting confirmation', icon: 'ÔÅ│', color: '#f59e0b' },
+      running: { label: 'Running operation', icon: '🔄', color: '#10b981' },
+      awaiting_confirmation: { label: 'Awaiting confirmation', icon: '⏳', color: '#f59e0b' },
       anchoring: { label: 'Anchoring PoAE™', icon: '🔒', color: '#8b5cf6' },
-      direct_chat: { label: 'Direct chat active', icon: '­ƒÆ¼', color: '#06b6d4' },
+      direct_chat: { label: 'Direct chat active', icon: '💬', color: '#06b6d4' },
     }
     return stateMap[state]
   }
@@ -186,7 +186,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
         <div className="activity-strip__feed">
           {activityFeed.slice(0, 6).map((item, idx) => (
             <div key={item.id} className="activity-strip__item">
-              {idx > 0 && <span className="activity-strip__sep">ÔÇó</span>}
+              {idx > 0 && <span className="activity-strip__sep">•</span>}
               <span className="activity-strip__time">{item.time}</span>
               <span className="activity-strip__type">{item.type}</span>
               <span className="activity-strip__source">{item.source}</span>
@@ -219,12 +219,12 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                 className="activity-modal__close"
                 onClick={() => setIsActivityHistoryModalOpen(false)}
               >
-                ├ù
+                ×
               </button>
             </div>
             <div className="activity-modal__content">
               <p className="activity-modal__note">
-                ­ƒôï This view shows complete session history. 
+                📋 This view shows complete session history. 
                 Deep-linking to full Session History view...
               </p>
               {activityFeed.map((item) => (
@@ -253,14 +253,14 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
           >
             <div className="activity-detail-modal__header">
               <div className="activity-detail-modal__header-left">
-                <span className="activity-detail-modal__icon">Ô£ô</span>
+                <span className="activity-detail-modal__icon">✓</span>
                 <h2 className="activity-detail-modal__title">Activity Details</h2>
               </div>
               <button 
                 className="activity-detail-modal__close"
                 onClick={() => setIsActivityDetailModalOpen(false)}
               >
-                ├ù
+                ×
               </button>
             </div>
             
@@ -270,7 +270,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                 <h3 className="activity-detail-modal__section-title">Completed Activity</h3>
                 <div className="activity-detail-modal__summary">
                   <div className="activity-detail-modal__summary-main">
-                    <span className="activity-detail-modal__summary-icon">­ƒôä</span>
+                    <span className="activity-detail-modal__summary-icon">📄</span>
                     <span className="activity-detail-modal__summary-name">{latestCompleted.what}</span>
                   </div>
                   <span className="activity-detail-modal__summary-badge activity-detail-modal__summary-badge--success">COMPLETED</span>
@@ -302,7 +302,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                         className="activity-detail-modal__copy-btn"
                         onClick={() => navigator.clipboard.writeText(latestCompleted.sessionId)}
                         title="Copy"
-                      >­ƒôï</button>
+                      >📋</button>
                     </span>
                   </div>
                   <div className="activity-detail-modal__field">
@@ -313,7 +313,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                         className="activity-detail-modal__copy-btn"
                         onClick={() => navigator.clipboard.writeText(latestCompleted.executionId)}
                         title="Copy"
-                      >­ƒôï</button>
+                      >📋</button>
                     </span>
                   </div>
                 </div>
@@ -324,22 +324,22 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                 <h3 className="activity-detail-modal__section-title">Processing Steps</h3>
                 <div className="activity-detail-modal__steps">
                   <div className="activity-detail-modal__step activity-detail-modal__step--complete">
-                    <span className="activity-detail-modal__step-check">Ô£ô</span>
+                    <span className="activity-detail-modal__step-check">✓</span>
                     <span className="activity-detail-modal__step-name">Document received</span>
                     <span className="activity-detail-modal__step-time">11:12:31</span>
                   </div>
                   <div className="activity-detail-modal__step activity-detail-modal__step--complete">
-                    <span className="activity-detail-modal__step-check">Ô£ô</span>
+                    <span className="activity-detail-modal__step-check">✓</span>
                     <span className="activity-detail-modal__step-name">Classification complete</span>
                     <span className="activity-detail-modal__step-time">11:12:32</span>
                   </div>
                   <div className="activity-detail-modal__step activity-detail-modal__step--complete">
-                    <span className="activity-detail-modal__step-check">Ô£ô</span>
+                    <span className="activity-detail-modal__step-check">✓</span>
                     <span className="activity-detail-modal__step-name">Data extraction</span>
                     <span className="activity-detail-modal__step-time">11:12:33</span>
                   </div>
                   <div className="activity-detail-modal__step activity-detail-modal__step--complete">
-                    <span className="activity-detail-modal__step-check">Ô£ô</span>
+                    <span className="activity-detail-modal__step-check">✓</span>
                     <span className="activity-detail-modal__step-name">PoAE™ anchored</span>
                     <span className="activity-detail-modal__step-time">11:12:33</span>
                   </div>
@@ -364,7 +364,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   </div>
                   <div className="activity-detail-modal__output-row">
                     <span className="activity-detail-modal__output-key">Total Amount</span>
-                    <span className="activity-detail-modal__output-value">Ôé¼4,280.00</span>
+                    <span className="activity-detail-modal__output-value">€4,280.00</span>
                   </div>
                 </div>
               </div>
@@ -383,7 +383,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   console.log('[Dashboard] Exporting activity data')
                 }}
               >
-                ­ƒôñ Export Data
+                📤 Export Data
               </button>
             </div>
           </div>
@@ -421,7 +421,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                     <span className="hero-panel__context-label">Session ID</span>
                     <span className="hero-panel__context-value">
                       <code>sess_abc123</code>
-                      <button className="hero-panel__copy-btn" title="Copy" onClick={() => navigator.clipboard.writeText('sess_abc123')}>­ƒôï</button>
+                      <button className="hero-panel__copy-btn" title="Copy" onClick={() => navigator.clipboard.writeText('sess_abc123')}>📋</button>
                     </span>
                   </div>
                   <div className="hero-panel__context-item">
@@ -466,7 +466,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   <span className="hero-panel__completed-what">{latestCompleted.what}</span>
                   <span className="hero-panel__completed-meta">
                     {new Date(latestCompleted.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-                    {' ÔÇó '}
+                    {' • '}
                     <code>{latestCompleted.executionId.slice(0, 12)}…</code>
                   </span>
                 </div>
@@ -474,7 +474,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   className="hero-panel__completed-btn"
                   onClick={() => setIsActivityDetailModalOpen(true)}
                 >
-                  View Activity ÔåÆ
+                  View Activity →
                 </button>
               </div>
             </div>
@@ -489,7 +489,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
               </div>
               <div className="poae-column__actions">
                 <button className="poae-column__action-btn" onClick={handlePostExport}>
-                  <span className="poae-column__action-btn-icon">­ƒôñ</span>
+                  <span className="poae-column__action-btn-icon">📤</span>
                   Export
                 </button>
               </div>
@@ -505,7 +505,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       <span className="unified-dashboard__hero-subtitle">Invoice Processing Workflow</span>
                     </div>
                   </div>
-                  <span className="unified-dashboard__hero-badge unified-dashboard__hero-badge--verified">Ô£ô VERIFIED</span>
+                  <span className="unified-dashboard__hero-badge unified-dashboard__hero-badge--verified">✓ VERIFIED</span>
                 </div>
 
                 {/* Metadata - Compact 2 columns */}
@@ -532,7 +532,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                     }}
                     title="Copy Execution ID to clipboard"
                   >
-                    ­ƒôï
+                    📋
                   </button>
                 </div>
                 
@@ -548,14 +548,14 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                     }}
                     title="Copy hash to clipboard"
                   >
-                    ­ƒôï
+                    📋
                   </button>
                   <button 
                     className="unified-dashboard__poae-export-btn"
                     onClick={() => console.log('[PoAE] Exporting log for hash: sha256:9f8e7d6c5b4a3210abcdef1234567890')}
                     title="Export PoAE™ log"
                   >
-                    ­ƒôñ Export
+                    📤 Export
                   </button>
                 </div>
 
@@ -563,7 +563,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                 <div className="unified-dashboard__poae-timeline">
                   {/* Sender PoAE™ Event */}
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--sender">
-                    <span className="unified-dashboard__poae-event-icon">Ôÿü´©Å</span>
+                    <span className="unified-dashboard__poae-event-icon">☁️</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-type">SENDER PoAE™</div>
                       <div className="unified-dashboard__poae-event-org">Acme Corp</div>
@@ -574,7 +574,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   
                   {/* AI Agents */}
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--agent">
-                    <span className="unified-dashboard__poae-event-icon">­ƒñû</span>
+                    <span className="unified-dashboard__poae-event-icon">🤖</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-label">Document Classifier</div>
                     </div>
@@ -582,7 +582,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   </div>
                   
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--agent">
-                    <span className="unified-dashboard__poae-event-icon">­ƒñû</span>
+                    <span className="unified-dashboard__poae-event-icon">🤖</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-label">Data Extractor</div>
                     </div>
@@ -590,7 +590,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   </div>
                   
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--agent">
-                    <span className="unified-dashboard__poae-event-icon">­ƒñû</span>
+                    <span className="unified-dashboard__poae-event-icon">🤖</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-label">Compliance Validator</div>
                     </div>
@@ -599,7 +599,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   
                   {/* Receiver PoAE™ Event */}
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--receiver">
-                    <span className="unified-dashboard__poae-event-icon">Ôÿü´©Å</span>
+                    <span className="unified-dashboard__poae-event-icon">☁️</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-type">RECEIVER PoAE™</div>
                       <div className="unified-dashboard__poae-event-org">Partner Inc</div>
@@ -610,7 +610,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
 
                   {/* PoAE™ Confirmed Execution Event */}
                   <div className="unified-dashboard__poae-event unified-dashboard__poae-event--execution">
-                    <span className="unified-dashboard__poae-event-icon">Ô£ô</span>
+                    <span className="unified-dashboard__poae-event-icon">✓</span>
                     <div className="unified-dashboard__poae-event-content">
                       <div className="unified-dashboard__poae-event-type">PoAE™ CONFIRMED EXECUTION</div>
                       <div className="unified-dashboard__poae-event-org">End-to-End Verified</div>
@@ -618,19 +618,19 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       {/* Confirmed Actions with green checkmarks */}
                       <div className="unified-dashboard__poae-confirmed-actions">
                         <div className="unified-dashboard__poae-confirmed-action">
-                          <span className="unified-dashboard__poae-confirmed-action-check">Ô£ô</span>
+                          <span className="unified-dashboard__poae-confirmed-action-check">✓</span>
                           <span>Data payload delivered to receiver</span>
                         </div>
                         <div className="unified-dashboard__poae-confirmed-action">
-                          <span className="unified-dashboard__poae-confirmed-action-check">Ô£ô</span>
+                          <span className="unified-dashboard__poae-confirmed-action-check">✓</span>
                           <span>Automation workflow executed</span>
                         </div>
                         <div className="unified-dashboard__poae-confirmed-action">
-                          <span className="unified-dashboard__poae-confirmed-action-check">Ô£ô</span>
+                          <span className="unified-dashboard__poae-confirmed-action-check">✓</span>
                           <span>Cross-organization hash anchored</span>
                         </div>
                         <div className="unified-dashboard__poae-confirmed-action">
-                          <span className="unified-dashboard__poae-confirmed-action-check">Ô£ô</span>
+                          <span className="unified-dashboard__poae-confirmed-action-check">✓</span>
                           <span>Blockchain attestation sealed</span>
                         </div>
                       </div>
@@ -647,7 +647,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                   className="unified-dashboard__show-all-btn"
                   onClick={() => setShowPoaeHistory(!showPoaeHistory)}
                 >
-                  {showPoaeHistory ? 'Hide History Ôû▓' : 'Show All Ôû╝'}
+                  {showPoaeHistory ? 'Hide History ▲' : 'Show All ▼'}
                 </button>
 
                 {/* PoAE History - Expands inside Column 3 */}
@@ -660,7 +660,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       <div className="unified-dashboard__column-history-header">
                         <div className="unified-dashboard__column-history-info">
                           <span className="unified-dashboard__column-history-name">Invoice Processing Workflow</span>
-                          <span className="unified-dashboard__column-history-meta">2 min ago ÔÇó exec_9f8e7d6c</span>
+                          <span className="unified-dashboard__column-history-meta">2 min ago • exec_9f8e7d6c</span>
                         </div>
                         <button 
                           className="unified-dashboard__column-history-btn"
@@ -672,7 +672,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       {expandedPoaeLogId === 'log1' && (
                         <div className="unified-dashboard__column-history-timeline">
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--sender">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒôñ</span>
+                            <span className="unified-dashboard__column-history-event-icon">📤</span>
                             <div className="unified-dashboard__column-history-event-content">
                               <span className="unified-dashboard__column-history-event-label">Sender PoAE™</span>
                               <span className="unified-dashboard__column-history-event-org">Acme Corp</span>
@@ -680,17 +680,17 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                             <span className="unified-dashboard__column-history-event-type">Manual Consent</span>
                           </div>
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--agent">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒñû</span>
+                            <span className="unified-dashboard__column-history-event-icon">🤖</span>
                             <span className="unified-dashboard__column-history-event-name">Document Classifier</span>
                             <button className="unified-dashboard__column-history-agent-btn">Show</button>
                           </div>
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--agent">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒñû</span>
+                            <span className="unified-dashboard__column-history-event-icon">🤖</span>
                             <span className="unified-dashboard__column-history-event-name">Data Extractor</span>
                             <button className="unified-dashboard__column-history-agent-btn">Show</button>
                           </div>
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--receiver">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒôÑ</span>
+                            <span className="unified-dashboard__column-history-event-icon">📥</span>
                             <div className="unified-dashboard__column-history-event-content">
                               <span className="unified-dashboard__column-history-event-label">Receiver PoAE™</span>
                               <span className="unified-dashboard__column-history-event-org">Partner Inc</span>
@@ -698,11 +698,11 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                             <span className="unified-dashboard__column-history-event-type">Manual Consent</span>
                           </div>
                           <div className="unified-dashboard__column-history-confirmed">
-                            <span className="unified-dashboard__column-history-confirmed-title">Ô£ô Confirmed Execution</span>
+                            <span className="unified-dashboard__column-history-confirmed-title">✓ Confirmed Execution</span>
                             <div className="unified-dashboard__column-history-confirmed-list">
-                              <span>Ô£ô Payload delivered</span>
-                              <span>Ô£ô Workflow executed</span>
-                              <span>Ô£ô Blockchain sealed</span>
+                              <span>✓ Payload delivered</span>
+                              <span>✓ Workflow executed</span>
+                              <span>✓ Blockchain sealed</span>
                             </div>
                           </div>
                         </div>
@@ -714,7 +714,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       <div className="unified-dashboard__column-history-header">
                         <div className="unified-dashboard__column-history-info">
                           <span className="unified-dashboard__column-history-name">Data Sync Automation</span>
-                          <span className="unified-dashboard__column-history-meta">15 min ago ÔÇó exec_4a5b6c7d</span>
+                          <span className="unified-dashboard__column-history-meta">15 min ago • exec_4a5b6c7d</span>
                         </div>
                         <button 
                           className="unified-dashboard__column-history-btn"
@@ -726,7 +726,7 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                       {expandedPoaeLogId === 'log2' && (
                         <div className="unified-dashboard__column-history-timeline">
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--sender">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒôñ</span>
+                            <span className="unified-dashboard__column-history-event-icon">📤</span>
                             <div className="unified-dashboard__column-history-event-content">
                               <span className="unified-dashboard__column-history-event-label">Sender PoAE™</span>
                               <span className="unified-dashboard__column-history-event-org">TechCorp</span>
@@ -734,12 +734,12 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                             <span className="unified-dashboard__column-history-event-type">2FA Auth</span>
                           </div>
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--agent">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒñû</span>
+                            <span className="unified-dashboard__column-history-event-icon">🤖</span>
                             <span className="unified-dashboard__column-history-event-name">Sync Engine</span>
                             <button className="unified-dashboard__column-history-agent-btn">Show</button>
                           </div>
                           <div className="unified-dashboard__column-history-event unified-dashboard__column-history-event--receiver">
-                            <span className="unified-dashboard__column-history-event-icon">­ƒôÑ</span>
+                            <span className="unified-dashboard__column-history-event-icon">📥</span>
                             <div className="unified-dashboard__column-history-event-content">
                               <span className="unified-dashboard__column-history-event-label">Receiver PoAE™</span>
                               <span className="unified-dashboard__column-history-event-org">DataHub Inc</span>
@@ -747,10 +747,10 @@ export default function AnalysisCanvas({ deepLinkPayload, onDeepLinkConsumed }: 
                             <span className="unified-dashboard__column-history-event-type">Policy Match</span>
                           </div>
                           <div className="unified-dashboard__column-history-confirmed">
-                            <span className="unified-dashboard__column-history-confirmed-title">Ô£ô Confirmed Execution</span>
+                            <span className="unified-dashboard__column-history-confirmed-title">✓ Confirmed Execution</span>
                             <div className="unified-dashboard__column-history-confirmed-list">
-                              <span>Ô£ô Data synchronized</span>
-                              <span>Ô£ô Blockchain anchored</span>
+                              <span>✓ Data synchronized</span>
+                              <span>✓ Blockchain anchored</span>
                             </div>
                           </div>
                         </div>
