@@ -888,6 +888,7 @@ body {
   border-radius: 0;
   box-shadow: none;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .inbox-detail-ai[data-collapsed="true"] .inbox-detail-ai-inner > .inbox-detail-ai-action-bar {
@@ -926,7 +927,7 @@ body {
   display: none !important;
 }
 
-/* Normal AI card: outer shell flex; active tab section owns vertical scroll */
+/* Normal AI card: single vertical scroll on inner only (Prompt 26 — no per-section scroll) */
 .inbox-detail-ai-inner {
   display: flex;
   flex-direction: column;
@@ -936,7 +937,8 @@ body {
   margin: 8px 10px 10px 8px;
   padding: 16px;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -950,11 +952,11 @@ body {
   color: #334155;
 }
 
-/* Former nested scroll region — fills below action bar; section inside scrolls */
+/* Content stack below action bar — height comes from children; scroll is on .inbox-detail-ai-inner */
 .inbox-detail-ai-inner > .inbox-detail-ai-scroll {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -1090,8 +1092,8 @@ body {
 }
 
 .inbox-detail-ai-draft-preview {
-  max-height: 120px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   padding: 10px 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -1138,15 +1140,14 @@ body {
   background: #fee2e2;
 }
 
-/* Normal AI tab panels only (not used in Bulk inbox) */
+/* Normal AI tab panels — no nested scroll; parent .inbox-detail-ai-inner scrolls */
 .inbox-detail-ai-inner .inbox-detail-ai-section {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow-y: auto;
   overflow-x: hidden;
+  overflow-y: visible;
   padding: 8px 12px;
   border-bottom: none;
-  overscroll-behavior: contain;
 }
 
 .inbox-detail-ai-inner .inbox-detail-ai-section:last-child {
@@ -1563,6 +1564,10 @@ body {
   margin-bottom: 14px;
   box-sizing: border-box;
   align-items: stretch;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #ffffff;
 }
 
 /* Section toggle buttons with checkbox (multi-select visibility) */
@@ -1688,9 +1693,9 @@ body {
 }
 
 .inbox-detail-ai-output {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
