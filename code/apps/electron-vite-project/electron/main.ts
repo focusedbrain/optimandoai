@@ -3886,7 +3886,10 @@ app.whenReady().then(async () => {
       registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
-      console.error('[MAIN] Failed to register email handlers:', emailErr)
+      console.error('[MAIN] FATAL: Email IPC registration failed:', emailErr)
+      if (emailErr instanceof Error && emailErr.stack) {
+        console.error('[MAIN] FATAL stack:', emailErr.stack)
+      }
     }
 
     // Wire BEAP handshake → email transport bridge

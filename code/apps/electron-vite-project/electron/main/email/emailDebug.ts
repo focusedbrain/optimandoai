@@ -1,14 +1,22 @@
 /**
  * Verbose IMAP / sync logging ([IMAP-DEBUG], [SYNC-DEBUG], diagnoseImap stream).
  * Enable with `EMAIL_DEBUG=1` or a Vite dev build (`import.meta.env.DEV`).
+ *
+ * Main-process bundle: avoid bare `import.meta` / `typeof import.meta` at top level — some
+ * toolchains or runtimes can throw; a failed import here breaks the entire email IPC tree.
  */
 
-const viteEnv = typeof import.meta !== 'undefined' ? (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env : undefined
+let isDev = false
+try {
+  isDev = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } })?.env?.DEV)
+} catch {
+  isDev = false
+}
 
-export const EMAIL_DEBUG = process.env.EMAIL_DEBUG === '1' || Boolean(viteEnv?.DEV)
+export const EMAIL_DEBUG = process.env.EMAIL_DEBUG === '1' || isDev
 
 /** Dev-only raw IMAP IPC (`email:diagnoseImap`) — production builds must not register the handler. */
-export const DIAGNOSE_IMAP_IPC_DEV = Boolean(viteEnv?.DEV)
+export const DIAGNOSE_IMAP_IPC_DEV = isDev
 
 export function emailDebugLog(...args: unknown[]): void {
   if (EMAIL_DEBUG) {
