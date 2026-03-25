@@ -1283,6 +1283,7 @@ class EmailGateway implements IEmailGateway {
         : {}),
     })
     const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
+    console.log('[OAUTH] Token exchange succeeded, proceeding to Gmail API verification...')
     const oauth: NonNullable<EmailAccountConfig['oauth']> = {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,

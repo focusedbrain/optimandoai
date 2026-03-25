@@ -153,6 +153,7 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
+import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, emailDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
 import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
@@ -736,12 +737,11 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
-      // TEMP DEBUG
-      console.log('[OAUTH DEBUG] IPC connectGmail — original error:', error)
-      console.log('[OAUTH DEBUG] Error message:', error?.message)
-      console.log('[OAUTH DEBUG] Error response:', error?.response)
-      console.log('[OAUTH DEBUG] Error status:', error?.status ?? error?.statusCode)
-      return { ok: false, error: error.message }
+      return {
+        ok: false,
+        error: error?.message != null ? String(error.message) : 'Unknown error',
+        debug: pickOauthDebugFromError(error),
+      }
     }
   })
 

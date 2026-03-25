@@ -41,6 +41,7 @@ import {
   isPackagedProductionGmailStandardConnect,
 } from '../googleOAuthBuiltin'
 import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
+import { attachOauthDebug, oauthDebugFromUnknown } from '../gmailOAuthConnectDebug'
 
 /** Diagnostic label for token exchange / refresh body shape (never log the secret). */
 function gmailOAuthTokenExchangeShape(oauthConfig: ResolvedGmailOAuth): string {
@@ -690,7 +691,10 @@ export class GmailProvider extends BaseEmailProvider {
 
     // Check if another OAuth flow is in progress
     if (oauthServerManager.isFlowInProgress()) {
-      throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
+      throw attachOauthDebug(
+        new Error('Another OAuth flow is already in progress. Please wait or try again.'),
+        oauthDebugFromUnknown('oauth_server_manager: flow already in progress'),
+      )
     }
 
     console.log('[Gmail] Starting OAuth flow using centralized server manager...')
@@ -717,7 +721,10 @@ export class GmailProvider extends BaseEmailProvider {
       } catch (err: any) {
         console.error('[Gmail] Failed to open browser:', err)
         await oauthServerManager.cancelFlow()
-        throw new Error('Failed to open browser for authentication')
+        throw attachOauthDebug(
+          new Error('Failed to open browser for authentication'),
+          oauthDebugFromUnknown(err?.message != null ? String(err.message) : 'shell.openExternal failed'),
+        )
       }
 
       console.log('[Gmail] Waiting for OAuth callback...')
@@ -731,11 +738,24 @@ export class GmailProvider extends BaseEmailProvider {
 
       if (!result.success) {
         logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'callback', reason: result.error })
-        throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
+        throw attachOauthDebug(
+          new Error(result.errorDescription || result.error || 'OAuth authorization failed'),
+          {
+            step: 'unknown',
+            httpStatus: null,
+            googleError: result.error != null ? String(result.error) : null,
+            googleErrorDescription:
+              result.errorDescription != null ? String(result.errorDescription) : null,
+            responseBody: null,
+          },
+        )
       }
 
       if (!result.code) {
-        throw new Error('No authorization code received')
+        throw attachOauthDebug(
+          new Error('No authorization code received'),
+          oauthDebugFromUnknown('OAuth callback succeeded but code was empty'),
+        )
       }
 
       console.log('[Gmail] Auth code received, exchanging for tokens...')
@@ -811,8 +831,18 @@ export class GmailProvider extends BaseEmailProvider {
           googleError: 'oauth_client_id_mismatch_authorize_vs_token',
           googleErrorDescription: 'authorizeClientIdFingerprint !== tokenExchangeClientIdFingerprint',
         })
-        throw new Error(
-          'Runtime Gmail OAuth mismatch: authorize and token exchange used different client_id fingerprints',
+        throw attachOauthDebug(
+          new Error(
+            'Runtime Gmail OAuth mismatch: authorize and token exchange used different client_id fingerprints',
+          ),
+          {
+            step: 'unknown',
+            httpStatus: null,
+            googleError: 'oauth_client_id_mismatch_authorize_vs_token',
+            googleErrorDescription:
+              'authorizeClientIdFingerprint !== tokenExchangeClientIdFingerprint',
+            responseBody: null,
+          },
         )
       }
       if (isPackagedProductionGmailStandardConnect()) {
@@ -827,8 +857,17 @@ export class GmailProvider extends BaseEmailProvider {
             googleError: 'local_bundled_client_mismatch',
             googleErrorDescription: 'token exchange client_id fingerprint !== bundled resource file',
           })
-          throw new Error(
-            'Runtime Gmail OAuth mismatch: token exchange is not using the bundled Desktop client ID',
+          throw attachOauthDebug(
+            new Error(
+              'Runtime Gmail OAuth mismatch: token exchange is not using the bundled Desktop client ID',
+            ),
+            {
+              step: 'unknown',
+              httpStatus: null,
+              googleError: 'local_bundled_client_mismatch',
+              googleErrorDescription: 'token exchange client_id fingerprint !== bundled resource file',
+              responseBody: null,
+            },
           )
         }
       }
@@ -877,7 +916,12 @@ export class GmailProvider extends BaseEmailProvider {
               googleErrorDescription: 'PKCE code_verifier missing at token exchange',
             })
           }
-          reject(new Error('PKCE: missing code_verifier'))
+          reject(
+            attachOauthDebug(
+              new Error('PKCE: missing code_verifier'),
+              oauthDebugFromUnknown('PKCE code_verifier missing at token exchange'),
+            ),
+          )
           return
         }
         body.set('code_verifier', codeVerifier)
@@ -888,7 +932,12 @@ export class GmailProvider extends BaseEmailProvider {
       } else if (oauthConfig.clientSecret) {
         body.set('client_secret', oauthConfig.clientSecret)
       } else {
-        reject(new Error('Gmail OAuth: client secret required for legacy flow'))
+        reject(
+          attachOauthDebug(
+            new Error('Gmail OAuth: client secret required for legacy flow'),
+            oauthDebugFromUnknown('legacy flow without client_secret'),
+          ),
+        )
         return
       }
 
@@ -948,7 +997,21 @@ export class GmailProvider extends BaseEmailProvider {
                     typeof json.error_description === 'string' ? json.error_description : null,
                 })
               }
-              reject(new Error(json.error_description || json.error))
+              const ge = json.error
+              const googleErrStr =
+                typeof ge === 'string' ? ge : ge != null ? JSON.stringify(ge).slice(0, 200) : null
+              const googleDesc =
+                typeof json.error_description === 'string' ? json.error_description : null
+              const msg = googleDesc || googleErrStr || `HTTP ${httpStatus}`
+              reject(
+                attachOauthDebug(new Error(msg), {
+                  step: 'token_exchange',
+                  httpStatus,
+                  googleError: googleErrStr,
+                  googleErrorDescription: googleDesc,
+                  responseBody: responseText.substring(0, 500),
+                }),
+              )
             } else {
               logOAuthDiagnostic('gmail_token_exchange_response', {
                 httpStatus,
@@ -1000,12 +1063,33 @@ export class GmailProvider extends BaseEmailProvider {
                 googleErrorDescription: err instanceof Error ? err.message : 'token response parse failed',
               })
             }
-            reject(err)
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'token_exchange',
+                httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: responseText.substring(0, 500),
+              }),
+            )
           }
         })
       })
 
-      req.on('error', reject)
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'token_exchange',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       req.write(postData)
       req.end()
     })
@@ -1081,7 +1165,21 @@ export class GmailProvider extends BaseEmailProvider {
                 provider: 'gmail',
                 error: json.error,
               })
-              reject(new Error(json.error_description || json.error))
+              const ge = json.error
+              const googleErrStr =
+                typeof ge === 'string' ? ge : ge != null ? JSON.stringify(ge).slice(0, 200) : null
+              const googleDesc =
+                typeof json.error_description === 'string' ? json.error_description : null
+              const msg = googleDesc || googleErrStr || `HTTP ${refreshStatus}`
+              reject(
+                attachOauthDebug(new Error(msg), {
+                  step: 'token_refresh',
+                  httpStatus: refreshStatus,
+                  googleError: googleErrStr,
+                  googleErrorDescription: googleDesc,
+                  responseBody: data.substring(0, 500),
+                }),
+              )
             } else {
               logOAuthDiagnostic('token_refresh_success', { provider: 'gmail' })
               this.accessToken = json.access_token
@@ -1101,12 +1199,33 @@ export class GmailProvider extends BaseEmailProvider {
               resolve()
             }
           } catch (err) {
-            reject(err)
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'token_refresh',
+                httpStatus: refreshStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: data.substring(0, 500),
+              }),
+            )
           }
         })
       })
       
-      req.on('error', reject)
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'token_refresh',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       req.write(postData)
       req.end()
     })
@@ -1149,20 +1268,76 @@ export class GmailProvider extends BaseEmailProvider {
             if (likelyError) {
               console.log('[OAUTH DEBUG] Gmail API non-2xx body:', data)
             }
-            if (json.error) {
+
+            const ge = json.error
+            const gmailApiReject = (message: string, googleError: string | null, googleDesc: string | null) => {
+              reject(
+                attachOauthDebug(new Error(message), {
+                  step: 'gmail_api_call',
+                  httpStatus,
+                  googleError,
+                  googleErrorDescription: googleDesc,
+                  responseBody: data.substring(0, 500),
+                }),
+              )
+            }
+
+            if (ge) {
               console.log('[OAUTH DEBUG] Gmail API error envelope (full body):', data)
-              reject(new Error(json.error.message || 'API error'))
+              let googleError: string | null = null
+              let googleErrorDescription: string | null = null
+              if (typeof ge === 'string') {
+                googleError = ge
+              } else if (ge && typeof ge === 'object') {
+                googleError =
+                  typeof ge.status === 'string'
+                    ? ge.status
+                    : typeof ge.code === 'number'
+                      ? String(ge.code)
+                      : null
+                googleErrorDescription =
+                  typeof ge.message === 'string' ? ge.message : JSON.stringify(ge).slice(0, 200)
+              }
+              const msg = googleErrorDescription || googleError || 'API error'
+              gmailApiReject(msg, googleError, googleErrorDescription)
+            } else if (likelyError) {
+              gmailApiReject(
+                `Gmail API HTTP ${httpStatus}`,
+                null,
+                null,
+              )
             } else {
               resolve(json)
             }
           } catch (err) {
             console.log('[OAUTH DEBUG] Gmail API parse failure; raw body:', data)
-            reject(err)
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'gmail_api_call',
+                httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: data.substring(0, 500),
+              }),
+            )
           }
         })
       })
       
-      req.on('error', reject)
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'gmail_api_call',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       
       if (body) {
         req.write(JSON.stringify(body))

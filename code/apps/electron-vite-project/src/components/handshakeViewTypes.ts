@@ -139,7 +139,19 @@ declare global {
         displayName?: string,
         syncWindowDays?: number,
         gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved',
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      ) => Promise<{
+        ok: boolean
+        data?: { id: string; email: string; provider: string }
+        error?: string
+        debug?: {
+          step: string
+          httpStatus: number | null
+          googleError: string | null
+          googleErrorDescription: string | null
+          responseBody: string | null
+          raw?: string
+        }
+      }>
       connectOutlook?: (
         displayName?: string,
         syncWindowDays?: number,

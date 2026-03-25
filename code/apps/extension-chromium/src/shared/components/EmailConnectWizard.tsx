@@ -31,6 +31,16 @@ type Provider = 'gmail' | 'outlook' | 'zoho' | 'custom'
 type ResultType = 'success' | 'failure'
 type SecurityModeUi = 'ssl' | 'starttls' | 'none'
 
+/** Gmail OAuth connect failure detail from main (IPC or HTTP API). */
+type GmailConnectFailureDebug = {
+  step?: string
+  httpStatus?: number | null
+  googleError?: string | null
+  googleErrorDescription?: string | null
+  responseBody?: string | null
+  raw?: string
+}
+
 /** Align reconnect hints / legacy values with `<select>` option values (`ssl` | `starttls` | `none`). */
 function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityModeUi {
   const k = typeof v === 'string' ? v.toLowerCase().trim().replace(/\s+/g, '') : ''
@@ -115,6 +125,7 @@ export function EmailConnectWizard({
   const [result, setResult] = useState<ResultType | null>(null)
   const [resultEmail, setResultEmail] = useState<string>('')
   const [resultError, setResultError] = useState<string>('')
+  const [resultDebug, setResultDebug] = useState<GmailConnectFailureDebug | null>(null)
   const [connectingElapsed, setConnectingElapsed] = useState(0)
   const [connectingTimedOut, setConnectingTimedOut] = useState(false)
 
@@ -173,6 +184,7 @@ export function EmailConnectWizard({
     setResult(null)
     setResultEmail('')
     setResultError('')
+    setResultDebug(null)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
     setCredError(null)
@@ -491,7 +503,12 @@ export function EmailConnectWizard({
     async (
       syncWindowDays?: number,
       gmailOAuthCredentialSource: 'builtin_public' | 'developer_saved' = 'builtin_public',
-    ): Promise<{ ok: boolean; email?: string; error?: string }> => {
+    ): Promise<{
+      ok: boolean
+      email?: string
+      error?: string
+      debug?: GmailConnectFailureDebug | null
+    }> => {
       const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
       if (isElectron()) {
         const res = await (window as any).emailAccounts?.connectGmail?.(
@@ -499,7 +516,12 @@ export function EmailConnectWizard({
           days,
           gmailOAuthCredentialSource,
         )
-        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
       }
       if (isExtension()) {
         const res = await chrome.runtime.sendMessage({
@@ -508,7 +530,12 @@ export function EmailConnectWizard({
           syncWindowDays: days,
           gmailOAuthCredentialSource,
         })
-        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
       }
       return { ok: false, error: 'Email connection requires the desktop app or extension.' }
     },
@@ -834,7 +861,7 @@ export function EmailConnectWizard({
     if (step !== 'connecting' || !connecting) return
     const connect = async () => {
       try {
-        let res: { ok: boolean; email?: string; error?: string }
+        let res: { ok: boolean; email?: string; error?: string; debug?: GmailConnectFailureDebug | null }
         if (provider === 'gmail') {
           res = await connectGmail(connectSyncWindowDays, gmailOAuthCredentialSourceRef.current)
         } else if (provider === 'outlook') {
@@ -880,6 +907,7 @@ export function EmailConnectWizard({
         setConnecting(false)
         setStep('result')
         if (res.ok) {
+          setResultDebug(null)
           setResult('success')
           const em = res.email || (provider === 'custom' ? customForm.email.trim() : '')
           setResultEmail(em)
@@ -895,21 +923,42 @@ export function EmailConnectWizard({
             }, 3000)
           }
         } else {
-          // TEMP DEBUG
-          console.log('[OAUTH DEBUG] EmailConnectWizard connect failed (ok=false):', res.error)
+          console.log('[OAUTH DEBUG] EmailConnectWizard connect failed (ok=false):', res.error, res.debug)
           setResult('failure')
           setResultError(res.error || 'Connection failed')
+          if (provider === 'gmail') {
+            setResultDebug(
+              res.debug ??
+                ({
+                  step: 'unknown',
+                  httpStatus: null,
+                  googleError: null,
+                  googleErrorDescription: null,
+                  responseBody: null,
+                  raw: (res.error || 'Connection failed').slice(0, 500),
+                } satisfies GmailConnectFailureDebug),
+            )
+          } else {
+            setResultDebug(null)
+          }
         }
       } catch (e: any) {
-        // TEMP DEBUG
-        console.log('[OAUTH DEBUG] EmailConnectWizard connect — original error:', e)
-        console.log('[OAUTH DEBUG] Error message:', e?.message)
-        console.log('[OAUTH DEBUG] Error response:', e?.response)
-        console.log('[OAUTH DEBUG] Error status:', e?.status ?? e?.statusCode)
         setConnecting(false)
         setStep('result')
         setResult('failure')
         setResultError(e?.message || 'Connection failed')
+        setResultDebug(
+          provider === 'gmail'
+            ? {
+                step: 'unknown',
+                httpStatus: null,
+                googleError: null,
+                googleErrorDescription: null,
+                responseBody: null,
+                raw: (e?.message ? String(e.message) : String(e)).slice(0, 500),
+              }
+            : null,
+        )
       }
     }
     connect()
@@ -954,11 +1003,13 @@ export function EmailConnectWizard({
     setConnecting(false)
     setConnectingTimedOut(false)
     setConnectingElapsed(0)
+    setResultDebug(null)
   }, [])
 
   const handleTryAgain = useCallback(() => {
     setResult(null)
     setResultError('')
+    setResultDebug(null)
     setStep('connecting')
     setConnecting(true)
     setConnectingElapsed(0)
@@ -2567,8 +2618,53 @@ export function EmailConnectWizard({
                 <>
                   <div style={{ fontSize: '48px', marginBottom: '16px', color: '#dc2626' }}>✗</div>
                   <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>Connection failed</div>
-                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '100px', overflowY: 'auto', lineHeight: 1.45 }}>
-                    {resultError ? `Connection failed: ${resultError}` : 'Connection failed: Unknown error'}
+                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '220px', overflowY: 'auto', lineHeight: 1.45 }}>
+                    <p style={{ margin: 0 }}>
+                      {resultError ? `Connection failed: ${resultError}` : 'Connection failed: Unknown error'}
+                    </p>
+                    {resultDebug && (
+                      <div
+                        style={{
+                          marginTop: '12px',
+                          padding: '10px',
+                          backgroundColor: isPro ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)',
+                          borderRadius: '6px',
+                          fontFamily: 'monospace',
+                          fontSize: '11px',
+                          color: isPro ? '#475569' : '#aaa',
+                          maxHeight: '150px',
+                          overflowY: 'auto',
+                          wordBreak: 'break-all',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div>
+                          <strong>Step:</strong> {resultDebug.step ?? '—'}
+                        </div>
+                        <div>
+                          <strong>HTTP Status:</strong>{' '}
+                          {resultDebug.httpStatus === null || resultDebug.httpStatus === undefined
+                            ? '—'
+                            : String(resultDebug.httpStatus)}
+                        </div>
+                        <div>
+                          <strong>Google Error:</strong> {resultDebug.googleError ?? '—'}
+                        </div>
+                        <div>
+                          <strong>Description:</strong> {resultDebug.googleErrorDescription ?? '—'}
+                        </div>
+                        {resultDebug.responseBody ? (
+                          <div>
+                            <strong>Response:</strong> {resultDebug.responseBody}
+                          </div>
+                        ) : null}
+                        {resultDebug.raw ? (
+                          <div>
+                            <strong>Raw:</strong> {resultDebug.raw}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button

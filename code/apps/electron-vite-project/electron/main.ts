@@ -7538,7 +7538,13 @@ app.whenReady().then(async () => {
         }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Gmail:', error)
-        res.status(500).json({ ok: false, error: error.message })
+        const { pickOauthDebugFromError } = await import('./main/email/gmailOAuthConnectDebug')
+        // HTTP 200 so the extension HTTP client returns JSON body (ok/error/debug) instead of retrying on 5xx.
+        res.status(200).json({
+          ok: false,
+          error: error?.message != null ? String(error.message) : 'Unknown error',
+          debug: pickOauthDebugFromError(error),
+        })
       }
     })
     

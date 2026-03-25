@@ -627,7 +627,7 @@ async function electronRequest(
     timeoutMs?: number;
     checkHealthFirst?: boolean;
   } = {}
-): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string; debug?: any }> {
   const {
     maxRetries = DEFAULT_RETRY_CONFIG.maxRetries,
     baseDelayMs = DEFAULT_RETRY_CONFIG.baseDelayMs,
@@ -706,13 +706,22 @@ async function electronRequest(
       if (!response.ok) {
         const text = await response.text();
         console.error(`[BG] HTTP ${response.status}:`, text.slice(0, 200));
+        let parsed: { error?: string; debug?: any } | null = null;
+        try {
+          parsed = JSON.parse(text) as { error?: string; debug?: any };
+        } catch { /* not JSON */ }
         
         // Don't retry client errors (4xx)
         if (response.status >= 400 && response.status < 500) {
+          const message =
+            typeof parsed?.error === 'string' && parsed.error
+              ? parsed.error
+              : `Request failed: ${text.slice(0, 100)}`;
           return { 
             ok: false, 
-            error: `Request failed: ${text.slice(0, 100)}`,
-            errorCode: `HTTP_${response.status}`
+            error: message,
+            errorCode: `HTTP_${response.status}`,
+            ...(parsed?.debug != null ? { debug: parsed.debug } : {}),
           };
         }
         
@@ -771,7 +780,7 @@ async function electronRequest(
 async function electronOAuthRequest(
   endpoint: string,
   options: RequestInit = {}
-): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string }> {
+): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string; debug?: any }> {
   return electronRequest(endpoint, options, {
     ...OAUTH_RETRY_CONFIG,
     checkHealthFirst: true
@@ -3047,7 +3056,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (result.ok) {
             sendResponse(result.data)
           } else {
-            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+            sendResponse({
+              ok: false,
+              error: result.error,
+              errorCode: result.errorCode,
+              ...(result.debug != null ? { debug: result.debug } : {}),
+            })
           }
         })
       
