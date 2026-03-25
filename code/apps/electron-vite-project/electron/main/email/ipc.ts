@@ -1566,7 +1566,7 @@ export function registerInboxHandlers(
     if (!db) return []
     return db
       .prepare(
-        'SELECT id, from_address, from_name, subject, sort_category, urgency_score, needs_reply, sort_reason, pending_delete, pending_review_at, archived FROM inbox_messages WHERE last_autosort_session_id = ? ORDER BY urgency_score DESC, received_at DESC',
+        'SELECT id, from_address, from_name, subject, received_at, sort_category, urgency_score, needs_reply, sort_reason, pending_delete, pending_review_at, archived FROM inbox_messages WHERE last_autosort_session_id = ? ORDER BY urgency_score DESC, received_at DESC',
       )
       .all(sessionId)
   })

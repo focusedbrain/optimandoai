@@ -17,6 +17,14 @@ import {
   CartesianGrid,
 } from 'recharts'
 import './handshakeViewTypes'
+import type { SessionReviewMessageRow } from '../lib/inboxSessionReviewOpen'
+import {
+  aggregateReceivedByDay,
+  aggregateReplyNeededForSessionReview,
+  aggregateTopSenders,
+  formatSessionReviewReceivedAtShort,
+  SENDER_BAR_COLORS,
+} from '../lib/autoSortSessionReviewCharts'
 
 const MESSAGES_PER_PAGE = 50
 
@@ -64,34 +72,28 @@ type SessionRow = {
   status?: string
 }
 
-type MessageRow = {
-  id: string
-  sort_category?: string | null
-  urgency_score?: number | null
-  sort_reason?: string | null
-  from_name?: string | null
-  from_address?: string | null
-  subject?: string | null
-  pending_delete?: number | null
-  pending_review_at?: string | null
-  archived?: number | null
-}
-
-function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id: string) => void }) {
+function MessageListRow({
+  msg,
+  onNavigate,
+}: {
+  msg: SessionReviewMessageRow
+  onNavigate: (msg: SessionReviewMessageRow) => void
+}) {
   const sender = msg.from_name || msg.from_address || 'Unknown'
   const subject = msg.subject || '(No subject)'
   const category = (msg.sort_category || 'unknown').replace(/_/g, ' ')
   const urgency = msg.urgency_score ?? 0
   const reason = (msg.sort_reason || '').trim()
+  const receivedLabel = formatSessionReviewReceivedAtShort(msg.received_at)
 
   return (
     <div
       className="session-msg-row"
-      onClick={() => onNavigate(msg.id)}
+      onClick={() => onNavigate(msg)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onNavigate(msg.id)
+          onNavigate(msg)
         }
       }}
       role="button"
@@ -100,6 +102,9 @@ function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id:
       <div className="session-msg-main">
         <div className="session-msg-line1">
           <span className="session-msg-sender">{sender}</span>
+          <span className="session-msg-date" title="Received">
+            {receivedLabel}
+          </span>
           <span className="session-msg-subject">{subject}</span>
         </div>
         {reason ? <p className="session-msg-reason">{reason}</p> : null}
@@ -113,7 +118,7 @@ function MessageListRow({ msg, onNavigate }: { msg: MessageRow; onNavigate: (id:
         className="highlight-link session-msg-open"
         onClick={(e) => {
           e.stopPropagation()
-          onNavigate(msg.id)
+          onNavigate(msg)
         }}
       >
         Open message
@@ -130,7 +135,7 @@ type AiSummaryParsed = {
 export interface AutoSortSessionReviewProps {
   sessionId: string
   onClose: () => void
-  onNavigateToMessage: (messageId: string) => void
+  onNavigateToMessage: (msg: SessionReviewMessageRow) => void
 }
 
 export function AutoSortSessionReview({
@@ -140,7 +145,7 @@ export function AutoSortSessionReview({
 }: AutoSortSessionReviewProps) {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<SessionRow | null>(null)
-  const [messages, setMessages] = useState<MessageRow[]>([])
+  const [messages, setMessages] = useState<SessionReviewMessageRow[]>([])
   const [otherMessagesExpanded, setOtherMessagesExpanded] = useState(false)
   const [visibleCount, setVisibleCount] = useState(MESSAGES_PER_PAGE)
   useEffect(() => {
@@ -156,7 +161,7 @@ export function AutoSortSessionReview({
         const [s, msgs] = await Promise.all([api.getSession(sessionId), api.getSessionMessages(sessionId)])
         if (cancelled) return
         setSession((s as SessionRow) ?? null)
-        setMessages(Array.isArray(msgs) ? (msgs as MessageRow[]) : [])
+        setMessages(Array.isArray(msgs) ? (msgs as SessionReviewMessageRow[]) : [])
         setVisibleCount(MESSAGES_PER_PAGE)
         setOtherMessagesExpanded(false)
       } catch {
@@ -208,6 +213,12 @@ export function AutoSortSessionReview({
     }))
   }, [messages])
 
+  const replyNeededData = useMemo(() => aggregateReplyNeededForSessionReview(messages), [messages])
+
+  const topSendersData = useMemo(() => aggregateTopSenders(messages), [messages])
+
+  const receivedDayData = useMemo(() => aggregateReceivedByDay(messages), [messages])
+
   const stats = useMemo(() => {
     const s = session
     if (s && typeof s.total_messages === 'number') {
@@ -240,9 +251,9 @@ export function AutoSortSessionReview({
   }, [session, messages.length])
 
   const messageGroups = useMemo(() => {
-    const urgent: MessageRow[] = []
-    const pendingReview: MessageRow[] = []
-    const other: MessageRow[] = []
+    const urgent: SessionReviewMessageRow[] = []
+    const pendingReview: SessionReviewMessageRow[] = []
+    const other: SessionReviewMessageRow[] = []
 
     for (const m of messages) {
       const isUrgent = m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
@@ -453,6 +464,79 @@ export function AutoSortSessionReview({
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+
+            <div className="session-chart-card">
+              <h3 className="session-chart-title">Reply needed</h3>
+              {replyNeededData.length === 0 ? (
+                <p className="session-chart-empty">No messages</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={128}>
+                  <PieChart>
+                    <Pie
+                      data={replyNeededData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={28}
+                      outerRadius={48}
+                      paddingAngle={2}
+                    >
+                      {replyNeededData.map((entry, index) => (
+                        <Cell key={`reply-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="session-chart-card">
+              <h3 className="session-chart-title">Top senders</h3>
+              {topSendersData.length === 0 ? (
+                <p className="session-chart-empty">No sender data</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart
+                    layout="vertical"
+                    data={topSendersData}
+                    margin={{ top: 4, right: 10, left: 4, bottom: 4 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" width={78} tick={{ fontSize: 9 }} interval={0} />
+                    <Tooltip />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                      {topSendersData.map((entry, index) => (
+                        <Cell key={`snd-${index}`} fill={SENDER_BAR_COLORS[index % SENDER_BAR_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div className="session-chart-card">
+              <h3 className="session-chart-title">Received (by day)</h3>
+              {receivedDayData.length === 0 ? (
+                <p className="session-chart-empty">No received dates</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={132}>
+                  <BarChart data={receivedDayData} margin={{ top: 8, right: 8, left: 2, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                    <YAxis allowDecimals={false} width={24} tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {receivedDayData.map((entry, index) => (
+                        <Cell key={`day-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </aside>
         </div>

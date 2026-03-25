@@ -11,8 +11,10 @@ import {
   useEmailInboxStore,
   activeEmailAccountIdsForSync,
   type InboxMessage,
+  type InboxFilter,
   type SubFocus,
 } from '../stores/useEmailInboxStore'
+import { workflowFilterFromSessionReviewRow, type SessionReviewMessageRow } from '../lib/inboxSessionReviewOpen'
 import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay from './EmailComposeOverlay'
@@ -3151,6 +3153,52 @@ export default function EmailInboxBulkView({
     }
   }, [bulkBatchSize, multiSelectIds, runAiCategorizeForIds])
 
+  /** Session Review → inbox: align workflow tab + list paging with post-sort row, then sync App + store selection. */
+  const handleOpenMessageFromSessionReview = useCallback(
+    async (msg: SessionReviewMessageRow) => {
+      setShowSessionReview(null)
+      const id = msg.id
+      if (!id) return
+
+      const scopeClear: Partial<InboxFilter> = {
+        handshakeId: undefined,
+        category: undefined,
+        search: undefined,
+        sourceType: 'all',
+        messageKind: 'all',
+      }
+
+      const listIncludesId = () => useEmailInboxStore.getState().messages.some((m) => m.id === id)
+
+      const revealInBulkIfNeeded = async (): Promise<void> => {
+        const maxLoads = 120
+        for (let n = 0; n < maxLoads; n++) {
+          if (listIncludesId()) return
+          const { bulkHasMore, bulkMode } = useEmailInboxStore.getState()
+          if (!bulkMode || !bulkHasMore) return
+          await useEmailInboxStore.getState().loadMoreBulkMessages()
+        }
+      }
+
+      const tryTab = async (tab: InboxFilter['filter']): Promise<boolean> => {
+        setFilter({ ...scopeClear, filter: tab })
+        await refreshMessages()
+        await revealInBulkIfNeeded()
+        return listIncludesId()
+      }
+
+      const primary = workflowFilterFromSessionReviewRow(msg)
+      let ok = await tryTab(primary)
+      if (!ok && primary !== 'all') {
+        ok = await tryTab('all')
+      }
+
+      onSelectMessage?.(id)
+      await selectMessage(id)
+    },
+    [refreshMessages, selectMessage, setFilter, onSelectMessage],
+  )
+
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
       if (!window.emailInbox?.cancelPendingDelete || ids.length === 0) return
@@ -5705,10 +5753,7 @@ export default function EmailInboxBulkView({
         <AutoSortSessionReview
           sessionId={showSessionReview}
           onClose={() => setShowSessionReview(null)}
-          onNavigateToMessage={(id) => {
-            setShowSessionReview(null)
-            void selectMessage(id)
-          }}
+          onNavigateToMessage={(m) => void handleOpenMessageFromSessionReview(m)}
         />
       ) : null}
 
