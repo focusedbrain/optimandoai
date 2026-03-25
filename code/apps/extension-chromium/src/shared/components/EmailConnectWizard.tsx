@@ -46,6 +46,40 @@ function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityMod
 const isElectron = (): boolean =>
   typeof window !== 'undefined' && typeof (window as any).emailAccounts?.connectGmail === 'function'
 
+/** True when preload exposes the packaged Gmail OAuth runtime diagnostics IPC (proves this build includes that code path). */
+const gmailOAuthDiagnosticsBridgeAvailable = (): boolean =>
+  typeof window !== 'undefined' &&
+  typeof (window as any).emailAccounts?.getGmailOAuthRuntimeDiagnostics === 'function'
+
+function formatGmailOAuthDiagnosticRows(data: unknown): { key: string; value: string }[] {
+  if (!data || typeof data !== 'object') {
+    return [{ key: 'error', value: 'No data returned from main process.' }]
+  }
+  const d = data as Record<string, unknown>
+  const flow = d.lastStandardConnectFlow as Record<string, unknown> | null | undefined
+  const str = (v: unknown) => (v === null || v === undefined ? '—' : String(v))
+  const boolStr = (v: unknown) => (v === true ? 'true' : v === false ? 'false' : '—')
+  return [
+    {
+      key: 'authorizeClientIdFingerprint',
+      value: str(d.authorizeClientIdFingerprint ?? flow?.authorizeClientIdFingerprint),
+    },
+    {
+      key: 'tokenExchangeClientIdFingerprint',
+      value: str(d.tokenExchangeClientIdFingerprint ?? flow?.tokenExchangeClientIdFingerprint),
+    },
+    {
+      key: 'bundledExpectedFingerprint',
+      value: str(d.expectedBundledClientFingerprint ?? flow?.bundledExpectedFingerprint),
+    },
+    { key: 'builtinSourceKind', value: str(d.builtinSourceKind ?? flow?.builtinSourceKind) },
+    { key: 'authMode', value: str(d.authMode ?? flow?.authMode) },
+    { key: 'hasClientSecret', value: boolStr(flow?.hasClientSecret) },
+    { key: 'tokenExchangeShape', value: str(flow?.tokenExchangeShape) },
+    { key: 'googleErrorDescription', value: str(flow?.googleErrorDescription) },
+  ]
+}
+
 function emptyCustomForm() {
   return {
     email: '',
@@ -118,8 +152,11 @@ export function EmailConnectWizard({
    * Set synchronously before `setStep('connecting')` so the connect effect reads the right source.
    */
   const gmailOAuthCredentialSourceRef = useRef<'builtin_public' | 'developer_saved'>('builtin_public')
-  /** Electron: last fetched Gmail OAuth runtime proof (fingerprints only — from main process). */
-  const [gmailOAuthRuntimeDiagText, setGmailOAuthRuntimeDiagText] = useState<string | null>(null)
+  /** Electron: structured Gmail OAuth runtime proof rows (from main via IPC). */
+  const [gmailOAuthDiagModalOpen, setGmailOAuthDiagModalOpen] = useState(false)
+  const [gmailOAuthDiagRows, setGmailOAuthDiagRows] = useState<{ key: string; value: string }[] | null>(null)
+  const [gmailOAuthDiagError, setGmailOAuthDiagError] = useState<string | null>(null)
+  const [gmailOAuthDiagLoading, setGmailOAuthDiagLoading] = useState(false)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -151,7 +188,10 @@ export function EmailConnectWizard({
     setCustomForm(emptyCustomForm())
     setReconnectHasStoredImapPassword(false)
     setConnectSyncWindowDays(30)
-    setGmailOAuthRuntimeDiagText(null)
+    setGmailOAuthDiagModalOpen(false)
+    setGmailOAuthDiagRows(null)
+    setGmailOAuthDiagError(null)
+    setGmailOAuthDiagLoading(false)
   }, [])
 
   useEffect(() => {
@@ -159,23 +199,31 @@ export function EmailConnectWizard({
   }, [isOpen, reset])
 
   const showGmailOAuthRuntimeDiagnostics = useCallback(async () => {
-    if (!isElectron()) return
-    setGmailOAuthRuntimeDiagText(null)
+    if (!isElectron() || !gmailOAuthDiagnosticsBridgeAvailable()) return
+    setGmailOAuthDiagModalOpen(true)
+    setGmailOAuthDiagError(null)
+    setGmailOAuthDiagRows(null)
+    setGmailOAuthDiagLoading(true)
     try {
-      const raw = await window.emailAccounts?.getGmailOAuthRuntimeDiagnostics?.()
+      const raw = await window.emailAccounts!.getGmailOAuthRuntimeDiagnostics!()
       if (!raw) {
-        setGmailOAuthRuntimeDiagText(JSON.stringify({ error: 'preload bridge missing (getGmailOAuthRuntimeDiagnostics)' }, null, 2))
+        setGmailOAuthDiagError('IPC returned no response (getGmailOAuthRuntimeDiagnostics).')
+        setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(null))
         return
       }
       if (!raw.ok) {
-        setGmailOAuthRuntimeDiagText(JSON.stringify({ error: raw.error ?? 'unknown error' }, null, 2))
+        setGmailOAuthDiagError(raw.error ?? 'Unknown error from main process.')
+        setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(raw.data ?? null))
         return
       }
-      console.log('[EmailConnectWizard] Gmail OAuth runtime diagnostics', raw.data)
-      setGmailOAuthRuntimeDiagText(JSON.stringify(raw.data, null, 2))
+      setGmailOAuthDiagError(null)
+      setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(raw.data ?? null))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      setGmailOAuthRuntimeDiagText(JSON.stringify({ error: msg }, null, 2))
+      setGmailOAuthDiagError(msg)
+      setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(null))
+    } finally {
+      setGmailOAuthDiagLoading(false)
     }
   }, [])
 
@@ -921,6 +969,7 @@ export function EmailConnectWizard({
     step === 'provider' ? 'min(520px, 96vw)' : provider === 'custom' ? 'min(500px, 96vw)' : '400px'
 
   return (
+    <>
     <div
       style={{
         position: 'fixed',
@@ -1304,6 +1353,25 @@ export function EmailConnectWizard({
                         Sign in with Google in your browser. Your password is not stored — only OAuth tokens (and refresh
                         tokens are encrypted when the vault is unlocked).
                       </div>
+                      {isElectron() && gmailOAuthDiagnosticsBridgeAvailable() && (
+                        <div
+                          style={{
+                            marginBottom: 10,
+                            padding: '6px 10px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            letterSpacing: '0.02em',
+                            textTransform: 'uppercase',
+                            borderRadius: 6,
+                            display: 'inline-block',
+                            background: isPro ? '#ede9fe' : 'rgba(139,92,246,0.25)',
+                            color: isPro ? '#5b21b6' : 'rgba(196,181,253,0.95)',
+                            border: `1px solid ${isPro ? '#c4b5fd' : 'rgba(167,139,250,0.35)'}`,
+                          }}
+                        >
+                          OAuth diagnostics build active
+                        </div>
+                      )}
                       {gmailOAuthMeta && !gmailOAuthMeta.configured && (
                         <div
                           style={{
@@ -1378,46 +1446,24 @@ export function EmailConnectWizard({
                           Advanced (developer OAuth client)
                         </button>
                       )}
-                      {isElectron() && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void showGmailOAuthRuntimeDiagnostics()}
-                            style={{
-                              width: '100%',
-                              marginTop: 10,
-                              padding: '8px',
-                              fontSize: '11px',
-                              background: isPro ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
-                              border: `1px solid ${borderColor}`,
-                              borderRadius: '8px',
-                              color: mutedColor,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Show Gmail OAuth runtime diagnostics
-                          </button>
-                          {gmailOAuthRuntimeDiagText && (
-                            <pre
-                              style={{
-                                marginTop: 8,
-                                padding: 10,
-                                fontSize: '10px',
-                                lineHeight: 1.45,
-                                maxHeight: 220,
-                                overflow: 'auto',
-                                background: isPro ? '#f8fafc' : 'rgba(0,0,0,0.35)',
-                                border: `1px solid ${borderColor}`,
-                                borderRadius: 8,
-                                color: textColor,
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word',
-                              }}
-                            >
-                              {gmailOAuthRuntimeDiagText}
-                            </pre>
-                          )}
-                        </>
+                      {isElectron() && gmailOAuthDiagnosticsBridgeAvailable() && (
+                        <button
+                          type="button"
+                          onClick={() => void showGmailOAuthRuntimeDiagnostics()}
+                          style={{
+                            width: '100%',
+                            marginTop: 10,
+                            padding: '8px',
+                            fontSize: '11px',
+                            background: isPro ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            color: mutedColor,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Show Gmail OAuth runtime diagnostics
+                        </button>
                       )}
                     </>
                   ) : existingGmail ? (
@@ -2527,6 +2573,129 @@ export function EmailConnectWizard({
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
+
+    {gmailOAuthDiagModalOpen && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gmail-oauth-diag-title"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2147483652,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setGmailOAuthDiagModalOpen(false)
+        }}
+      >
+        <div
+          style={{
+            width: 'min(440px, 96vw)',
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            background: isPro ? '#ffffff' : '#1e293b',
+            borderRadius: 12,
+            border: `1px solid ${borderColor}`,
+            boxShadow: '0 25px 50px rgba(0,0,0,0.45)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            id="gmail-oauth-diag-title"
+            style={{
+              padding: '14px 16px',
+              fontSize: 15,
+              fontWeight: 700,
+              color: textColor,
+              borderBottom: `1px solid ${borderColor}`,
+            }}
+          >
+            Gmail OAuth runtime diagnostics
+          </div>
+          <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
+            {gmailOAuthDiagLoading && (
+              <div style={{ fontSize: 12, color: mutedColor, marginBottom: 10 }}>Loading from main process…</div>
+            )}
+            {gmailOAuthDiagError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#b91c1c',
+                  background: isPro ? '#fee2e2' : 'rgba(248,113,113,0.15)',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  marginBottom: 10,
+                  lineHeight: 1.4,
+                }}
+              >
+                {gmailOAuthDiagError}
+              </div>
+            )}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <tbody>
+                {(gmailOAuthDiagRows ?? formatGmailOAuthDiagnosticRows(null)).map((row) => (
+                  <tr key={row.key}>
+                    <td
+                      style={{
+                        verticalAlign: 'top',
+                        padding: '6px 8px 6px 0',
+                        color: mutedColor,
+                        fontWeight: 600,
+                        width: '42%',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {row.key}
+                    </td>
+                    <td
+                      style={{
+                        verticalAlign: 'top',
+                        padding: '6px 0',
+                        color: textColor,
+                        wordBreak: 'break-word',
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {row.value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 10, color: mutedColor, marginTop: 10, lineHeight: 1.4 }}>
+              Values update after a standard Connect Google attempt. Fingerprints only — no secrets or tokens.
+            </div>
+          </div>
+          <div style={{ padding: 12, borderTop: `1px solid ${borderColor}` }}>
+            <button
+              type="button"
+              onClick={() => setGmailOAuthDiagModalOpen(false)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                color: 'white',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
