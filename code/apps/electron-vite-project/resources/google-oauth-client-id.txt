@@ -2,4 +2,4 @@
 # Google Console → this client → Authorized redirect URIs: add http://127.0.0.1:51249/callback (and 51250–51258 if port fallback is used).
 # Swap: replace the client id line below, then full rebuild (pnpm run build in apps/electron-vite-project) so extraResources repacks; script also runs dist-clean-artifacts.
 # CI: GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID (prepare-google-oauth-resource.cjs overwrites this file before vite/electron-builder).
-900632390085-o6k5k18uoqnopcji70rdteal7nco0hcu.apps.googleusercontent.com
+143694338843-0ulp47db820ml5iu3fgubdq14db8v7u9.apps.googleusercontent.com
