@@ -395,6 +395,7 @@ function ensureImapBruteForceAutoSyncIntervalRegistered(getDb: () => Promise<any
           if (acc.provider !== 'imap' || acc.status !== 'active') continue
           if (acc.processingPaused === true) continue
           console.log('[IMAP-AUTO-SYNC] Triggering pull for IMAP account:', acc.id, acc.email)
+          console.log('[IMAP-AUTO-SYNC] Account status:', acc.status, 'processingPaused:', acc.processingPaused)
           try {
             const result = await syncAccountEmails(db, { accountId: acc.id })
             broadcastInboxSnapshotAfterSync(result)

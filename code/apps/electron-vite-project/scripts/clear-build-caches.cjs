@@ -141,6 +141,7 @@ function clearBuildCaches() {
     'build06',
     'build54606',
     'build27',
+    'build975',
   ]
   for (const name of staleExtensionOutDirs) {
     if (keepExt && name === keepExt) {

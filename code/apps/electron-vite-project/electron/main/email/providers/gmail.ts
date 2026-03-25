@@ -39,6 +39,8 @@ import {
   oauthClientIdFingerprint,
   getPackagedResourceGoogleOAuthClientId,
   isPackagedProductionGmailStandardConnect,
+  resolveBuiltinGoogleOAuthClientSecret,
+  resolveBuiltinGoogleOAuthClientWithMeta,
 } from '../googleOAuthBuiltin'
 import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
 import { attachOauthDebug, oauthDebugFromUnknown } from '../gmailOAuthConnectDebug'
@@ -1120,7 +1122,38 @@ export class GmailProvider extends BaseEmailProvider {
         ? String(userCreds.clientSecret).trim()
         : ''
     const secretFromAccount = stored?.gmailOAuthClientSecret?.trim() ?? ''
-    const refreshClientSecret = secretFromVault || secretFromAccount || undefined
+    let refreshClientSecret = secretFromVault || secretFromAccount || undefined
+    let secretSource: 'vault' | 'account' | 'builtin' | 'none' = 'none'
+    if (secretFromVault) secretSource = 'vault'
+    else if (secretFromAccount) secretSource = 'account'
+
+    if (!refreshClientSecret) {
+      try {
+        const metas = [
+          resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true }),
+          resolveBuiltinGoogleOAuthClientWithMeta(undefined),
+        ]
+        for (const meta of metas) {
+          if (!meta || meta.clientId !== clientId) continue
+          const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(meta)
+          if (builtinSecret) {
+            refreshClientSecret = builtinSecret
+            secretSource = 'builtin'
+            console.log('[Gmail] Using builtin secret for refresh (account missing stored secret)')
+            break
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    console.log('[Gmail] refreshAccessToken:', {
+      hasClientId: !!clientId,
+      hasRefreshSecret: !!refreshClientSecret,
+      hasRefreshToken: !!this.refreshToken,
+      secretSource,
+    })
 
     return new Promise((resolve, reject) => {
       const body = new URLSearchParams({
@@ -1152,6 +1185,7 @@ export class GmailProvider extends BaseEmailProvider {
           try {
             const json = JSON.parse(data)
             if (json.error) {
+              console.error('[Gmail] Token refresh FAILED:', json.error, json.error_description)
               logOAuthDiagnostic('token_refresh_failure', {
                 provider: 'gmail',
                 error: json.error,

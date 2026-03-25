@@ -2415,7 +2415,7 @@ export default function EmailInboxBulkView({
   const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
   const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
 
-  /** Infinite scroll: sentinel vs IntersectionObserver root = `.bulk-view-content` (sole vertical scrollport for chrome + grid). */
+  /** Infinite scroll: sentinel vs IntersectionObserver root = `.bulk-view-root` (sole vertical scrollport). */
   useEffect(() => {
     const root = bulkScrollContainerRef.current
     const sentinel = bulkLoadSentinelRef.current
@@ -4203,7 +4203,7 @@ export default function EmailInboxBulkView({
     Boolean(aiSortOutcomeSummary)
 
   return (
-    <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
+    <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`} ref={bulkScrollContainerRef}>
       {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
       <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
         <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
@@ -5121,8 +5121,8 @@ export default function EmailInboxBulkView({
         )}
       </div>
 
-      {/* Content — primary scrollport for list + chrome (IntersectionObserver root for infinite scroll) */}
-      <div className="bulk-view-content" ref={bulkScrollContainerRef}>
+      {/* Content — list + chrome (scrolls with `.bulk-view-root`) */}
+      <div className="bulk-view-content">
         {error ? (
           <div className="bulk-view-content-message bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}

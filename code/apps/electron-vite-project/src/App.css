@@ -1794,12 +1794,19 @@ body {
 }
 
 /* --- Bulk Inbox View (enterprise: neutral backgrounds, purple for actions only) --- */
+/**
+ * Fill `main.app-main` like HandshakeView (`height: 100%` there). Single vertical scrollport for
+ * toolbar, banner, provider section, chrome, and grid (`overflow-y: auto`).
+ */
 .bulk-view-root {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
-  overflow: hidden;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: #f1f3f5;
   color: #1e293b;
 }
@@ -2785,16 +2792,12 @@ body {
   overflow-y: auto;
 }
 
-/* Primary vertical scroll: full inbox workspace under toolbar (chrome + message grid). */
+/* Content block inside `.bulk-view-root` scroll; no inner vertical scrollport. */
 .bulk-view-content {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  overflow: visible;
   padding: 24px 28px;
 }
 
@@ -2805,7 +2808,7 @@ body {
   overflow-y: auto;
 }
 
-/* Natural height (chrome + grid); `.bulk-view-content` is the only outer vertical scrollport */
+/* Natural height (chrome + grid); root is the vertical scrollport */
 .bulk-view-content-body {
   flex: 0 0 auto;
   display: flex;

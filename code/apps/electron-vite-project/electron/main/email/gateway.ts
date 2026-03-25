@@ -356,7 +356,7 @@ function loadAccounts(): EmailAccountConfig[] {
       console.log('[EmailGateway] Loaded', accounts.length, 'accounts from disk')
       
       // Decrypt OAuth tokens and IMAP/SMTP passwords for each account
-      return accounts.map((account: EmailAccountConfig) => {
+      const loaded = accounts.map((account: EmailAccountConfig) => {
         let next: EmailAccountConfig = account
         if (account.oauth) {
           try {
@@ -390,6 +390,21 @@ function loadAccounts(): EmailAccountConfig[] {
           ...(withImap.processingPaused === true ? { processingPaused: true } : { processingPaused: undefined }),
         }
       })
+
+      for (const acc of loaded) {
+        if (acc.provider === 'imap') {
+          console.log('[IMAP-DIAG] Loaded account:', {
+            id: acc.id,
+            email: acc.email,
+            status: acc.status,
+            lastError: acc.lastError,
+            hasImapPassword: !!(acc.imap?.password && String(acc.imap.password).trim().length > 0),
+            imapEncrypted: acc.imap?._encrypted,
+          })
+        }
+      }
+
+      return loaded
     } else {
       console.log('[EmailGateway] No accounts file found, starting fresh')
     }
@@ -837,23 +852,55 @@ class EmailGateway implements IEmailGateway {
     if (account.provider === 'imap') {
       // IMAP: use ephemeral provider like testConnection does — no cache.
       // Cached IMAP providers go stale and lose this.config after disconnect.
+      console.log('[IMAP-DIAG] listMessages start:', {
+        accountId: account.id,
+        email: account.email,
+        host: account.imap?.host,
+        port: account.imap?.port,
+        security: account.imap?.security,
+        hasPassword: !!(account.imap?.password && String(account.imap.password).trim().length > 0),
+        passwordLength: String(account.imap?.password ?? '').length,
+        encrypted: account.imap?._encrypted,
+        folder,
+      })
       assertImapCredentialsUsableForConnect(account)
+      console.log('[IMAP-DIAG] Credentials check passed for:', account.id)
+
       const provider = await this.getProvider(account)
-      const listStarted = Date.now()
+      const connectStart = Date.now()
       try {
         await provider.connect(account)
+        console.log('[IMAP-DIAG] Connected in', Date.now() - connectStart, 'ms for:', account.id)
+
+        const fetchStart = Date.now()
         const rawMessages = await provider.fetchMessages(folder, options)
+        console.log(
+          '[IMAP-DIAG] Fetched',
+          rawMessages.length,
+          'messages in',
+          Date.now() - fetchStart,
+          'ms for:',
+          account.id,
+        )
+
         console.error(
           '[IMAP-SYNC-PHASE] gateway_imap_list_done',
           JSON.stringify({
             accountId,
             folder,
-            listMs: Date.now() - listStarted,
+            listMs: Date.now() - connectStart,
             count: rawMessages.length,
             phase: 'gateway_listMessages',
           }),
         )
         return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
+      } catch (err: any) {
+        console.error('[IMAP-DIAG] FAILED after', Date.now() - connectStart, 'ms for:', account.id, {
+          error: err?.message,
+          code: err?.code,
+          source: err?.source,
+        })
+        throw err
       } finally {
         try {
           await provider.disconnect()
@@ -1403,6 +1450,15 @@ class EmailGateway implements IEmailGateway {
     })
     const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
     console.log('[OAUTH] Token exchange succeeded, proceeding to Gmail API verification...')
+    const secretFromTokens =
+      typeof tokens.gmailOAuthClientSecret === 'string' && tokens.gmailOAuthClientSecret.trim()
+        ? tokens.gmailOAuthClientSecret.trim()
+        : undefined
+    const secretFromResolved =
+      resolved.clientSecret && String(resolved.clientSecret).trim()
+        ? String(resolved.clientSecret).trim()
+        : undefined
+    const gmailOAuthClientSecretToStore = secretFromTokens ?? secretFromResolved
     const oauth: NonNullable<EmailAccountConfig['oauth']> = {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -1410,9 +1466,7 @@ class EmailGateway implements IEmailGateway {
       scope: typeof tokens.scope === 'string' ? tokens.scope : '',
       oauthClientId: resolved.clientId,
       gmailRefreshUsesSecret: resolved.authMode === 'legacy_secret',
-      ...(tokens.gmailOAuthClientSecret
-        ? { gmailOAuthClientSecret: tokens.gmailOAuthClientSecret }
-        : {}),
+      ...(gmailOAuthClientSecretToStore ? { gmailOAuthClientSecret: gmailOAuthClientSecretToStore } : {}),
     }
 
     /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */

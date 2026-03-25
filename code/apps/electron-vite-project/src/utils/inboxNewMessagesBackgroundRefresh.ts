@@ -22,7 +22,11 @@ export function subscribeInboxNewMessagesBackgroundRefresh(options: {
     }, debounceMs)
   }
 
-  const unsub = onNewMessages(() => {
+  const unsub = onNewMessages((data: unknown) => {
+    const payload = data as { inboxInvalidate?: boolean; reason?: string } | null | undefined
+    if (payload?.inboxInvalidate && typeof payload.reason === 'string' && payload.reason) {
+      console.warn('[INBOX-BG] Auto-sync failure:', payload.reason)
+    }
     scheduleRefresh()
   })
 
