@@ -9,6 +9,9 @@ import {
   isBuiltinGmailOAuthConfigured,
   logOAuthDiagnostic,
   assertBuiltinPublicClientMatchesShippedResource,
+  oauthClientIdFingerprint,
+  isPackagedProductionGmailStandardConnect,
+  getGoogleOauthClientIdEnvVarNamesPresent,
   type BuiltinGoogleOAuthClientResolution,
 } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
@@ -47,7 +50,7 @@ export function defaultGmailOAuthCredentialSource(): GmailOAuthCredentialSource 
 }
 
 function assertBuiltinMetaConfigured(): BuiltinGoogleOAuthClientResolution {
-  const meta = resolveBuiltinGoogleOAuthClientWithMeta()
+  const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
   if (!meta) {
     throw new Error(
       'Gmail sign-in is not configured for this app build. Use a build that includes the app Google OAuth client, or developer OAuth credentials if enabled.',
@@ -79,6 +82,16 @@ export async function resolveGmailOAuthForConnect(
       resolution: 'builtin',
       builtinClientResolution: meta,
     }
+    logOAuthDiagnostic('gmail_standard_connect_oauth_source', {
+      winningBuiltinSourceKind: meta.sourceKind,
+      winningClientIdFingerprint: oauthClientIdFingerprint(meta.clientId),
+      gmailOAuthCredentialSource: 'builtin_public',
+      authMode: 'pkce',
+      packagedProductionStandardConnect: isPackagedProductionGmailStandardConnect(),
+      packagedStandardConnectResourcePrecedenceEnforced: isPackagedProductionGmailStandardConnect(),
+      googleOauthEnvVarsPresent: getGoogleOauthClientIdEnvVarNamesPresent(),
+      packagedStandardConnectIgnoredEnvVarNames: meta.packagedStandardConnectIgnoredEnvVarNames ?? [],
+    })
     logOAuthDiagnostic('gmail_oauth_resolve', {
       credentialSource: 'builtin_public',
       authMode: resolved.authMode,

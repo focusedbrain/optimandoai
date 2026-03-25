@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('./googleOAuthBuiltin', () => ({
-  resolveBuiltinGoogleOAuthClientWithMeta: vi.fn(),
-  isBuiltinGmailOAuthConfigured: vi.fn(),
-  logOAuthDiagnostic: vi.fn(),
-  assertBuiltinPublicClientMatchesShippedResource: vi.fn(),
-}))
+vi.mock('./googleOAuthBuiltin', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./googleOAuthBuiltin')>()
+  return {
+    ...actual,
+    resolveBuiltinGoogleOAuthClientWithMeta: vi.fn(),
+    isBuiltinGmailOAuthConfigured: vi.fn(),
+    logOAuthDiagnostic: vi.fn(),
+    assertBuiltinPublicClientMatchesShippedResource: vi.fn(),
+  }
+})
 
 vi.mock('./credentials', () => ({
   getCredentialsForOAuth: vi.fn(),
@@ -69,6 +73,9 @@ describe('resolveGmailOAuthForConnect', () => {
     expect(r.clientSecret).toBeUndefined()
     expect(r.builtinClientResolution?.sourceKind).toBe('packaged_resource_file')
     expect(assertBuiltinPublicClientMatchesShippedResource).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(resolveBuiltinGoogleOAuthClientWithMeta)).toHaveBeenCalledWith({
+      forStandardGmailConnect: true,
+    })
   })
 
   it('builtin_public logs gmail_oauth_resolve with pkce, builtin packaged source, not user-stored', async () => {
@@ -77,6 +84,14 @@ describe('resolveGmailOAuthForConnect', () => {
       builtinMeta('builtin.apps.googleusercontent.com'),
     )
     await resolveGmailOAuthForConnect('builtin_public')
+    expect(vi.mocked(logOAuthDiagnostic)).toHaveBeenCalledWith(
+      'gmail_standard_connect_oauth_source',
+      expect.objectContaining({
+        winningBuiltinSourceKind: 'packaged_resource_file',
+        gmailOAuthCredentialSource: 'builtin_public',
+        authMode: 'pkce',
+      }),
+    )
     expect(vi.mocked(logOAuthDiagnostic)).toHaveBeenCalledWith(
       'gmail_oauth_resolve',
       expect.objectContaining({

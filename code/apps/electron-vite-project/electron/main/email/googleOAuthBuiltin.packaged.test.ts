@@ -35,6 +35,8 @@ describe('packaged builtin OAuth resolution', () => {
     oauthTestState.files.clear()
     delete process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID
     delete process.env.GOOGLE_OAUTH_CLIENT_ID
+    delete process.env.WR_DESK_EMAIL_DEVELOPER_MODE
+    delete process.env.WR_DESK_DEVELOPER_MODE
     ;(process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = 'C:\\App\\resources'
     const resourceFile = path.join(process.resourcesPath!, 'google-oauth-client-id.txt')
     oauthTestState.files.set(resourceFile, `${PACKAGED_RESOURCE_ID}\n`)
@@ -48,11 +50,27 @@ describe('packaged builtin OAuth resolution', () => {
     expect(r!.clientId).toBe(PACKAGED_RESOURCE_ID)
   })
 
-  it('runtime env still wins over packaged file', () => {
+  it('runtime env still wins over packaged file (Advanced / non–standard-connect resolver)', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-envoverride.apps.googleusercontent.com'
     const r = resolveBuiltinGoogleOAuthClientWithMeta()
     expect(r!.sourceKind).toBe('runtime_env_GOOGLE_OAUTH_CLIENT_ID')
     expect(r!.clientId).toBe('900632390085-envoverride.apps.googleusercontent.com')
+  })
+
+  it('standard Gmail Connect ignores env and uses packaged resource when not email developer mode', () => {
+    process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-wrongenvoverride.apps.googleusercontent.com'
+    const r = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+    expect(r!.sourceKind).toBe('packaged_resource_file')
+    expect(r!.clientId).toBe(PACKAGED_RESOURCE_ID)
+    expect(r!.packagedStandardConnectIgnoredEnvVarNames).toContain('GOOGLE_OAUTH_CLIENT_ID')
+  })
+
+  it('standard Gmail Connect allows env when WR_DESK_EMAIL_DEVELOPER_MODE=1 (packaged testing)', () => {
+    process.env.WR_DESK_EMAIL_DEVELOPER_MODE = '1'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-devmodeenv.apps.googleusercontent.com'
+    const r = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+    expect(r!.sourceKind).toBe('runtime_env_GOOGLE_OAUTH_CLIENT_ID')
+    expect(r!.clientId).toBe('900632390085-devmodeenv.apps.googleusercontent.com')
   })
 
   it('assertBuiltinPublic fails when staged client id does not match shipped resource (no env)', () => {

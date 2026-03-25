@@ -2,13 +2,22 @@
  * App-owned Gmail OAuth client id (public identifier — safe to ship).
  * The client secret is NOT used for the end-user PKCE flow.
  *
- * Precedence (first match wins) — **packaged production** (`app.isPackaged`):
- * 1. WR_DESK_GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID (runtime env — explicit ops override)
- * 2. google-oauth-client-id.txt in `process.resourcesPath` (shipped Desktop client; wins over stale Vite inline)
- * 3. Build-time: GOOGLE_OAUTH_CLIENT_ID at `vite build` (inlined constant)
- * 4. google-oauth-client-id.txt beside the executable (portable / sidecar)
+ * Precedence depends on context:
  *
- * **Development** (unpackaged):
+ * **Standard Gmail Connect** (`builtin_public`) in **packaged production** (not email developer mode):
+ * 1. google-oauth-client-id.txt in `process.resourcesPath` (bundled Desktop client)
+ * 2. Build-time Vite inline constant
+ * 3. Sidecar `google-oauth-client-id.txt` beside the executable  
+ * Runtime `WR_DESK_GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_ID` are **not** applied (they caused wrong-client / `client_secret is missing` when set to a Web or stale id).  
+ * Enable **`WR_DESK_EMAIL_DEVELOPER_MODE=1`** or **`WR_DESK_DEVELOPER_MODE=1`** to allow env overrides in packaged builds for testing.
+ *
+ * **Advanced / builtin fallback / unpackaged dev** — **packaged** with developer mode on, or unpackaged:
+ * 1. WR_DESK_GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID
+ * 2. google-oauth-client-id.txt in `process.resourcesPath` (packaged) — wins over stale Vite inline when env unset
+ * 3. Build-time inlined constant
+ * 4. Dev resource files or sidecar (see below)
+ *
+ * **Development** (unpackaged) when using the generic resolver:
  * 1. Runtime env (same keys as above)
  * 2. Build-time Vite inline (fast local iteration when env unset)
  * 3. resources/google-oauth-client-id.txt under `app.getAppPath()` and `process.cwd()`
@@ -48,6 +57,44 @@ export interface BuiltinGoogleOAuthClientResolution {
   isBuiltinAppOwned: true
   fromBuildTimeInline: boolean
   fromPackagedResourceFile: boolean
+  /**
+   * Names only: OAuth client id env vars that had any non-empty value but were not used for resolution
+   * (packaged production standard Connect only).
+   */
+  packagedStandardConnectIgnoredEnvVarNames?: string[]
+}
+
+/** True when Standard Connect uses bundled resource before env (packaged app, email developer mode off). */
+export function isPackagedProductionGmailStandardConnect(): boolean {
+  try {
+    return app.isPackaged && !isEmailDeveloperModeEnabled()
+  } catch {
+    return false
+  }
+}
+
+/** Env var names (not values) that are set non-empty for Google OAuth client id. */
+export function getGoogleOauthClientIdEnvVarNamesPresent(): string[] {
+  return ENV_KEYS.filter((k) => (process.env[k] ?? '').trim().length > 0)
+}
+
+function attachIgnoredEnvNames(
+  res: BuiltinGoogleOAuthClientResolution,
+): BuiltinGoogleOAuthClientResolution {
+  const names = getGoogleOauthClientIdEnvVarNamesPresent()
+  if (names.length === 0) return res
+  return { ...res, packagedStandardConnectIgnoredEnvVarNames: [...names] }
+}
+
+/** Packaged production Standard Connect: resource → build-time → sidecar; never env. */
+function resolvePackagedStandardConnectNoEnvFirst(): BuiltinGoogleOAuthClientResolution | null {
+  const fromPackaged = tryPackagedResourceFile()
+  if (fromPackaged) return attachIgnoredEnvNames(fromPackaged)
+  const fromBuild = resolutionFromBuildTime()
+  if (fromBuild) return attachIgnoredEnvNames(fromBuild)
+  const side = trySidecar()
+  if (side) return attachIgnoredEnvNames(side)
+  return null
 }
 
 function readFirstNonCommentLine(p: string): string | null {
@@ -232,10 +279,27 @@ function trySidecar(): BuiltinGoogleOAuthClientResolution | null {
   }
 }
 
+export type ResolveBuiltinGoogleOAuthOptions = {
+  /**
+   * Standard Gmail Connect: in packaged production, use bundled resource before env overrides.
+   * Advanced / `developer_saved` builtin fallback should omit this (env allowed).
+   */
+  forStandardGmailConnect?: boolean
+}
+
 /**
- * Resolve built-in app-owned Google OAuth client id with explicit source metadata (standard Connect / builtin fallback).
+ * Resolve built-in app-owned Google OAuth client id with explicit source metadata.
  */
-export function resolveBuiltinGoogleOAuthClientWithMeta(): BuiltinGoogleOAuthClientResolution | null {
+export function resolveBuiltinGoogleOAuthClientWithMeta(
+  options?: ResolveBuiltinGoogleOAuthOptions,
+): BuiltinGoogleOAuthClientResolution | null {
+  const standardPackagedProduction =
+    options?.forStandardGmailConnect === true && isPackagedProductionGmailStandardConnect()
+
+  if (standardPackagedProduction) {
+    return resolvePackagedStandardConnectNoEnvFirst()
+  }
+
   const fromEnv = resolutionFromEnv()
   if (fromEnv) return fromEnv
 
@@ -255,12 +319,16 @@ export function resolveBuiltinGoogleOAuthClientWithMeta(): BuiltinGoogleOAuthCli
 }
 
 export function getBuiltinGmailOAuthClientId(): string | null {
-  return resolveBuiltinGoogleOAuthClientWithMeta()?.clientId ?? null
+  const useStandardPackaged =
+    isPackagedProductionGmailStandardConnect()
+  return resolveBuiltinGoogleOAuthClientWithMeta(
+    useStandardPackaged ? { forStandardGmailConnect: true } : undefined,
+  )?.clientId ?? null
 }
 
 /** True when a non-placeholder built-in client id is available for end-user PKCE connect. */
 export function isBuiltinGmailOAuthConfigured(): boolean {
-  return !!resolveBuiltinGoogleOAuthClientWithMeta()
+  return !!getBuiltinGmailOAuthClientId()
 }
 
 /**
@@ -329,6 +397,13 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'builtinFromBuildTimeInline',
   'builtinFromPackagedResourceFile',
   'packagedResourceFingerprint',
+  'winningBuiltinSourceKind',
+  'winningClientIdFingerprint',
+  'gmailOAuthCredentialSource',
+  'packagedProductionStandardConnect',
+  'googleOauthEnvVarsPresent',
+  'packagedStandardConnectIgnoredEnvVarNames',
+  'packagedStandardConnectResourcePrecedenceEnforced',
 ])
 
 /** Structured OAuth diagnostics — never log tokens, secrets, auth codes, or full client ids. */

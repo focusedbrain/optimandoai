@@ -122,6 +122,7 @@ function clearBuildCaches() {
     'build5667',
     'build1756',
     'build06',
+    'build54606',
     'build27',
   ]
   for (const name of staleExtensionOutDirs) {
