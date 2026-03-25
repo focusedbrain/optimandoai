@@ -1753,7 +1753,7 @@ export function EmailConnectWizard({
                         <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
                           <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}>Azure Portal</a></li>
                           <li>Register an application in Azure Active Directory</li>
-                          <li>Add redirect URI: http://localhost:{OAUTH_CALLBACK_PORT}/callback</li>
+                          <li>Add redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback</li>
                           <li>Create a client secret</li>
                           <li>Copy Application (client) ID, Client Secret, and Tenant ID below</li>
                         </ol>
@@ -2053,7 +2053,7 @@ export function EmailConnectWizard({
                           </li>
                           <li>Add a Server-based client</li>
                           <li>
-                            Authorized redirect URI: http://localhost:{OAUTH_CALLBACK_PORT}/callback
+                            Authorized redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback
                           </li>
                           <li>Enable Zoho Mail scopes (messages, folders, accounts)</li>
                           <li>Copy Client ID and Client Secret below; pick EU if your mail is on zoho.eu</li>

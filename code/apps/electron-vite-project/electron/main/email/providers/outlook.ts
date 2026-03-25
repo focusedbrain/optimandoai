@@ -34,7 +34,7 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
-import { getCredentialsForOAuth } from '../credentials'
+import { getCredentialsForOAuth, type OutlookCreds } from '../credentials'
 
 /**
  * Microsoft Graph API scopes
@@ -641,11 +641,12 @@ export class OutlookProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
-    const oauthConfig = await getCredentialsForOAuth('outlook')
-    if (!oauthConfig) {
+    const oauthConfigRaw = await getCredentialsForOAuth('outlook')
+    if (!oauthConfigRaw) {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
     }
-    
+    const oauthConfig = oauthConfigRaw as OutlookCreds
+
     // Check if another OAuth flow is in progress
     if (oauthServerManager.isFlowInProgress()) {
       throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
@@ -657,10 +658,12 @@ export class OutlookProvider extends BaseEmailProvider {
     try {
       // Start OAuth flow with the server manager
       // This will start the server, wait for callback, and return the result
-      const flowPromise = oauthServerManager.startOAuthFlow('outlook', 5 * 60 * 1000)
-      
-      // Build auth URL with dynamic port from the manager
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId)
+      const { callbackUrl, resultPromise } = await oauthServerManager.beginOAuthFlow(
+        'outlook',
+        5 * 60 * 1000,
+      )
+
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId, callbackUrl)
       console.log('[Outlook] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
       
       // Open browser
@@ -675,7 +678,7 @@ export class OutlookProvider extends BaseEmailProvider {
       
       // Wait for callback
       console.log('[Outlook] Waiting for OAuth callback...')
-      const result = await flowPromise
+      const result = await resultPromise
       
       if (!result.success) {
         throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
@@ -688,7 +691,7 @@ export class OutlookProvider extends BaseEmailProvider {
       console.log('[Outlook] Auth code received, exchanging for tokens...')
       
       // Exchange code for tokens
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, callbackUrl)
       if (!tokens) {
         throw new Error('Failed to exchange authorization code for tokens')
       }
@@ -733,10 +736,8 @@ export class OutlookProvider extends BaseEmailProvider {
    * Build the OAuth authorization URL
    * Uses dynamic port from the OAuth server manager
    */
-  private buildAuthUrl(clientId: string, tenantId?: string): string {
+  private buildAuthUrl(clientId: string, tenantId: string | undefined, redirectUri: string): string {
     const tenant = tenantId || 'organizations'
-    // Get the callback URL from the OAuth server manager (with dynamic port)
-    const redirectUri = oauthServerManager.getCallbackUrl()
     
     const params = new URLSearchParams({
       client_id: clientId,
@@ -754,11 +755,10 @@ export class OutlookProvider extends BaseEmailProvider {
   
   private async exchangeCodeForTokens(
     oauthConfig: { clientId: string; clientSecret?: string; tenantId?: string },
-    code: string
+    code: string,
+    redirectUri: string,
   ): Promise<EmailAccountConfig['oauth']> {
     const tenant = oauthConfig.tenantId || 'organizations'
-    // Use the same redirect URI that was used for authorization
-    const redirectUri = oauthServerManager.getCallbackUrl()
     
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {
@@ -849,11 +849,12 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = await getCredentialsForOAuth('outlook')
-    if (!oauthConfig || !this.refreshToken) {
+    const oauthConfigRaw = await getCredentialsForOAuth('outlook')
+    if (!oauthConfigRaw || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
-    
+    const oauthConfig = oauthConfigRaw as OutlookCreds
+
     const tenant = oauthConfig.tenantId || 'organizations'
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {

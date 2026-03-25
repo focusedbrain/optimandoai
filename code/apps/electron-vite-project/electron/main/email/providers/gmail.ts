@@ -689,9 +689,15 @@ export class GmailProvider extends BaseEmailProvider {
     console.log('[Gmail] Current OAuth state:', oauthServerManager.getState())
 
     try {
-      const flowPromise = oauthServerManager.startOAuthFlow('gmail', 5 * 60 * 1000)
+      const { callbackUrl, resultPromise } = await oauthServerManager.beginOAuthFlow('gmail', 5 * 60 * 1000)
 
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, email, oauthConfig.authMode, codeChallenge)
+      const authUrl = this.buildAuthUrl(
+        oauthConfig.clientId,
+        email,
+        oauthConfig.authMode,
+        codeChallenge,
+        callbackUrl,
+      )
       if (oauthConfig.credentialSourceUsed === 'builtin_public') {
         this.standardConnectAuthorizeClientIdFingerprint = oauthClientIdFingerprint(oauthConfig.clientId)
       }
@@ -707,7 +713,7 @@ export class GmailProvider extends BaseEmailProvider {
       }
 
       console.log('[Gmail] Waiting for OAuth callback...')
-      const result = await flowPromise
+      const result = await resultPromise
 
       logOAuthDiagnostic('oauth_callback_received', {
         provider: 'gmail',
@@ -725,7 +731,12 @@ export class GmailProvider extends BaseEmailProvider {
       }
 
       console.log('[Gmail] Auth code received, exchanging for tokens...')
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, this.pkceVerifier)
+      const tokens = await this.exchangeCodeForTokens(
+        oauthConfig,
+        result.code,
+        this.pkceVerifier,
+        callbackUrl,
+      )
       this.pkceVerifier = null
       logOAuthDiagnostic('token_exchange_success', { provider: 'gmail'})
       console.log('[Gmail] Tokens received!')
@@ -743,17 +754,16 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   /**
-   * Build the OAuth authorization URL
-   * Uses dynamic port from the OAuth server manager
+   * Build the OAuth authorization URL.
+   * @param redirectUri Exact redirect from {@link oauthServerManager.beginOAuthFlow} (must match token exchange).
    */
   private buildAuthUrl(
     clientId: string,
     email: string | undefined,
     authMode: ResolvedGmailOAuth['authMode'],
     codeChallenge: string | undefined,
+    redirectUri: string,
   ): string {
-    const redirectUri = oauthServerManager.getCallbackUrl()
-
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -776,8 +786,8 @@ export class GmailProvider extends BaseEmailProvider {
     oauthConfig: ResolvedGmailOAuth,
     code: string,
     codeVerifier: string | null,
+    redirectUri: string,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
-    const redirectUri = oauthServerManager.getCallbackUrl()
     const authorizeFp =
       this.standardConnectAuthorizeClientIdFingerprint ?? oauthClientIdFingerprint(oauthConfig.clientId)
     const tokenExchangeFp = oauthClientIdFingerprint(oauthConfig.clientId)
@@ -871,6 +881,10 @@ export class GmailProvider extends BaseEmailProvider {
         return
       }
 
+      console.log(
+        `[Gmail OAuth] Token exchange: clientId=${(body.get('client_id') || '').slice(0, 20)}..., redirect_uri=${body.get('redirect_uri')}, hasSecret=${body.has('client_secret')}, hasVerifier=${body.has('code_verifier')}, grant=${body.get('grant_type')}`,
+      )
+
       const postData = body.toString()
 
       const options = {
@@ -893,6 +907,7 @@ export class GmailProvider extends BaseEmailProvider {
           try {
             const json = JSON.parse(data)
             if (json.error) {
+              console.error('[Gmail OAuth] Token exchange error response (full body):', data)
               logOAuthDiagnostic('gmail_token_exchange_response', {
                 httpStatus,
                 ok: false,
@@ -949,6 +964,7 @@ export class GmailProvider extends BaseEmailProvider {
               })
             }
           } catch (err) {
+            console.error('[Gmail OAuth] Token exchange parse error; raw body:', data)
             logOAuthDiagnostic('gmail_token_exchange_response', {
               httpStatus,
               ok: false,

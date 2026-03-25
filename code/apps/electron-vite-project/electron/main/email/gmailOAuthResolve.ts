@@ -61,6 +61,11 @@ function assertBuiltinMetaConfigured(): BuiltinGoogleOAuthClientResolution {
   return meta
 }
 
+function logGmailOAuthResolvedConfig(source: string, clientId: string, authMode: GmailAuthMode): void {
+  const prefix = clientId.length >= 20 ? `${clientId.slice(0, 20)}` : clientId
+  console.log(`[Gmail OAuth] Resolved config: source=${source}, clientId=${prefix}..., authMode=${authMode}`)
+}
+
 /**
  * Pick OAuth client + flow for a new Gmail connection.
  *
@@ -107,6 +112,7 @@ export async function resolveGmailOAuthForConnect(
       builtinConfigured: true,
       usesUserStoredOAuthClient: false,
     })
+    logGmailOAuthResolvedConfig(`builtin_public:${meta.sourceKind}`, resolved.clientId, resolved.authMode)
     return resolved
   }
 
@@ -129,6 +135,7 @@ export async function resolveGmailOAuthForConnect(
       hasClientSecret: true,
       usesUserStoredOAuthClient: true,
     })
+    logGmailOAuthResolvedConfig('developer_saved:legacy_secret', resolved.clientId, resolved.authMode)
     return resolved
   }
   if (user?.clientId?.trim()) {
@@ -168,6 +175,11 @@ export async function resolveGmailOAuthForConnect(
       builtinFromBuildTimeInline: builtinMeta.fromBuildTimeInline,
       builtinFromPackagedResourceFile: builtinMeta.fromPackagedResourceFile,
     })
+    logGmailOAuthResolvedConfig(
+      `developer_saved:builtin_fallback:${builtinMeta.sourceKind}`,
+      resolved.clientId,
+      resolved.authMode,
+    )
     return resolved
   }
 

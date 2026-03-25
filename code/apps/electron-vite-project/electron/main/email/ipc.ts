@@ -4778,7 +4778,7 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
           </div>
           <p class="step-desc">
             Go to <a class="link" id="openAzure">Azure Portal</a> → Azure Active Directory → 
-            App registrations → New registration. Set redirect URI to: <code>http://localhost:51249/callback</code>
+            App registrations → New registration. Set redirect URI to: <code>http://127.0.0.1:51249/callback</code>
           </p>
         </div>
         

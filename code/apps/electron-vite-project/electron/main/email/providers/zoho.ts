@@ -25,7 +25,7 @@ import type {
 } from '../domain/orchestratorRemoteTypes'
 import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
-import { getCredentialsForOAuth } from '../credentials'
+import { getCredentialsForOAuth, type ZohoCreds } from '../credentials'
 
 const ZOHO_MAIL_SCOPES = [
   'ZohoMail.messages.READ',
@@ -207,10 +207,11 @@ export class ZohoProvider extends BaseEmailProvider {
   }
 
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = await getCredentialsForOAuth('zoho')
-    if (!oauthConfig || !this.refreshToken) {
+    const oauthConfigRaw = await getCredentialsForOAuth('zoho')
+    if (!oauthConfigRaw || !this.refreshToken) {
       throw new Error('Cannot refresh Zoho token: missing credentials')
     }
+    const oauthConfig = oauthConfigRaw as ZohoCreds
     const dc =
       this.config?.zohoDatacenter === 'eu'
         ? 'eu'
@@ -262,7 +263,7 @@ export class ZohoProvider extends BaseEmailProvider {
     if (json.refresh_token) this.refreshToken = json.refresh_token
     this.tokenExpiresAt = Date.now() + (Number(json.expires_in) || 3600) * 1000
 
-    if (this.onTokenRefresh && this.refreshToken) {
+    if (this.onTokenRefresh && this.refreshToken && this.accessToken) {
       this.onTokenRefresh({
         accessToken: this.accessToken,
         refreshToken: this.refreshToken,
@@ -707,12 +708,13 @@ export class ZohoProvider extends BaseEmailProvider {
     folders: EmailAccountConfig['folders']
     zohoDatacenter: 'com' | 'eu'
   }> {
-    const oauthConfig = await getCredentialsForOAuth('zoho')
-    if (!oauthConfig) {
+    const oauthConfigRawStart = await getCredentialsForOAuth('zoho')
+    if (!oauthConfigRawStart) {
       throw new Error(
         'Zoho OAuth client credentials not configured. Add Client ID and Secret in the connect wizard.',
       )
     }
+    const oauthConfig = oauthConfigRawStart as ZohoCreds
     if (oauthServerManager.isFlowInProgress()) {
       throw new Error('Another OAuth flow is already in progress.')
     }
@@ -721,16 +723,16 @@ export class ZohoProvider extends BaseEmailProvider {
     this.datacenter = dc
 
     try {
-      const flowPromise = oauthServerManager.startOAuthFlow('zoho', 5 * 60 * 1000)
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, dc)
+      const { callbackUrl, resultPromise } = await oauthServerManager.beginOAuthFlow('zoho', 5 * 60 * 1000)
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, dc, callbackUrl)
       await shell.openExternal(authUrl)
-      const result = await flowPromise
+      const result = await resultPromise
       if (!result.success) {
         throw new Error(result.errorDescription || result.error || 'Zoho OAuth failed')
       }
       if (!result.code) throw new Error('No authorization code')
 
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, dc)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, dc, callbackUrl)
       this.accessToken = tokens.accessToken
       this.refreshToken = tokens.refreshToken
       this.tokenExpiresAt = tokens.expiresAt
@@ -788,8 +790,7 @@ export class ZohoProvider extends BaseEmailProvider {
     }
   }
 
-  private buildAuthUrl(clientId: string, dc: 'com' | 'eu'): string {
-    const redirectUri = oauthServerManager.getCallbackUrl()
+  private buildAuthUrl(clientId: string, dc: 'com' | 'eu', redirectUri: string): string {
     const params = new URLSearchParams({
       client_id: clientId,
       response_type: 'code',
@@ -805,9 +806,9 @@ export class ZohoProvider extends BaseEmailProvider {
     oauthConfig: { clientId: string; clientSecret: string; datacenter?: 'com' | 'eu' },
     code: string,
     dc: 'com' | 'eu',
+    redirectUri: string,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const host = accountsHost(dc)
-    const redirectUri = oauthServerManager.getCallbackUrl()
     const postData = new URLSearchParams({
       code,
       client_id: oauthConfig.clientId,
