@@ -413,7 +413,7 @@ export function EmailConnectWizard({
   const connectGmail = useCallback(
     async (
       syncWindowDays?: number,
-      gmailOAuthCredentialSource: 'builtin_public' | 'developer_saved' = 'developer_saved',
+      gmailOAuthCredentialSource: 'builtin_public' | 'developer_saved' = 'builtin_public',
     ): Promise<{ ok: boolean; email?: string; error?: string }> => {
       const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
       if (isElectron()) {

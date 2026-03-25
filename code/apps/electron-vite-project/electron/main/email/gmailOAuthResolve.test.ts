@@ -12,7 +12,11 @@ vi.mock('./credentials', () => ({
 
 import { getBuiltinGmailOAuthClientId, isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
-import { resolveGmailOAuthForConnect, isBuiltinGmailOAuthAvailable } from './gmailOAuthResolve'
+import {
+  resolveGmailOAuthForConnect,
+  isBuiltinGmailOAuthAvailable,
+  defaultGmailOAuthCredentialSource,
+} from './gmailOAuthResolve'
 
 describe('resolveGmailOAuthForConnect', () => {
   beforeEach(() => {
@@ -69,16 +73,56 @@ describe('resolveGmailOAuthForConnect', () => {
     expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
   })
 
-  it('defaults to developer_saved when argument omitted', async () => {
+  it('omitted argument uses builtin_public when builtin is configured (ignores stale user id-only)', async () => {
     vi.mocked(getBuiltinGmailOAuthClientId).mockReturnValue('builtin.apps.googleusercontent.com')
     vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
+    vi.mocked(getCredentialsForOAuth).mockResolvedValue({
+      clientId: 'stale-dev.apps.googleusercontent.com',
+    })
     const r = await resolveGmailOAuthForConnect()
-    expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
+    expect(r.authMode).toBe('pkce')
     expect(r.resolution).toBe('builtin')
+    expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
+    expect(r.clientSecret).toBeUndefined()
+  })
+
+  it('omitted argument uses developer_saved path when builtin is not configured', async () => {
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(false)
+    vi.mocked(getBuiltinGmailOAuthClientId).mockReturnValue(null)
+    vi.mocked(getCredentialsForOAuth).mockResolvedValue({
+      clientId: 'onlydev.apps.googleusercontent.com',
+    })
+    const r = await resolveGmailOAuthForConnect()
+    expect(r.authMode).toBe('pkce')
+    expect(r.resolution).toBe('developer_pkce')
+    expect(r.clientId).toBe('onlydev.apps.googleusercontent.com')
+  })
+
+  it('explicit developer_saved still uses stored id-only for PKCE when builtin exists', async () => {
+    vi.mocked(getBuiltinGmailOAuthClientId).mockReturnValue('builtin.apps.googleusercontent.com')
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
+    vi.mocked(getCredentialsForOAuth).mockResolvedValue({
+      clientId: 'advanced.apps.googleusercontent.com',
+    })
+    const r = await resolveGmailOAuthForConnect('developer_saved')
+    expect(r.resolution).toBe('developer_pkce')
+    expect(r.clientId).toBe('advanced.apps.googleusercontent.com')
   })
 
   it('throws when nothing is configured (developer_saved)', async () => {
     await expect(resolveGmailOAuthForConnect('developer_saved')).rejects.toThrow(/not configured/)
+  })
+})
+
+describe('defaultGmailOAuthCredentialSource', () => {
+  it('returns builtin_public when build has a built-in client id', () => {
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
+    expect(defaultGmailOAuthCredentialSource()).toBe('builtin_public')
+  })
+
+  it('returns developer_saved when built-in client is not configured', () => {
+    vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(false)
+    expect(defaultGmailOAuthCredentialSource()).toBe('developer_saved')
   })
 })
 

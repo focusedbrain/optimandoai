@@ -38,6 +38,7 @@ import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
 import {
   resolveGmailOAuthForConnect,
+  defaultGmailOAuthCredentialSource,
   type GmailOAuthCredentialSource,
 } from './gmailOAuthResolve'
 import { logOAuthDiagnostic } from './googleOAuthBuiltin'
@@ -1256,14 +1257,17 @@ class EmailGateway implements IEmailGateway {
     syncWindowDays?: number,
     options?: { gmailOAuthCredentialSource?: GmailOAuthCredentialSource },
   ): Promise<EmailAccountInfo> {
-    const credentialSource = options?.gmailOAuthCredentialSource ?? 'developer_saved'
+    const credentialSource =
+      options?.gmailOAuthCredentialSource ?? defaultGmailOAuthCredentialSource()
     const resolved = await resolveGmailOAuthForConnect(credentialSource)
     logOAuthDiagnostic('gmail_connect_resolved', {
       gmailOAuthCredentialSource: credentialSource,
+      credentialSourceExplicit: options?.gmailOAuthCredentialSource != null,
       authMode: resolved.authMode,
       resolution: resolved.resolution,
       clientId: resolved.clientId,
       usesDeveloperStoredClient: resolved.resolution !== 'builtin',
+      hasClientSecret: !!(resolved.clientSecret && String(resolved.clientSecret).trim()),
     })
     const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
     const oauth: NonNullable<EmailAccountConfig['oauth']> = {

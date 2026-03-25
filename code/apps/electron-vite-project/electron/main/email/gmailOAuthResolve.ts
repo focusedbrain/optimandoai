@@ -33,6 +33,15 @@ export function isBuiltinGmailOAuthAvailable(): boolean {
   return isBuiltinGmailOAuthConfigured()
 }
 
+/**
+ * When `gmailOAuthCredentialSource` is omitted (e.g. IPC/HTTP), prefer the app built-in Desktop
+ * OAuth client (PKCE) if this build provides one; otherwise fall back to vault/file developer order.
+ * Advanced Gmail must pass `developer_saved` explicitly.
+ */
+export function defaultGmailOAuthCredentialSource(): GmailOAuthCredentialSource {
+  return isBuiltinGmailOAuthConfigured() ? 'builtin_public' : 'developer_saved'
+}
+
 function assertBuiltinConfigured(): string {
   const builtin = getBuiltinGmailOAuthClientId()
   if (!builtin) {
@@ -55,7 +64,7 @@ function assertBuiltinConfigured(): string {
  *   3. Built-in client id → PKCE.
  */
 export async function resolveGmailOAuthForConnect(
-  credentialSource: GmailOAuthCredentialSource = 'developer_saved',
+  credentialSource: GmailOAuthCredentialSource = defaultGmailOAuthCredentialSource(),
 ): Promise<ResolvedGmailOAuth> {
   if (credentialSource === 'builtin_public') {
     const clientId = assertBuiltinConfigured()

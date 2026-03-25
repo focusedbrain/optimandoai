@@ -4583,14 +4583,14 @@ app.whenReady().then(async () => {
               console.log('[MAIN] 📧 Received EMAIL_CONNECT_GMAIL request')
               try {
                 const { emailGateway } = await import('./main/email/gateway')
+                const rawSrc = msg.gmailOAuthCredentialSource
                 const gmailOAuthCredentialSource =
-                  msg.gmailOAuthCredentialSource === 'developer_saved' ||
-                  msg.gmailOAuthCredentialSource === 'builtin_public'
-                    ? msg.gmailOAuthCredentialSource
-                    : 'developer_saved'
-                const account = await emailGateway.connectGmailAccount(undefined, undefined, {
-                  gmailOAuthCredentialSource,
-                })
+                  rawSrc === 'developer_saved' || rawSrc === 'builtin_public' ? rawSrc : undefined
+                const account = await emailGateway.connectGmailAccount(
+                  undefined,
+                  undefined,
+                  gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
+                )
                 socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
               } catch (err: any) {
                 console.error('[MAIN] Error connecting Gmail:', err)
@@ -7460,15 +7460,17 @@ app.whenReady().then(async () => {
               : undefined
         const rawCredSrc = req.body?.gmailOAuthCredentialSource
         const gmailOAuthCredentialSource =
-          rawCredSrc === 'developer_saved' || rawCredSrc === 'builtin_public' ? rawCredSrc : 'developer_saved'
+          rawCredSrc === 'developer_saved' || rawCredSrc === 'builtin_public' ? rawCredSrc : undefined
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
-          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account', syncWindowDays, {
-            gmailOAuthCredentialSource,
-          })
+          const account = await emailGateway.connectGmailAccount(
+            displayName || 'Gmail Account',
+            syncWindowDays,
+            gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
+          )
           console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {

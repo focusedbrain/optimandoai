@@ -221,7 +221,9 @@ class OAuthServerManager {
           state
         })
       } else if (code) {
-        console.log(`[OAuthServer] oauth_callback_received path=/callback`)
+        console.log(
+          `[OAuthServer] oauth_callback_received path=/callback codeLen=${String(code).length} statePresent=${Boolean(state)}`,
+        )
         this.sendHtmlResponse(res, 'WR Desk™', 
           `<h1>✓ Authorization received</h1><p>Return to WR Desk™ to complete setup.</p><p style="font-size:12px;color:#64748b;">This window will close automatically.</p><script>setTimeout(function(){window.close();},4000)</script>`, 
           'neutral')

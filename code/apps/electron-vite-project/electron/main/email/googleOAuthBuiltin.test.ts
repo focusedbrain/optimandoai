@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   normalizeGoogleOAuthClientId,
   isPlaceholderGoogleOAuthClientId,
+  oauthClientIdFingerprint,
 } from './googleOAuthBuiltin'
 
 describe('normalizeGoogleOAuthClientId', () => {
@@ -22,6 +23,17 @@ describe('normalizeGoogleOAuthClientId', () => {
 
   it('trims whitespace', () => {
     expect(normalizeGoogleOAuthClientId('  1-2.apps.googleusercontent.com  ')).toBe('1-2.apps.googleusercontent.com')
+  })
+})
+
+describe('oauthClientIdFingerprint', () => {
+  it('uses first 12 and last 8 for typical ids', () => {
+    const id = '900632390085-abcdefghijklmnopqrstuv.apps.googleusercontent.com'
+    expect(oauthClientIdFingerprint(id)).toBe('900632390085…tent.com')
+  })
+
+  it('abbreviates ids length <= 20 without printing full value', () => {
+    expect(oauthClientIdFingerprint('short.apps.googleus')).toMatch(/^short\.…\(19ch\)$/)
   })
 })
 

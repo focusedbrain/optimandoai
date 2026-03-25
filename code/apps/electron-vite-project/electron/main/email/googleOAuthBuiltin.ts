@@ -131,11 +131,31 @@ export function isBuiltinGmailOAuthConfigured(): boolean {
   return !!getBuiltinGmailOAuthClientId()
 }
 
-/** Structured OAuth diagnostics — never log tokens or secrets. */
+/**
+ * Safe fingerprint for logs: first 12 + last 8 chars of a Google OAuth client id.
+ * Never pass refresh tokens or auth codes here.
+ */
+export function oauthClientIdFingerprint(clientId: string | null | undefined): string {
+  if (clientId == null || typeof clientId !== 'string') return '(none)'
+  const t = clientId.trim()
+  if (!t) return '(empty)'
+  if (t.length <= 20) return `${t.slice(0, 6)}…(${t.length}ch)`
+  return `${t.slice(0, 12)}…${t.slice(-8)}`
+}
+
+const OAUTH_DIAG_WHITELIST_KEYS = new Set(['hasCodeVerifier', 'hasClientSecret'])
+
+/** Structured OAuth diagnostics — never log tokens, secrets, auth codes, or full client ids. */
 export function logOAuthDiagnostic(event: string, payload: Record<string, unknown>): void {
-  const safe = { ...payload }
-  for (const k of Object.keys(safe)) {
-    if (/secret|token|password|refresh/i.test(k)) delete safe[k]
+  const safe: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(payload)) {
+    if (!OAUTH_DIAG_WHITELIST_KEYS.has(k) && /secret|token|password|refresh/i.test(k)) continue
+    if (k === 'code' && typeof v === 'string') continue
+    if ((k === 'clientId' || k === 'oauthClientId') && typeof v === 'string') {
+      safe[k] = oauthClientIdFingerprint(v)
+      continue
+    }
+    safe[k] = v
   }
   console.log(`[oauth_diag] ${event}`, JSON.stringify(safe))
 }

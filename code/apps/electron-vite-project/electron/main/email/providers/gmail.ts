@@ -584,7 +584,7 @@ export class GmailProvider extends BaseEmailProvider {
     email?: string,
     resolved?: ResolvedGmailOAuth,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
-    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect('developer_saved'))
+    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
     this.pkceVerifier = null
     let codeChallenge: string | undefined
     if (oauthConfig.authMode === 'pkce') {
@@ -699,6 +699,7 @@ export class GmailProvider extends BaseEmailProvider {
       tokenExchangeShape:
         oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
       hasCodeVerifier: !!codeVerifier,
+      hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
     })
 
     return new Promise((resolve, reject) => {
@@ -735,18 +736,33 @@ export class GmailProvider extends BaseEmailProvider {
       
       const req = https.request(options, (res) => {
         let data = ''
+        const httpStatus = res.statusCode ?? 0
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
           try {
             const json = JSON.parse(data)
             if (json.error) {
+              logOAuthDiagnostic('gmail_token_exchange_response', {
+                httpStatus,
+                ok: false,
+                error: json.error,
+                error_description: json.error_description,
+                responseCharCount: data.length,
+              })
               logOAuthDiagnostic('token_exchange_failure', {
                 provider: 'gmail',
                 stage: 'authorization_code',
                 error: json.error,
+                httpStatus,
               })
               reject(new Error(json.error_description || json.error))
             } else {
+              logOAuthDiagnostic('gmail_token_exchange_response', {
+                httpStatus,
+                ok: true,
+                responseCharCount: data.length,
+                expiresIn: typeof json.expires_in === 'number' ? json.expires_in : undefined,
+              })
               resolve({
                 accessToken: json.access_token,
                 refreshToken: json.refresh_token,
@@ -757,6 +773,12 @@ export class GmailProvider extends BaseEmailProvider {
               })
             }
           } catch (err) {
+            logOAuthDiagnostic('gmail_token_exchange_response', {
+              httpStatus,
+              ok: false,
+              parseError: true,
+              responseCharCount: data.length,
+            })
             reject(err)
           }
         })
