@@ -618,8 +618,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
   sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
-  connectGmail: (displayName?: string, syncWindowDays?: number) =>
-    ipcRenderer.invoke('email:connectGmail', displayName, syncWindowDays),
+  connectGmail: (displayName?: string, syncWindowDays?: number, gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved') =>
+    ipcRenderer.invoke('email:connectGmail', displayName, syncWindowDays, gmailOAuthCredentialSource),
   connectOutlook: (displayName?: string, syncWindowDays?: number) =>
     ipcRenderer.invoke('email:connectOutlook', displayName, syncWindowDays),
   connectZoho: (displayName?: string, syncWindowDays?: number) =>

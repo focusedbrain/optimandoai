@@ -4583,8 +4583,14 @@ app.whenReady().then(async () => {
               console.log('[MAIN] 📧 Received EMAIL_CONNECT_GMAIL request')
               try {
                 const { emailGateway } = await import('./main/email/gateway')
-                // This will open the OAuth setup dialog
-                const account = await emailGateway.connectGmailAccount()
+                const gmailOAuthCredentialSource =
+                  msg.gmailOAuthCredentialSource === 'developer_saved' ||
+                  msg.gmailOAuthCredentialSource === 'builtin_public'
+                    ? msg.gmailOAuthCredentialSource
+                    : 'developer_saved'
+                const account = await emailGateway.connectGmailAccount(undefined, undefined, {
+                  gmailOAuthCredentialSource,
+                })
                 socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
               } catch (err: any) {
                 console.error('[MAIN] Error connecting Gmail:', err)
@@ -7452,12 +7458,17 @@ app.whenReady().then(async () => {
             : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
               ? swRaw
               : undefined
+        const rawCredSrc = req.body?.gmailOAuthCredentialSource
+        const gmailOAuthCredentialSource =
+          rawCredSrc === 'developer_saved' || rawCredSrc === 'builtin_public' ? rawCredSrc : 'developer_saved'
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
-          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account', syncWindowDays)
+          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account', syncWindowDays, {
+            gmailOAuthCredentialSource,
+          })
           console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {

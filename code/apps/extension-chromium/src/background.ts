@@ -3036,6 +3036,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           ...(typeof msg.syncWindowDays === 'number' && Number.isInteger(msg.syncWindowDays) && msg.syncWindowDays >= 0
             ? { syncWindowDays: msg.syncWindowDays }
             : {}),
+          ...(msg.gmailOAuthCredentialSource === 'builtin_public' ||
+          msg.gmailOAuthCredentialSource === 'developer_saved'
+            ? { gmailOAuthCredentialSource: msg.gmailOAuthCredentialSource }
+            : {}),
         })
       })
         .then(result => {

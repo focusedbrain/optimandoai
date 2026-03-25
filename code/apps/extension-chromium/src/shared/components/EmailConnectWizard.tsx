@@ -6,7 +6,7 @@
  * Platform-aware: Electron (`window.emailAccounts`) and extension (`chrome.runtime.sendMessage`).
  */
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { ConnectEmailLaunchSource, formatConnectEmailLaunchSource } from '../email/connectEmailTypes'
 import { ImapConnectionNotice } from '../email/ImapConnectionNotice'
 
@@ -113,6 +113,11 @@ export function EmailConnectWizard({
   const [reconnectHasStoredImapPassword, setReconnectHasStoredImapPassword] = useState(false)
   /** Initial inbox sync window for the account being connected (7 / 30 / 90 / 0 = all). */
   const [connectSyncWindowDays, setConnectSyncWindowDays] = useState(30)
+  /**
+   * Standard “Connect Google” must use built-in Desktop OAuth (PKCE). Advanced uses saved developer creds.
+   * Set synchronously before `setStep('connecting')` so the connect effect reads the right source.
+   */
+  const gmailOAuthCredentialSourceRef = useRef<'builtin_public' | 'developer_saved'>('builtin_public')
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -405,22 +410,33 @@ export function EmailConnectWizard({
     [],
   )
 
-  const connectGmail = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
-    const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
-    if (isElectron()) {
-      const res = await (window as any).emailAccounts?.connectGmail?.('Gmail Account', days)
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
-    }
-    if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({
-        type: 'EMAIL_CONNECT_GMAIL',
-        displayName: 'Gmail Account',
-        syncWindowDays: days,
-      })
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
-    }
-    return { ok: false, error: 'Email connection requires the desktop app or extension.' }
-  }, [])
+  const connectGmail = useCallback(
+    async (
+      syncWindowDays?: number,
+      gmailOAuthCredentialSource: 'builtin_public' | 'developer_saved' = 'developer_saved',
+    ): Promise<{ ok: boolean; email?: string; error?: string }> => {
+      const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.connectGmail?.(
+          'Gmail Account',
+          days,
+          gmailOAuthCredentialSource,
+        )
+        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+      }
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_CONNECT_GMAIL',
+          displayName: 'Gmail Account',
+          syncWindowDays: days,
+          gmailOAuthCredentialSource,
+        })
+        return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+      }
+      return { ok: false, error: 'Email connection requires the desktop app or extension.' }
+    },
+    [],
+  )
 
   const connectOutlook = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
     const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
@@ -634,12 +650,14 @@ export function EmailConnectWizard({
           const ok = window.confirm('Syncing all messages may take a long time. Continue?')
           if (!ok) return
         }
+        gmailOAuthCredentialSourceRef.current = 'builtin_public'
         setStep('connecting')
         setConnecting(true)
         setConnectingElapsed(0)
         setConnectingTimedOut(false)
         return
       }
+      gmailOAuthCredentialSourceRef.current = 'developer_saved'
       const c = gmailCreds
       const gmailClientId = c.clientId?.trim()
       if (!gmailClientId) {
@@ -722,6 +740,7 @@ export function EmailConnectWizard({
   ])
 
   const handleConnectWithExisting = useCallback(() => {
+    gmailOAuthCredentialSourceRef.current = 'developer_saved'
     setCredError(null)
     if (connectSyncWindowDays === 0) {
       const ok = window.confirm('Syncing all messages may take a long time. Continue?')
@@ -739,7 +758,7 @@ export function EmailConnectWizard({
       try {
         let res: { ok: boolean; email?: string; error?: string }
         if (provider === 'gmail') {
-          res = await connectGmail(connectSyncWindowDays)
+          res = await connectGmail(connectSyncWindowDays, gmailOAuthCredentialSourceRef.current)
         } else if (provider === 'outlook') {
           res = await connectOutlook(connectSyncWindowDays)
         } else if (provider === 'zoho') {
@@ -1288,9 +1307,9 @@ export function EmailConnectWizard({
                       )}
                       {existingGmail && (
                         <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 8 }}>
-                          {gmailOAuthMeta?.developerModeEnabled
-                            ? 'Custom OAuth client credentials are saved — Advanced lets you edit them. Connect Google uses the configured client (built-in or yours).'
-                            : 'Custom OAuth client credentials are saved. Connect Google uses them to sign in.'}
+                          Custom OAuth credentials may be saved for Advanced. The standard Connect Google button always uses
+                          the app&apos;s built-in Google client (PKCE) so sign-in is not tied to a developer web client id
+                          on disk.
                         </div>
                       )}
                       {credError && (

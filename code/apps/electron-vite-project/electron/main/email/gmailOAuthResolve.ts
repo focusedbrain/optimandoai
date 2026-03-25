@@ -4,15 +4,26 @@
  * Legacy / self-hosted: user-stored client id + client secret (confidential-style exchange).
  */
 
-import { getBuiltinGmailOAuthClientId, isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
+import {
+  getBuiltinGmailOAuthClientId,
+  isBuiltinGmailOAuthConfigured,
+  logOAuthDiagnostic,
+} from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
 
 export type GmailAuthMode = 'pkce' | 'legacy_secret'
+
+/** How the renderer / API selected credentials for this connect attempt. */
+export type GmailOAuthCredentialSource = 'builtin_public' | 'developer_saved'
+
+/** Where the OAuth client id came from after resolution. */
+export type GmailOAuthResolutionTag = 'builtin' | 'developer_legacy_secret' | 'developer_pkce'
 
 export interface ResolvedGmailOAuth {
   clientId: string
   clientSecret?: string
   authMode: GmailAuthMode
+  resolution: GmailOAuthResolutionTag
 }
 
 /**
@@ -22,30 +33,99 @@ export function isBuiltinGmailOAuthAvailable(): boolean {
   return isBuiltinGmailOAuthConfigured()
 }
 
+function assertBuiltinConfigured(): string {
+  const builtin = getBuiltinGmailOAuthClientId()
+  if (!builtin) {
+    throw new Error(
+      'Gmail sign-in is not configured for this app build. Use a build that includes the app Google OAuth client, or developer OAuth credentials if enabled.',
+    )
+  }
+  return builtin
+}
+
 /**
  * Pick OAuth client + flow for a new Gmail connection.
  *
- * Priority:
- * 1. User-stored credentials with client secret → legacy_secret (no PKCE; existing self-hosted users).
- * 2. User-stored client id only → PKCE (advanced / custom public client).
- * 3. Built-in app client id → PKCE (normal end users).
+ * @param credentialSource
+ * - `builtin_public` — standard “Connect Google”: always use the app built-in Desktop OAuth client
+ *   with PKCE. Ignores vault/file developer credentials so a stale Web client id cannot override.
+ * - `developer_saved` — Advanced / legacy API order:
+ *   1. User-stored credentials with client secret → legacy_secret.
+ *   2. User-stored client id only → PKCE with that id.
+ *   3. Built-in client id → PKCE.
  */
-export async function resolveGmailOAuthForConnect(): Promise<ResolvedGmailOAuth> {
+export async function resolveGmailOAuthForConnect(
+  credentialSource: GmailOAuthCredentialSource = 'developer_saved',
+): Promise<ResolvedGmailOAuth> {
+  if (credentialSource === 'builtin_public') {
+    const clientId = assertBuiltinConfigured()
+    const resolved: ResolvedGmailOAuth = {
+      clientId,
+      authMode: 'pkce',
+      resolution: 'builtin',
+    }
+    logOAuthDiagnostic('gmail_oauth_resolve', {
+      credentialSource: 'builtin_public',
+      authMode: resolved.authMode,
+      resolution: resolved.resolution,
+      clientId: resolved.clientId,
+      builtinConfigured: true,
+      usesUserStoredOAuthClient: false,
+    })
+    return resolved
+  }
+
   const user = await getCredentialsForOAuth('gmail')
   const builtin = getBuiltinGmailOAuthClientId()
 
   if (user?.clientId && user.clientSecret) {
-    return {
+    const resolved: ResolvedGmailOAuth = {
       clientId: user.clientId.trim(),
       clientSecret: user.clientSecret.trim(),
       authMode: 'legacy_secret',
+      resolution: 'developer_legacy_secret',
     }
+    logOAuthDiagnostic('gmail_oauth_resolve', {
+      credentialSource: 'developer_saved',
+      authMode: resolved.authMode,
+      resolution: resolved.resolution,
+      clientId: resolved.clientId,
+      hasClientSecret: true,
+      usesUserStoredOAuthClient: true,
+    })
+    return resolved
   }
   if (user?.clientId?.trim()) {
-    return { clientId: user.clientId.trim(), authMode: 'pkce' }
+    const resolved: ResolvedGmailOAuth = {
+      clientId: user.clientId.trim(),
+      authMode: 'pkce',
+      resolution: 'developer_pkce',
+    }
+    logOAuthDiagnostic('gmail_oauth_resolve', {
+      credentialSource: 'developer_saved',
+      authMode: resolved.authMode,
+      resolution: resolved.resolution,
+      clientId: resolved.clientId,
+      hasClientSecret: false,
+      usesUserStoredOAuthClient: true,
+    })
+    return resolved
   }
   if (builtin) {
-    return { clientId: builtin, authMode: 'pkce' }
+    const resolved: ResolvedGmailOAuth = {
+      clientId: builtin,
+      authMode: 'pkce',
+      resolution: 'builtin',
+    }
+    logOAuthDiagnostic('gmail_oauth_resolve', {
+      credentialSource: 'developer_saved',
+      authMode: resolved.authMode,
+      resolution: resolved.resolution,
+      clientId: resolved.clientId,
+      usesUserStoredOAuthClient: false,
+      builtinFallback: true,
+    })
+    return resolved
   }
 
   throw new Error(

@@ -711,9 +711,18 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   /**
    * Start Gmail OAuth flow
    */
-  ipcMain.handle('email:connectGmail', async (_e, displayName?: string, syncWindowDays?: number) => {
+  ipcMain.handle(
+    'email:connectGmail',
+    async (
+      _e,
+      displayName?: string,
+      syncWindowDays?: number,
+      gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved',
+    ) => {
     try {
-      const account = await emailGateway.connectGmailAccount(displayName, syncWindowDays)
+      const account = await emailGateway.connectGmailAccount(displayName, syncWindowDays, {
+        gmailOAuthCredentialSource,
+      })
       BrowserWindow.getAllWindows().forEach(win => {
         win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email, accountId: account.id })
       })

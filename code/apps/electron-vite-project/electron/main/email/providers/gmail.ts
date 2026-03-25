@@ -584,7 +584,7 @@ export class GmailProvider extends BaseEmailProvider {
     email?: string,
     resolved?: ResolvedGmailOAuth,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
-    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
+    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect('developer_saved'))
     this.pkceVerifier = null
     let codeChallenge: string | undefined
     if (oauthConfig.authMode === 'pkce') {
@@ -690,6 +690,16 @@ export class GmailProvider extends BaseEmailProvider {
     codeVerifier: string | null,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const redirectUri = oauthServerManager.getCallbackUrl()
+
+    logOAuthDiagnostic('gmail_token_exchange_request', {
+      authMode: oauthConfig.authMode,
+      resolution: oauthConfig.resolution,
+      clientId: oauthConfig.clientId,
+      redirect_uri: redirectUri,
+      tokenExchangeShape:
+        oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+      hasCodeVerifier: !!codeVerifier,
+    })
 
     return new Promise((resolve, reject) => {
       const body = new URLSearchParams({

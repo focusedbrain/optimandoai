@@ -36,7 +36,11 @@ import {
 import { isLikelyEmailAuthError } from './emailAuthErrors'
 import { IEmailProvider, RawEmailMessage } from './providers/base'
 import { GmailProvider, gmailProvider, saveOAuthConfig } from './providers/gmail'
-import { resolveGmailOAuthForConnect } from './gmailOAuthResolve'
+import {
+  resolveGmailOAuthForConnect,
+  type GmailOAuthCredentialSource,
+} from './gmailOAuthResolve'
+import { logOAuthDiagnostic } from './googleOAuthBuiltin'
 import { OutlookProvider, outlookProvider, saveOutlookOAuthConfig } from './providers/outlook'
 import { ZohoProvider, zohoProvider } from './providers/zoho'
 import { ImapProvider } from './providers/imap'
@@ -1247,8 +1251,20 @@ class EmailGateway implements IEmailGateway {
   /**
    * Start Gmail OAuth flow and create account
    */
-  async connectGmailAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
-    const resolved = await resolveGmailOAuthForConnect()
+  async connectGmailAccount(
+    displayName?: string,
+    syncWindowDays?: number,
+    options?: { gmailOAuthCredentialSource?: GmailOAuthCredentialSource },
+  ): Promise<EmailAccountInfo> {
+    const credentialSource = options?.gmailOAuthCredentialSource ?? 'developer_saved'
+    const resolved = await resolveGmailOAuthForConnect(credentialSource)
+    logOAuthDiagnostic('gmail_connect_resolved', {
+      gmailOAuthCredentialSource: credentialSource,
+      authMode: resolved.authMode,
+      resolution: resolved.resolution,
+      clientId: resolved.clientId,
+      usesDeveloperStoredClient: resolved.resolution !== 'builtin',
+    })
     const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
     const oauth: NonNullable<EmailAccountConfig['oauth']> = {
       accessToken: tokens.accessToken,
