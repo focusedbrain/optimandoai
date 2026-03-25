@@ -34,7 +34,7 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
-import { logOAuthDiagnostic } from '../googleOAuthBuiltin'
+import { logOAuthDiagnostic, oauthClientIdFingerprint } from '../googleOAuthBuiltin'
 import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
 
 function base64url(buf: Buffer): string {
@@ -691,15 +691,26 @@ export class GmailProvider extends BaseEmailProvider {
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const redirectUri = oauthServerManager.getCallbackUrl()
 
+    const br = oauthConfig.builtinClientResolution
     logOAuthDiagnostic('gmail_token_exchange_request', {
       authMode: oauthConfig.authMode,
       resolution: oauthConfig.resolution,
       clientId: oauthConfig.clientId,
+      clientIdFingerprintAtExchange: oauthClientIdFingerprint(oauthConfig.clientId),
       redirect_uri: redirectUri,
       tokenExchangeShape:
         oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
       hasCodeVerifier: !!codeVerifier,
       hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+      ...(br
+        ? {
+            builtinSourceKind: br.sourceKind,
+            builtinSourceName: br.sourceName,
+            builtinSourcePathBasename: br.sourcePath ? path.basename(br.sourcePath) : null,
+            builtinFromBuildTimeInline: br.fromBuildTimeInline,
+            builtinFromPackagedResourceFile: br.fromPackagedResourceFile,
+          }
+        : {}),
     })
 
     return new Promise((resolve, reject) => {

@@ -1260,6 +1260,7 @@ class EmailGateway implements IEmailGateway {
     const credentialSource =
       options?.gmailOAuthCredentialSource ?? defaultGmailOAuthCredentialSource()
     const resolved = await resolveGmailOAuthForConnect(credentialSource)
+    const br = resolved.builtinClientResolution
     logOAuthDiagnostic('gmail_connect_resolved', {
       gmailOAuthCredentialSource: credentialSource,
       credentialSourceExplicit: options?.gmailOAuthCredentialSource != null,
@@ -1268,6 +1269,15 @@ class EmailGateway implements IEmailGateway {
       clientId: resolved.clientId,
       usesDeveloperStoredClient: resolved.resolution !== 'builtin',
       hasClientSecret: !!(resolved.clientSecret && String(resolved.clientSecret).trim()),
+      ...(br
+        ? {
+            builtinSourceKind: br.sourceKind,
+            builtinSourceName: br.sourceName,
+            builtinSourcePathBasename: br.sourcePath ? path.basename(br.sourcePath) : null,
+            builtinFromBuildTimeInline: br.fromBuildTimeInline,
+            builtinFromPackagedResourceFile: br.fromPackagedResourceFile,
+          }
+        : {}),
     })
     const tokens = await gmailProvider.startOAuthFlow(undefined, resolved)
     const oauth: NonNullable<EmailAccountConfig['oauth']> = {

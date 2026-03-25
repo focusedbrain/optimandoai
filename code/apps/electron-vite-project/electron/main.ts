@@ -2072,7 +2072,14 @@ app.whenReady().then(async () => {
 
     // ========== GMAIL OAUTH (built-in client id) ==========
     try {
-      const { isBuiltinGmailOAuthConfigured, isEmailDeveloperModeEnabled } = await import('./main/email/googleOAuthBuiltin')
+      const {
+        isBuiltinGmailOAuthConfigured,
+        isEmailDeveloperModeEnabled,
+        getPackagedResourceGoogleOAuthClientId,
+        oauthClientIdFingerprint,
+        resolveBuiltinGoogleOAuthClientWithMeta,
+        logOAuthDiagnostic,
+      } = await import('./main/email/googleOAuthBuiltin')
       if (app.isPackaged && !isBuiltinGmailOAuthConfigured()) {
         console.error(
           '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt.',
@@ -2081,6 +2088,15 @@ app.whenReady().then(async () => {
         console.warn(
           '[GMAIL-OAUTH] No valid built-in client id — for local dev set GOOGLE_OAUTH_CLIENT_ID or replace apps/electron-vite-project/resources/google-oauth-client-id.txt',
         )
+      } else if (app.isPackaged && isBuiltinGmailOAuthConfigured()) {
+        const res = resolveBuiltinGoogleOAuthClientWithMeta()
+        const shipped = getPackagedResourceGoogleOAuthClientId()
+        logOAuthDiagnostic('gmail_oauth_startup_packaged', {
+          builtinSourceKind: res?.sourceKind,
+          builtinSourceName: res?.sourceName,
+          clientId: res?.clientId,
+          packagedResourceFingerprint: shipped ? oauthClientIdFingerprint(shipped) : '(none)',
+        })
       }
     } catch (e: any) {
       console.warn('[GMAIL-OAUTH] Startup check failed:', e?.message)

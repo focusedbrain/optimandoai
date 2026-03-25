@@ -2,11 +2,17 @@
  * App-owned Gmail OAuth client id (public identifier — safe to ship).
  * The client secret is NOT used for the end-user PKCE flow.
  *
- * Single source of truth (first match wins):
- * 1. WR_DESK_GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID (runtime env, main process)
- * 2. Build-time: GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID at `vite build` (inlined)
- * 3. resources/google-oauth-client-id.txt (packaged: extraResources → process.resourcesPath; dev: app.getAppPath()/resources)
+ * Precedence (first match wins) — **packaged production** (`app.isPackaged`):
+ * 1. WR_DESK_GOOGLE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID (runtime env — explicit ops override)
+ * 2. google-oauth-client-id.txt in `process.resourcesPath` (shipped Desktop client; wins over stale Vite inline)
+ * 3. Build-time: GOOGLE_OAUTH_CLIENT_ID at `vite build` (inlined constant)
  * 4. google-oauth-client-id.txt beside the executable (portable / sidecar)
+ *
+ * **Development** (unpackaged):
+ * 1. Runtime env (same keys as above)
+ * 2. Build-time Vite inline (fast local iteration when env unset)
+ * 3. resources/google-oauth-client-id.txt under `app.getAppPath()` and `process.cwd()`
+ * 4. Sidecar file beside the executable
  *
  * Placeholder values in the bundled file (e.g. REPLACE_WITH_…) are rejected so CI must inject a real id.
  */
@@ -19,6 +25,30 @@ const ENV_KEYS = ['WR_DESK_GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_ID'] as
 
 /** Injected by Vite for the main-process bundle (see vite.config.ts). */
 declare const __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: string | undefined
+
+const PACKAGED_RESOURCE_BASENAME = 'google-oauth-client-id.txt'
+
+export type BuiltinOAuthClientSourceKind =
+  | 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID'
+  | 'runtime_env_GOOGLE_OAUTH_CLIENT_ID'
+  | 'build_time_vite_inline'
+  | 'packaged_resource_file'
+  | 'dev_resource_app_path'
+  | 'dev_resource_cwd'
+  | 'sidecar_exe_directory'
+
+export interface BuiltinGoogleOAuthClientResolution {
+  clientId: string
+  sourceKind: BuiltinOAuthClientSourceKind
+  /** Absolute path when sourced from a file; null for env / Vite inline */
+  sourcePath: string | null
+  /** Env var key or file basename for logs */
+  sourceName: string
+  /** Distinct from Advanced `developer_saved` vault credentials */
+  isBuiltinAppOwned: true
+  fromBuildTimeInline: boolean
+  fromPackagedResourceFile: boolean
+}
 
 function readFirstNonCommentLine(p: string): string | null {
   try {
@@ -91,44 +121,186 @@ export function isEmailDeveloperModeEnabled(): boolean {
   }
 }
 
-export function getBuiltinGmailOAuthClientId(): string | null {
+function resolutionFromEnv(): BuiltinGoogleOAuthClientResolution | null {
   for (const k of ENV_KEYS) {
     const v = process.env[k]?.trim()
     const n = normalizeGoogleOAuthClientId(v)
-    if (n) return n
-  }
-
-  const fromBuild = getBuildTimeGoogleOAuthClientId()
-  if (fromBuild) return fromBuild
-
-  try {
-    if (app.isPackaged) {
-      const inResources = path.join(process.resourcesPath || '', 'google-oauth-client-id.txt')
-      const fromResources = normalizeGoogleOAuthClientId(readFirstNonCommentLine(inResources))
-      if (fromResources) return fromResources
-    } else {
-      const fromProject = path.join(app.getAppPath(), 'resources', 'google-oauth-client-id.txt')
-      const fromProjectLine = normalizeGoogleOAuthClientId(readFirstNonCommentLine(fromProject))
-      if (fromProjectLine) return fromProjectLine
-      const fromCwd = path.join(process.cwd(), 'resources', 'google-oauth-client-id.txt')
-      const fromCwdLine = normalizeGoogleOAuthClientId(readFirstNonCommentLine(fromCwd))
-      if (fromCwdLine) return fromCwdLine
+    if (n) {
+      const kind: BuiltinOAuthClientSourceKind =
+        k === 'WR_DESK_GOOGLE_OAUTH_CLIENT_ID'
+          ? 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID'
+          : 'runtime_env_GOOGLE_OAUTH_CLIENT_ID'
+      return {
+        clientId: n,
+        sourceKind: kind,
+        sourcePath: null,
+        sourceName: k,
+        isBuiltinAppOwned: true,
+        fromBuildTimeInline: false,
+        fromPackagedResourceFile: false,
+      }
     }
-  } catch {
-    /* ignore */
   }
+  return null
+}
 
+function resolutionFromBuildTime(): BuiltinGoogleOAuthClientResolution | null {
+  const fromBuild = getBuildTimeGoogleOAuthClientId()
+  if (!fromBuild) return null
+  return {
+    clientId: fromBuild,
+    sourceKind: 'build_time_vite_inline',
+    sourcePath: null,
+    sourceName: '__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__',
+    isBuiltinAppOwned: true,
+    fromBuildTimeInline: true,
+    fromPackagedResourceFile: false,
+  }
+}
+
+function tryPackagedResourceFile(): BuiltinGoogleOAuthClientResolution | null {
   try {
-    const beside = path.join(path.dirname(app.getPath('exe')), 'google-oauth-client-id.txt')
-    return normalizeGoogleOAuthClientId(readFirstNonCommentLine(beside))
+    if (!app.isPackaged) return null
+    const inResources = path.join(process.resourcesPath || '', PACKAGED_RESOURCE_BASENAME)
+    const fromResources = normalizeGoogleOAuthClientId(readFirstNonCommentLine(inResources))
+    if (!fromResources) return null
+    return {
+      clientId: fromResources,
+      sourceKind: 'packaged_resource_file',
+      sourcePath: inResources,
+      sourceName: PACKAGED_RESOURCE_BASENAME,
+      isBuiltinAppOwned: true,
+      fromBuildTimeInline: false,
+      fromPackagedResourceFile: true,
+    }
   } catch {
     return null
   }
 }
 
+function tryDevResourceFiles(): BuiltinGoogleOAuthClientResolution | null {
+  try {
+    if (app.isPackaged) return null
+    const fromProject = path.join(app.getAppPath(), 'resources', PACKAGED_RESOURCE_BASENAME)
+    const fromProjectLine = normalizeGoogleOAuthClientId(readFirstNonCommentLine(fromProject))
+    if (fromProjectLine) {
+      return {
+        clientId: fromProjectLine,
+        sourceKind: 'dev_resource_app_path',
+        sourcePath: fromProject,
+        sourceName: PACKAGED_RESOURCE_BASENAME,
+        isBuiltinAppOwned: true,
+        fromBuildTimeInline: false,
+        fromPackagedResourceFile: false,
+      }
+    }
+    const fromCwd = path.join(process.cwd(), 'resources', PACKAGED_RESOURCE_BASENAME)
+    const fromCwdLine = normalizeGoogleOAuthClientId(readFirstNonCommentLine(fromCwd))
+    if (fromCwdLine) {
+      return {
+        clientId: fromCwdLine,
+        sourceKind: 'dev_resource_cwd',
+        sourcePath: fromCwd,
+        sourceName: PACKAGED_RESOURCE_BASENAME,
+        isBuiltinAppOwned: true,
+        fromBuildTimeInline: false,
+        fromPackagedResourceFile: false,
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function trySidecar(): BuiltinGoogleOAuthClientResolution | null {
+  try {
+    const beside = path.join(path.dirname(app.getPath('exe')), PACKAGED_RESOURCE_BASENAME)
+    const line = normalizeGoogleOAuthClientId(readFirstNonCommentLine(beside))
+    if (!line) return null
+    return {
+      clientId: line,
+      sourceKind: 'sidecar_exe_directory',
+      sourcePath: beside,
+      sourceName: PACKAGED_RESOURCE_BASENAME,
+      isBuiltinAppOwned: true,
+      fromBuildTimeInline: false,
+      fromPackagedResourceFile: false,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve built-in app-owned Google OAuth client id with explicit source metadata (standard Connect / builtin fallback).
+ */
+export function resolveBuiltinGoogleOAuthClientWithMeta(): BuiltinGoogleOAuthClientResolution | null {
+  const fromEnv = resolutionFromEnv()
+  if (fromEnv) return fromEnv
+
+  if (app.isPackaged) {
+    const fromPackaged = tryPackagedResourceFile()
+    if (fromPackaged) return fromPackaged
+    const fromBuild = resolutionFromBuildTime()
+    if (fromBuild) return fromBuild
+    return trySidecar()
+  }
+
+  const fromBuildDev = resolutionFromBuildTime()
+  if (fromBuildDev) return fromBuildDev
+  const fromDevFiles = tryDevResourceFiles()
+  if (fromDevFiles) return fromDevFiles
+  return trySidecar()
+}
+
+export function getBuiltinGmailOAuthClientId(): string | null {
+  return resolveBuiltinGoogleOAuthClientWithMeta()?.clientId ?? null
+}
+
 /** True when a non-placeholder built-in client id is available for end-user PKCE connect. */
 export function isBuiltinGmailOAuthConfigured(): boolean {
-  return !!getBuiltinGmailOAuthClientId()
+  return !!resolveBuiltinGoogleOAuthClientWithMeta()
+}
+
+/**
+ * Client id read only from packaged `process.resourcesPath/google-oauth-client-id.txt` (startup / sanity checks).
+ */
+export function getPackagedResourceGoogleOAuthClientId(): string | null {
+  try {
+    if (!app.isPackaged) return null
+    const inResources = path.join(process.resourcesPath || '', PACKAGED_RESOURCE_BASENAME)
+    return normalizeGoogleOAuthClientId(readFirstNonCommentLine(inResources))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Standard Connect (`builtin_public`) only: if the running app is packaged and the client id did **not** come
+ * from an explicit env override, require it to match the shipped resource file so a stale Vite-inlined Web
+ * client cannot silently win after a repackage that updated only the resource file.
+ *
+ * Skips when env set ops override, unpackaged dev, or resource file missing / invalid.
+ */
+export function assertBuiltinPublicClientMatchesShippedResource(
+  resolution: BuiltinGoogleOAuthClientResolution,
+): void {
+  if (!app.isPackaged) return
+  if (
+    resolution.sourceKind === 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID' ||
+    resolution.sourceKind === 'runtime_env_GOOGLE_OAUTH_CLIENT_ID'
+  ) {
+    return
+  }
+  const shipped = getPackagedResourceGoogleOAuthClientId()
+  if (!shipped) return
+  if (normalizeGoogleOAuthClientId(resolution.clientId) !== shipped) {
+    throw new Error(
+      'Builtin Gmail OAuth mismatch: runtime client_id does not match expected built-in Desktop client (shipped resource). ' +
+        `Expected fingerprint ${oauthClientIdFingerprint(shipped)}, actual ${oauthClientIdFingerprint(resolution.clientId)}.`,
+    )
+  }
 }
 
 /**
@@ -143,7 +315,21 @@ export function oauthClientIdFingerprint(clientId: string | null | undefined): s
   return `${t.slice(0, 12)}…${t.slice(-8)}`
 }
 
-const OAUTH_DIAG_WHITELIST_KEYS = new Set(['hasCodeVerifier', 'hasClientSecret'])
+const OAUTH_DIAG_WHITELIST_KEYS = new Set([
+  'hasCodeVerifier',
+  'hasClientSecret',
+  'error_description',
+  'redirect_uri',
+  'clientIdFingerprintAtExchange',
+  'tokenExchangeShape',
+  'httpStatus',
+  'builtinSourceKind',
+  'builtinSourceName',
+  'builtinSourcePathBasename',
+  'builtinFromBuildTimeInline',
+  'builtinFromPackagedResourceFile',
+  'packagedResourceFingerprint',
+])
 
 /** Structured OAuth diagnostics — never log tokens, secrets, auth codes, or full client ids. */
 export function logOAuthDiagnostic(event: string, payload: Record<string, unknown>): void {
