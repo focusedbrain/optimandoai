@@ -895,10 +895,17 @@ export function EmailConnectWizard({
             }, 3000)
           }
         } else {
+          // TEMP DEBUG
+          console.log('[OAUTH DEBUG] EmailConnectWizard connect failed (ok=false):', res.error)
           setResult('failure')
           setResultError(res.error || 'Connection failed')
         }
       } catch (e: any) {
+        // TEMP DEBUG
+        console.log('[OAUTH DEBUG] EmailConnectWizard connect — original error:', e)
+        console.log('[OAUTH DEBUG] Error message:', e?.message)
+        console.log('[OAUTH DEBUG] Error response:', e?.response)
+        console.log('[OAUTH DEBUG] Error status:', e?.status ?? e?.statusCode)
         setConnecting(false)
         setStep('result')
         setResult('failure')

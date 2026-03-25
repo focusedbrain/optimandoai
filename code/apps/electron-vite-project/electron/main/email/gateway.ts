@@ -1296,7 +1296,16 @@ class EmailGateway implements IEmailGateway {
     }
 
     /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */
-    const emailFromProfile = await gmailProvider.fetchProfileEmailAddress(oauth)
+    let emailFromProfile: string
+    try {
+      emailFromProfile = await gmailProvider.fetchProfileEmailAddress(oauth)
+    } catch (err: any) {
+      // TEMP DEBUG
+      console.log('[OAUTH DEBUG] connectGmailAccount profile fetch failed — original error:', err)
+      console.log('[OAUTH DEBUG] Error message:', err?.message)
+      console.log('[OAUTH DEBUG] Error stack:', err?.stack)
+      throw err
+    }
 
     // Create account config
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {

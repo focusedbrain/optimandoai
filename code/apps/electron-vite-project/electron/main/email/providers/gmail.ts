@@ -258,6 +258,9 @@ export class GmailProvider extends BaseEmailProvider {
       
       return { success: false, error: 'Could not verify Gmail account' }
     } catch (err: any) {
+      // TEMP DEBUG
+      console.log('[OAUTH DEBUG] testConnection original error:', err)
+      console.log('[OAUTH DEBUG] testConnection error message:', err?.message)
       return { success: false, error: err.message || 'Connection failed' }
     } finally {
       await this.disconnect()
@@ -912,10 +915,14 @@ export class GmailProvider extends BaseEmailProvider {
           data += chunk
         })
         res.on('end', () => {
+          // TEMP DEBUG: log full token exchange response before parse
+          const responseText = data
+          console.log('[OAUTH DEBUG] Token exchange HTTP status:', httpStatus)
+          console.log('[OAUTH DEBUG] Token exchange response body:', responseText)
           try {
-            const json = JSON.parse(data)
+            const json = JSON.parse(responseText)
             if (json.error) {
-              console.error('[Gmail OAuth] Token exchange error response (full body):', data)
+              console.error('[Gmail OAuth] Token exchange error response (full body):', responseText)
               logOAuthDiagnostic('gmail_token_exchange_response', {
                 httpStatus,
                 ok: false,
@@ -975,12 +982,12 @@ export class GmailProvider extends BaseEmailProvider {
               })
             }
           } catch (err) {
-            console.error('[Gmail OAuth] Token exchange parse error; raw body:', data)
+            console.error('[OAUTH DEBUG] Token exchange JSON parse error; raw body:', responseText)
             logOAuthDiagnostic('gmail_token_exchange_response', {
               httpStatus,
               ok: false,
               parseError: true,
-              responseCharCount: data.length,
+              responseCharCount: responseText.length,
             })
             if (oauthConfig.credentialSourceUsed === 'builtin_public') {
               emitGmailStandardConnectFlowProof(oauthConfig, {
@@ -1063,6 +1070,10 @@ export class GmailProvider extends BaseEmailProvider {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          const refreshStatus = res.statusCode ?? 0
+          // TEMP DEBUG
+          console.log('[OAUTH DEBUG] Token refresh HTTP status:', refreshStatus)
+          console.log('[OAUTH DEBUG] Token refresh response body:', data)
           try {
             const json = JSON.parse(data)
             if (json.error) {
@@ -1117,18 +1128,35 @@ export class GmailProvider extends BaseEmailProvider {
         }
       }
       
+      const fullPath = `/gmail/v1${endpoint}`
+      const apiUrl = `https://gmail.googleapis.com${fullPath}`
+
       const req = https.request(options, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          const httpStatus = res.statusCode ?? 0
+          const isProfileProbe = endpoint === '/users/me/profile'
+          const likelyError = httpStatus < 200 || httpStatus >= 300
+          // TEMP DEBUG: profile is first Gmail call after OAuth connect; also log any non-2xx
+          if (isProfileProbe || likelyError) {
+            console.log('[OAUTH DEBUG] Gmail API call URL:', apiUrl)
+            console.log('[OAUTH DEBUG] Gmail API call status:', httpStatus)
+            console.log('[OAUTH DEBUG] Gmail API call headers:', JSON.stringify(res.headers))
+          }
           try {
             const json = data ? JSON.parse(data) : {}
+            if (likelyError) {
+              console.log('[OAUTH DEBUG] Gmail API non-2xx body:', data)
+            }
             if (json.error) {
+              console.log('[OAUTH DEBUG] Gmail API error envelope (full body):', data)
               reject(new Error(json.error.message || 'API error'))
             } else {
               resolve(json)
             }
           } catch (err) {
+            console.log('[OAUTH DEBUG] Gmail API parse failure; raw body:', data)
             reject(err)
           }
         })
