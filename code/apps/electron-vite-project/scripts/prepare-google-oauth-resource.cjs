@@ -33,6 +33,13 @@ function isPlaceholderLine(line) {
   )
 }
 
+function oauthClientIdFingerprint(id) {
+  const t = String(id).trim()
+  if (!t) return '(empty)'
+  if (t.length <= 20) return `${t.slice(0, 6)}…(${t.length}ch)`
+  return `${t.slice(0, 12)}…${t.slice(-8)}`
+}
+
 const envId = (process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID || '').trim()
 const strict =
   process.env.WR_DESK_REQUIRE_GOOGLE_OAUTH_CLIENT_ID === '1' ||
@@ -42,7 +49,10 @@ const strict =
 if (envId) {
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, `${envId}\n`, 'utf8')
-  console.log('[prepare-google-oauth] Wrote resources/google-oauth-client-id.txt from environment')
+  console.log(
+    '[prepare-google-oauth] Wrote resources/google-oauth-client-id.txt from environment; client_id fingerprint:',
+    oauthClientIdFingerprint(envId),
+  )
 } else if (strict && fs.existsSync(target)) {
   const line = firstDataLine(fs.readFileSync(target, 'utf8'))
   if (isPlaceholderLine(line)) {
@@ -51,7 +61,10 @@ if (envId) {
     )
     process.exit(1)
   }
-  console.log('[prepare-google-oauth] Using existing resources/google-oauth-client-id.txt (non-placeholder)')
+  console.log(
+    '[prepare-google-oauth] Using existing resources/google-oauth-client-id.txt (non-placeholder); fingerprint:',
+    oauthClientIdFingerprint(line),
+  )
 } else {
   console.log('[prepare-google-oauth] Skipped (no env); placeholder file is OK for local dev')
 }

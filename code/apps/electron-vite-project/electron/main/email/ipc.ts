@@ -462,7 +462,8 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   const channels = [
     'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
     'email:getImapReconnectHints', 'email:updateImapCredentials',
-    'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail', 'email:showGmailSetup',
+    'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail',
+    'email:getGmailOAuthRuntimeDiagnostics', 'email:showGmailSetup',
     'email:checkGmailCredentials', 'email:checkOutlookCredentials', 'email:checkZohoCredentials',
     'email:setOutlookCredentials', 'email:connectOutlook', 'email:showOutlookSetup',
     'email:setZohoCredentials', 'email:connectZoho',
@@ -731,6 +732,34 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
       return { ok: false, error: error.message }
+    }
+  })
+
+  /**
+   * Packaged Gmail OAuth runtime proof (fingerprints + startup paths only — no secrets, tokens, full client ids).
+   */
+  ipcMain.handle('email:getGmailOAuthRuntimeDiagnostics', async () => {
+    try {
+      const { getGmailOAuthPackagedStartupDiagnostics } = await import('./googleOAuthBuiltin')
+      const { getLastGmailStandardConnectRuntimeProof } = await import('./gmailOAuthRuntimeProof')
+      const startup = getGmailOAuthPackagedStartupDiagnostics()
+      const lastStandardConnectFlow = getLastGmailStandardConnectRuntimeProof()
+      return {
+        ok: true,
+        data: {
+          expectedBundledClientFingerprint: startup.bundledFirstLineClientIdFingerprint,
+          authorizeClientIdFingerprint: lastStandardConnectFlow?.authorizeClientIdFingerprint ?? null,
+          tokenExchangeClientIdFingerprint: lastStandardConnectFlow?.tokenExchangeClientIdFingerprint ?? null,
+          builtinSourceKind: lastStandardConnectFlow?.builtinSourceKind ?? null,
+          authMode: lastStandardConnectFlow?.authMode ?? null,
+          packagedStandardConnectEnvIgnored: lastStandardConnectFlow?.packagedStandardConnectEnvIgnored ?? false,
+          startup,
+          lastStandardConnectFlow,
+        },
+      }
+    } catch (error: any) {
+      console.error('[Email IPC] getGmailOAuthRuntimeDiagnostics error:', error)
+      return { ok: false, error: error?.message ?? String(error) }
     }
   })
   

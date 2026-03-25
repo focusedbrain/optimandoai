@@ -181,6 +181,21 @@ declare global {
         }
         error?: string
       }>
+      /** Packaged Gmail OAuth runtime proof (fingerprints + paths — no secrets / full client ids / tokens). */
+      getGmailOAuthRuntimeDiagnostics?: () => Promise<{
+        ok: boolean
+        error?: string
+        data?: {
+          expectedBundledClientFingerprint: string | null
+          authorizeClientIdFingerprint: string | null
+          tokenExchangeClientIdFingerprint: string | null
+          builtinSourceKind: string | null | undefined
+          authMode: string | null | undefined
+          packagedStandardConnectEnvIgnored: boolean
+          startup: Record<string, unknown>
+          lastStandardConnectFlow: Record<string, unknown> | null
+        }
+      }>
       checkOutlookCredentials?: () => Promise<{
         ok: boolean
         data?: {

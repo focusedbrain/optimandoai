@@ -2079,8 +2079,14 @@ app.whenReady().then(async () => {
         oauthClientIdFingerprint,
         resolveBuiltinGoogleOAuthClientWithMeta,
         getGoogleOauthClientIdEnvVarNamesPresent,
+        getGmailOAuthPackagedStartupDiagnostics,
         logOAuthDiagnostic,
       } = await import('./main/email/googleOAuthBuiltin')
+      if (app.isPackaged) {
+        logOAuthDiagnostic('gmail_oauth_packaged_startup_diagnostics', {
+          startupDiagnostics: getGmailOAuthPackagedStartupDiagnostics(),
+        })
+      }
       if (app.isPackaged && !isBuiltinGmailOAuthConfigured()) {
         console.error(
           '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt.',

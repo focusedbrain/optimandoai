@@ -67,6 +67,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientSecret: '',
     })
     const r = await resolveGmailOAuthForConnect('builtin_public')
+    expect(r.credentialSourceUsed).toBe('builtin_public')
     expect(r.authMode).toBe('pkce')
     expect(r.resolution).toBe('builtin')
     expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
@@ -117,6 +118,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientSecret: 'secret',
     })
     const r = await resolveGmailOAuthForConnect('developer_saved')
+    expect(r.credentialSourceUsed).toBe('developer_saved')
     expect(r.authMode).toBe('legacy_secret')
     expect(r.resolution).toBe('developer_legacy_secret')
     expect(r.clientId).toContain('user.apps')
@@ -130,6 +132,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientId: 'pub.apps.googleusercontent.com',
     })
     const r = await resolveGmailOAuthForConnect('developer_saved')
+    expect(r.credentialSourceUsed).toBe('developer_saved')
     expect(r.authMode).toBe('pkce')
     expect(r.resolution).toBe('developer_pkce')
     expect(r.clientSecret).toBeUndefined()
@@ -157,6 +160,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientId: 'stale-dev.apps.googleusercontent.com',
     })
     const r = await resolveGmailOAuthForConnect()
+    expect(r.credentialSourceUsed).toBe('builtin_public')
     expect(r.authMode).toBe('pkce')
     expect(r.resolution).toBe('builtin')
     expect(r.clientId).toBe('builtin.apps.googleusercontent.com')
@@ -171,6 +175,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientId: 'onlydev.apps.googleusercontent.com',
     })
     const r = await resolveGmailOAuthForConnect()
+    expect(r.credentialSourceUsed).toBe('developer_saved')
     expect(r.authMode).toBe('pkce')
     expect(r.resolution).toBe('developer_pkce')
     expect(r.clientId).toBe('onlydev.apps.googleusercontent.com')
@@ -186,6 +191,7 @@ describe('resolveGmailOAuthForConnect', () => {
       clientId: 'advanced.apps.googleusercontent.com',
     })
     const r = await resolveGmailOAuthForConnect('developer_saved')
+    expect(r.credentialSourceUsed).toBe('developer_saved')
     expect(r.resolution).toBe('developer_pkce')
     expect(r.clientId).toBe('advanced.apps.googleusercontent.com')
     expect(assertBuiltinPublicClientMatchesShippedResource).not.toHaveBeenCalled()

@@ -34,8 +34,84 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
-import { logOAuthDiagnostic, oauthClientIdFingerprint } from '../googleOAuthBuiltin'
+import {
+  logOAuthDiagnostic,
+  oauthClientIdFingerprint,
+  getPackagedResourceGoogleOAuthClientId,
+  isPackagedProductionGmailStandardConnect,
+} from '../googleOAuthBuiltin'
 import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
+import {
+  clearLastGmailStandardConnectRuntimeProof,
+  setLastGmailStandardConnectRuntimeProof,
+  type GmailStandardConnectRuntimeProof,
+} from '../gmailOAuthRuntimeProof'
+
+function emitGmailStandardConnectFlowProof(
+  oauthConfig: ResolvedGmailOAuth,
+  params: {
+    authorizeClientIdFingerprint: string
+    tokenExchangeClientIdFingerprint: string
+    redirectUri: string
+    hasCodeVerifier: boolean
+    googleTokenHttpStatus: number | null
+    googleError: string | null
+    googleErrorDescription: string | null
+  },
+): void {
+  if (oauthConfig.credentialSourceUsed !== 'builtin_public') return
+  const br = oauthConfig.builtinClientResolution
+  const shipped = getPackagedResourceGoogleOAuthClientId()
+  const oauthMismatch = params.authorizeClientIdFingerprint !== params.tokenExchangeClientIdFingerprint
+  const envIgnored = !!br?.packagedStandardConnectIgnoredEnvVarNames?.length
+
+  const payload: Record<string, unknown> = {
+    flowType: 'standard_connect',
+    credentialSource: oauthConfig.credentialSourceUsed,
+    resolution: oauthConfig.resolution,
+    authMode: oauthConfig.authMode,
+    authorizeClientIdFingerprint: params.authorizeClientIdFingerprint,
+    tokenExchangeClientIdFingerprint: params.tokenExchangeClientIdFingerprint,
+    oauth_client_id_mismatch_between_authorize_and_token_exchange: oauthMismatch,
+    builtinSourceKind: br?.sourceKind,
+    builtinSourceLabel: br?.sourcePath ? path.basename(br.sourcePath) : br?.sourceName,
+    hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+    hasCodeVerifier: params.hasCodeVerifier,
+    redirectUri: params.redirectUri,
+    tokenExchangeShape:
+      oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+    googleTokenHttpStatus: params.googleTokenHttpStatus,
+    googleError: params.googleError,
+    googleErrorDescription: params.googleErrorDescription,
+    bundledExpectedFingerprint: shipped ? oauthClientIdFingerprint(shipped) : null,
+    packagedStandardConnectEnvIgnored: envIgnored,
+  }
+  logOAuthDiagnostic('gmail_standard_connect_flow_proof', payload)
+
+  const proof: GmailStandardConnectRuntimeProof = {
+    flowType: 'standard_connect',
+    credentialSource: oauthConfig.credentialSourceUsed,
+    resolution: oauthConfig.resolution,
+    authMode: oauthConfig.authMode,
+    authorizeClientIdFingerprint: params.authorizeClientIdFingerprint,
+    tokenExchangeClientIdFingerprint: params.tokenExchangeClientIdFingerprint,
+    oauth_client_id_mismatch_between_authorize_and_token_exchange: oauthMismatch,
+    builtinSourceKind: br?.sourceKind,
+    builtinSourceLabel: br?.sourcePath ? path.basename(br.sourcePath) : br?.sourceName,
+    hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+    hasCodeVerifier: params.hasCodeVerifier,
+    redirectUri: params.redirectUri,
+    tokenExchangeShape:
+      oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+    googleTokenHttpStatus: params.googleTokenHttpStatus,
+    googleError: params.googleError,
+    googleErrorDescription: params.googleErrorDescription,
+    bundledExpectedFingerprint: shipped ? oauthClientIdFingerprint(shipped) : null,
+    packagedStandardConnectEnvIgnored: envIgnored,
+    completedAt: new Date().toISOString(),
+  }
+  setLastGmailStandardConnectRuntimeProof(proof)
+}
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64url')
@@ -102,6 +178,8 @@ export class GmailProvider extends BaseEmailProvider {
   private wrDeskLabelIdCache: Map<string, string> = new Map()
   /** PKCE code_verifier for the in-flight browser OAuth only; cleared after token exchange. */
   private pkceVerifier: string | null = null
+  /** Fingerprint of client_id sent to Google authorize URL (standard Connect proof only). */
+  private standardConnectAuthorizeClientIdFingerprint: string | null = null
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -585,6 +663,10 @@ export class GmailProvider extends BaseEmailProvider {
     resolved?: ResolvedGmailOAuth,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
+    this.standardConnectAuthorizeClientIdFingerprint = null
+    if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+      clearLastGmailStandardConnectRuntimeProof()
+    }
     this.pkceVerifier = null
     let codeChallenge: string | undefined
     if (oauthConfig.authMode === 'pkce') {
@@ -610,6 +692,9 @@ export class GmailProvider extends BaseEmailProvider {
       const flowPromise = oauthServerManager.startOAuthFlow('gmail', 5 * 60 * 1000)
 
       const authUrl = this.buildAuthUrl(oauthConfig.clientId, email, oauthConfig.authMode, codeChallenge)
+      if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+        this.standardConnectAuthorizeClientIdFingerprint = oauthClientIdFingerprint(oauthConfig.clientId)
+      }
       console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
 
       try {
@@ -649,8 +734,11 @@ export class GmailProvider extends BaseEmailProvider {
       console.error('[Gmail] OAuth flow error:', err.message || err)
       logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'flow', error: err?.message })
       this.pkceVerifier = null
+      this.standardConnectAuthorizeClientIdFingerprint = null
       await oauthServerManager.cancelFlow().catch(() => {})
       throw err
+    } finally {
+      this.standardConnectAuthorizeClientIdFingerprint = null
     }
   }
   
@@ -690,13 +778,52 @@ export class GmailProvider extends BaseEmailProvider {
     codeVerifier: string | null,
   ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
     const redirectUri = oauthServerManager.getCallbackUrl()
+    const authorizeFp =
+      this.standardConnectAuthorizeClientIdFingerprint ?? oauthClientIdFingerprint(oauthConfig.clientId)
+    const tokenExchangeFp = oauthClientIdFingerprint(oauthConfig.clientId)
+
+    if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+      if (authorizeFp !== tokenExchangeFp) {
+        emitGmailStandardConnectFlowProof(oauthConfig, {
+          authorizeClientIdFingerprint: authorizeFp,
+          tokenExchangeClientIdFingerprint: tokenExchangeFp,
+          redirectUri,
+          hasCodeVerifier: !!codeVerifier,
+          googleTokenHttpStatus: null,
+          googleError: 'oauth_client_id_mismatch_authorize_vs_token',
+          googleErrorDescription: 'authorizeClientIdFingerprint !== tokenExchangeClientIdFingerprint',
+        })
+        throw new Error(
+          'Runtime Gmail OAuth mismatch: authorize and token exchange used different client_id fingerprints',
+        )
+      }
+      if (isPackagedProductionGmailStandardConnect()) {
+        const shipped = getPackagedResourceGoogleOAuthClientId()
+        if (shipped && oauthClientIdFingerprint(shipped) !== tokenExchangeFp) {
+          emitGmailStandardConnectFlowProof(oauthConfig, {
+            authorizeClientIdFingerprint: authorizeFp,
+            tokenExchangeClientIdFingerprint: tokenExchangeFp,
+            redirectUri,
+            hasCodeVerifier: !!codeVerifier,
+            googleTokenHttpStatus: null,
+            googleError: 'local_bundled_client_mismatch',
+            googleErrorDescription: 'token exchange client_id fingerprint !== bundled resource file',
+          })
+          throw new Error(
+            'Runtime Gmail OAuth mismatch: token exchange is not using the bundled Desktop client ID',
+          )
+        }
+      }
+    }
 
     const br = oauthConfig.builtinClientResolution
     logOAuthDiagnostic('gmail_token_exchange_request', {
       authMode: oauthConfig.authMode,
       resolution: oauthConfig.resolution,
+      credentialSourceUsed: oauthConfig.credentialSourceUsed,
       clientId: oauthConfig.clientId,
-      clientIdFingerprintAtExchange: oauthClientIdFingerprint(oauthConfig.clientId),
+      clientIdFingerprintAtExchange: tokenExchangeFp,
+      authorizeClientIdFingerprint: authorizeFp,
       redirect_uri: redirectUri,
       tokenExchangeShape:
         oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
@@ -722,6 +849,17 @@ export class GmailProvider extends BaseEmailProvider {
       })
       if (oauthConfig.authMode === 'pkce') {
         if (!codeVerifier) {
+          if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+            emitGmailStandardConnectFlowProof(oauthConfig, {
+              authorizeClientIdFingerprint: authorizeFp,
+              tokenExchangeClientIdFingerprint: tokenExchangeFp,
+              redirectUri,
+              hasCodeVerifier: false,
+              googleTokenHttpStatus: null,
+              googleError: 'local_pkce_missing_verifier',
+              googleErrorDescription: 'PKCE code_verifier missing at token exchange',
+            })
+          }
           reject(new Error('PKCE: missing code_verifier'))
           return
         }
@@ -734,21 +872,23 @@ export class GmailProvider extends BaseEmailProvider {
       }
 
       const postData = body.toString()
-      
+
       const options = {
         hostname: 'oauth2.googleapis.com',
         path: '/token',
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        }
+          'Content-Length': Buffer.byteLength(postData),
+        },
       }
-      
+
       const req = https.request(options, (res) => {
         let data = ''
         const httpStatus = res.statusCode ?? 0
-        res.on('data', chunk => { data += chunk })
+        res.on('data', (chunk) => {
+          data += chunk
+        })
         res.on('end', () => {
           try {
             const json = JSON.parse(data)
@@ -766,6 +906,18 @@ export class GmailProvider extends BaseEmailProvider {
                 error: json.error,
                 httpStatus,
               })
+              if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+                emitGmailStandardConnectFlowProof(oauthConfig, {
+                  authorizeClientIdFingerprint: authorizeFp,
+                  tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                  redirectUri,
+                  hasCodeVerifier: !!codeVerifier,
+                  googleTokenHttpStatus: httpStatus,
+                  googleError: typeof json.error === 'string' ? json.error : String(json.error),
+                  googleErrorDescription:
+                    typeof json.error_description === 'string' ? json.error_description : null,
+                })
+              }
               reject(new Error(json.error_description || json.error))
             } else {
               logOAuthDiagnostic('gmail_token_exchange_response', {
@@ -774,10 +926,23 @@ export class GmailProvider extends BaseEmailProvider {
                 responseCharCount: data.length,
                 expiresIn: typeof json.expires_in === 'number' ? json.expires_in : undefined,
               })
+              if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+                emitGmailStandardConnectFlowProof(oauthConfig, {
+                  authorizeClientIdFingerprint: authorizeFp,
+                  tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                  redirectUri,
+                  hasCodeVerifier: !!codeVerifier,
+                  googleTokenHttpStatus: httpStatus,
+                  googleError: null,
+                  googleErrorDescription: null,
+                })
+              }
+              const expiresInSec =
+                typeof json.expires_in === 'number' && Number.isFinite(json.expires_in) ? json.expires_in : 3600
               resolve({
                 accessToken: json.access_token,
                 refreshToken: json.refresh_token,
-                expiresAt: Date.now() + (json.expires_in * 1000),
+                expiresAt: Date.now() + expiresInSec * 1000,
                 scope: typeof json.scope === 'string' ? json.scope : '',
                 oauthClientId: oauthConfig.clientId,
                 gmailRefreshUsesSecret: oauthConfig.authMode === 'legacy_secret',
@@ -790,11 +955,22 @@ export class GmailProvider extends BaseEmailProvider {
               parseError: true,
               responseCharCount: data.length,
             })
+            if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+              emitGmailStandardConnectFlowProof(oauthConfig, {
+                authorizeClientIdFingerprint: authorizeFp,
+                tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                redirectUri,
+                hasCodeVerifier: !!codeVerifier,
+                googleTokenHttpStatus: httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: err instanceof Error ? err.message : 'token response parse failed',
+              })
+            }
             reject(err)
           }
         })
       })
-      
+
       req.on('error', reject)
       req.write(postData)
       req.end()

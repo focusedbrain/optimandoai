@@ -118,6 +118,8 @@ export function EmailConnectWizard({
    * Set synchronously before `setStep('connecting')` so the connect effect reads the right source.
    */
   const gmailOAuthCredentialSourceRef = useRef<'builtin_public' | 'developer_saved'>('builtin_public')
+  /** Electron: last fetched Gmail OAuth runtime proof (fingerprints only — from main process). */
+  const [gmailOAuthRuntimeDiagText, setGmailOAuthRuntimeDiagText] = useState<string | null>(null)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -149,11 +151,33 @@ export function EmailConnectWizard({
     setCustomForm(emptyCustomForm())
     setReconnectHasStoredImapPassword(false)
     setConnectSyncWindowDays(30)
+    setGmailOAuthRuntimeDiagText(null)
   }, [])
 
   useEffect(() => {
     if (!isOpen) reset()
   }, [isOpen, reset])
+
+  const showGmailOAuthRuntimeDiagnostics = useCallback(async () => {
+    if (!isElectron()) return
+    setGmailOAuthRuntimeDiagText(null)
+    try {
+      const raw = await window.emailAccounts?.getGmailOAuthRuntimeDiagnostics?.()
+      if (!raw) {
+        setGmailOAuthRuntimeDiagText(JSON.stringify({ error: 'preload bridge missing (getGmailOAuthRuntimeDiagnostics)' }, null, 2))
+        return
+      }
+      if (!raw.ok) {
+        setGmailOAuthRuntimeDiagText(JSON.stringify({ error: raw.error ?? 'unknown error' }, null, 2))
+        return
+      }
+      console.log('[EmailConnectWizard] Gmail OAuth runtime diagnostics', raw.data)
+      setGmailOAuthRuntimeDiagText(JSON.stringify(raw.data, null, 2))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setGmailOAuthRuntimeDiagText(JSON.stringify({ error: msg }, null, 2))
+    }
+  }, [])
 
   /** Pre-fill Custom IMAP form when updating credentials for an existing account (Electron). */
   useEffect(() => {
@@ -1353,6 +1377,47 @@ export function EmailConnectWizard({
                         >
                           Advanced (developer OAuth client)
                         </button>
+                      )}
+                      {isElectron() && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void showGmailOAuthRuntimeDiagnostics()}
+                            style={{
+                              width: '100%',
+                              marginTop: 10,
+                              padding: '8px',
+                              fontSize: '11px',
+                              background: isPro ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                              border: `1px solid ${borderColor}`,
+                              borderRadius: '8px',
+                              color: mutedColor,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Show Gmail OAuth runtime diagnostics
+                          </button>
+                          {gmailOAuthRuntimeDiagText && (
+                            <pre
+                              style={{
+                                marginTop: 8,
+                                padding: 10,
+                                fontSize: '10px',
+                                lineHeight: 1.45,
+                                maxHeight: 220,
+                                overflow: 'auto',
+                                background: isPro ? '#f8fafc' : 'rgba(0,0,0,0.35)',
+                                border: `1px solid ${borderColor}`,
+                                borderRadius: 8,
+                                color: textColor,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              {gmailOAuthRuntimeDiagText}
+                            </pre>
+                          )}
+                        </>
                       )}
                     </>
                   ) : existingGmail ? (

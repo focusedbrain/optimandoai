@@ -658,6 +658,8 @@ contextBridge.exposeInMainWorld('emailAccounts', {
       storeInVault ?? true,
     ),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  /** Packaged Gmail OAuth runtime proof (fingerprints only — see main process gmail_standard_connect_flow_proof logs). */
+  getGmailOAuthRuntimeDiagnostics: () => ipcRenderer.invoke('email:getGmailOAuthRuntimeDiagnostics'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
   checkZohoCredentials: () => ipcRenderer.invoke('email:checkZohoCredentials'),
   checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),

@@ -344,6 +344,54 @@ export function getPackagedResourceGoogleOAuthClientId(): string | null {
   }
 }
 
+/** Packaged startup proof: paths, bundled id fingerprint (no full id), env presence, developer mode. */
+export interface GmailOAuthPackagedStartupDiagnostics {
+  processResourcesPath: string | null
+  googleOAuthResourceFilePath: string | null
+  resourceFileExists: boolean
+  bundledFirstLineClientIdFingerprint: string | null
+  env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present: boolean
+  env_GOOGLE_OAUTH_CLIENT_ID_present: boolean
+  emailDeveloperModeActive: boolean
+  isPackaged: boolean
+}
+
+export function getGmailOAuthPackagedStartupDiagnostics(): GmailOAuthPackagedStartupDiagnostics {
+  try {
+    const isPackaged = app.isPackaged
+    const resourcesPath =
+      isPackaged && String(process.resourcesPath || '').length > 0
+        ? String(process.resourcesPath)
+        : null
+    const resourceFilePath =
+      resourcesPath ? path.join(resourcesPath, PACKAGED_RESOURCE_BASENAME) : null
+    const resourceFileExists = !!(resourceFilePath && fs.existsSync(resourceFilePath))
+    const bundled = isPackaged ? getPackagedResourceGoogleOAuthClientId() : null
+    return {
+      processResourcesPath: resourcesPath,
+      googleOAuthResourceFilePath: resourceFilePath,
+      resourceFileExists,
+      bundledFirstLineClientIdFingerprint: bundled ? oauthClientIdFingerprint(bundled) : null,
+      env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present:
+        (process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID ?? '').trim().length > 0,
+      env_GOOGLE_OAUTH_CLIENT_ID_present: (process.env.GOOGLE_OAUTH_CLIENT_ID ?? '').trim().length > 0,
+      emailDeveloperModeActive: isEmailDeveloperModeEnabled(),
+      isPackaged,
+    }
+  } catch {
+    return {
+      processResourcesPath: null,
+      googleOAuthResourceFilePath: null,
+      resourceFileExists: false,
+      bundledFirstLineClientIdFingerprint: null,
+      env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present: false,
+      env_GOOGLE_OAUTH_CLIENT_ID_present: false,
+      emailDeveloperModeActive: false,
+      isPackaged: false,
+    }
+  }
+}
+
 /**
  * Standard Connect (`builtin_public`) only: if the running app is packaged and the client id did **not** come
  * from an explicit env override, require it to match the shipped resource file so a stale Vite-inlined Web
@@ -400,10 +448,33 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'winningBuiltinSourceKind',
   'winningClientIdFingerprint',
   'gmailOAuthCredentialSource',
+  'credentialSourceUsed',
   'packagedProductionStandardConnect',
   'googleOauthEnvVarsPresent',
   'packagedStandardConnectIgnoredEnvVarNames',
   'packagedStandardConnectResourcePrecedenceEnforced',
+  'flowType',
+  'credentialSource',
+  'resolution',
+  'authMode',
+  'authorizeClientIdFingerprint',
+  'tokenExchangeClientIdFingerprint',
+  'oauth_client_id_mismatch_between_authorize_and_token_exchange',
+  'builtinSourceLabel',
+  'googleTokenHttpStatus',
+  'googleError',
+  'googleErrorDescription',
+  'bundledExpectedFingerprint',
+  'packagedStandardConnectEnvIgnored',
+  'bundledFirstLineClientIdFingerprint',
+  'processResourcesPath',
+  'googleOAuthResourceFilePath',
+  'resourceFileExists',
+  'env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present',
+  'env_GOOGLE_OAUTH_CLIENT_ID_present',
+  'emailDeveloperModeActive',
+  'startupDiagnostics',
+  'lastStandardConnectFlow',
 ])
 
 /** Structured OAuth diagnostics — never log tokens, secrets, auth codes, or full client ids. */

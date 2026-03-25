@@ -29,6 +29,8 @@ export interface ResolvedGmailOAuth {
   clientSecret?: string
   authMode: GmailAuthMode
   resolution: GmailOAuthResolutionTag
+  /** Renderer / gateway selection for this connect (distinguishes standard Connect vs Advanced builtin fallback). */
+  credentialSourceUsed: GmailOAuthCredentialSource
   /** Set when the active client id is the app built-in Desktop client (standard Connect or Advanced fallback). */
   builtinClientResolution?: BuiltinGoogleOAuthClientResolution
 }
@@ -80,6 +82,7 @@ export async function resolveGmailOAuthForConnect(
       clientId: meta.clientId,
       authMode: 'pkce',
       resolution: 'builtin',
+      credentialSourceUsed: 'builtin_public',
       builtinClientResolution: meta,
     }
     logOAuthDiagnostic('gmail_standard_connect_oauth_source', {
@@ -116,6 +119,7 @@ export async function resolveGmailOAuthForConnect(
       clientSecret: user.clientSecret.trim(),
       authMode: 'legacy_secret',
       resolution: 'developer_legacy_secret',
+      credentialSourceUsed: 'developer_saved',
     }
     logOAuthDiagnostic('gmail_oauth_resolve', {
       credentialSource: 'developer_saved',
@@ -132,6 +136,7 @@ export async function resolveGmailOAuthForConnect(
       clientId: user.clientId.trim(),
       authMode: 'pkce',
       resolution: 'developer_pkce',
+      credentialSourceUsed: 'developer_saved',
     }
     logOAuthDiagnostic('gmail_oauth_resolve', {
       credentialSource: 'developer_saved',
@@ -148,6 +153,7 @@ export async function resolveGmailOAuthForConnect(
       clientId: builtinMeta.clientId,
       authMode: 'pkce',
       resolution: 'builtin',
+      credentialSourceUsed: 'developer_saved',
       builtinClientResolution: builtinMeta,
     }
     logOAuthDiagnostic('gmail_oauth_resolve', {
