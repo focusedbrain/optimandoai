@@ -368,6 +368,9 @@ function loadAccounts(): EmailAccountConfig[] {
               scope: decrypted.scope ?? '',
               oauthClientId: decrypted.oauthClientId,
               gmailRefreshUsesSecret: decrypted.gmailRefreshUsesSecret,
+              ...(decrypted.gmailOAuthClientSecret
+                ? { gmailOAuthClientSecret: decrypted.gmailOAuthClientSecret }
+                : {}),
             }
             next = { ...next, oauth }
           } catch (err) {
@@ -1287,6 +1290,9 @@ class EmailGateway implements IEmailGateway {
       scope: typeof tokens.scope === 'string' ? tokens.scope : '',
       oauthClientId: resolved.clientId,
       gmailRefreshUsesSecret: resolved.authMode === 'legacy_secret',
+      ...(tokens.gmailOAuthClientSecret
+        ? { gmailOAuthClientSecret: tokens.gmailOAuthClientSecret }
+        : {}),
     }
 
     /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */

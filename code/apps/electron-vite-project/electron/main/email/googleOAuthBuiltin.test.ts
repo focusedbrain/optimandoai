@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   normalizeGoogleOAuthClientId,
+  normalizeGoogleOAuthClientSecret,
   isPlaceholderGoogleOAuthClientId,
   oauthClientIdFingerprint,
 } from './googleOAuthBuiltin'
@@ -34,6 +35,18 @@ describe('oauthClientIdFingerprint', () => {
 
   it('abbreviates ids length <= 20 without printing full value', () => {
     expect(oauthClientIdFingerprint('short.apps.googleus')).toMatch(/^short\.…\(19ch\)$/)
+  })
+})
+
+describe('normalizeGoogleOAuthClientSecret', () => {
+  it('accepts a typical Desktop client secret shape', () => {
+    expect(normalizeGoogleOAuthClientSecret('GOCSPX-abc123xyz789012')).toBe('GOCSPX-abc123xyz789012')
+  })
+
+  it('rejects placeholders and short strings', () => {
+    expect(normalizeGoogleOAuthClientSecret('REPLACE_WITH_CLIENT_SECRET')).toBeNull()
+    expect(normalizeGoogleOAuthClientSecret('short')).toBeNull()
+    expect(normalizeGoogleOAuthClientSecret('')).toBeNull()
   })
 })
 

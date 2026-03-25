@@ -41,6 +41,13 @@ import {
   isPackagedProductionGmailStandardConnect,
 } from '../googleOAuthBuiltin'
 import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
+
+/** Diagnostic label for token exchange / refresh body shape (never log the secret). */
+function gmailOAuthTokenExchangeShape(oauthConfig: ResolvedGmailOAuth): string {
+  if (oauthConfig.authMode !== 'pkce') return 'legacy_with_client_secret'
+  const has = !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim())
+  return has ? 'pkce_desktop_with_secret' : 'pkce_public_no_client_secret'
+}
 import {
   clearLastGmailStandardConnectRuntimeProof,
   setLastGmailStandardConnectRuntimeProof,
@@ -78,8 +85,7 @@ function emitGmailStandardConnectFlowProof(
     hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
     hasCodeVerifier: params.hasCodeVerifier,
     redirectUri: params.redirectUri,
-    tokenExchangeShape:
-      oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+    tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
     googleTokenHttpStatus: params.googleTokenHttpStatus,
     googleError: params.googleError,
     googleErrorDescription: params.googleErrorDescription,
@@ -101,8 +107,7 @@ function emitGmailStandardConnectFlowProof(
     hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
     hasCodeVerifier: params.hasCodeVerifier,
     redirectUri: params.redirectUri,
-    tokenExchangeShape:
-      oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+    tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
     googleTokenHttpStatus: params.googleTokenHttpStatus,
     googleError: params.googleError,
     googleErrorDescription: params.googleErrorDescription,
@@ -835,8 +840,7 @@ export class GmailProvider extends BaseEmailProvider {
       clientIdFingerprintAtExchange: tokenExchangeFp,
       authorizeClientIdFingerprint: authorizeFp,
       redirect_uri: redirectUri,
-      tokenExchangeShape:
-        oauthConfig.authMode === 'pkce' ? 'pkce_public_no_client_secret' : 'legacy_with_client_secret',
+      tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
       hasCodeVerifier: !!codeVerifier,
       hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
       ...(br
@@ -874,6 +878,10 @@ export class GmailProvider extends BaseEmailProvider {
           return
         }
         body.set('code_verifier', codeVerifier)
+        const desktopSecret = oauthConfig.clientSecret?.trim()
+        if (desktopSecret) {
+          body.set('client_secret', desktopSecret)
+        }
       } else if (oauthConfig.clientSecret) {
         body.set('client_secret', oauthConfig.clientSecret)
       } else {
@@ -954,6 +962,8 @@ export class GmailProvider extends BaseEmailProvider {
               }
               const expiresInSec =
                 typeof json.expires_in === 'number' && Number.isFinite(json.expires_in) ? json.expires_in : 3600
+              const pkceDesktopSecret =
+                oauthConfig.authMode === 'pkce' ? oauthConfig.clientSecret?.trim() : undefined
               resolve({
                 accessToken: json.access_token,
                 refreshToken: json.refresh_token,
@@ -961,6 +971,7 @@ export class GmailProvider extends BaseEmailProvider {
                 scope: typeof json.scope === 'string' ? json.scope : '',
                 oauthClientId: oauthConfig.clientId,
                 gmailRefreshUsesSecret: oauthConfig.authMode === 'legacy_secret',
+                ...(pkceDesktopSecret ? { gmailOAuthClientSecret: pkceDesktopSecret } : {}),
               })
             }
           } catch (err) {
@@ -1018,11 +1029,13 @@ export class GmailProvider extends BaseEmailProvider {
       throw new Error('Cannot refresh token: missing OAuth client id')
     }
 
-    const useSecret = stored?.gmailRefreshUsesSecret === true
-    const secret =
-      useSecret && userCreds && 'clientSecret' in userCreds && userCreds.clientSecret
-        ? userCreds.clientSecret
-        : undefined
+    const legacyVaultSecret = stored?.gmailRefreshUsesSecret === true
+    const secretFromVault =
+      legacyVaultSecret && userCreds && 'clientSecret' in userCreds && userCreds.clientSecret
+        ? String(userCreds.clientSecret).trim()
+        : ''
+    const secretFromAccount = stored?.gmailOAuthClientSecret?.trim() ?? ''
+    const refreshClientSecret = secretFromVault || secretFromAccount || undefined
 
     return new Promise((resolve, reject) => {
       const body = new URLSearchParams({
@@ -1030,8 +1043,8 @@ export class GmailProvider extends BaseEmailProvider {
         refresh_token: this.refreshToken!,
         grant_type: 'refresh_token',
       })
-      if (useSecret && secret) {
-        body.set('client_secret', secret)
+      if (refreshClientSecret) {
+        body.set('client_secret', refreshClientSecret)
       }
 
       const postData = body.toString()

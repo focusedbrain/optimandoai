@@ -96,10 +96,14 @@ module.exports = {
   extraResources: [
     ...baseConfig.extraResources,
     ...tesseractResources,
-    /** Gmail end-user OAuth: public client id file (PKCE). Overwritten in CI via prepare-google-oauth-resource.cjs */
+    /** Gmail end-user OAuth: Desktop client id + secret (PKCE + Google-required secret). CI via prepare-google-oauth-resource.cjs */
     {
       from: 'resources/google-oauth-client-id.txt',
       to: 'google-oauth-client-id.txt',
+    },
+    {
+      from: 'resources/google-oauth-client-secret.txt',
+      to: 'google-oauth-client-secret.txt',
     },
   ],
 }

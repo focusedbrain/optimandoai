@@ -1,6 +1,6 @@
 /**
  * Resolves which Google OAuth client to use for Gmail connect / refresh.
- * End-user builds: PKCE + app-owned client id (no user-supplied secret).
+ * End-user builds: PKCE + app-owned Desktop client id and matching client_secret (Google requires both).
  * Legacy / self-hosted: user-stored client id + client secret (confidential-style exchange).
  */
 
@@ -12,6 +12,8 @@ import {
   oauthClientIdFingerprint,
   isPackagedProductionGmailStandardConnect,
   getGoogleOauthClientIdEnvVarNamesPresent,
+  getGoogleOauthClientSecretEnvVarNamesPresent,
+  resolveBuiltinGoogleOAuthClientSecret,
   type BuiltinGoogleOAuthClientResolution,
 } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
@@ -83,8 +85,10 @@ export async function resolveGmailOAuthForConnect(
   if (credentialSource === 'builtin_public') {
     const meta = assertBuiltinMetaConfigured()
     assertBuiltinPublicClientMatchesShippedResource(meta)
+    const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(meta)
     const resolved: ResolvedGmailOAuth = {
       clientId: meta.clientId,
+      ...(builtinSecret ? { clientSecret: builtinSecret } : {}),
       authMode: 'pkce',
       resolution: 'builtin',
       credentialSourceUsed: 'builtin_public',
@@ -95,9 +99,11 @@ export async function resolveGmailOAuthForConnect(
       winningClientIdFingerprint: oauthClientIdFingerprint(meta.clientId),
       gmailOAuthCredentialSource: 'builtin_public',
       authMode: 'pkce',
+      hasClientSecret: !!builtinSecret,
       packagedProductionStandardConnect: isPackagedProductionGmailStandardConnect(),
       packagedStandardConnectResourcePrecedenceEnforced: isPackagedProductionGmailStandardConnect(),
       googleOauthEnvVarsPresent: getGoogleOauthClientIdEnvVarNamesPresent(),
+      googleOauthClientSecretEnvVarsPresent: getGoogleOauthClientSecretEnvVarNamesPresent(),
       packagedStandardConnectIgnoredEnvVarNames: meta.packagedStandardConnectIgnoredEnvVarNames ?? [],
     })
     logOAuthDiagnostic('gmail_oauth_resolve', {
@@ -111,6 +117,7 @@ export async function resolveGmailOAuthForConnect(
       builtinFromPackagedResourceFile: meta.fromPackagedResourceFile,
       builtinConfigured: true,
       usesUserStoredOAuthClient: false,
+      hasClientSecret: !!builtinSecret,
     })
     logGmailOAuthResolvedConfig(`builtin_public:${meta.sourceKind}`, resolved.clientId, resolved.authMode)
     return resolved
@@ -156,8 +163,10 @@ export async function resolveGmailOAuthForConnect(
     return resolved
   }
   if (builtinMeta) {
+    const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(builtinMeta)
     const resolved: ResolvedGmailOAuth = {
       clientId: builtinMeta.clientId,
+      ...(builtinSecret ? { clientSecret: builtinSecret } : {}),
       authMode: 'pkce',
       resolution: 'builtin',
       credentialSourceUsed: 'developer_saved',
@@ -174,6 +183,7 @@ export async function resolveGmailOAuthForConnect(
       builtinSourceName: builtinMeta.sourceName,
       builtinFromBuildTimeInline: builtinMeta.fromBuildTimeInline,
       builtinFromPackagedResourceFile: builtinMeta.fromPackagedResourceFile,
+      hasClientSecret: !!builtinSecret,
     })
     logGmailOAuthResolvedConfig(
       `developer_saved:builtin_fallback:${builtinMeta.sourceKind}`,

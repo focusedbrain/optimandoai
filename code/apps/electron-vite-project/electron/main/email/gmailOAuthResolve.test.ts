@@ -15,6 +15,7 @@ vi.mock('./credentials', () => ({
   getCredentialsForOAuth: vi.fn(),
 }))
 
+import * as googleOAuthBuiltin from './googleOAuthBuiltin'
 import {
   resolveBuiltinGoogleOAuthClientWithMeta,
   assertBuiltinPublicClientMatchesShippedResource,
@@ -55,6 +56,23 @@ describe('resolveGmailOAuthForConnect', () => {
     vi.mocked(isBuiltinGmailOAuthConfigured).mockReset()
     vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(false)
     vi.mocked(logOAuthDiagnostic).mockClear()
+  })
+
+  it('builtin_public sets clientSecret when paired Desktop secret is resolved', async () => {
+    const spy = vi
+      .spyOn(googleOAuthBuiltin, 'resolveBuiltinGoogleOAuthClientSecret')
+      .mockReturnValue('GOCSPX-paired-desktop-secret-xyz')
+    try {
+      vi.mocked(isBuiltinGmailOAuthConfigured).mockReturnValue(true)
+      vi.mocked(resolveBuiltinGoogleOAuthClientWithMeta).mockReturnValue(
+        builtinMeta('builtin.apps.googleusercontent.com'),
+      )
+      const r = await resolveGmailOAuthForConnect('builtin_public')
+      expect(r.clientSecret).toBe('GOCSPX-paired-desktop-secret-xyz')
+      expect(r.authMode).toBe('pkce')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('builtin_public always uses built-in client id and ignores user-stored id', async () => {

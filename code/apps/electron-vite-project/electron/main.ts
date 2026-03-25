@@ -2078,7 +2078,9 @@ app.whenReady().then(async () => {
         getPackagedResourceGoogleOAuthClientId,
         oauthClientIdFingerprint,
         resolveBuiltinGoogleOAuthClientWithMeta,
+        resolveBuiltinGoogleOAuthClientSecret,
         getGoogleOauthClientIdEnvVarNamesPresent,
+        getGoogleOauthClientSecretEnvVarNamesPresent,
         getGmailOAuthPackagedStartupDiagnostics,
         logOAuthDiagnostic,
       } = await import('./main/email/googleOAuthBuiltin')
@@ -2089,7 +2091,7 @@ app.whenReady().then(async () => {
       }
       if (app.isPackaged && !isBuiltinGmailOAuthConfigured()) {
         console.error(
-          '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt.',
+          '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt (and matching Desktop client secret in resources/google-oauth-client-secret.txt or build env).',
         )
       } else if (!isBuiltinGmailOAuthConfigured() && isEmailDeveloperModeEnabled()) {
         console.warn(
@@ -2107,6 +2109,8 @@ app.whenReady().then(async () => {
           clientId: res?.clientId,
           packagedResourceFingerprint: shipped ? oauthClientIdFingerprint(shipped) : '(none)',
           googleOauthEnvVarsPresent: getGoogleOauthClientIdEnvVarNamesPresent(),
+          googleOauthClientSecretEnvVarsPresent: getGoogleOauthClientSecretEnvVarNamesPresent(),
+          hasBuiltinDesktopClientSecret: res ? !!resolveBuiltinGoogleOAuthClientSecret(res) : false,
           packagedStandardConnectResourcePrecedenceEnforced: packagedProdStandard,
         })
       }

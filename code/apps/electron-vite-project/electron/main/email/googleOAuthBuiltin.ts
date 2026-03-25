@@ -1,6 +1,7 @@
 /**
- * App-owned Gmail OAuth client id (public identifier — safe to ship).
- * The client secret is NOT used for the end-user PKCE flow.
+ * App-owned Gmail OAuth Desktop client id (public identifier — safe to ship).
+ * Google still requires the matching Desktop `client_secret` on token exchange and refresh
+ * alongside PKCE (`code_verifier`); the secret is shipped like the id (resource file / build define / env).
  *
  * Precedence depends on context:
  *
@@ -32,10 +33,14 @@ import * as path from 'path'
 
 const ENV_KEYS = ['WR_DESK_GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_ID'] as const
 
+const ENV_SECRET_KEYS = ['WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_CLIENT_SECRET'] as const
+
 /** Injected by Vite for the main-process bundle (see vite.config.ts). */
 declare const __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: string | undefined
+declare const __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: string | undefined
 
 const PACKAGED_RESOURCE_BASENAME = 'google-oauth-client-id.txt'
+const PACKAGED_SECRET_BASENAME = 'google-oauth-client-secret.txt'
 
 export type BuiltinOAuthClientSourceKind =
   | 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID'
@@ -76,6 +81,11 @@ export function isPackagedProductionGmailStandardConnect(): boolean {
 /** Env var names (not values) that are set non-empty for Google OAuth client id. */
 export function getGoogleOauthClientIdEnvVarNamesPresent(): string[] {
   return ENV_KEYS.filter((k) => (process.env[k] ?? '').trim().length > 0)
+}
+
+/** Env var names (not values) that are set non-empty for Google OAuth client secret. */
+export function getGoogleOauthClientSecretEnvVarNamesPresent(): string[] {
+  return ENV_SECRET_KEYS.filter((k) => (process.env[k] ?? '').trim().length > 0)
 }
 
 function attachIgnoredEnvNames(
@@ -151,6 +161,79 @@ export function getBuildTimeGoogleOAuthClientId(): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Returns null if missing, malformed, or a known placeholder (same idea as client id normalization).
+ */
+export function normalizeGoogleOAuthClientSecret(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const s = String(raw).trim()
+  if (!s) return null
+  if (s.length < 10) return null
+  const lower = s.toLowerCase()
+  if (
+    lower.includes('replace_with') ||
+    lower.includes('your_secret') ||
+    lower.includes('xxx') ||
+    lower.includes('placeholder') ||
+    lower.startsWith('unconfigured') ||
+    lower.includes('__') ||
+    lower.includes('paste_') ||
+    lower === 'none'
+  ) {
+    return null
+  }
+  return s
+}
+
+export function getBuildTimeGoogleOAuthClientSecret(): string | null {
+  try {
+    if (typeof __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__ === 'undefined') return null
+    return normalizeGoogleOAuthClientSecret(__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Desktop OAuth client secret paired with {@link resolveBuiltinGoogleOAuthClientWithMeta}'s winning client id source.
+ */
+export function resolveBuiltinGoogleOAuthClientSecret(
+  res: BuiltinGoogleOAuthClientResolution,
+): string | undefined {
+  let raw: string | null = null
+  try {
+    switch (res.sourceKind) {
+      case 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID':
+        raw = process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET ?? null
+        break
+      case 'runtime_env_GOOGLE_OAUTH_CLIENT_ID':
+        raw = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? null
+        break
+      case 'build_time_vite_inline':
+        raw =
+          typeof __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__ !== 'undefined'
+            ? String(__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__)
+            : null
+        break
+      case 'packaged_resource_file':
+      case 'dev_resource_app_path':
+      case 'dev_resource_cwd':
+      case 'sidecar_exe_directory': {
+        if (!res.sourcePath) break
+        const secretPath = path.join(path.dirname(res.sourcePath), PACKAGED_SECRET_BASENAME)
+        raw = readFirstNonCommentLine(secretPath)
+        break
+      }
+      default:
+        break
+    }
+  } catch {
+    return undefined
+  }
+  const n = normalizeGoogleOAuthClientSecret(raw)
+  return n ?? undefined
 }
 
 /**
@@ -470,6 +553,7 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'credentialSourceUsed',
   'packagedProductionStandardConnect',
   'googleOauthEnvVarsPresent',
+  'googleOauthClientSecretEnvVarsPresent',
   'packagedStandardConnectIgnoredEnvVarNames',
   'packagedStandardConnectResourcePrecedenceEnforced',
   'flowType',
@@ -494,6 +578,7 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'emailDeveloperModeActive',
   'startupDiagnostics',
   'lastStandardConnectFlow',
+  'hasBuiltinDesktopClientSecret',
 ])
 
 /** Structured OAuth diagnostics — never log tokens, secrets, auth codes, or full client ids. */

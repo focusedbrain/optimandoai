@@ -311,6 +311,11 @@ export interface EmailAccountConfig {
     oauthClientId?: string
     /** Legacy user-supplied OAuth app: refresh included client_secret. PKCE accounts omit. */
     gmailRefreshUsesSecret?: boolean
+    /**
+     * Desktop PKCE (built-in OAuth client): Google requires `client_secret` on refresh; persisted encrypted
+     * when present at connect. Not used for legacy vault-only refresh.
+     */
+    gmailOAuthClientSecret?: string
   }
   
   /** IMAP credentials (for imap provider) */

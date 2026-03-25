@@ -127,6 +127,9 @@ export default defineConfig({
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(
               (process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID || '').trim(),
             ),
+            __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(
+              (process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET || '').trim(),
+            ),
           },
           build: {
             rollupOptions: {

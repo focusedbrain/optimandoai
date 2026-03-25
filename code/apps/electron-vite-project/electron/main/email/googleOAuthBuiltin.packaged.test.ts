@@ -24,6 +24,7 @@ vi.mock('fs', () => ({
 
 import {
   resolveBuiltinGoogleOAuthClientWithMeta,
+  resolveBuiltinGoogleOAuthClientSecret,
   assertBuiltinPublicClientMatchesShippedResource,
   type BuiltinGoogleOAuthClientResolution,
 } from './googleOAuthBuiltin'
@@ -40,6 +41,8 @@ describe('packaged builtin OAuth resolution', () => {
     ;(process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = 'C:\\App\\resources'
     const resourceFile = path.join(process.resourcesPath!, 'google-oauth-client-id.txt')
     oauthTestState.files.set(resourceFile, `${PACKAGED_RESOURCE_ID}\n`)
+    const secretFile = path.join(process.resourcesPath!, 'google-oauth-client-secret.txt')
+    oauthTestState.files.set(secretFile, `GOCSPX-packaged-secret-value\n`)
   })
 
   it('prefers packaged google-oauth-client-id.txt for built-in client (not stale vite inline)', () => {
@@ -48,6 +51,7 @@ describe('packaged builtin OAuth resolution', () => {
     expect(r!.sourceKind).toBe('packaged_resource_file')
     expect(r!.fromPackagedResourceFile).toBe(true)
     expect(r!.clientId).toBe(PACKAGED_RESOURCE_ID)
+    expect(resolveBuiltinGoogleOAuthClientSecret(r!)).toBe('GOCSPX-packaged-secret-value')
   })
 
   it('runtime env still wins over packaged file (Advanced / non–standard-connect resolver)', () => {
