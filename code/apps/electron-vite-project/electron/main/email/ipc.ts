@@ -645,10 +645,13 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:checkGmailCredentials', async () => {
     try {
-      const { isEmailDeveloperModeEnabled } = await import('./googleOAuthBuiltin')
+      const { isEmailDeveloperModeEnabled, getStandardConnectBuiltinClientDiagnostics } = await import(
+        './googleOAuthBuiltin'
+      )
       const result = await checkExistingCredentials('gmail')
       const canConnect =
         !!result.credentials || result.builtinOAuthAvailable === true
+      const std = getStandardConnectBuiltinClientDiagnostics()
       return {
         ok: true,
         data: {
@@ -661,6 +664,8 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
           credentials: result.credentials,
           hasSecret: result.hasSecret,
           vaultUnlocked: isVaultUnlocked(),
+          standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
+          standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
         },
       }
     } catch (error: any) {

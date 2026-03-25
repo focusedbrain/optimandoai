@@ -141,6 +141,8 @@ export function EmailConnectWizard({
     builtinOAuthAvailable: boolean
     /** Electron / native: show Advanced OAuth UI (env or unpackaged dev). */
     developerModeEnabled?: boolean
+    /** Fingerprint for standard Connect built-in client (from main checkGmailCredentials). */
+    standardConnectBundledClientFingerprint?: string | null
   } | null>(null)
   const [customForm, setCustomForm] = useState(emptyCustomForm)
   /** Electron reconnect: main process reports whether a password is already saved (value never sent here). */
@@ -310,6 +312,7 @@ export function EmailConnectWizard({
     clientSecret?: string
     source?: 'vault' | 'vault-migrated' | 'temporary' | 'none'
     hasSecret?: boolean
+    standardConnectBundledClientFingerprint?: string | null
   }> => {
     if (isElectron()) {
       const res = await (window as any).emailAccounts?.checkGmailCredentials?.()
@@ -324,6 +327,7 @@ export function EmailConnectWizard({
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
         hasSecret: d?.hasSecret ?? false,
+        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
       }
     }
     if (isExtension()) {
@@ -339,6 +343,7 @@ export function EmailConnectWizard({
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
         hasSecret: d?.hasSecret ?? false,
+        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
       }
     }
     return { configured: false }
@@ -580,6 +585,7 @@ export function EmailConnectWizard({
             configured: !!check.configured,
             builtinOAuthAvailable: !!check.builtinOAuthAvailable,
             developerModeEnabled: check.developerModeEnabled === true,
+            standardConnectBundledClientFingerprint: check.standardConnectBundledClientFingerprint ?? null,
           })
           setShowGmailAdvanced(false)
           const src = check.source as 'vault' | 'vault-migrated' | 'temporary' | undefined
@@ -1370,6 +1376,20 @@ export function EmailConnectWizard({
                           }}
                         >
                           OAuth diagnostics build active
+                        </div>
+                      )}
+                      {(isElectron() || isExtension()) && gmailOAuthMeta && (
+                        <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 10, lineHeight: 1.45 }}>
+                          Bundled OAuth client (fingerprint):{' '}
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                              color: textColor,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {gmailOAuthMeta.standardConnectBundledClientFingerprint ?? '—'}
+                          </span>
                         </div>
                       )}
                       {gmailOAuthMeta && !gmailOAuthMeta.configured && (

@@ -332,6 +332,25 @@ export function isBuiltinGmailOAuthConfigured(): boolean {
 }
 
 /**
+ * Fingerprint + source for the client id **standard Connect Google** (`builtin_public`) resolves to
+ * (`resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })`).
+ * Safe for UI — no full client id string.
+ */
+export function getStandardConnectBuiltinClientDiagnostics(): {
+  standardConnectBundledClientFingerprint: string | null
+  standardConnectBuiltinSourceKind: BuiltinOAuthClientSourceKind | null
+} {
+  const meta = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
+  if (!meta) {
+    return { standardConnectBundledClientFingerprint: null, standardConnectBuiltinSourceKind: null }
+  }
+  return {
+    standardConnectBundledClientFingerprint: oauthClientIdFingerprint(meta.clientId),
+    standardConnectBuiltinSourceKind: meta.sourceKind,
+  }
+}
+
+/**
  * Client id read only from packaged `process.resourcesPath/google-oauth-client-id.txt` (startup / sanity checks).
  */
 export function getPackagedResourceGoogleOAuthClientId(): string | null {

@@ -1,2 +1,4 @@
-900632390085-261pmaap1tn6en8nd3pmh0dl19hqt2rl.apps.googleusercontent.com
-# Overridden at build time if GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID is set (prepare script).
+# Standard "Connect Google" — one Google Cloud *Desktop app* OAuth client id on the next non-comment line (PKCE only; no client secret).
+# Swap: replace that line with your new xxx.apps.googleusercontent.com, then full rebuild (pnpm build in apps/electron-vite-project) so extraResources repacks.
+# CI: prefer GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID (prepare-google-oauth-resource.cjs overwrites this file before vite/electron-builder).
+900632390085-o6k5k18uoqnopcji70rdteal7nco0hcu.apps.googleusercontent.com

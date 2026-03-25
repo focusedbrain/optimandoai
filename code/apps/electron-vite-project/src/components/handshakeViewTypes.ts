@@ -178,6 +178,9 @@ declare global {
           credentials?: unknown
           hasSecret?: boolean
           vaultUnlocked?: boolean
+          /** Fingerprint of client id used for standard Connect Google (`builtin_public`); null if none resolved. */
+          standardConnectBundledClientFingerprint?: string | null
+          standardConnectBuiltinSourceKind?: string | null
         }
         error?: string
       }>

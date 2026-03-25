@@ -7300,7 +7300,11 @@ app.whenReady().then(async () => {
         const result = await checkExistingCredentials('gmail')
         const canConnect =
           !!result.credentials || result.builtinOAuthAvailable === true
-        const { isEmailDeveloperModeEnabled } = await import('./main/email/googleOAuthBuiltin')
+        const {
+          isEmailDeveloperModeEnabled,
+          getStandardConnectBuiltinClientDiagnostics,
+        } = await import('./main/email/googleOAuthBuiltin')
+        const std = getStandardConnectBuiltinClientDiagnostics()
         res.json({
           ok: true,
           data: {
@@ -7313,6 +7317,8 @@ app.whenReady().then(async () => {
             credentials: result.credentials,
             hasSecret: result.hasSecret,
             vaultUnlocked: isVaultUnlocked(),
+            standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
+            standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
           },
         })
       } catch (error: any) {
