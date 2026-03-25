@@ -1,2 +1,2 @@
-143694338843-0ulp47db820ml5iu3fgubdq14db8v7u9.apps.googleusercontent.com
+900632390085-te9p6fjulfq6j5vbbshkkcs1ff6r13kv.apps.googleusercontent.com
 # Overridden at build time if GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID is set (prepare script).
