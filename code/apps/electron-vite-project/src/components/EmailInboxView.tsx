@@ -1473,13 +1473,6 @@ export default function EmailInboxView({
   }, [fetchMessages])
 
   useEffect(() => {
-    const unsub = window.emailInbox?.onNewMessages?.(() => {
-      void fetchMessages()
-    })
-    return () => unsub?.()
-  }, [fetchMessages])
-
-  useEffect(() => {
     const add = useEmailInboxStore.getState().addRemoteSyncLog
     const unsubDrain = window.emailInbox?.onDrainProgress?.((raw) => {
       const p = raw as {

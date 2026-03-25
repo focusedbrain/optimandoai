@@ -1,6 +1,6 @@
 /**
  * Behavioral mirrors of main-process guards (keep aligned when editing):
- * - IMAP 2‑min interval: ipc.ts ~4937 (`registerInboxHandlers`)
+ * - IMAP 2‑min interval: ipc.ts `ensureImapBruteForceAutoSyncIntervalRegistered` (from `registerInboxHandlers`; see `imapBruteForceAutoSync.regression.test.ts`)
  * - DB-driven auto-sync tick: syncOrchestrator.ts `startAutoSync` (~990)
  * - IPC validation: ipc.ts `email:setProcessingPaused` (~510)
  */

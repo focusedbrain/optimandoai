@@ -7,6 +7,8 @@ import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
+import { useEmailInboxStore } from './stores/useEmailInboxStore'
+import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 
@@ -131,6 +133,18 @@ function App() {
     })
     return () => unsub?.()
   }, [loadEmailAccounts])
+
+  /**
+   * Background sync (auto-sync, IMAP interval, etc.) emits `inbox:newMessages` from the main process.
+   * Subscribing only inside Inbox/Bulk would miss events while the user is on Analysis, Handshakes, or Settings.
+   * Single app-level listener keeps the Zustand snapshot fresh so opening Inbox shows new mail without manual refresh.
+   */
+  useEffect(() => {
+    return subscribeInboxNewMessagesBackgroundRefresh({
+      onNewMessages: window.emailInbox?.onNewMessages,
+      refreshMessages: () => useEmailInboxStore.getState().refreshMessages(),
+    })
+  }, [])
 
   /** Inbox → Handshakes: reuse app-level handshake selection (same as picking a row in HandshakeView). */
   const handleNavigateToHandshakeFromInbox = useCallback((handshakeId: string) => {

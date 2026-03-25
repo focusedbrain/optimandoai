@@ -1646,13 +1646,6 @@ export default function EmailInboxBulkView({
   }, [autoSyncEligibleAccountIds, primaryAccountId, refreshInboxSyncBackendState])
 
   useEffect(() => {
-    const unsub = window.emailInbox?.onNewMessages?.(() => {
-      void refreshMessages()
-    })
-    return () => unsub?.()
-  }, [refreshMessages])
-
-  useEffect(() => {
     const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
       const p = raw as {
         processed?: number
