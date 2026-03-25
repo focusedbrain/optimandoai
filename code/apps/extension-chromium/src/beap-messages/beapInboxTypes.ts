@@ -43,10 +43,11 @@ export type BeapEncoding = 'qBEAP' | 'pBEAP' | 'none' | 'unknown'
 // =============================================================================
 
 /**
- * A single message attachment.
+ * A single message attachment in the BEAP inbox store.
  *
- * `semanticContent` and `rasterProof` are populated by the parser service
- * after verification — they are never present on unverified messages.
+ * Values are mapped from the verified package / capsule when a message is
+ * ingested (see sanitisedPackageToBeapMessage). They are not produced by
+ * running parserService on the receiver for inbox rows.
  * `selected` drives bulk-view checkbox state.
  */
 export interface BeapAttachment {
@@ -63,8 +64,9 @@ export interface BeapAttachment {
   sizeBytes: number
 
   /**
-   * Extracted semantic text (OCR / document parse).
-   * Populated by parserService post-verification; absent on unverified messages.
+   * Semantic / extracted text from the sender's capsule (semanticContent).
+   * Mapped from the verified sanitised package for inbox messages, not
+   * re-extracted locally by parserService.
    */
   semanticContent?: string
 

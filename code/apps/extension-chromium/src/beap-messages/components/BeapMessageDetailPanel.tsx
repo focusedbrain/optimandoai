@@ -38,6 +38,7 @@ import { useReplyComposer } from '../hooks/useReplyComposer'
 import { BeapReplyComposer } from './BeapReplyComposer'
 import { AiEntryContent } from './AiEntryContent'
 import { BeapAttachmentReader } from './BeapAttachmentReader'
+import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 
 // =============================================================================
@@ -191,6 +192,8 @@ interface MessageContentPanelProps {
   /** Error message from view original (e.g. artefact not available). */
   viewOriginalError?: string | null
   onDismissViewOriginalError?: () => void
+  /** Optional — user-initiated summarize (selection no longer auto-triggers AI). */
+  onSummarizeAttachment?: (attachment: BeapAttachment) => void
 }
 
 const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
@@ -204,6 +207,7 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
   onViewOriginal,
   viewOriginalError,
   onDismissViewOriginalError,
+  onSummarizeAttachment,
 }) => {
   const isProfessional = theme === 'professional'
   const textColor = isProfessional ? '#1f2937' : 'white'
@@ -434,6 +438,9 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                     )
                   }
                   onViewOriginal={onViewOriginal}
+                  onSummarize={
+                    onSummarizeAttachment ? () => onSummarizeAttachment(att) : undefined
+                  }
                 />
               ))}
             </div>
@@ -494,9 +501,6 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
 // AttachmentRow — reader view for semanticContent + warning before original access
 // =============================================================================
 
-const ORIGINAL_ACCESS_WARNING =
-  'This is an original artefact from outside the protected environment. Opening it will download the file to your system. Proceed?'
-
 interface AttachmentRowProps {
   attachment: BeapAttachment
   isSelected: boolean
@@ -507,6 +511,8 @@ interface AttachmentRowProps {
   onClick: () => void
   /** Called when user confirms viewing the original artefact (after warning). */
   onViewOriginal?: (attachment: BeapAttachment) => void
+  /** User-initiated summarize (optional). */
+  onSummarize?: () => void
 }
 
 const AttachmentRow: React.FC<AttachmentRowProps> = ({
@@ -518,6 +524,7 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
   borderColor,
   onClick,
   onViewOriginal,
+  onSummarize,
 }) => {
   const [hovered, setHovered] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
@@ -529,15 +536,9 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
     setShowWarning(true)
   }
 
-  const handleConfirmViewOriginal = (e: React.MouseEvent) => {
+  const handleSummarizeClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setShowWarning(false)
-    onViewOriginal?.(attachment)
-  }
-
-  const handleCancelWarning = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setShowWarning(false)
+    onSummarize?.()
   }
 
   return (
@@ -587,9 +588,27 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
             {hasSemanticContent && ' · text extracted'}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} data-no-select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }} data-no-select>
+          {onSummarize && hasSemanticContent && (
+            <button
+              type="button"
+              onClick={handleSummarizeClick}
+              style={{
+                background: 'transparent',
+                border: `1px solid ${isProfessional ? 'rgba(139,92,246,0.45)' : 'rgba(139,92,246,0.55)'}`,
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                color: isProfessional ? '#7c3aed' : '#c084fc',
+                cursor: 'pointer',
+              }}
+            >
+              Summarize
+            </button>
+          )}
           {onViewOriginal && (
             <button
+              type="button"
               onClick={handleViewOriginalClick}
               style={{
                 background: 'transparent',
@@ -622,71 +641,16 @@ const AttachmentRow: React.FC<AttachmentRowProps> = ({
         )}
       </div>
 
-      {/* Warning dialog before viewing original */}
-      {showWarning && (
-        <div
-          data-no-select
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-          }}
-          onClick={handleCancelWarning}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: isProfessional ? '#fff' : '#1f2937',
-              borderRadius: '8px',
-              padding: '16px 20px',
-              maxWidth: '360px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-              border: `1px solid ${borderColor}`,
-            }}
-          >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-              ⚠️ Original artefact
-            </div>
-            <p style={{ fontSize: '12px', color: mutedColor, margin: '0 0 12px 0', lineHeight: 1.5 }}>
-              {ORIGINAL_ACCESS_WARNING}
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button
-                onClick={handleCancelWarning}
-                style={{
-                  background: 'transparent',
-                  border: `1px solid ${borderColor}`,
-                  borderRadius: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  color: mutedColor,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmViewOriginal}
-                style={{
-                  background: isProfessional ? '#b45309' : '#f59e0b',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  color: 'white',
-                  cursor: 'pointer',
-                }}
-              >
-                Download Original
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProtectedAccessWarningDialog
+        kind="original"
+        targetLabel={attachment.filename || 'Attachment'}
+        open={showWarning}
+        onClose={() => setShowWarning(false)}
+        onAcknowledge={() => {
+          setShowWarning(false)
+          onViewOriginal?.(attachment)
+        }}
+      />
     </div>
   )
 }
@@ -1159,25 +1123,27 @@ export const BeapMessageDetailPanel = React.forwardRef<
     [],
   )
 
-  // ── Attachment selection → AI query context + search bar scope ───────────
+  // ── Attachment selection (no auto AI; Summarize is explicit) ─────────────
   const handleSelectAttachment = useCallback(
     (id: string | null) => {
       setSelectedAttachmentId(id)
       if (selectedMessage) {
         onAttachmentSelect?.(selectedMessage.messageId, id)
-        if (id) {
-          onAiQuery?.(
-            `Summarize attachment: ${
-              selectedMessage.attachments.find((a) => a.attachmentId === id)
-                ?.filename ?? id
-            }`,
-            selectedMessage.messageId,
-            id,
-          )
-        }
       }
     },
-    [selectedMessage, onAiQuery, onAttachmentSelect],
+    [selectedMessage, onAttachmentSelect],
+  )
+
+  const handleSummarizeAttachment = useCallback(
+    (att: BeapAttachment) => {
+      if (!selectedMessage) return
+      onAiQuery?.(
+        `Summarize attachment: ${att.filename}`,
+        selectedMessage.messageId,
+        att.attachmentId,
+      )
+    },
+    [selectedMessage, onAiQuery],
   )
 
   // ── Colors ────────────────────────────────────────────
@@ -1232,6 +1198,7 @@ export const BeapMessageDetailPanel = React.forwardRef<
           onViewOriginal={handleViewOriginal}
           viewOriginalError={viewOriginalError}
           onDismissViewOriginalError={() => setViewOriginalError(null)}
+          onSummarizeAttachment={handleSummarizeAttachment}
         />
       </div>
 

@@ -13,7 +13,7 @@ export type AttachmentParseStatus = 'pending' | 'success' | 'failed'
 
 const CONFIGS: Record<AttachmentParseStatus, { label: string; bg: string; color: string; border: string }> = {
   pending: { label: 'Extracting…', bg: 'rgba(251,191,36,0.15)', color: '#d97706', border: 'rgba(251,191,36,0.35)' },
-  success: { label: 'Text ready', bg: 'rgba(34,197,94,0.12)', color: '#16a34a', border: 'rgba(34,197,94,0.35)' },
+  success: { label: 'Parsed', bg: 'rgba(34,197,94,0.12)', color: '#16a34a', border: 'rgba(34,197,94,0.35)' },
   failed:  { label: 'Failed',     bg: 'rgba(239,68,68,0.12)',  color: '#dc2626', border: 'rgba(239,68,68,0.35)' },
 }
 
