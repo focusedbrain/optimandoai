@@ -29,7 +29,7 @@ import {
   type BuiltinGoogleOAuthClientResolution,
 } from './googleOAuthBuiltin'
 
-const PACKAGED_RESOURCE_ID = '900632390085-packagedfileid.apps.googleusercontent.com'
+const PACKAGED_RESOURCE_ID = '143694338843-packagedfileid.apps.googleusercontent.com'
 
 describe('packaged builtin OAuth resolution', () => {
   beforeEach(() => {
@@ -55,14 +55,14 @@ describe('packaged builtin OAuth resolution', () => {
   })
 
   it('runtime env still wins over packaged file (Advanced / non–standard-connect resolver)', () => {
-    process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-envoverride.apps.googleusercontent.com'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = '143694338843-envoverride.apps.googleusercontent.com'
     const r = resolveBuiltinGoogleOAuthClientWithMeta()
     expect(r!.sourceKind).toBe('runtime_env_GOOGLE_OAUTH_CLIENT_ID')
-    expect(r!.clientId).toBe('900632390085-envoverride.apps.googleusercontent.com')
+    expect(r!.clientId).toBe('143694338843-envoverride.apps.googleusercontent.com')
   })
 
   it('standard Gmail Connect ignores env and uses packaged resource when not email developer mode', () => {
-    process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-wrongenvoverride.apps.googleusercontent.com'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = '143694338843-wrongenvoverride.apps.googleusercontent.com'
     const r = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
     expect(r!.sourceKind).toBe('packaged_resource_file')
     expect(r!.clientId).toBe(PACKAGED_RESOURCE_ID)
@@ -71,15 +71,15 @@ describe('packaged builtin OAuth resolution', () => {
 
   it('standard Gmail Connect allows env when WR_DESK_EMAIL_DEVELOPER_MODE=1 (packaged testing)', () => {
     process.env.WR_DESK_EMAIL_DEVELOPER_MODE = '1'
-    process.env.GOOGLE_OAUTH_CLIENT_ID = '900632390085-devmodeenv.apps.googleusercontent.com'
+    process.env.GOOGLE_OAUTH_CLIENT_ID = '143694338843-devmodeenv.apps.googleusercontent.com'
     const r = resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true })
     expect(r!.sourceKind).toBe('runtime_env_GOOGLE_OAUTH_CLIENT_ID')
-    expect(r!.clientId).toBe('900632390085-devmodeenv.apps.googleusercontent.com')
+    expect(r!.clientId).toBe('143694338843-devmodeenv.apps.googleusercontent.com')
   })
 
   it('assertBuiltinPublic fails when staged client id does not match shipped resource (no env)', () => {
     const stale: BuiltinGoogleOAuthClientResolution = {
-      clientId: '900632390085-staleinlineee.apps.googleusercontent.com',
+      clientId: '143694338843-staleinlineee.apps.googleusercontent.com',
       sourceKind: 'build_time_vite_inline',
       sourcePath: null,
       sourceName: '__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__',
@@ -94,7 +94,7 @@ describe('packaged builtin OAuth resolution', () => {
 
   it('assertBuiltinPublic skips mismatch check when client id came from env override', () => {
     const envRes: BuiltinGoogleOAuthClientResolution = {
-      clientId: '900632390085-otherclient.apps.googleusercontent.com',
+      clientId: '143694338843-otherclient.apps.googleusercontent.com',
       sourceKind: 'runtime_env_GOOGLE_OAUTH_CLIENT_ID',
       sourcePath: null,
       sourceName: 'GOOGLE_OAUTH_CLIENT_ID',

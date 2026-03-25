@@ -923,7 +923,6 @@ export function EmailConnectWizard({
             }, 3000)
           }
         } else {
-          console.log('[OAUTH DEBUG] EmailConnectWizard connect failed (ok=false):', res.error, res.debug)
           setResult('failure')
           setResultError(res.error || 'Connection failed')
           if (provider === 'gmail') {
@@ -2623,47 +2622,68 @@ export function EmailConnectWizard({
                       {resultError ? `Connection failed: ${resultError}` : 'Connection failed: Unknown error'}
                     </p>
                     {resultDebug && (
-                      <div
+                      <details
                         style={{
                           marginTop: '12px',
-                          padding: '10px',
-                          backgroundColor: isPro ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)',
-                          borderRadius: '6px',
-                          fontFamily: 'monospace',
-                          fontSize: '11px',
-                          color: isPro ? '#475569' : '#aaa',
-                          maxHeight: '150px',
-                          overflowY: 'auto',
-                          wordBreak: 'break-all',
                           textAlign: 'left',
+                          borderRadius: '6px',
+                          border: `1px solid ${borderColor}`,
+                          padding: '8px 10px',
+                          backgroundColor: isPro ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)',
                         }}
                       >
-                        <div>
-                          <strong>Step:</strong> {resultDebug.step ?? '—'}
-                        </div>
-                        <div>
-                          <strong>HTTP Status:</strong>{' '}
-                          {resultDebug.httpStatus === null || resultDebug.httpStatus === undefined
-                            ? '—'
-                            : String(resultDebug.httpStatus)}
-                        </div>
-                        <div>
-                          <strong>Google Error:</strong> {resultDebug.googleError ?? '—'}
-                        </div>
-                        <div>
-                          <strong>Description:</strong> {resultDebug.googleErrorDescription ?? '—'}
-                        </div>
-                        {resultDebug.responseBody ? (
+                        <summary
+                          style={{
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            color: mutedColor,
+                            userSelect: 'none',
+                            listStyle: 'none',
+                          }}
+                        >
+                          Technical details (Google / HTTP)
+                        </summary>
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            padding: '8px',
+                            backgroundColor: isPro ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)',
+                            borderRadius: '6px',
+                            fontFamily: 'monospace',
+                            fontSize: '11px',
+                            color: isPro ? '#475569' : '#aaa',
+                            maxHeight: '150px',
+                            overflowY: 'auto',
+                            wordBreak: 'break-all',
+                          }}
+                        >
                           <div>
-                            <strong>Response:</strong> {resultDebug.responseBody}
+                            <strong>Step:</strong> {resultDebug.step ?? '—'}
                           </div>
-                        ) : null}
-                        {resultDebug.raw ? (
                           <div>
-                            <strong>Raw:</strong> {resultDebug.raw}
+                            <strong>HTTP Status:</strong>{' '}
+                            {resultDebug.httpStatus === null || resultDebug.httpStatus === undefined
+                              ? '—'
+                              : String(resultDebug.httpStatus)}
                           </div>
-                        ) : null}
-                      </div>
+                          <div>
+                            <strong>Google Error:</strong> {resultDebug.googleError ?? '—'}
+                          </div>
+                          <div>
+                            <strong>Description:</strong> {resultDebug.googleErrorDescription ?? '—'}
+                          </div>
+                          {resultDebug.responseBody ? (
+                            <div>
+                              <strong>Response:</strong> {resultDebug.responseBody}
+                            </div>
+                          ) : null}
+                          {resultDebug.raw ? (
+                            <div>
+                              <strong>Raw:</strong> {resultDebug.raw}
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>

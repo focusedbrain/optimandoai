@@ -29,8 +29,8 @@ describe('normalizeGoogleOAuthClientId', () => {
 
 describe('oauthClientIdFingerprint', () => {
   it('uses first 12 and last 8 for typical ids', () => {
-    const id = '900632390085-abcdefghijklmnopqrstuv.apps.googleusercontent.com'
-    expect(oauthClientIdFingerprint(id)).toBe('900632390085…tent.com')
+    const id = '143694338843-abcdefghijklmnopqrstuv.apps.googleusercontent.com'
+    expect(oauthClientIdFingerprint(id)).toBe('143694338843…tent.com')
   })
 
   it('abbreviates ids length <= 20 without printing full value', () => {

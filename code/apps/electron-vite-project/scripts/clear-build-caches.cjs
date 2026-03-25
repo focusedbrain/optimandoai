@@ -39,6 +39,7 @@ function clearBuildCaches() {
 
   /** Prior extension outDir(s) — remove stale unpacked builds; skip active outDir from vite.config.ts */
   const staleExtensionOutDirs = [
+    'build005',
     'build5',
     'build2334',
     'build224',

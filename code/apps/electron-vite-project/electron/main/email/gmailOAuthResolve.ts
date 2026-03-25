@@ -88,26 +88,12 @@ export async function resolveGmailOAuthForConnect(
     assertBuiltinPublicClientMatchesShippedResource(meta)
     const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(meta)
 
-    // TEMP HARDCODE: Remove after confirming OAuth works.
-    // The file-based secret resolution is not picking up the value.
-    // Hardcoding to prove the token exchange succeeds with the secret.
-    // Under Vitest, hardcode is disabled so unit tests still model "no file secret".
-    const HARDCODED_SECRET =
-      process.env.VITEST === 'true' ? '' : 'PASTE_YOUR_GOCSPX_SECRET_HERE' // ← Developer: replace with your real GOCSPX-... from Google Cloud Console
-    const effectiveSecret = (builtinSecret || HARDCODED_SECRET) || undefined
-
-    console.log('[HARDCODE TEST] builtinSecret from file:', JSON.stringify(builtinSecret))
-    console.log(
-      '[HARDCODE TEST] effectiveSecret:',
-      effectiveSecret ? 'set (length ' + effectiveSecret.length + ')' : 'EMPTY',
-    )
-
     if (meta.clientId && !builtinSecret) {
       warnOnceGmailOAuthBuiltinSecretMissing()
     }
     const resolved: ResolvedGmailOAuth = {
       clientId: meta.clientId,
-      ...(effectiveSecret ? { clientSecret: effectiveSecret } : {}),
+      ...(builtinSecret ? { clientSecret: builtinSecret } : {}),
       authMode: 'pkce',
       resolution: 'builtin',
       credentialSourceUsed: 'builtin_public',
@@ -118,7 +104,7 @@ export async function resolveGmailOAuthForConnect(
       winningClientIdFingerprint: oauthClientIdFingerprint(meta.clientId),
       gmailOAuthCredentialSource: 'builtin_public',
       authMode: 'pkce',
-      hasClientSecret: !!effectiveSecret,
+      hasClientSecret: !!builtinSecret,
       packagedProductionStandardConnect: isPackagedProductionGmailStandardConnect(),
       packagedStandardConnectResourcePrecedenceEnforced: isPackagedProductionGmailStandardConnect(),
       googleOauthEnvVarsPresent: getGoogleOauthClientIdEnvVarNamesPresent(),
@@ -136,7 +122,7 @@ export async function resolveGmailOAuthForConnect(
       builtinFromPackagedResourceFile: meta.fromPackagedResourceFile,
       builtinConfigured: true,
       usesUserStoredOAuthClient: false,
-      hasClientSecret: !!effectiveSecret,
+      hasClientSecret: !!builtinSecret,
     })
     logGmailOAuthResolvedConfig(`builtin_public:${meta.sourceKind}`, resolved.clientId, resolved.authMode)
     return resolved
