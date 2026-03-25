@@ -9,7 +9,10 @@
  * On Linux: Uses libsecret/kwallet
  */
 
-import { safeStorage } from 'electron'
+import { safeStorage, dialog } from 'electron'
+
+/** One-shot UX + log when persisting secrets without OS encryption. */
+let safeStorageUnavailableWarningShown = false
 
 // Check if encryption is available
 let encryptionAvailable: boolean | null = null
@@ -38,7 +41,24 @@ export function isSecureStorageAvailable(): boolean {
 export function encryptValue(plaintext: string | undefined | null): string {
   const p = plaintext ?? ''
   if (!isSecureStorageAvailable()) {
-    console.warn('[SecureStorage] Encryption not available, storing unencrypted')
+    if (!safeStorageUnavailableWarningShown) {
+      safeStorageUnavailableWarningShown = true
+      console.error(
+        '[SecureStorage] OS secure storage is not available. Email credentials will be stored WITHOUT encryption. This is a security risk.',
+      )
+      setImmediate(() => {
+        try {
+          void dialog.showMessageBox({
+            type: 'warning',
+            title: 'Secure storage unavailable',
+            message:
+              'OS secure storage is not available on this session. Email account secrets may be saved to disk without encryption. Reconnect accounts on a trusted device or fix keychain / DPAPI access if this is unexpected.',
+          })
+        } catch (e) {
+          console.warn('[SecureStorage] Could not show secure-storage warning dialog:', e)
+        }
+      })
+    }
     return p
   }
 

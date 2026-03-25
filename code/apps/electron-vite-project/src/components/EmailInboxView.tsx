@@ -1213,6 +1213,19 @@ export default function EmailInboxView({
     theme: 'dark',
   })
 
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onCredentialError?.((p) => {
+      void loadProviderAccounts()
+      if (p.provider === 'imap') {
+        const open = window.confirm(`${p.message}\n\nOpen credential update for this account?`)
+        if (open) {
+          openConnectEmail(ConnectEmailLaunchSource.Inbox, { reconnectAccountId: p.accountId })
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadProviderAccounts, openConnectEmail])
+
   const handleConnectEmail = useCallback(
     () => openConnectEmail(ConnectEmailLaunchSource.Inbox),
     [openConnectEmail],
@@ -1795,6 +1808,7 @@ export default function EmailInboxView({
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
               onSelectEmailAccount={setSelectedProviderAccountId}
+              onUpdateImapCredentials={handleUpdateImapCredentials}
               />
               {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
                 <div

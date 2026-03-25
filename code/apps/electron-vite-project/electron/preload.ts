@@ -669,6 +669,16 @@ contextBridge.exposeInMainWorld('emailAccounts', {
     ipcRenderer.on('email:accountConnected', handler)
     return () => { ipcRenderer.removeListener('email:accountConnected', handler) }
   },
+  onCredentialError: (cb: (data: { accountId: string; provider: string; message: string }) => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      data: { accountId: string; provider: string; message: string },
+    ) => cb(data)
+    ipcRenderer.on('email:credentialError', handler)
+    return () => {
+      ipcRenderer.removeListener('email:credentialError', handler)
+    }
+  },
 })
 
 // ── Email Inbox ───────────────────────────────────────────────────────────

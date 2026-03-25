@@ -134,6 +134,10 @@ declare global {
       onAccountConnected?: (
         callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
       ) => () => void
+      /** Main → renderer when IMAP auth fails during sync (`email:credentialError`). */
+      onCredentialError?: (
+        callback: (data: { accountId: string; provider: string; message: string }) => void | Promise<void>,
+      ) => () => void
       /** Gmail / Outlook / Zoho connect + credential checks (EmailConnectWizard; preload bridge). */
       connectGmail?: (
         displayName?: string,

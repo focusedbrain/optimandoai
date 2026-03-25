@@ -3242,6 +3242,19 @@ export default function EmailInboxBulkView({
     theme: 'dark',
   })
 
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onCredentialError?.((p) => {
+      void loadProviderAccounts()
+      if (p.provider === 'imap') {
+        const open = window.confirm(`${p.message}\n\nOpen credential update for this account?`)
+        if (open) {
+          openConnectEmail(ConnectEmailLaunchSource.BulkInbox, { reconnectAccountId: p.accountId })
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadProviderAccounts, openConnectEmail])
+
   const handleConnectEmail = useCallback(
     () => openConnectEmail(ConnectEmailLaunchSource.BulkInbox),
     [openConnectEmail],
@@ -5004,6 +5017,7 @@ export default function EmailInboxBulkView({
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
               onSelectEmailAccount={setSelectedProviderAccountId}
+              onUpdateImapCredentials={handleUpdateImapCredentials}
             />
           </div>
         )}

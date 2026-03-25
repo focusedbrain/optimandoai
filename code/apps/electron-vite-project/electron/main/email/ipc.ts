@@ -734,6 +734,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email, accountId: account.id })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      mirrorGlobalAutoSyncToNewAccount(account.id)
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
@@ -812,6 +813,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      mirrorGlobalAutoSyncToNewAccount(account.id)
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectOutlook error:', error)
@@ -857,6 +859,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         })
       })
       void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+      mirrorGlobalAutoSyncToNewAccount(account.id)
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] connectZoho error:', error)

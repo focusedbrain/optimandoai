@@ -32,6 +32,23 @@ import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } f
 import { getEffectiveSyncWindowDays, getMaxMessagesPerPull } from './domain/smartSyncPrefs'
 import { shouldSkipAdvancingLastSyncAt } from './domain/syncLastSyncAnchorPolicy'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
+import { BrowserWindow } from 'electron'
+
+function broadcastImapCredentialError(accountId: string, message: string): void {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    try {
+      if (!w.isDestroyed() && w.webContents) {
+        w.webContents.send('email:credentialError', {
+          accountId,
+          provider: 'imap' as const,
+          message,
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+  })
+}
 
 // ── Types ──
 
@@ -735,12 +752,16 @@ async function syncAccountEmailsImpl(
       try {
         const accountCfg = emailGateway.getAccountConfig(accountId)
         const isImap = accountCfg?.provider === 'imap'
+        const imapMsg = 'Authentication failed — check credentials'
         await emailGateway.updateAccount(accountId, {
           status: isImap ? 'auth_error' : 'error',
           lastError: isImap
-            ? 'Authentication failed — check credentials'
+            ? imapMsg
             : 'Not authenticated or session expired. Reconnect this account in Email settings.',
         })
+        if (isImap) {
+          broadcastImapCredentialError(accountId, imapMsg)
+        }
       } catch (persistErr: any) {
         console.warn('[SyncOrchestrator] Could not persist account auth state:', persistErr?.message)
       }
@@ -752,12 +773,16 @@ async function syncAccountEmailsImpl(
     try {
       const accountCfg = emailGateway.getAccountConfig(accountId)
       const isImap = accountCfg?.provider === 'imap'
+      const imapMsg = 'Authentication failed — check credentials'
       await emailGateway.updateAccount(accountId, {
         status: isImap ? 'auth_error' : 'error',
         lastError: isImap
-          ? 'Authentication failed — check credentials'
+          ? imapMsg
           : 'Not authenticated or session expired. Reconnect this account in Email settings.',
       })
+      if (isImap) {
+        broadcastImapCredentialError(accountId, imapMsg)
+      }
     } catch (persistErr: any) {
       console.warn('[SyncOrchestrator] Could not persist account auth state (partial errors):', persistErr?.message)
     }

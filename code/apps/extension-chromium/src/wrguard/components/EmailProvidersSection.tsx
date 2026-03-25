@@ -95,6 +95,8 @@ export interface EmailProvidersSectionProps {
   onConnectEmail: () => void
   onDisconnectEmail: (id: string) => void
   onSelectEmailAccount: (id: string) => void
+  /** Opens IMAP/SMTP credential update (e.g. reconnect wizard) — shown when `auth_error` on IMAP rows. */
+  onUpdateImapCredentials?: (accountId: string) => void
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -104,7 +106,8 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   selectedEmailAccountId,
   onConnectEmail,
   onDisconnectEmail,
-  onSelectEmailAccount
+  onSelectEmailAccount,
+  onUpdateImapCredentials,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -196,9 +199,13 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                         ? isLightTheme
                           ? '1px solid rgba(234,179,8,0.45)'
                           : '1px solid rgba(234,179,8,0.5)'
-                        : isLightTheme
-                          ? '1px solid rgba(239,68,68,0.3)'
-                          : '1px solid rgba(239,68,68,0.4)',
+                        : account.status === 'auth_error'
+                          ? isLightTheme
+                            ? '1px solid rgba(220,38,38,0.55)'
+                            : '1px solid rgba(248,113,113,0.6)'
+                          : isLightTheme
+                            ? '1px solid rgba(239,68,68,0.3)'
+                            : '1px solid rgba(239,68,68,0.4)',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -260,8 +267,40 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                     >
                       id {account.id} · {account.provider}
                     </div>
+                    {account.status === 'auth_error' && account.provider === 'imap' && onUpdateImapCredentials ? (
+                      <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#b91c1c',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          Credentials required
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onUpdateImapCredentials(account.id)}
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '6px 12px',
+                            borderRadius: 6,
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                            color: 'white',
+                          }}
+                        >
+                          Update credentials
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <button
                   onClick={() => onDisconnectEmail(account.id)}
                   title="Disconnect account"
@@ -276,6 +315,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                 >
                   ✕
                 </button>
+                </div>
               </div>
             )
           })}

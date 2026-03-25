@@ -409,6 +409,16 @@ function saveAccounts(accounts: EmailAccountConfig[]): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
     }
+
+    let previousDiskAccounts: EmailAccountConfig[] = []
+    try {
+      if (fs.existsSync(accountsPath)) {
+        const raw = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
+        previousDiskAccounts = Array.isArray(raw.accounts) ? raw.accounts : []
+      }
+    } catch {
+      /* ignore — best-effort restore source */
+    }
     
     // Encrypt OAuth tokens and IMAP/SMTP passwords before saving (encrypted snapshot only)
     const encryptedAccounts = accounts.map(account => {
@@ -421,6 +431,84 @@ function saveAccounts(accounts: EmailAccountConfig[]): void {
       }
       return encryptImapSmtpPasswordsForDisk(next)
     })
+
+    for (let i = 0; i < encryptedAccounts.length; i++) {
+      const enc = encryptedAccounts[i]
+      if (enc.provider !== 'imap') continue
+
+      if (enc.imap) {
+        const pw = enc.imap.password
+        if (pw == null || String(pw).trim().length === 0) {
+          console.error('[Gateway] Save snapshot has empty IMAP password; attempting restore:', enc.id, enc.email)
+          const mem = accounts.find(a => a.id === enc.id)
+          const mPw = mem?.imap?.password
+          if (mPw != null && String(mPw).trim().length > 0) {
+            encryptedAccounts[i] = encryptImapSmtpPasswordsForDisk({
+              ...enc,
+              imap: { ...enc.imap, password: String(mPw), _encrypted: false },
+            })
+            console.warn('[Gateway] Restored in-memory IMAP password before save:', enc.id)
+          } else {
+            const prev = previousDiskAccounts.find(a => a.id === enc.id)
+            const prevImap = prev?.imap
+            if (prevImap?.password != null && String(prevImap.password).trim().length > 0) {
+              encryptedAccounts[i] = {
+                ...encryptedAccounts[i],
+                imap: {
+                  host: enc.imap.host,
+                  port: enc.imap.port,
+                  security: enc.imap.security,
+                  username: enc.imap.username,
+                  password: prevImap.password,
+                  _encrypted: prevImap._encrypted,
+                },
+              }
+              console.warn('[Gateway] Restored IMAP password from previous on-disk snapshot:', enc.id)
+            } else {
+              console.error('[Gateway] REFUSING to save account with empty IMAP password:', enc.id, enc.email)
+              throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty password`)
+            }
+          }
+        }
+      }
+
+      const rowForSmtp = encryptedAccounts[i]
+      if (rowForSmtp.smtp) {
+        const spw = rowForSmtp.smtp.password
+        if (spw != null && String(spw).trim().length > 0) continue
+
+        console.error('[Gateway] Save snapshot has empty SMTP password; attempting restore:', enc.id, enc.email)
+        const mem = accounts.find(a => a.id === enc.id)
+        const msPw = mem?.smtp?.password
+        if (msPw != null && String(msPw).trim().length > 0) {
+          encryptedAccounts[i] = encryptImapSmtpPasswordsForDisk({
+            ...encryptedAccounts[i],
+            smtp: { ...rowForSmtp.smtp, password: String(msPw), _encrypted: false },
+          })
+          console.warn('[Gateway] Restored in-memory SMTP password before save:', enc.id)
+        } else {
+          const prev = previousDiskAccounts.find(a => a.id === enc.id)
+          const prevSmtp = prev?.smtp
+          if (prevSmtp?.password != null && String(prevSmtp.password).trim().length > 0) {
+            encryptedAccounts[i] = {
+              ...encryptedAccounts[i],
+              smtp: {
+                host: rowForSmtp.smtp.host,
+                port: rowForSmtp.smtp.port,
+                security: rowForSmtp.smtp.security,
+                username: rowForSmtp.smtp.username,
+                password: prevSmtp.password,
+                _encrypted: prevSmtp._encrypted,
+              },
+            }
+            console.warn('[Gateway] Restored SMTP password from previous on-disk snapshot:', enc.id)
+          } else {
+            console.error('[Gateway] REFUSING to save account with empty SMTP password:', enc.id, enc.email)
+            throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty SMTP password`)
+          }
+        }
+      }
+    }
     
     fs.writeFileSync(accountsPath, JSON.stringify({ accounts: encryptedAccounts }, null, 2), 'utf-8')
     console.log('[EmailGateway] Accounts saved successfully (tokens encrypted)')
