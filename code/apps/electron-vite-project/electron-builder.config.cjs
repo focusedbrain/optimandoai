@@ -1,7 +1,7 @@
 /**
  * Electron Builder config with cross-platform output paths.
  * Auto-detects the OS at build time:
- *   - Windows: C:\build-output\build115
+ *   - Windows: C:\build-output\build995
  *   - Linux / macOS: dist/release (relative, avoids path errors)
  *
  * This file is the single source of truth for the output directory.
