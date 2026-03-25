@@ -446,12 +446,66 @@ export function getPackagedResourceGoogleOAuthClientId(): string | null {
   }
 }
 
+const BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN =
+  '[Gmail OAuth] WARNING: Builtin client_id is configured but client_secret is missing or placeholder. Gmail connect will fail at token exchange. Set GOOGLE_OAUTH_CLIENT_SECRET in env or update resources/google-oauth-client-secret.txt.'
+
+let warnedBuiltinGmailOAuthClientSecretMissing = false
+
+function bundledSecretResourceIsValid(secretFilePath: string): boolean {
+  try {
+    if (!fs.existsSync(secretFilePath)) return false
+    const line = readFirstNonCommentLine(secretFilePath)
+    return normalizeGoogleOAuthClientSecret(line) != null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Logs once when shipped `google-oauth-client-id.txt` has a real Desktop id but the paired
+ * `google-oauth-client-secret.txt` is missing, empty, or still a placeholder (does not throw).
+ */
+export function warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder(): void {
+  if (warnedBuiltinGmailOAuthClientSecretMissing) return
+  try {
+    if (app.isPackaged) {
+      const resourcesPath = process.resourcesPath || ''
+      if (!resourcesPath) return
+      const idPath = path.join(resourcesPath, PACKAGED_RESOURCE_BASENAME)
+      const idOk = normalizeGoogleOAuthClientId(readFirstNonCommentLine(idPath))
+      if (!idOk) return
+      const secretPath = path.join(resourcesPath, PACKAGED_SECRET_BASENAME)
+      if (bundledSecretResourceIsValid(secretPath)) return
+      console.warn(BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN)
+      warnedBuiltinGmailOAuthClientSecretMissing = true
+      return
+    }
+
+    for (const idPath of [
+      path.join(app.getAppPath(), 'resources', PACKAGED_RESOURCE_BASENAME),
+      path.join(process.cwd(), 'resources', PACKAGED_RESOURCE_BASENAME),
+    ]) {
+      const idOk = normalizeGoogleOAuthClientId(readFirstNonCommentLine(idPath))
+      if (!idOk) continue
+      const secretPath = path.join(path.dirname(idPath), PACKAGED_SECRET_BASENAME)
+      if (bundledSecretResourceIsValid(secretPath)) return
+      console.warn(BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN)
+      warnedBuiltinGmailOAuthClientSecretMissing = true
+      return
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Packaged startup proof: paths, bundled id fingerprint (no full id), env presence, developer mode. */
 export interface GmailOAuthPackagedStartupDiagnostics {
   processResourcesPath: string | null
   googleOAuthResourceFilePath: string | null
   resourceFileExists: boolean
   bundledFirstLineClientIdFingerprint: string | null
+  /** True when bundled client id file is valid but secret file is missing / placeholder (Gmail token exchange will fail). */
+  builtinClientSecretResourceMissingOrPlaceholder?: boolean
   env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present: boolean
   env_GOOGLE_OAUTH_CLIENT_ID_present: boolean
   emailDeveloperModeActive: boolean
@@ -469,11 +523,18 @@ export function getGmailOAuthPackagedStartupDiagnostics(): GmailOAuthPackagedSta
       resourcesPath ? path.join(resourcesPath, PACKAGED_RESOURCE_BASENAME) : null
     const resourceFileExists = !!(resourceFilePath && fs.existsSync(resourceFilePath))
     const bundled = isPackaged ? getPackagedResourceGoogleOAuthClientId() : null
+    const secretFilePath =
+      resourcesPath ? path.join(resourcesPath, PACKAGED_SECRET_BASENAME) : null
+    const builtinClientSecretResourceMissingOrPlaceholder =
+      isPackaged && bundled && secretFilePath
+        ? !bundledSecretResourceIsValid(secretFilePath)
+        : undefined
     return {
       processResourcesPath: resourcesPath,
       googleOAuthResourceFilePath: resourceFilePath,
       resourceFileExists,
       bundledFirstLineClientIdFingerprint: bundled ? oauthClientIdFingerprint(bundled) : null,
+      builtinClientSecretResourceMissingOrPlaceholder,
       env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present:
         (process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID ?? '').trim().length > 0,
       env_GOOGLE_OAUTH_CLIENT_ID_present: (process.env.GOOGLE_OAUTH_CLIENT_ID ?? '').trim().length > 0,
@@ -486,6 +547,7 @@ export function getGmailOAuthPackagedStartupDiagnostics(): GmailOAuthPackagedSta
       googleOAuthResourceFilePath: null,
       resourceFileExists: false,
       bundledFirstLineClientIdFingerprint: null,
+      builtinClientSecretResourceMissingOrPlaceholder: undefined,
       env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID_present: false,
       env_GOOGLE_OAUTH_CLIENT_ID_present: false,
       emailDeveloperModeActive: false,
@@ -570,6 +632,7 @@ const OAUTH_DIAG_WHITELIST_KEYS = new Set([
   'bundledExpectedFingerprint',
   'packagedStandardConnectEnvIgnored',
   'bundledFirstLineClientIdFingerprint',
+  'builtinClientSecretResourceMissingOrPlaceholder',
   'processResourcesPath',
   'googleOAuthResourceFilePath',
   'resourceFileExists',

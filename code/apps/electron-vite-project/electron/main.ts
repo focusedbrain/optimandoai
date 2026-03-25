@@ -2083,7 +2083,9 @@ app.whenReady().then(async () => {
         getGoogleOauthClientSecretEnvVarNamesPresent,
         getGmailOAuthPackagedStartupDiagnostics,
         logOAuthDiagnostic,
+        warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder,
       } = await import('./main/email/googleOAuthBuiltin')
+      warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder()
       if (app.isPackaged) {
         logOAuthDiagnostic('gmail_oauth_packaged_startup_diagnostics', {
           startupDiagnostics: getGmailOAuthPackagedStartupDiagnostics(),
