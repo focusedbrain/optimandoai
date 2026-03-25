@@ -310,12 +310,14 @@ function getBridge() {
 
 /** All connected row ids to include on Pull (active first; excludes disabled/error when possible). */
 export function activeEmailAccountIdsForSync(
-  accounts: Array<{ id: string; status?: string }>,
+  accounts: Array<{ id: string; status?: string; processingPaused?: boolean }>,
 ): string[] {
   if (!accounts.length) return []
-  const active = accounts.filter((a) => a.status === 'active')
+  const eligible = accounts.filter((a) => a.processingPaused !== true)
+  if (!eligible.length) return []
+  const active = eligible.filter((a) => a.status === 'active')
   if (active.length) return [...new Set(active.map((a) => a.id))]
-  const rest = accounts.filter((a) => a.status !== 'error' && a.status !== 'disabled')
+  const rest = eligible.filter((a) => a.status !== 'error' && a.status !== 'disabled')
   if (rest.length) return [...new Set(rest.map((a) => a.id))]
   /** Do not Pull accounts that are all in error/disabled — avoids hammering bad IMAP creds. */
   return []

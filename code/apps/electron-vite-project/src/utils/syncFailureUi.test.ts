@@ -20,6 +20,32 @@ describe('classifySyncFailureMessage', () => {
     expect(classifySyncFailureMessage('syncAccountEmails timed out after 300s')).toBe('timeout')
   })
 
+  it('classifies orchestrator list timeout with phase/folder hints (IMAP instrumentation)', () => {
+    expect(
+      classifySyncFailureMessage(
+        'listMessages timed out after 45s (phase=list_messages folder="INBOX")',
+      ),
+    ).toBe('timeout')
+    expect(
+      classifySyncFailureMessage(
+        'syncAccountEmails timed out after 300s inFlight={"phase":"list_messages","folder":"Spam"}',
+      ),
+    ).toBe('timeout')
+  })
+
+  it('classifies provider_fetchMessages and imapFetchReliable timeout messages', () => {
+    expect(
+      classifySyncFailureMessage(
+        'IMAP fetch timed out after 45s (phase=provider_fetchMessages folder="INBOX")',
+      ),
+    ).toBe('timeout')
+    expect(
+      classifySyncFailureMessage(
+        'IMAP fetch timed out after 45s (phase=imapFetchReliable folder="INBOX")',
+      ),
+    ).toBe('timeout')
+  })
+
   it('prefers auth over tls when both keywords appear (rare)', () => {
     expect(classifySyncFailureMessage('authentication failed during tls handshake')).toBe('auth')
   })

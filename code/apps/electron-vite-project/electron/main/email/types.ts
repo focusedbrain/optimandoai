@@ -380,6 +380,12 @@ export interface EmailAccountConfig {
   
   /** Account status — `auth_error` = credentials rejected (IMAP / password); reconnect required */
   status: 'active' | 'error' | 'disabled' | 'auth_error'
+
+  /**
+   * User paused mail processing for this row (pull/sync gating — orthogonal to `status` / health).
+   * Omitted or false = not paused. Not the same as `status: 'disabled'`.
+   */
+  processingPaused?: boolean
   
   /** Last error message if status is 'error' */
   lastError?: string
@@ -412,6 +418,8 @@ export interface EmailAccountInfo {
   email: string
   provider: EmailProvider
   status: 'active' | 'error' | 'disabled' | 'auth_error'
+  /** True when the user paused processing for this account (credentials and sync prefs unchanged). */
+  processingPaused?: boolean
   lastError?: string
   lastSyncAt?: number
   folders: {
@@ -786,6 +794,8 @@ export interface IEmailGateway {
     id: string,
     partial: Partial<Pick<EmailAccountConfig['sync'], 'syncWindowDays' | 'maxMessagesPerPull' | 'maxAgeDays' | 'batchSize'>>,
   ): Promise<EmailAccountInfo>
+  /** User toggle: pause or resume background processing (does not change `status` or credentials). */
+  setProcessingPaused(id: string, paused: boolean): Promise<EmailAccountInfo>
   deleteAccount(id: string): Promise<void>
   testConnection(id: string): Promise<{ success: boolean; error?: string }>
   getImapReconnectHints(id: string): Promise<ImapReconnectHints | null>

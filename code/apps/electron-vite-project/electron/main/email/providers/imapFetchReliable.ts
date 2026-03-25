@@ -7,10 +7,9 @@ import * as ImapMod from 'imap'
 import type { EmailAccountConfig, MessageSearchOptions } from '../types'
 import type { RawEmailMessage } from './base'
 import { imapUsesImplicitTls } from '../domain/securityModeNormalize'
+import { IMAP_FETCH_RELIABLE_MS } from '../imapSyncTelemetry'
 
 const ImapCtor = (ImapMod as any).default ?? ImapMod
-
-const TIMEOUT_MS = 30_000
 
 function parseEmailAddress(addr: string): { email: string; name?: string } {
   if (!addr) return { email: '' }
@@ -67,14 +66,28 @@ export async function imapFetchReliable(
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      console.error('[imapFetchReliable] TIMEOUT after', TIMEOUT_MS, 'ms for account', account.id)
+      console.error(
+        '[IMAP-SYNC-PHASE]',
+        JSON.stringify({
+          event: 'imapFetchReliable_timeout',
+          phase: 'imapFetchReliable',
+          accountId: account.id,
+          folder: useFolder,
+          timeoutMs: IMAP_FETCH_RELIABLE_MS,
+        }),
+      )
+      console.error('[imapFetchReliable] TIMEOUT after', IMAP_FETCH_RELIABLE_MS, 'ms for account', account.id)
       try {
         client?.end?.()
       } catch {
         /* noop */
       }
-      reject(new Error(`IMAP fetch timed out after ${TIMEOUT_MS / 1000}s`))
-    }, TIMEOUT_MS)
+      reject(
+        new Error(
+          `IMAP fetch timed out after ${IMAP_FETCH_RELIABLE_MS / 1000}s (phase=imapFetchReliable folder=${JSON.stringify(useFolder)})`,
+        ),
+      )
+    }, IMAP_FETCH_RELIABLE_MS)
 
     const done = (err: Error | null, result?: RawEmailMessage[]) => {
       if (settled) return

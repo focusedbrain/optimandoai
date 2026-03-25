@@ -13,12 +13,14 @@ import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email
 
 interface BeapBulkInboxDashboardProps {
   onMessageSelect?: (messageId: string | null) => void
+  onEmailAccountsChanged?: () => void
   onSetSearchContext?: (context: string) => void
   onNavigateToHandshake?: (handshakeId: string) => void
   onViewInInbox?: (messageId: string) => void
 }
 
 export default function BeapBulkInboxDashboard({
+  onEmailAccountsChanged,
   onSetSearchContext,
   onNavigateToHandshake,
   onViewInInbox,
@@ -30,6 +32,7 @@ export default function BeapBulkInboxDashboard({
       email: string
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
       lastError?: string
     }>
   >([])
@@ -64,6 +67,7 @@ export default function BeapBulkInboxDashboard({
           email: string
           provider?: string
           status?: string
+          processingPaused?: boolean
           lastError?: string
         }>
         setEmailAccounts(
@@ -91,6 +95,7 @@ export default function BeapBulkInboxDashboard({
               email: a.email,
               provider,
               status,
+              processingPaused: a.processingPaused === true,
               lastError: a.lastError,
             }
           }),
@@ -149,12 +154,34 @@ export default function BeapBulkInboxDashboard({
       if (typeof (window as any).emailAccounts?.deleteAccount === 'function') {
         await (window as any).emailAccounts!.deleteAccount(id)
         loadEmailAccounts()
+        onEmailAccountsChanged?.()
         notify('Email account disconnected', 'info')
       }
     } catch {
       notify('Failed to disconnect account', 'error')
     }
-  }, [loadEmailAccounts, notify])
+  }, [loadEmailAccounts, notify, onEmailAccountsChanged])
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setEmailAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify(paused ? 'Sync paused' : 'Sync resumed', 'info')
+      } catch {
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify('Could not update pause state', 'error')
+      }
+    },
+    [loadEmailAccounts, notify, onEmailAccountsChanged],
+  )
 
   // Reply composer config: AI provider for Draft with AI + enhanced classification
   const replyComposerConfig = useMemo(() => {
@@ -226,6 +253,7 @@ export default function BeapBulkInboxDashboard({
         selectedEmailAccountId={selectedEmailAccountId}
         onConnectEmail={handleConnectEmail}
         onDisconnectEmail={handleDisconnectEmail}
+        onSetProcessingPaused={handleSetProcessingPaused}
         onSelectEmailAccount={setSelectedEmailAccountId}
         onUpdateImapCredentials={handleUpdateImapCredentials}
       />

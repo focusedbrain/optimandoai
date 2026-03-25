@@ -3197,6 +3197,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true // Keep channel open for async response
     }
+
+    case 'EMAIL_SET_PROCESSING_PAUSED': {
+      const accountId = typeof msg.accountId === 'string' ? msg.accountId : ''
+      const paused = msg.paused
+      if (!accountId || typeof paused !== 'boolean') {
+        sendResponse({ ok: false, error: 'accountId and paused (boolean) required' })
+        return false
+      }
+      console.log('[BG] 📧 Email set processing paused:', accountId, paused)
+      electronRequest(`/api/email/accounts/${encodeURIComponent(accountId)}/processing-pause`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused }),
+      })
+        .then((result) => {
+          if (result.ok && result.data) {
+            sendResponse(result.data)
+          } else {
+            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+          }
+        })
+        .catch((err) => {
+          console.error('[BG] EMAIL_SET_PROCESSING_PAUSED error:', err)
+          sendResponse({ ok: false, error: String(err?.message ?? err) })
+        })
+      return true
+    }
     
     case 'EMAIL_SEND': {
       console.log('[BG] 📧 Email send request')

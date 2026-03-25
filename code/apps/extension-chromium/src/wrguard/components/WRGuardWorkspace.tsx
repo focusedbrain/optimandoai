@@ -26,6 +26,8 @@ interface WRGuardWorkspaceProps {
   selectedEmailAccountId?: string | null
   onConnectEmail?: () => void
   onDisconnectEmail?: (id: string) => void
+  /** Pause/resume sync for a row (optional — extension wiring). */
+  onSetProcessingPaused?: (id: string, paused: boolean) => void | Promise<void>
   onSelectEmailAccount?: (id: string) => void
   /** Navigate to BEAP inbox and select a message. Used when "View in Inbox" is clicked from handshake messages. */
   onViewInInbox?: (messageId: string) => void
@@ -41,6 +43,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
   selectedEmailAccountId = null,
   onConnectEmail = () => {},
   onDisconnectEmail = () => {},
+  onSetProcessingPaused,
   onSelectEmailAccount = () => {},
   onViewInInbox,
   replyComposerConfig,
@@ -80,6 +83,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
             selectedEmailAccountId={selectedEmailAccountId}
             onConnectEmail={onConnectEmail}
             onDisconnectEmail={onDisconnectEmail}
+            onSetProcessingPaused={onSetProcessingPaused}
             onSelectEmailAccount={onSelectEmailAccount}
           />
         )
@@ -107,6 +111,7 @@ export const WRGuardWorkspace: React.FC<WRGuardWorkspaceProps> = ({
             selectedEmailAccountId={selectedEmailAccountId}
             onConnectEmail={onConnectEmail}
             onDisconnectEmail={onDisconnectEmail}
+            onSetProcessingPaused={onSetProcessingPaused}
             onSelectEmailAccount={onSelectEmailAccount}
           />
         )

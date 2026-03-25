@@ -32,6 +32,7 @@ import { resolveOrchestratorRemoteNames } from '../domain/mailboxLifecycleMappin
 import { imapFoldersMatchExact, isLegacyImapMailboxLabel } from '../domain/imapLegacyFolders'
 import { imapUsesImplicitTls, smtpTransportTlsFlags } from '../domain/securityModeNormalize'
 import { emailDebugLog } from '../emailDebug'
+import { IMAP_PROVIDER_FETCH_MESSAGES_MS } from '../imapSyncTelemetry'
 
 export type { ImapLifecycleValidationEntry, ImapLifecycleValidationResult } from '../types'
 
@@ -828,9 +829,25 @@ export class ImapProvider extends BaseEmailProvider {
     }
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('IMAP fetch timed out')), 30000)
+      const folderLabel = folder || 'INBOX'
+      const timer = setTimeout(() => {
+        console.error(
+          '[IMAP-SYNC-PHASE]',
+          JSON.stringify({
+            event: 'imap_fetchMessages_timeout',
+            phase: 'provider_fetchMessages',
+            folder: folderLabel,
+            timeoutMs: IMAP_PROVIDER_FETCH_MESSAGES_MS,
+          }),
+        )
+        reject(
+          new Error(
+            `IMAP fetch timed out after ${IMAP_PROVIDER_FETCH_MESSAGES_MS / 1000}s (phase=provider_fetchMessages folder=${JSON.stringify(folderLabel)})`,
+          ),
+        )
+      }, IMAP_PROVIDER_FETCH_MESSAGES_MS)
 
-      this.client!.openBox(folder || 'INBOX', true, (err, box) => {
+      this.client!.openBox(folderLabel, true, (err, box) => {
         if (err) {
           clearTimeout(timer)
           reject(err)

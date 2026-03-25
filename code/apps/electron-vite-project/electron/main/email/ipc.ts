@@ -461,7 +461,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   console.log('[Email IPC] Registering handlers...')
   
   const channels = [
-    'email:listAccounts', 'email:getAccount', 'email:deleteAccount', 'email:testConnection',
+    'email:listAccounts', 'email:getAccount', 'email:setProcessingPaused', 'email:deleteAccount', 'email:testConnection',
     'email:getImapReconnectHints', 'email:updateImapCredentials',
     'email:getImapPresets', 'email:setGmailCredentials', 'email:connectGmail',
     'email:getGmailOAuthRuntimeDiagnostics', 'email:showGmailSetup',
@@ -503,6 +503,19 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       return { ok: true, data: account }
     } catch (error: any) {
       console.error('[Email IPC] getAccount error:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('email:setProcessingPaused', async (_e, accountId: unknown, paused: unknown) => {
+    try {
+      const id = typeof accountId === 'string' ? accountId.trim() : ''
+      if (!id) return { ok: false, error: 'accountId required' }
+      if (typeof paused !== 'boolean') return { ok: false, error: 'paused must be a boolean' }
+      const info = await emailGateway.setProcessingPaused(id, paused)
+      return { ok: true, data: info }
+    } catch (error: any) {
+      console.error('[Email IPC] setProcessingPaused error:', error)
       return { ok: false, error: error.message }
     }
   })
@@ -2412,10 +2425,23 @@ Rules:
       skippedDupes: result.skippedDuplicate ?? 0,
       errors: errors.length,
     }
-    const pullHint =
-      result.newMessages > 0
+    const pausedSkip = result.skipReason === 'processing_paused'
+    const pullHint = pausedSkip
+      ? 'Processing is paused for this account — no mail was fetched.'
+      : result.newMessages > 0
         ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
         : undefined
+
+    if (pausedSkip) {
+      return {
+        ok: true,
+        data: result,
+        pullStats,
+        pullHint,
+        warningCount: 1,
+        syncWarnings: ['Processing is paused — Pull did not run. Resume the account to sync new mail.'],
+      }
+    }
 
     if (!result.ok) {
       return {
@@ -4910,6 +4936,7 @@ export async function showOutlookSetupDialog(): Promise<{ success: boolean }> {
 
         for (const acc of accounts) {
           if (acc.provider !== 'imap' || acc.status !== 'active') continue
+          if (acc.processingPaused === true) continue
           console.log('[IMAP-AUTO-SYNC] Triggering pull for IMAP account:', acc.id, acc.email)
           try {
             const result = await syncAccountEmails(db, { accountId: acc.id })

@@ -22,6 +22,14 @@ import {
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
 import { emailDebugLog, emailDebugWarn } from './emailDebug'
+import {
+  IMAP_SYNC_FOLDER_EXPAND_MS,
+  IMAP_SYNC_LIST_MESSAGES_MS,
+  setImapSyncProgress,
+  clearImapSyncProgress,
+  getImapSyncProgressSnapshot,
+  formatImapSyncPhaseLine,
+} from './imapSyncTelemetry'
 import { isPullActive, markPullActive, markPullInactive } from './syncPullLock'
 
 /** Re-export for callers that already import sync orchestrator (Sync Remote clears locks via ipc → syncPullLock). */
@@ -78,6 +86,8 @@ export interface SyncResult {
   listedFromProvider?: number
   /** Skipped during ingest — `email_message_id` already in `inbox_messages` for this account. */
   skippedDuplicate?: number
+  /** Set when no provider work ran — e.g. user paused processing for this account row. */
+  skipReason?: 'processing_paused'
 }
 
 export interface EmailSyncStateUpdates {
@@ -360,15 +370,24 @@ export async function syncAccountEmails(db: any, options: SyncAccountOptions): P
   const withTimeout = Promise.race([
     current,
     new Promise<SyncResult>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `syncAccountEmails timed out after ${Math.round(SYNC_ACCOUNT_EMAILS_MAX_MS / 1000)}s`,
-            ),
+      setTimeout(() => {
+        const snap = getImapSyncProgressSnapshot()
+        const inFlight =
+          snap && snap.accountId === accountId
+            ? ` inFlight=${JSON.stringify({
+                phase: snap.phase,
+                folder: snap.folder ?? null,
+                provider: snap.provider,
+                detail: snap.detail ?? null,
+                staleMs: Date.now() - snap.updatedAt,
+              })}`
+            : ''
+        reject(
+          new Error(
+            `syncAccountEmails timed out after ${Math.round(SYNC_ACCOUNT_EMAILS_MAX_MS / 1000)}s${inFlight}`,
           ),
-        SYNC_ACCOUNT_EMAILS_MAX_MS,
-      ),
+        )
+      }, SYNC_ACCOUNT_EMAILS_MAX_MS),
     ),
   ]).finally(() => {
     syncChainTimestamps.delete(accountId)
@@ -393,12 +412,28 @@ async function syncAccountEmailsImpl(
     newInboxMessageIds: [],
   }
 
+  const pausedCfg = emailGateway.getAccountConfig(accountId)
+  if (pausedCfg?.processingPaused === true) {
+    emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — processingPaused', { accountId })
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: 'processing_paused',
+    }
+  }
+
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
     if (accountInfo?.provider === 'imap') {
       await maybeRunImapLegacyFolderConsolidation(db, accountId)
     }
     const accountCfg = emailGateway.getAccountConfig(accountId)
+    setImapSyncProgress({
+      accountId,
+      provider: accountCfg?.provider ?? accountInfo?.provider ?? 'unknown',
+      phase: 'preflight',
+    })
     const windowDays = getEffectiveSyncWindowDays(accountCfg?.sync)
     const maxPerPull = getMaxMessagesPerPull(accountCfg?.sync)
 
@@ -506,6 +541,7 @@ async function syncAccountEmailsImpl(
     let detailFetchOk = 0
     let detailFetchMiss = 0
     let loggedFirstFetchOk = false
+    let detailFetchPhaseStartedAt = 0
 
     emailDebugLog('[SYNC-DEBUG] SyncPullLock before list+fetch', {
       accountId,
@@ -517,16 +553,57 @@ async function syncAccountEmailsImpl(
       const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
       let pullFolders: string[]
       if (accountCfg?.provider === 'imap') {
+        const expandStarted = Date.now()
+        setImapSyncProgress({
+          accountId,
+          provider: 'imap',
+          phase: 'folder_expand',
+          detail: `baseLabels=${basePullLabels.join(',')}`,
+        })
+        console.error(
+          formatImapSyncPhaseLine('folder_expand_start', {
+            accountId,
+            provider: 'imap',
+            timeoutMs: IMAP_SYNC_FOLDER_EXPAND_MS,
+            basePullLabels,
+          }),
+        )
         const expandPromise = emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
         const expandTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('resolveImapPullFoldersExpanded timed out after 30s')), 30_000),
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `resolveImapPullFoldersExpanded timed out after ${IMAP_SYNC_FOLDER_EXPAND_MS / 1000}s (phase=folder_expand)`,
+                ),
+              ),
+            IMAP_SYNC_FOLDER_EXPAND_MS,
+          ),
         )
         try {
           pullFolders = await Promise.race([expandPromise, expandTimeout])
         } catch (e: any) {
+          const expandMs = Date.now() - expandStarted
+          const timedOut = /timed out/i.test(String(e?.message ?? ''))
+          console.warn(
+            formatImapSyncPhaseLine('folder_expand_fail', {
+              accountId,
+              expandMs,
+              timedOut,
+              error: String(e?.message ?? e),
+            }),
+          )
           console.warn('[SyncOrchestrator] resolveImapPullFoldersExpanded failed or timed out:', e?.message ?? e)
           pullFolders = basePullLabels
         }
+        console.error(
+          formatImapSyncPhaseLine('folder_expand_done', {
+            accountId,
+            expandMs: Date.now() - expandStarted,
+            resolvedFolders: pullFolders,
+            resolvedCount: pullFolders.length,
+          }),
+        )
       } else {
         pullFolders = basePullLabels
       }
@@ -542,12 +619,39 @@ async function syncAccountEmailsImpl(
         const seen = new Set<string>()
         for (const folder of pullFolders) {
           try {
+            const folderListStarted = Date.now()
+            setImapSyncProgress({ accountId, provider: 'imap', phase: 'list_messages', folder })
             emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
             console.error('SYNC_LIST_CALL', accountId, folder)
             console.error('[SYNC-IMPL] about to call listMessages:', accountId)
+            console.error(
+              formatImapSyncPhaseLine('list_messages_start', {
+                accountId,
+                folder,
+                timeoutMs: IMAP_SYNC_LIST_MESSAGES_MS,
+              }),
+            )
             const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
-            const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `listMessages timed out after ${IMAP_SYNC_LIST_MESSAGES_MS / 1000}s (phase=list_messages folder=${JSON.stringify(folder)})`,
+                    ),
+                  ),
+                IMAP_SYNC_LIST_MESSAGES_MS,
+              ),
+            )
             const part = await Promise.race([listPromise, timeoutPromise])
+            console.error(
+              formatImapSyncPhaseLine('list_messages_done', {
+                accountId,
+                folder,
+                listMs: Date.now() - folderListStarted,
+                count: part.length,
+              }),
+            )
             for (const m of part) {
               const k = `${m.folder || folder}|${m.id}`
               if (seen.has(k)) continue
@@ -559,6 +663,15 @@ async function syncAccountEmailsImpl(
             )
           } catch (folderErr: any) {
             const msg = folderErr?.message ?? String(folderErr)
+            const timedOut = /timed out/i.test(msg)
+            console.warn(
+              formatImapSyncPhaseLine('list_messages_fail', {
+                accountId,
+                folder,
+                timedOut,
+                error: msg,
+              }),
+            )
             result.errors.push(`listMessages ${folder}: ${msg}`)
             console.warn('[SyncOrchestrator] IMAP folder list failed:', folder, msg)
           }
@@ -566,12 +679,39 @@ async function syncAccountEmailsImpl(
         messages = merged
       } else {
         const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
+        const folderListStarted = Date.now()
+        setImapSyncProgress({ accountId, provider: accountCfg?.provider ?? 'unknown', phase: 'list_messages', folder })
         emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
         console.error('SYNC_LIST_CALL', accountId, folder)
         console.error('[SYNC-IMPL] about to call listMessages:', accountId)
+        console.error(
+          formatImapSyncPhaseLine('list_messages_start', {
+            accountId,
+            folder,
+            timeoutMs: IMAP_SYNC_LIST_MESSAGES_MS,
+          }),
+        )
         const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
-        const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('listMessages timed out after 30s')), 30000))
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `listMessages timed out after ${IMAP_SYNC_LIST_MESSAGES_MS / 1000}s (phase=list_messages folder=${JSON.stringify(folder)})`,
+                ),
+              ),
+            IMAP_SYNC_LIST_MESSAGES_MS,
+          ),
+        )
         messages = await Promise.race([listPromise, timeoutPromise])
+        console.error(
+          formatImapSyncPhaseLine('list_messages_done', {
+            accountId,
+            folder,
+            listMs: Date.now() - folderListStarted,
+            count: messages.length,
+          }),
+        )
       }
       console.error('SYNC_LIST_RESULT', accountId, messages?.length)
       const existingIds = getExistingEmailMessageIds(db, accountId)
@@ -586,6 +726,14 @@ async function syncAccountEmailsImpl(
           { accountId, bootstrap, pullMore, last_sync_at_used: lastSyncAt ?? null },
         )
       }
+
+      setImapSyncProgress({
+        accountId,
+        provider: accountCfg?.provider ?? 'unknown',
+        phase: 'message_detail_fetch',
+        detail: `toIngest=${messages.length}`,
+      })
+      detailFetchPhaseStartedAt = Date.now()
 
       for (const msg of messages) {
         if (existingIds.has(msg.id)) {
@@ -700,6 +848,7 @@ async function syncAccountEmailsImpl(
           deduped: skippedDuplicate,
           fetch_ok: detailFetchOk,
           fetch_miss: detailFetchMiss,
+          detail_fetch_ms: detailFetchPhaseStartedAt ? Date.now() - detailFetchPhaseStartedAt : 0,
           inserted: newCount,
           errorCount: result.errors.length,
           advance_last_sync_at: !skipAdvanceLastSyncAt,
@@ -743,6 +892,18 @@ async function syncAccountEmailsImpl(
     result.ok = false
     const errMsg = err?.message ?? 'Sync failed'
     result.errors.push(errMsg)
+    const snap = getImapSyncProgressSnapshot()
+    if (snap?.accountId === accountId) {
+      console.error(
+        formatImapSyncPhaseLine('sync_impl_uncaught', {
+          accountId,
+          errMsg,
+          timedOut: /timed out/i.test(errMsg),
+          atPhase: snap.phase,
+          folder: snap.folder ?? null,
+        }),
+      )
+    }
     console.error('[SyncOrchestrator] syncAccountEmails error:', err)
     updateSyncState(db, accountId, {
       last_error: errMsg,
@@ -766,6 +927,8 @@ async function syncAccountEmailsImpl(
         console.warn('[SyncOrchestrator] Could not persist account auth state:', persistErr?.message)
       }
     }
+  } finally {
+    clearImapSyncProgress()
   }
 
   const anyAuthErr = result.errors.some((e) => isLikelyEmailAuthError(e))
@@ -820,6 +983,12 @@ export function startAutoSync(
       console.log('[AUTO_SYNC] Tick fired for account:', accountId)
       const row = db.prepare('SELECT auto_sync_enabled FROM email_sync_state WHERE account_id = ?').get(accountId) as { auto_sync_enabled?: number } | undefined
       if (row?.auto_sync_enabled !== 1) {
+        scheduleNext()
+        return
+      }
+
+      const accCfg = emailGateway.getAccountConfig(accountId)
+      if (accCfg?.processingPaused === true) {
         scheduleNext()
         return
       }

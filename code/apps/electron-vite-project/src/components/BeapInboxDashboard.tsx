@@ -60,6 +60,8 @@ function getContentPreview(msg: BeapMessage): string {
 interface BeapInboxDashboardProps {
   selectedMessageId: string | null
   onMessageSelect: (messageId: string | null) => void
+  /** Refresh app-level account list after connect/disconnect/pause (e.g. sync target list). */
+  onEmailAccountsChanged?: () => void
   /** Called when user selects/deselects an attachment. Parent can update search bar scope. */
   onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
   onSetSearchContext?: (context: string) => void
@@ -71,6 +73,7 @@ interface BeapInboxDashboardProps {
 export default function BeapInboxDashboard({
   selectedMessageId: selectedMessageIdProp,
   onMessageSelect,
+  onEmailAccountsChanged,
   onAttachmentSelect,
   onSetSearchContext,
   onNavigateToHandshake,
@@ -102,6 +105,7 @@ export default function BeapInboxDashboard({
       email: string
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
       lastError?: string
     }>
   >([])
@@ -128,6 +132,7 @@ export default function BeapInboxDashboard({
           email: string
           provider?: string
           status?: string
+          processingPaused?: boolean
           lastError?: string
         }>
         setEmailAccounts(
@@ -155,6 +160,7 @@ export default function BeapInboxDashboard({
               email: a.email,
               provider,
               status,
+              processingPaused: a.processingPaused === true,
               lastError: a.lastError,
             }
           }),
@@ -213,12 +219,34 @@ export default function BeapInboxDashboard({
       if (typeof (window as any).emailAccounts?.deleteAccount === 'function') {
         await (window as any).emailAccounts!.deleteAccount(id)
         loadEmailAccounts()
+        onEmailAccountsChanged?.()
         notify('Email account disconnected', 'info')
       }
     } catch {
       notify('Failed to disconnect account', 'error')
     }
-  }, [loadEmailAccounts, notify])
+  }, [loadEmailAccounts, notify, onEmailAccountsChanged])
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setEmailAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify(paused ? 'Sync paused' : 'Sync resumed', 'info')
+      } catch {
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify('Could not update pause state', 'error')
+      }
+    },
+    [loadEmailAccounts, notify, onEmailAccountsChanged],
+  )
   const effectiveSelectedId = storeSelectedId ?? selectedMessageIdProp
 
   // Sync prop to store (e.g. when navigating from Bulk Inbox)
@@ -484,6 +512,7 @@ export default function BeapInboxDashboard({
               selectedEmailAccountId={selectedEmailAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedEmailAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
             />

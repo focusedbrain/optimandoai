@@ -61,7 +61,19 @@ export interface EmailAccount {
   email: string
   provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   status: 'active' | 'auth_error' | 'error' | 'disabled'
+  /** From Electron listAccounts — user paused processing (orthogonal to status). */
+  processingPaused?: boolean
   lastError?: string
+}
+
+function pausedRowNoteStyle(isLightTheme: boolean): React.CSSProperties {
+  return {
+    fontSize: 10,
+    marginTop: 6,
+    lineHeight: 1.35,
+    color: isLightTheme ? '#b45309' : '#fcd34d',
+    fontWeight: 500,
+  }
 }
 
 /** Status dot color + short label for the account row (IMAP auth / sync). */
@@ -97,6 +109,8 @@ export interface EmailProvidersSectionProps {
   onSelectEmailAccount: (id: string) => void
   /** Opens IMAP/SMTP credential update (e.g. reconnect wizard) — shown when `auth_error` on IMAP rows. */
   onUpdateImapCredentials?: (accountId: string) => void
+  /** Pause/resume background mail sync (non-destructive; credentials stay saved). */
+  onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -108,6 +122,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onDisconnectEmail,
   onSelectEmailAccount,
   onUpdateImapCredentials,
+  onSetProcessingPaused,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -206,6 +221,13 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                           : isLightTheme
                             ? '1px solid rgba(239,68,68,0.3)'
                             : '1px solid rgba(239,68,68,0.4)',
+                  ...(account.processingPaused
+                    ? {
+                        boxShadow: isLightTheme
+                          ? 'inset 3px 0 0 rgba(217,119,6,0.85)'
+                          : 'inset 3px 0 0 rgba(251,191,36,0.75)',
+                      }
+                    : {}),
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -235,6 +257,19 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       <span style={{ color: mutedColor, fontWeight: 500 }}>{providerDisplayLabel(account.provider)}</span>
                       <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
                       <RemoteSyncBadge provider={account.provider} />
+                      {account.processingPaused ? (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: isLightTheme ? '#b45309' : '#fcd34d',
+                            letterSpacing: 0.2,
+                          }}
+                          title="Mail sync is paused. Your sign-in is still saved."
+                        >
+                          ⏸ Paused
+                        </span>
+                      ) : null}
                     </div>
                     <div
                       style={{
@@ -255,6 +290,11 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       />
                       <span style={{ color: mutedColor }}>{badge.label}</span>
                     </div>
+                    {account.processingPaused ? (
+                      <div style={pausedRowNoteStyle(isLightTheme)}>
+                        Syncing is off — this account stays connected. Your password and settings are unchanged.
+                      </div>
+                    ) : null}
                     <div
                       style={{
                         fontSize: '9px',
@@ -300,21 +340,46 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                     ) : null}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <button
-                  onClick={() => onDisconnectEmail(account.id)}
-                  title="Disconnect account"
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    fontSize: '14px',
-                  }}
-                >
-                  ✕
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {typeof onSetProcessingPaused === 'function' ? (
+                    <button
+                      type="button"
+                      onClick={() => void onSetProcessingPaused(account.id, !account.processingPaused)}
+                      title={
+                        account.processingPaused
+                          ? 'Resume — turn mail sync back on (sign-in stays saved)'
+                          : 'Pause — stop syncing mail; keeps account and credentials'
+                      }
+                      style={{
+                        background: isLightTheme ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+                        border: isLightTheme ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.15)',
+                        color: textColor,
+                        cursor: 'pointer',
+                        padding: '6px 10px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {account.processingPaused ? 'Resume' : 'Pause'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onDisconnectEmail(account.id)}
+                    title="Disconnect — remove this account from the app"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      fontSize: '14px',
+                    }}
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             )
@@ -354,6 +419,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
             {emailAccounts.map(account => (
               <option key={account.id} value={account.id}>
                 {account.email || account.displayName} ({account.provider})
+                {account.processingPaused ? ' — Paused' : ''}
               </option>
             ))}
           </select>

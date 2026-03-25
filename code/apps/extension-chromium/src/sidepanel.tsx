@@ -693,6 +693,28 @@ function SidepanelOrchestrator() {
       console.error('[Sidepanel] Failed to disconnect account:', err)
     }
   }
+
+  const setAccountProcessingPaused = async (accountId: string, paused: boolean) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SET_PROCESSING_PAUSED',
+        accountId,
+        paused,
+      })
+      if (response?.ok) {
+        await loadEmailAccounts()
+        setNotification({ message: paused ? 'Sync paused' : 'Sync resumed', type: 'info' })
+        setTimeout(() => setNotification(null), 2500)
+      } else {
+        setNotification({ message: String(response?.error ?? 'Could not update account'), type: 'error' })
+        setTimeout(() => setNotification(null), 4000)
+      }
+    } catch (err) {
+      console.error('[Sidepanel] Failed to set processing paused:', err)
+      setNotification({ message: 'Could not update account', type: 'error' })
+      setTimeout(() => setNotification(null), 4000)
+    }
+  }
   
   const [isLlmLoading, setIsLlmLoading] = useState(false)
   const [llmError, setLlmError] = useState<string | null>(null)
@@ -5375,6 +5397,7 @@ function SidepanelOrchestrator() {
                 selectedEmailAccountId={selectedEmailAccountId}
                 onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
+                onSetProcessingPaused={setAccountProcessingPaused}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
                   setDockedWorkspace('beap-messages')
@@ -6479,6 +6502,7 @@ height: '28px',
                 selectedEmailAccountId={selectedEmailAccountId}
                 onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
+                onSetProcessingPaused={setAccountProcessingPaused}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
                   setDockedWorkspace('beap-messages')
@@ -7619,6 +7643,7 @@ height: '28px',
                 selectedEmailAccountId={selectedEmailAccountId}
                 onConnectEmail={() => openConnectEmail(ConnectEmailLaunchSource.WrChatDocked)}
                 onDisconnectEmail={disconnectEmailAccount}
+                onSetProcessingPaused={setAccountProcessingPaused}
                 onSelectEmailAccount={setSelectedEmailAccountId}
                 onViewInInbox={(messageId) => {
                   setDockedWorkspace('beap-messages')

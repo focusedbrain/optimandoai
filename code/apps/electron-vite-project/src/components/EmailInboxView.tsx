@@ -1052,7 +1052,9 @@ function InboxMessageRow({
 // ── Main component ──
 
 export interface EmailInboxViewProps {
-  accounts: Array<{ id: string; email: string; status?: string }>
+  accounts: Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  /** Refresh app-level account list after pause/resume so sync targets stay in sync. */
+  onEmailAccountsChanged?: () => void
   selectedMessageId?: string | null
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
@@ -1062,6 +1064,7 @@ export interface EmailInboxViewProps {
 
 export default function EmailInboxView({
   accounts,
+  onEmailAccountsChanged,
   selectedMessageId: selectedMessageIdProp,
   onSelectMessage,
   selectedAttachmentId: selectedAttachmentIdProp,
@@ -1126,6 +1129,7 @@ export default function EmailInboxView({
       email: string
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
       lastError?: string
     }>
   >([])
@@ -1146,7 +1150,15 @@ export default function EmailInboxView({
     try {
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
-        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
+        const data = res.data as Array<{
+          id: string
+          displayName?: string
+          email: string
+          provider?: string
+          status?: string
+          processingPaused?: boolean
+          lastError?: string
+        }>
         setProviderAccounts(
           data.map((a) => {
             const p = a.provider
@@ -1172,6 +1184,7 @@ export default function EmailInboxView({
               email: a.email,
               provider,
               status,
+              processingPaused: a.processingPaused === true,
               lastError: a.lastError,
             }
           }),
@@ -1269,12 +1282,32 @@ export default function EmailInboxView({
         if (typeof window.emailAccounts?.deleteAccount === 'function') {
           await window.emailAccounts.deleteAccount(id)
           loadProviderAccounts()
+          onEmailAccountsChanged?.()
         }
       } catch {
         /* ignore */
       }
     },
-    [loadProviderAccounts]
+    [loadProviderAccounts, onEmailAccountsChanged],
+  )
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setProviderAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      } catch {
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      }
+    },
+    [loadProviderAccounts, onEmailAccountsChanged],
   )
 
   // Sync App-level selection to store when props change
@@ -1807,6 +1840,7 @@ export default function EmailInboxView({
               selectedEmailAccountId={selectedProviderAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
               />

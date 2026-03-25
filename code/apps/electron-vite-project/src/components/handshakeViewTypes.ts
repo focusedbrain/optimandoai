@@ -82,6 +82,8 @@ declare global {
           email: string
           provider: string
           status: string
+          /** Present from gateway; false/absent = not paused */
+          processingPaused?: boolean
           lastError?: string
           capabilities?: {
             oauthBased: boolean
@@ -115,6 +117,10 @@ declare global {
         | { ok: false; error: string }
       >
       getAccount?: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+      setProcessingPaused?: (
+        accountId: string,
+        paused: boolean,
+      ) => Promise<{ ok: boolean; data?: unknown; error?: string }>
       testConnection?: (accountId: string) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
       getImapReconnectHints?: (accountId: string) => Promise<{ ok: boolean; data?: Record<string, unknown> | null; error?: string }>
       updateImapCredentials?: (

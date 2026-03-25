@@ -493,6 +493,7 @@ function PopupChatApp() {
     email: string
     provider: 'gmail' | 'microsoft365' | 'imap'
     status: 'active' | 'error' | 'disabled'
+    processingPaused?: boolean
     lastError?: string
   }
   
@@ -557,6 +558,28 @@ function PopupChatApp() {
       }
     } catch (error) {
       console.error('[PopupChat] Failed to disconnect email account:', error)
+    }
+  }
+
+  const setAccountProcessingPaused = async (accountId: string, paused: boolean) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'EMAIL_SET_PROCESSING_PAUSED',
+        accountId,
+        paused,
+      })
+      if (response?.ok) {
+        await loadEmailAccounts()
+        setToastMessage({ message: paused ? 'Sync paused' : 'Sync resumed', type: 'success' })
+        setTimeout(() => setToastMessage(null), 2500)
+      } else {
+        setToastMessage({ message: String(response?.error ?? 'Could not update account'), type: 'error' })
+        setTimeout(() => setToastMessage(null), 4000)
+      }
+    } catch (error) {
+      console.error('[PopupChat] Failed to set processing paused:', error)
+      setToastMessage({ message: 'Could not update account', type: 'error' })
+      setTimeout(() => setToastMessage(null), 4000)
     }
   }
   
@@ -1504,6 +1527,7 @@ function PopupChatApp() {
           selectedEmailAccountId={selectedEmailAccountId}
           onConnectEmail={handleConnectEmail}
           onDisconnectEmail={disconnectEmailAccount}
+          onSetProcessingPaused={setAccountProcessingPaused}
           onSelectEmailAccount={setSelectedEmailAccountId}
         />
       )

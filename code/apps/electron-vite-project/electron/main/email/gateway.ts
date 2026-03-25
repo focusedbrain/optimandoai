@@ -645,6 +645,18 @@ class EmailGateway implements IEmailGateway {
     const nextSync = { ...account.sync, ...partial }
     return this.updateAccount(id, { sync: nextSync })
   }
+
+  async setProcessingPaused(id: string, paused: boolean): Promise<EmailAccountInfo> {
+    const index = this.accounts.findIndex((a) => a.id === id)
+    if (index === -1) {
+      throw new Error('Account not found')
+    }
+    const account = this.accounts[index]
+    account.processingPaused = paused
+    account.updatedAt = Date.now()
+    saveAccounts(this.accounts)
+    return this.toAccountInfo(account)
+  }
   
   async deleteAccount(id: string): Promise<void> {
     const index = this.accounts.findIndex(a => a.id === id)
@@ -819,9 +831,20 @@ class EmailGateway implements IEmailGateway {
       // Cached IMAP providers go stale and lose this.config after disconnect.
       assertImapCredentialsUsableForConnect(account)
       const provider = await this.getProvider(account)
+      const listStarted = Date.now()
       try {
         await provider.connect(account)
         const rawMessages = await provider.fetchMessages(folder, options)
+        console.error(
+          '[IMAP-SYNC-PHASE] gateway_imap_list_done',
+          JSON.stringify({
+            accountId,
+            folder,
+            listMs: Date.now() - listStarted,
+            count: rawMessages.length,
+            phase: 'gateway_listMessages',
+          }),
+        )
         return rawMessages.map((raw) => this.sanitizeMessage(raw, accountId))
       } finally {
         try {
@@ -1901,6 +1924,7 @@ class EmailGateway implements IEmailGateway {
       email: account.email,
       provider: account.provider,
       status: account.status,
+      processingPaused: account.processingPaused === true,
       lastError: account.lastError,
       lastSyncAt: account.lastSyncAt,
       folders: {

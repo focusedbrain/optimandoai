@@ -31,6 +31,7 @@ export interface EmailAccount {
   displayName: string
   provider: string
   status: string
+  processingPaused?: boolean
   lastError?: string
 }
 

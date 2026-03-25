@@ -1487,7 +1487,9 @@ export interface AiSortProgressState {
 }
 
 export interface EmailInboxBulkViewProps {
-  accounts: Array<{ id: string; email: string; status?: string }>
+  accounts: Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  /** Refresh app-level account list after connect/disconnect/pause so sync targets stay in sync. */
+  onEmailAccountsChanged?: () => void
   /** Focused message for chat/search scope; syncs with Hybrid Search */
   selectedMessageId?: string | null
   /** Toggle focus; does not switch views */
@@ -1502,6 +1504,7 @@ export interface EmailInboxBulkViewProps {
 
 export default function EmailInboxBulkView({
   accounts,
+  onEmailAccountsChanged,
   selectedMessageId: focusedMessageId,
   onSelectMessage,
   selectedAttachmentId,
@@ -1845,6 +1848,7 @@ export default function EmailInboxBulkView({
       email: string
       provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
       status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
       lastError?: string
     }>
   >([])
@@ -3175,7 +3179,15 @@ export default function EmailInboxBulkView({
     try {
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
-        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
+        const data = res.data as Array<{
+          id: string
+          displayName?: string
+          email: string
+          provider?: string
+          status?: string
+          processingPaused?: boolean
+          lastError?: string
+        }>
         setProviderAccounts(
           data.map((a) => {
             const p = a.provider
@@ -3201,6 +3213,7 @@ export default function EmailInboxBulkView({
               email: a.email,
               provider,
               status,
+              processingPaused: a.processingPaused === true,
               lastError: a.lastError,
             }
           }),
@@ -3299,12 +3312,32 @@ export default function EmailInboxBulkView({
         if (typeof window.emailAccounts?.deleteAccount === 'function') {
           await window.emailAccounts.deleteAccount(id)
           loadProviderAccounts()
+          onEmailAccountsChanged?.()
         }
       } catch {
         /* ignore */
       }
     },
-    [loadProviderAccounts]
+    [loadProviderAccounts, onEmailAccountsChanged],
+  )
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setProviderAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      } catch {
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      }
+    },
+    [loadProviderAccounts, onEmailAccountsChanged],
   )
 
   const handleSummarize = useCallback(
@@ -5009,16 +5042,17 @@ export default function EmailInboxBulkView({
         </button>
         {providerSectionExpanded && (
           <div className="bulk-view-provider-body">
-            <EmailProvidersSection
-              theme="professional"
-              emailAccounts={providerAccounts}
+              <EmailProvidersSection
+                theme="professional"
+                emailAccounts={providerAccounts}
               isLoadingEmailAccounts={isLoadingProviderAccounts}
               selectedEmailAccountId={selectedProviderAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
-            />
+              />
           </div>
         )}
       </div>

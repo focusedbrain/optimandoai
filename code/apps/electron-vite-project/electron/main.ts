@@ -7709,6 +7709,25 @@ app.whenReady().then(async () => {
       }
     })
     
+    // PATCH /api/email/accounts/:id/processing-pause — pause/resume sync (non-destructive)
+    httpApp.patch('/api/email/accounts/:id/processing-pause', async (req, res) => {
+      try {
+        const { id } = req.params
+        const paused = req.body?.paused
+        if (typeof paused !== 'boolean') {
+          res.status(400).json({ ok: false, error: 'paused (boolean) is required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] PATCH /api/email/accounts/:id/processing-pause', id, paused)
+        const { emailGateway } = await import('./main/email/gateway')
+        const info = await emailGateway.setProcessingPaused(id, paused)
+        res.json({ ok: true, data: info })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error setting processing pause:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // DELETE /api/email/accounts/:id - Delete email account
     httpApp.delete('/api/email/accounts/:id', async (req, res) => {
       try {

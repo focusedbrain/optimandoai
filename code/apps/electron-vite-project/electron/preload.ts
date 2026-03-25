@@ -609,6 +609,8 @@ contextBridge.exposeInMainWorld('email', {
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
   getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
+  setProcessingPaused: (accountId: string, paused: boolean) =>
+    ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),
   testConnection: (accountId: string) => ipcRenderer.invoke('email:testConnection', accountId),
   getImapReconnectHints: (accountId: string) => ipcRenderer.invoke('email:getImapReconnectHints', accountId),
   updateImapCredentials: (

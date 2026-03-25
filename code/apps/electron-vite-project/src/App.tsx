@@ -51,7 +51,9 @@ function App() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string; status?: string }>>([])
+  const [emailAccounts, setEmailAccounts] = useState<
+    Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  >([])
 
   useEffect(() => {
     const root = document.documentElement
@@ -103,28 +105,32 @@ function App() {
     }
   }, [activeView])
 
-  // Load email accounts and listen for onAccountConnected
-  useEffect(() => {
-    async function loadEmailAccounts() {
-      if (typeof window.emailAccounts?.listAccounts !== 'function') return
-      try {
-        const res = await window.emailAccounts.listAccounts()
-        if (res?.ok && res?.data) {
-          setEmailAccounts(
-            res.data.map((a: { id: string; email: string }) => ({ id: a.id, email: a.email }))
-          )
-        }
-      } catch {
-        /* ignore */
+  const loadEmailAccounts = useCallback(async () => {
+    if (typeof window.emailAccounts?.listAccounts !== 'function') return
+    try {
+      const res = await window.emailAccounts.listAccounts()
+      if (res?.ok && res?.data) {
+        setEmailAccounts(
+          res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
+            id: a.id,
+            email: a.email,
+            status: a.status,
+            processingPaused: a.processingPaused === true ? true : undefined,
+          })),
+        )
       }
+    } catch {
+      /* ignore */
     }
+  }, [])
+
+  useEffect(() => {
     loadEmailAccounts()
     const unsub = window.emailAccounts?.onAccountConnected?.(async () => {
-      // Refresh account list only — do not enable auto-sync or Pull; user opts in via Inbox UI.
       await loadEmailAccounts()
     })
     return () => unsub?.()
-  }, [])
+  }, [loadEmailAccounts])
 
   /** Inbox → Handshakes: reuse app-level handshake selection (same as picking a row in HandshakeView). */
   const handleNavigateToHandshakeFromInbox = useCallback((handshakeId: string) => {
@@ -215,6 +221,7 @@ function App() {
           inboxBulkMode ? (
             <EmailInboxBulkView
               accounts={emailAccounts}
+              onEmailAccountsChanged={loadEmailAccounts}
               selectedMessageId={selectedMessageId}
               onSelectMessage={(id) => {
                 setSelectedMessageId(id)
@@ -227,6 +234,7 @@ function App() {
           ) : (
             <EmailInboxView
               accounts={emailAccounts}
+              onEmailAccountsChanged={loadEmailAccounts}
               selectedMessageId={selectedMessageId}
               onSelectMessage={(id) => {
                 setSelectedMessageId(id)
