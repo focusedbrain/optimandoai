@@ -2415,7 +2415,7 @@ export default function EmailInboxBulkView({
   const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
   const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
 
-  /** Infinite scroll: load next page when sentinel enters view (IntersectionObserver; root = `.bulk-view-content`). */
+  /** Infinite scroll: sentinel vs IntersectionObserver root = `.bulk-view-content` (sole vertical scrollport for chrome + grid). */
   useEffect(() => {
     const root = bulkScrollContainerRef.current
     const sentinel = bulkLoadSentinelRef.current
