@@ -45,6 +45,11 @@ import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
 
+/** After Auto-Sort finishes, show "Review Session" briefly then fade out (see `autosortReviewBanner`). */
+const AUTOSORT_REVIEW_BANNER_VISIBLE_MS = 5500
+
+type AutosortReviewBannerState = { sessionId: string; fading: boolean }
+
 /** Remote orchestrator queue row indicator (latest row per message from list query). */
 function RemoteSyncStatusDot({ msg }: { msg: InboxMessage }) {
   const st = msg.remote_queue_status
@@ -1855,8 +1860,8 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
-  /* Session id + review/history toggles — populated by later AutoSort session prompts */
-  const [lastSessionId, setLastSessionId] = useState<string | null>(null)
+  /** Transient CTA after a successful Auto-Sort (not a persistent dock slot — fades out and unmounts). */
+  const [autosortReviewBanner, setAutosortReviewBanner] = useState<AutosortReviewBannerState | null>(null)
   const [showSessionReview, setShowSessionReview] = useState<string | null>(null)
   const [showSessionHistory, setShowSessionHistory] = useState(false)
   /** One-line summary after a bulk Auto-Sort run (moved / kept / failed counts). */
@@ -1905,6 +1910,23 @@ export default function EmailInboxBulkView({
       bulkAnalyzeStreamCleanupRef.current.clear()
     }
   }, [])
+
+  /** After Auto-Sort completes, keep "Review Session" visible briefly then start fade-out. */
+  useEffect(() => {
+    if (!autosortReviewBanner || autosortReviewBanner.fading) return
+    const id = window.setTimeout(() => {
+      setAutosortReviewBanner((b) => (b && !b.fading ? { sessionId: b.sessionId, fading: true } : b))
+    }, AUTOSORT_REVIEW_BANNER_VISIBLE_MS)
+    return () => clearTimeout(id)
+  }, [autosortReviewBanner?.sessionId, autosortReviewBanner?.fading])
+
+  /** When fading with reduced motion, `transitionend` may not run — unmount after a tick. */
+  useEffect(() => {
+    if (!autosortReviewBanner?.fading) return
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const id = window.setTimeout(() => setAutosortReviewBanner(null), 80)
+    return () => clearTimeout(id)
+  }, [autosortReviewBanner?.fading, autosortReviewBanner?.sessionId])
 
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
@@ -2391,7 +2413,7 @@ export default function EmailInboxBulkView({
   const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
   const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
 
-  /** Infinite scroll: load next page when sentinel enters the list scroll area (IntersectionObserver; root = scroll container). */
+  /** Infinite scroll: load next page when sentinel enters view (IntersectionObserver; root = `.bulk-view-content`). */
   useEffect(() => {
     const root = bulkScrollContainerRef.current
     const sentinel = bulkLoadSentinelRef.current
@@ -3029,6 +3051,7 @@ export default function EmailInboxBulkView({
     setAiSortProgress({ done: 0, total: 0, label: 'Gathering messages…', phase: 'sorting' })
     setConcurrentSortNotice(null)
     setAiSortOutcomeSummary(null)
+    setAutosortReviewBanner(null)
     try {
       const sessionApi = window.autosortSession
       if (sessionApi?.create) {
@@ -3102,7 +3125,7 @@ export default function EmailInboxBulkView({
           phase: 'summarizing',
         })
         await sessionApi.generateSummary(sessionId)
-        setLastSessionId(sessionId)
+        setAutosortReviewBanner({ sessionId, fading: false })
       }
     } catch (err) {
       console.error('[AutoSort] Session error:', err)
@@ -4126,7 +4149,7 @@ export default function EmailInboxBulkView({
 
   const showBulkStatusDock =
     Boolean(aiSortProgress) ||
-    Boolean(lastSessionId) ||
+    Boolean(autosortReviewBanner) ||
     Boolean(sendEmailToast) ||
     Boolean(concurrentSortNotice) ||
     Boolean(aiSortOutcomeSummary)
@@ -5050,8 +5073,8 @@ export default function EmailInboxBulkView({
         )}
       </div>
 
-      {/* Content */}
-      <div className="bulk-view-content">
+      {/* Content — primary scrollport for list + chrome (IntersectionObserver root for infinite scroll) */}
+      <div className="bulk-view-content" ref={bulkScrollContainerRef}>
         {error ? (
           <div className="bulk-view-content-message bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}
@@ -5101,14 +5124,25 @@ export default function EmailInboxBulkView({
                       </span>
                     </div>
                   ) : null}
-                  {!aiSortProgress && lastSessionId ? (
-                    <button
-                      type="button"
-                      className="autosort-review-btn"
-                      onClick={() => setShowSessionReview(lastSessionId)}
+                  {!aiSortProgress && autosortReviewBanner ? (
+                    <div
+                      className={`bulk-view-autosort-review-banner-wrap${autosortReviewBanner.fading ? ' bulk-view-autosort-review-banner-wrap--out' : ''}`}
+                      onTransitionEnd={(e) => {
+                        if (e.target !== e.currentTarget || e.propertyName !== 'opacity') return
+                        setAutosortReviewBanner((b) => (b?.fading ? null : b))
+                      }}
                     >
-                      ▶ Review Session
-                    </button>
+                      <button
+                        type="button"
+                        className="autosort-review-btn"
+                        onClick={() => {
+                          setShowSessionReview(autosortReviewBanner.sessionId)
+                          setAutosortReviewBanner(null)
+                        }}
+                      >
+                        ▶ Review Session
+                      </button>
+                    </div>
                   ) : null}
                   {sendEmailToast ? (
                     <div
@@ -5158,7 +5192,7 @@ export default function EmailInboxBulkView({
                 </div>
               ) : null}
             </div>
-            <div className="bulk-view-grid-scroll" ref={bulkScrollContainerRef}>
+            <div className="bulk-view-grid-scroll">
           <div
             className={`bulk-view-grid ${isSortingActive ? 'bulk-view-grid--analyzing' : ''}`}
             title="Keyboard: j/k or ↑↓ nav, Enter expand, a archive, d delete, Space primary action"

@@ -1854,9 +1854,14 @@ body {
   }
 }
 
-.bulk-view--compact .bulk-view-row {
+/* Compact collapsed: fixed row height + inner AI scroll; message remains a short teaser */
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) {
+  min-height: 184px;
   height: 184px;
   max-height: 184px;
+}
+
+.bulk-view--compact .bulk-view-row {
   border-radius: 8px;
   --bulk-shell-inset-t: 5px;
   --bulk-shell-inset-b: 5px;
@@ -1882,6 +1887,7 @@ body {
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-message-scroll,
 .bulk-view--compact .bulk-view-row--expanded .bulk-view-message-body {
   overflow: visible;
+  max-height: none;
 }
 
 .bulk-view--compact .bulk-view-message {
@@ -2789,24 +2795,25 @@ body {
   min-height: 0; /* FIX: viewport clipping */
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* FIX: viewport clipping */
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 24px 28px;
 }
 
-/* Single-pane states (error / loading / empty) — scroll inside message area */
+/* Single-pane states (error / loading / empty) — parent `.bulk-view-content` scrolls if needed */
 .bulk-view-content-message {
   flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  min-height: auto;
+  overflow: visible;
 }
 
-/* Message list: chrome (pagination + sort status) stays above; grid scrolls independently */
+/* Message list: chrome + grid stack; height follows content; scroll is on `.bulk-view-content` */
 .bulk-view-content-body {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   gap: 0;
 }
 
@@ -2897,6 +2904,23 @@ body {
   line-height: 1.35;
 }
 
+/* Wraps transient "Review Session" CTA — opacity fade then unmount (EmailInboxBulkView). */
+.bulk-view-autosort-review-banner-wrap {
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+
+.bulk-view-autosort-review-banner-wrap--out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulk-view-autosort-review-banner-wrap {
+    transition: none;
+  }
+}
+
 .autosort-review-btn {
   display: inline-flex;
   align-items: center;
@@ -2918,12 +2942,8 @@ body {
 }
 
 .bulk-view-grid-scroll {
-  flex: 1;
-  min-height: 0; /* FIX: viewport clipping — flex child respects parent height; enables scroll */
   padding-top: 8px;
   overflow-x: hidden;
-  overflow-y: auto; /* FIX: viewport clipping */
-  -webkit-overflow-scrolling: touch;
 }
 
 /* Background refresh (e.g. after AI Auto-Sort): thin strip, fixed height — does not collapse the grid */
@@ -3094,8 +3114,10 @@ body {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr auto;
   gap: 0;
-  height: 320px;
-  max-height: 320px;
+  /* Collapsed: minimum card height; row grows with message + analysis so the workspace scrolls once */
+  min-height: 320px;
+  height: auto;
+  max-height: none;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   overflow: hidden;
@@ -3241,10 +3263,10 @@ body {
 }
 
 .bulk-view-message-scroll {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
-  overflow-y: auto;
   overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .bulk-view-message-attachments-footer,
@@ -3464,14 +3486,14 @@ body {
 .bulk-view-ai .action-card-badges + .bulk-view-ai-inner {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .bulk-view-ai-inner > .bulk-action-card,
 .bulk-view-ai-inner > [class*="bulk-action-card"] {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .bulk-view-expand-btn {
@@ -3563,7 +3585,7 @@ body {
   flex: 1;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   cursor: pointer;
   background: linear-gradient(180deg, #eef2f7 0%, #f8fafc 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
@@ -3585,12 +3607,12 @@ body {
 }
 
 .bulk-view-ai-inner {
-  /* Flex chain: fill AI column shell; min-height 0 lets analyzed content scroll instead of pushing the footer */
+  /* Flex chain: fill AI column shell; content height flows to row + workspace scroll */
   display: flex;
   flex-direction: column;
   flex: 1 1 0%;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   align-self: stretch;
   background: #ffffff;
   border: 1px solid #d1d9e6;
@@ -3920,10 +3942,10 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(248, 250, 252, 0.5) 100%);
 }
 
-/* Prompt 29: card flex column; ONLY .bulk-action-card-body scrolls; footers (.bulk-action-card-buttons / draft toolbar) are siblings */
+/* Prompt 29: card column; body grows with content (workspace scroll). Compact collapsed rows re-enable inner scroll below. */
 .bulk-action-card.bulk-action-card--structured {
-  overflow: hidden;
-  height: 100%;
+  overflow: visible;
+  height: auto;
   min-height: 0;
 }
 
@@ -3934,26 +3956,56 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  overflow: hidden;
+  overflow: visible;
   min-height: 0;
-  height: 100%;
+  height: auto;
 }
 
-/* Single scrollport for all card variants that use .bulk-action-card-body */
+/* Card body participates in natural height; footers stay siblings in column layout */
 .bulk-action-card--structured .bulk-action-card-body,
 .bulk-action-card--loading .bulk-action-card-body,
 .bulk-action-card--failure .bulk-action-card-body,
 .bulk-action-card--fallback .bulk-action-card-body,
 .bulk-action-card--guidance .bulk-action-card-body {
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow-y: visible;
   padding: 8px;
   box-sizing: border-box;
+}
+
+/*
+ * Compact collapsed: restore fixed AI column + single inner scroll on the card body (row height capped).
+ */
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai .action-card-badges + .bulk-view-ai-inner,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai-inner {
+  overflow: hidden;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai-inner > .bulk-action-card,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai-inner > [class*='bulk-action-card'] {
+  overflow: hidden;
+  height: 100%;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-view-ai {
+  overflow: hidden;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card.bulk-action-card--structured {
+  height: 100%;
+  overflow: hidden;
+}
+
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--loading,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--failure,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--fallback,
+.bulk-view--compact .bulk-view-row:not(.bulk-view-row--expanded) .bulk-action-card--guidance {
+  height: 100%;
+  overflow: hidden;
 }
 
 .bulk-action-card-body::-webkit-scrollbar {
