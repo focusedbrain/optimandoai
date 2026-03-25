@@ -1,2 +1,2 @@
-REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com
-# Release: set GOOGLE_OAUTH_CLIENT_ID before vite build, or replace the first line with your Desktop OAuth client id.
+900632390085-261pmaap1tn6en8nd3pmh0dl19hqt2rl.apps.googleusercontent.com
+# Overridden at build time if GOOGLE_OAUTH_CLIENT_ID / WR_DESK_GOOGLE_OAUTH_CLIENT_ID is set (prepare script).
