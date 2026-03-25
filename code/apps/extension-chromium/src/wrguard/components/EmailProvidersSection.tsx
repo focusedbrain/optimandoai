@@ -24,7 +24,28 @@ function providerDisplayLabel(provider: EmailAccount['provider']): string {
   }
 }
 
-function RemoteSyncBadge({ provider }: { provider: EmailAccount['provider'] }) {
+function RemoteSyncBadge({
+  provider,
+  processingPaused,
+}: {
+  provider: EmailAccount['provider']
+  processingPaused?: boolean
+}) {
+  if (processingPaused) {
+    return (
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color: '#b45309',
+          letterSpacing: 0.2,
+        }}
+        title="Mail sync is paused — the account stays connected; click Resume to fetch mail again."
+      >
+        ⏸ Sync paused
+      </span>
+    )
+  }
   if (provider === 'microsoft365' || provider === 'gmail' || provider === 'zoho') {
     return (
       <span
@@ -78,6 +99,12 @@ function pausedRowNoteStyle(isLightTheme: boolean): React.CSSProperties {
 
 /** Status dot color + short label for the account row (IMAP auth / sync). */
 function accountConnectionBadge(account: EmailAccount): { dot: string; label: string } {
+  if (account.status === 'active' && account.processingPaused === true) {
+    return {
+      dot: '#d97706',
+      label: 'Account connected — mail sync is paused (Resume to fetch new mail)',
+    }
+  }
   switch (account.status) {
     case 'active':
       return { dot: '#22c55e', label: 'Connected' }
@@ -206,10 +233,14 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                   background: isLightTheme ? 'white' : 'rgba(255,255,255,0.08)',
                   borderRadius: '8px',
                   border:
-                    account.status === 'active'
+                    account.status === 'active' && account.processingPaused
                       ? isLightTheme
-                        ? '1px solid rgba(34,197,94,0.3)'
-                        : '1px solid rgba(34,197,94,0.4)'
+                        ? '1px solid rgba(217,119,6,0.45)'
+                        : '1px solid rgba(251,191,36,0.55)'
+                      : account.status === 'active'
+                        ? isLightTheme
+                          ? '1px solid rgba(34,197,94,0.3)'
+                          : '1px solid rgba(34,197,94,0.4)'
                       : account.status === 'error'
                         ? isLightTheme
                           ? '1px solid rgba(234,179,8,0.45)'
@@ -256,7 +287,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
                       <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
                       <span style={{ color: mutedColor, fontWeight: 500 }}>{providerDisplayLabel(account.provider)}</span>
                       <span style={{ color: mutedColor, fontWeight: 400 }}>·</span>
-                      <RemoteSyncBadge provider={account.provider} />
+                      <RemoteSyncBadge provider={account.provider} processingPaused={account.processingPaused} />
                       {account.processingPaused ? (
                         <span
                           style={{

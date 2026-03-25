@@ -2467,20 +2467,24 @@ Rules:
       errors: errors.length,
     }
     const pausedSkip = result.skipReason === 'processing_paused'
+    const pausedHint =
+      'Mail sync is paused for this account — no mail was fetched. Use Resume on the account card, then pull again.'
     const pullHint = pausedSkip
-      ? 'Processing is paused for this account — no mail was fetched.'
+      ? pausedHint
       : result.newMessages > 0
         ? `${result.newMessages} new message(s) pulled — run Auto-Sort to classify and enqueue lifecycle moves (unsorted mail stays in server Inbox until classified).`
         : undefined
 
     if (pausedSkip) {
+      const pausedMsg = `${pausedHint} (Connected Email Accounts → Resume.)`
       return {
-        ok: true,
+        ok: false,
+        error: pausedMsg,
         data: result,
         pullStats,
         pullHint,
         warningCount: 1,
-        syncWarnings: ['Processing is paused — Pull did not run. Resume the account to sync new mail.'],
+        syncWarnings: [pausedMsg],
       }
     }
 

@@ -383,7 +383,12 @@ function loadAccounts(): EmailAccountConfig[] {
             }
           }
         }
-        return decryptImapSmtpPasswords(next)
+        const withImap = decryptImapSmtpPasswords(next)
+        /** Only strict `true` means paused — clear legacy truthy garbage so resume/sync gates stay predictable. */
+        return {
+          ...withImap,
+          ...(withImap.processingPaused === true ? { processingPaused: true } : { processingPaused: undefined }),
+        }
       })
     } else {
       console.log('[EmailGateway] No accounts file found, starting fresh')
@@ -652,7 +657,10 @@ class EmailGateway implements IEmailGateway {
       throw new Error('Account not found')
     }
     const account = this.accounts[index]
-    account.processingPaused = paused
+    account.processingPaused = paused === true
+    if (!account.processingPaused) {
+      delete (account as { processingPaused?: boolean }).processingPaused
+    }
     account.updatedAt = Date.now()
     saveAccounts(this.accounts)
     return this.toAccountInfo(account)
