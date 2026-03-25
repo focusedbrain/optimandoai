@@ -1,6 +1,9 @@
 # Vite ephemeral config (sometimes dropped next to vite.config.ts)
 **/vite.config.ts.timestamp-*.mjs
 
+# Google OAuth Desktop client secret — keep local or inject via CI (prepare-google-oauth-resource.cjs); never commit real GOCSPX-
+apps/electron-vite-project/resources/google-oauth-client-secret.txt
+
 # Node and build artifacts
 node_modules/
 dist/
@@ -77,4 +80,5 @@ apps/extension-chromium/build124/
 apps/extension-chromium/build554/
 apps/extension-chromium/build774/
 apps/extension-chromium/build224/
+apps/extension-chromium/build2334/
 

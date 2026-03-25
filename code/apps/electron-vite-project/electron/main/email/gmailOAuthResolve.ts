@@ -14,6 +14,7 @@ import {
   getGoogleOauthClientIdEnvVarNamesPresent,
   getGoogleOauthClientSecretEnvVarNamesPresent,
   resolveBuiltinGoogleOAuthClientSecret,
+  warnOnceGmailOAuthBuiltinSecretMissing,
   type BuiltinGoogleOAuthClientResolution,
 } from './googleOAuthBuiltin'
 import { getCredentialsForOAuth } from './credentials'
@@ -86,6 +87,9 @@ export async function resolveGmailOAuthForConnect(
     const meta = assertBuiltinMetaConfigured()
     assertBuiltinPublicClientMatchesShippedResource(meta)
     const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(meta)
+    if (meta.clientId && !builtinSecret) {
+      warnOnceGmailOAuthBuiltinSecretMissing()
+    }
     const resolved: ResolvedGmailOAuth = {
       clientId: meta.clientId,
       ...(builtinSecret ? { clientSecret: builtinSecret } : {}),

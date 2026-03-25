@@ -232,8 +232,8 @@ export function resolveBuiltinGoogleOAuthClientSecret(
   } catch {
     return undefined
   }
-  const n = normalizeGoogleOAuthClientSecret(raw)
-  return n ?? undefined
+  const normalized = normalizeGoogleOAuthClientSecret(raw)
+  return normalized ?? undefined
 }
 
 /**
@@ -446,10 +446,19 @@ export function getPackagedResourceGoogleOAuthClientId(): string | null {
   }
 }
 
-const BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN =
-  '[Gmail OAuth] WARNING: Builtin client_id is configured but client_secret is missing or placeholder. Gmail connect will fail at token exchange. Set GOOGLE_OAUTH_CLIENT_SECRET in env or update resources/google-oauth-client-secret.txt.'
+export const BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN =
+  '[Gmail OAuth] ⚠ Builtin client_id is configured but client_secret is missing or placeholder. ' +
+  'Gmail connect will fail at token exchange. ' +
+  'Set GOOGLE_OAUTH_CLIENT_SECRET in env or update resources/google-oauth-client-secret.txt with the real GOCSPX-... value.'
 
-let warnedBuiltinGmailOAuthClientSecretMissing = false
+/** One operational warning per process (startup resource check + standard connect resolve share this). */
+let warnedGmailOAuthBuiltinSecretOperational = false
+
+export function warnOnceGmailOAuthBuiltinSecretMissing(): void {
+  if (warnedGmailOAuthBuiltinSecretOperational) return
+  console.warn(BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN)
+  warnedGmailOAuthBuiltinSecretOperational = true
+}
 
 function bundledSecretResourceIsValid(secretFilePath: string): boolean {
   try {
@@ -466,7 +475,7 @@ function bundledSecretResourceIsValid(secretFilePath: string): boolean {
  * `google-oauth-client-secret.txt` is missing, empty, or still a placeholder (does not throw).
  */
 export function warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder(): void {
-  if (warnedBuiltinGmailOAuthClientSecretMissing) return
+  if (warnedGmailOAuthBuiltinSecretOperational) return
   try {
     if (app.isPackaged) {
       const resourcesPath = process.resourcesPath || ''
@@ -476,8 +485,7 @@ export function warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder(): v
       if (!idOk) return
       const secretPath = path.join(resourcesPath, PACKAGED_SECRET_BASENAME)
       if (bundledSecretResourceIsValid(secretPath)) return
-      console.warn(BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN)
-      warnedBuiltinGmailOAuthClientSecretMissing = true
+      warnOnceGmailOAuthBuiltinSecretMissing()
       return
     }
 
@@ -489,8 +497,7 @@ export function warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder(): v
       if (!idOk) continue
       const secretPath = path.join(path.dirname(idPath), PACKAGED_SECRET_BASENAME)
       if (bundledSecretResourceIsValid(secretPath)) return
-      console.warn(BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN)
-      warnedBuiltinGmailOAuthClientSecretMissing = true
+      warnOnceGmailOAuthBuiltinSecretMissing()
       return
     }
   } catch {
