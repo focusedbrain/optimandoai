@@ -6,6 +6,9 @@
   "name": "Counter Logic Component",
   "description": "Provides state management and increment logic for counter operations. Handles counter value state and triggers increment actions.",
   "intent_tags": ["counter", "logic", "increment", "state", "behavior", "state_management"],
+  "blocks": [
+    "logic-state-set-v1"
+  ],
 
   "state": {
     "count": 0
