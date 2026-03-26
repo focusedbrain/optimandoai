@@ -484,6 +484,29 @@ export function isHandshakeActive(db: any, handshakeId: string, now: Date): bool
   return true
 }
 
+/**
+ * Explains why a handshake is not eligible for operations that require isHandshakeActive.
+ * Does not change isHandshakeActive semantics — use for user-facing diagnostics only.
+ */
+export function diagnoseHandshakeInactive(
+  db: any,
+  handshakeId: string,
+  now: Date,
+): { active: true } | { active: false; reason: string } {
+  const record = getHandshakeRecord(db, handshakeId)
+  if (!record) return { active: false, reason: 'Handshake not found' }
+  if (record.state !== HS.ACTIVE) {
+    return { active: false, reason: `Handshake is in state '${record.state}', expected 'ACTIVE'` }
+  }
+  if (record.expires_at) {
+    const expiresAt = Date.parse(record.expires_at)
+    if (!isNaN(expiresAt) && now.getTime() > expiresAt) {
+      return { active: false, reason: `Handshake expired at ${record.expires_at}` }
+    }
+  }
+  return { active: true }
+}
+
 export function getEffectiveTier(
   db: any,
   handshakeId: string,

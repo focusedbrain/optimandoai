@@ -17,6 +17,18 @@ export type { SelectedHandshakeRecipient }
 /** @deprecated Use SelectedHandshakeRecipient instead */
 export type SelectedRecipient = SelectedHandshakeRecipient
 
+/** Relative expiry hint; hidden when more than 24h away or no expiry. */
+function formatExpiry(expiresAt: string | null | undefined): string | null {
+  if (!expiresAt) return null
+  const ms = Date.parse(expiresAt) - Date.now()
+  if (Number.isNaN(ms) || ms < 0) return 'Expired'
+  if (ms > 86400000) return null
+  const hours = Math.floor(ms / 3600000)
+  const minutes = Math.floor((ms % 3600000) / 60000)
+  if (hours > 0) return `Expires in ${hours}h`
+  return `Expires in ${minutes}m`
+}
+
 export interface RecipientHandshakeSelectProps {
   handshakes: HandshakeRecord[]
   selectedHandshakeId: string | null
@@ -154,6 +166,8 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
           const isSelected = selectedHandshakeId === hs.handshake_id
           const hasKeys = hasHandshakeKeyMaterial(hs)
           const isSelectable = hasKeys && !disabled
+          const expiryHint = hasKeys ? formatExpiry(hs.expires_at) : null
+          const expiryIsUrgent = expiryHint != null && expiryHint !== 'Expired'
 
           return (
             <div
@@ -231,6 +245,31 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 >
                   <span>Activated:</span>
                   <span>{new Date(hs.activated_at).toLocaleDateString()}</span>
+                </div>
+              )}
+              {expiryHint && hasKeys && (
+                <div
+                  style={{
+                    fontSize: '10px',
+                    marginTop: hs.activated_at ? '4px' : 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color:
+                      expiryHint === 'Expired'
+                        ? isStandard
+                          ? '#b91c1c'
+                          : '#fca5a5'
+                        : expiryIsUrgent
+                          ? isStandard
+                            ? '#b45309'
+                            : '#fcd34d'
+                          : mutedColor,
+                    fontWeight: expiryIsUrgent || expiryHint === 'Expired' ? 600 : 400,
+                  }}
+                >
+                  <span>{expiryIsUrgent ? '⏱' : expiryHint === 'Expired' ? '⛔' : ''}</span>
+                  <span>{expiryHint}</span>
                 </div>
               )}
             </div>

@@ -295,6 +295,19 @@ export async function sendBeapViaP2P(
 }
 
 /**
+ * Lightweight pre-check before building a BEAP package for P2P send.
+ * Aligns with handshake.sendBeapViaP2P gates (active + P2P endpoint) without building ciphertext.
+ */
+export async function checkHandshakeSendReady(
+  handshakeId: string,
+): Promise<{ ready: boolean; error?: string }> {
+  return sendHandshakeRpc<{ ready: boolean; error?: string }>(
+    'handshake.checkSendReady',
+    { handshakeId },
+  )
+}
+
+/**
  * Normalize a backend HandshakeRecord into the extension-side projection.
  * The backend stores initiator/acceptor as nested objects; we flatten to
  * counterparty_email / counterparty_user_id for the UI.
@@ -315,6 +328,7 @@ function normalizeRecord(raw: any): HandshakeRecord {
     sharing_mode: raw.sharing_mode ?? undefined,
     created_at: raw.created_at,
     activated_at: raw.activated_at ?? undefined,
+    expires_at: raw.expires_at ?? null,
     peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
     peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
     p2pEndpoint: raw.p2p_endpoint ?? undefined,

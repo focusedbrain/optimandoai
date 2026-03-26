@@ -619,7 +619,7 @@ export interface PackageBuildResult {
 
 export interface DeliveryResult {
   success: boolean
-  action: 'sent' | 'copied' | 'downloaded'
+  action: 'sent' | 'copied' | 'downloaded' | 'preflight'
   message: string
   details?: {
     to?: string
@@ -2055,6 +2055,19 @@ export async function executeP2PAction(
 export async function executeDeliveryAction(
   config: BeapPackageConfig
 ): Promise<DeliveryResult> {
+  // Pre-flight: verify handshake is still sendable before expensive qBEAP build (P2P only)
+  if (config.deliveryMethod === 'p2p' && config.selectedRecipient?.handshake_id) {
+    const { checkHandshakeSendReady } = await import('../../handshake/handshakeRpc')
+    const readyCheck = await checkHandshakeSendReady(config.selectedRecipient.handshake_id)
+    if (!readyCheck.ready) {
+      return {
+        success: false,
+        action: 'preflight',
+        message: readyCheck.error ?? 'Handshake is no longer available for sending',
+      }
+    }
+  }
+
   // Build the package first (async for qBEAP encryption)
   const buildResult = await buildPackage(config)
   

@@ -20,7 +20,7 @@ import {
   markPlainEmailProcessed,
 } from './db'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
-import { authorizeAction, isHandshakeActive } from './enforcement'
+import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive } from './enforcement'
 import { revokeHandshake } from './revocation'
 import {
   buildInitiateCapsule,
@@ -581,11 +581,12 @@ export async function handleHandshakeRPC(
         return { success: false, error: 'handshakeId and packageJson are required' }
       }
       if (!db) return { success: false, error: 'Database unavailable' }
+      const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
+      if (!activeCheck.active) {
+        return { success: false, error: activeCheck.reason }
+      }
       const record = getHandshakeRecord(db, handshakeId)
       if (!record) return { success: false, error: 'Handshake not found' }
-      if (!isHandshakeActive(db, handshakeId, new Date())) {
-        return { success: false, error: 'Handshake is not active' }
-      }
       const targetEndpoint = record.p2p_endpoint?.trim()
       if (!targetEndpoint) {
         return { success: false, error: 'Recipient has no P2P endpoint' }
@@ -599,6 +600,18 @@ export async function handleHandshakeRPC(
       enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
       await processOutboundQueue(db, _getOidcToken)
       return { success: true }
+    }
+
+    case 'handshake.checkSendReady': {
+      const { handshakeId } = params as { handshakeId: string }
+      if (!handshakeId) return { ready: false, error: 'handshakeId is required' }
+      if (!db) return { ready: false, error: 'Database unavailable' }
+      const record = getHandshakeRecord(db, handshakeId)
+      if (!record) return { ready: false, error: 'Handshake not found' }
+      const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
+      if (!activeCheck.active) return { ready: false, error: activeCheck.reason }
+      if (!record.p2p_endpoint?.trim()) return { ready: false, error: 'Recipient has no P2P endpoint' }
+      return { ready: true }
     }
 
     case 'handshake.isActive': {

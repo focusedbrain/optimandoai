@@ -7,7 +7,15 @@
 
 // ── Handshake record as returned by the backend ──
 
-export type HandshakeState = 'PENDING_ACCEPT' | 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+/** Mirrors backend `HandshakeState` (electron/main/handshake/types.ts). */
+export type HandshakeState =
+  | 'DRAFT'
+  | 'PENDING_ACCEPT'
+  | 'PENDING_REVIEW'
+  | 'ACCEPTED'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'REVOKED'
 
 export interface HandshakeRecord {
   readonly handshake_id: string
@@ -19,6 +27,8 @@ export interface HandshakeRecord {
   readonly sharing_mode?: 'receive-only' | 'reciprocal'
   readonly created_at: string
   readonly activated_at?: string
+  /** Handshake lifetime end (ISO), when set by backend */
+  readonly expires_at?: string | null
   /** Peer's X25519 public key (base64) for qBEAP key agreement */
   readonly peerX25519PublicKey?: string
   /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement */

@@ -1377,6 +1377,11 @@ export function listHandshakeRecords(
   if (filter?.state) {
     sql += ' AND state = ?'
     params.push(filter.state)
+    // Align with isHandshakeActive(): ACTIVE rows past expires_at are not listable as active.
+    if (filter.state === 'ACTIVE') {
+      sql += ' AND (expires_at IS NULL OR expires_at > ?)'
+      params.push(new Date().toISOString())
+    }
   }
   if (filter?.relationship_id) {
     sql += ' AND relationship_id = ?'
@@ -1559,6 +1564,21 @@ export function markPlainEmailProcessed(db: any, id: number): void {
 
 // ── Expiry Helpers ──
 
+/**
+ * Expires handshakes past their expires_at deadline.
+ *
+ * Only PENDING_ACCEPT and ACTIVE states are expired by this job:
+ * - PENDING_ACCEPT: initiator waiting for acceptor response
+ * - ACTIVE: fully established handshake past its validity window
+ *
+ * States NOT expired by this job (by design):
+ * - ACCEPTED: roundtrip (context exchange) not yet complete — these
+ *   should not be silently expired while negotiation is in progress.
+ *   Consider a separate cleanup for long-stale ACCEPTED rows if needed.
+ * - PENDING_REVIEW: acceptor reviewing imported capsule — same rationale.
+ * - DRAFT: local-only, not yet transmitted.
+ * - EXPIRED / REVOKED: terminal states, no further transition needed.
+ */
 export function expirePendingHandshakes(db: any, now: Date): number {
   const result = db.prepare(
     `UPDATE handshakes SET state = 'EXPIRED'
@@ -1567,6 +1587,7 @@ export function expirePendingHandshakes(db: any, now: Date): number {
   return result.changes
 }
 
+/** Companion to {@link expirePendingHandshakes}: transitions ACTIVE → EXPIRED when past expires_at. See module comment above for states intentionally excluded. */
 export function expireActiveHandshakes(db: any, now: Date): number {
   const result = db.prepare(
     `UPDATE handshakes SET state = 'EXPIRED'

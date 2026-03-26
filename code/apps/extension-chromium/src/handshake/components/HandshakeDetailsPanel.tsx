@@ -46,10 +46,13 @@ interface HandshakeDetailsPanelProps {
 // =============================================================================
 
 const STATE_CONFIG: Record<HandshakeState, { label: string; color: string; bg: string }> = {
-  PENDING_ACCEPT: { label: 'Pending',  color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  ACTIVE:         { label: 'Active',   color: '#22c55e', bg: 'rgba(34,197,94,0.15)'  },
-  REVOKED:        { label: 'Revoked',  color: '#ef4444', bg: 'rgba(239,68,68,0.15)'  },
-  EXPIRED:        { label: 'Expired',  color: '#6b7280', bg: 'rgba(107,114,128,0.15)'},
+  DRAFT:          { label: 'Draft',            color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' },
+  PENDING_ACCEPT: { label: 'Pending',          color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  PENDING_REVIEW: { label: 'Review pending',   color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  ACCEPTED:       { label: 'Accepted',         color: '#0ea5e9', bg: 'rgba(14,165,233,0.15)' },
+  ACTIVE:         { label: 'Active',           color: '#22c55e', bg: 'rgba(34,197,94,0.15)'  },
+  EXPIRED:        { label: 'Expired',          color: '#6b7280', bg: 'rgba(107,114,128,0.15)' },
+  REVOKED:        { label: 'Revoked',          color: '#ef4444', bg: 'rgba(239,68,68,0.15)'  },
 }
 
 // =============================================================================
@@ -200,7 +203,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
   replyComposerConfig,
 }) => {
   const isProfessional = theme === 'professional'
-  const stateInfo = STATE_CONFIG[handshake.state] ?? STATE_CONFIG.EXPIRED
+  const stateInfo = STATE_CONFIG[handshake.state]
 
   // ── Tab state ────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<PanelTab>(initialTab)
@@ -462,7 +465,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
                   border: `1px solid ${stateInfo.color}33`,
                 }}
               >
-                {handshake.state === 'ACTIVE' ? '✓' : '○'} {stateInfo.label}
+                {handshake.state === 'ACTIVE' ? '✓' : handshake.state === 'ACCEPTED' ? '◐' : '○'} {stateInfo.label}
               </span>
               {handshake.activated_at && (
                 <span style={{ fontSize: '11px', color: dimColor }}>
@@ -492,7 +495,9 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
 
           {/* Actions section */}
           <div style={{ padding: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {handshake.state === 'PENDING_ACCEPT' && handshake.local_role === 'acceptor' && onAccept && (
+            {(handshake.state === 'PENDING_ACCEPT' || handshake.state === 'PENDING_REVIEW') &&
+              handshake.local_role === 'acceptor' &&
+              onAccept && (
               <button
                 onClick={() => onAccept(handshake.handshake_id)}
                 style={{ ...buttonStyle, background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', color: 'white' }}

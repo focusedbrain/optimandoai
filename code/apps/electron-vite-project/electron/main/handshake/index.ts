@@ -6,6 +6,7 @@ export { buildCloudSnippet } from './cloudSnippet'
 export {
   processHandshakeCapsule,
   isHandshakeActive,
+  diagnoseHandshakeInactive,
   getEffectiveTier,
   authorizeAction,
   resolveEffectivePolicy,

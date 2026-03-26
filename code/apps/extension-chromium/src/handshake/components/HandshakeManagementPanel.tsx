@@ -26,13 +26,24 @@ interface HandshakeManagementPanelProps {
   replyComposerConfig?: import('../../beap-messages/hooks/useReplyComposer').UseReplyComposerConfig
 }
 
-const STATE_ORDER: HandshakeState[] = ['ACTIVE', 'PENDING_ACCEPT', 'REVOKED', 'EXPIRED']
+const STATE_ORDER: HandshakeState[] = [
+  'ACTIVE',
+  'ACCEPTED',
+  'PENDING_ACCEPT',
+  'PENDING_REVIEW',
+  'DRAFT',
+  'REVOKED',
+  'EXPIRED',
+]
 
 const STATE_LABELS: Record<HandshakeState, string> = {
-  ACTIVE: 'Active',
+  DRAFT: 'Draft',
   PENDING_ACCEPT: 'Pending',
-  REVOKED: 'Revoked',
+  PENDING_REVIEW: 'Review',
+  ACCEPTED: 'Accepted',
+  ACTIVE: 'Active',
   EXPIRED: 'Expired',
+  REVOKED: 'Revoked',
 }
 
 export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> = ({
@@ -226,7 +237,8 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
                   isProfessional={isProfessional}
                   onClick={() => setSelectedHandshake(hs)}
                   onAccept={
-                    hs.state === 'PENDING_ACCEPT' && hs.local_role === 'acceptor'
+                    (hs.state === 'PENDING_ACCEPT' || hs.state === 'PENDING_REVIEW') &&
+                    hs.local_role === 'acceptor'
                       ? () => setAcceptingHandshake(hs)
                       : undefined
                   }
@@ -249,7 +261,9 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
               onViewInInbox={onViewInInbox}
               replyComposerConfig={replyComposerConfig}
               onAccept={
-                selectedHandshake.state === 'PENDING_ACCEPT' && selectedHandshake.local_role === 'acceptor'
+                (selectedHandshake.state === 'PENDING_ACCEPT' ||
+                  selectedHandshake.state === 'PENDING_REVIEW') &&
+                selectedHandshake.local_role === 'acceptor'
                   ? () => { setAcceptingHandshake(selectedHandshake); setSelectedHandshake(null) }
                   : undefined
               }
@@ -300,10 +314,13 @@ const HandshakeListItem: React.FC<{
   onAccept?: () => void
 }> = ({ handshake, isProfessional, onClick, onAccept }) => {
   const stateColors: Record<HandshakeState, string> = {
-    ACTIVE: '#22c55e',
+    DRAFT: '#94a3b8',
     PENDING_ACCEPT: '#f59e0b',
-    REVOKED: '#ef4444',
+    PENDING_REVIEW: '#f59e0b',
+    ACCEPTED: '#0ea5e9',
+    ACTIVE: '#22c55e',
     EXPIRED: '#6b7280',
+    REVOKED: '#ef4444',
   }
   const stateColor = stateColors[handshake.state] ?? '#6b7280'
 
@@ -325,9 +342,13 @@ const HandshakeListItem: React.FC<{
           <span style={{ fontSize: '16px' }}>
             {handshake.state === 'ACTIVE'
               ? (hasHandshakeKeyMaterial(handshake) ? '🔒' : '⚠️')
-              : handshake.state === 'PENDING_ACCEPT'
+              : handshake.state === 'PENDING_ACCEPT' || handshake.state === 'PENDING_REVIEW'
                 ? '⏳'
-                : '🔒'}
+                : handshake.state === 'ACCEPTED'
+                  ? '🔄'
+                  : handshake.state === 'DRAFT'
+                    ? '📝'
+                    : '🔒'}
           </span>
           <div>
             <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
