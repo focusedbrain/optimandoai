@@ -4,6 +4,7 @@
   "type": "atomic",
   "group": "ui.button",
   "security": "low",
+  "provides": ["button", "save_action", "trigger_action"],
 
   "intent_tags": ["button", "click", "notes", "save"],
   "description": "Renders a button typically used to save notes; emits a click event for handlers to persist state.",

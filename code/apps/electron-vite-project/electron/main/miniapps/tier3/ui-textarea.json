@@ -4,6 +4,7 @@
   "type": "atomic",
   "group": "ui.input",
   "security": "low",
+  "provides": ["textarea", "input_field", "multiline_input", "notes_input"],
 
   "intent_tags": ["input", "textarea", "notes"],
   "description": "Captures multiline text input (notes) and stores it in local runtime state.",

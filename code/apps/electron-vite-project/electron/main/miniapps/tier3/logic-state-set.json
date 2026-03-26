@@ -4,6 +4,7 @@
   "type": "atomic",
   "group": "logic.state",
   "security": "medium",
+  "provides": ["save_action", "persist", "state_persist", "memory_write"],
 
   "intent_tags": ["state", "memory", "notes", "save", "persist"],
   "description": "Stores a value from runtime context into session-level state (used to persist notes) when triggered by an event.",

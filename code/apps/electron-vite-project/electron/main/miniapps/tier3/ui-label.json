@@ -4,6 +4,7 @@
   "type": "atomic",
   "group": "ui.text",
   "security": "low",
+  "provides": ["label", "text_label", "display", "heading"],
 
   "intent_tags": ["text", "label", "notes", "heading"],
   "description": "Displays static text such as a label or heading for notes panels.",

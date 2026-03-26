@@ -4,6 +4,7 @@
   "type": "atomic",
   "group": "ui.input",
   "security": "low",
+  "provides": ["input_field", "text_input", "singleline_input"],
 
   "intent_tags": ["input", "text", "notes"],
   "description": "Captures a single-line text input (notes title / label) and stores it in local runtime state.",
