@@ -97,7 +97,7 @@ describe('qBEAP Key Agreement', () => {
 })
 
 // =============================================================================
-// Test C: Encrypted content never appears in EmailTransportContract
+// Test C: Encrypted payload does not leak into package metadata/header fields
 // =============================================================================
 
 describe('Transport Leak Prevention', () => {
@@ -128,19 +128,17 @@ describe('Transport Leak Prevention', () => {
     }
   })
 
-  it('should fail build if encrypted message appears in transport plaintext', async () => {
-    const SECRET = 'SECRET_CONTENT'
+  it('should succeed when public transport text matches encrypted message (independent fields)', async () => {
+    const SAME = 'SAME_USER_CHOICE_TEXT'
     const config = createPrivateConfig({
-      // Transport plaintext contains the encrypted content (violation!)
-      messageBody: `Here is the message: ${SECRET}`,
-      encryptedMessage: SECRET
+      messageBody: `Here is the message: ${SAME}`,
+      encryptedMessage: SAME
     })
 
     const result = await buildPackage(config)
-    
-    expect(result.success).toBe(false)
-    expect(result.error).toContain('SECURITY')
-    expect(result.error).toContain('leaked')
+
+    expect(result.success).toBe(true)
+    expect(result.package).toBeDefined()
   })
 })
 
@@ -364,11 +362,15 @@ describe('Result Type Consistency', () => {
 
   it('should always return consistent result shape for failure', async () => {
     const config = createPrivateConfig({
-      messageBody: 'LEAK',
-      encryptedMessage: 'LEAK' // Same content = leak
+      selectedRecipient: {
+        ...createBaseConfig().selectedRecipient!,
+        peerX25519PublicKey: undefined,
+        peerPQPublicKey: undefined,
+      },
+      encryptedMessage: 'test',
     })
     const result = await buildPackage(config)
-    
+
     expect(typeof result.success).toBe('boolean')
     expect(result.success).toBe(false)
     expect(typeof result.error).toBe('string')

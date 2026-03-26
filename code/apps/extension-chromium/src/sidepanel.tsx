@@ -489,31 +489,6 @@ function SidepanelOrchestrator() {
       return
     }
 
-    const trimmedEncrypted = beapDraftEncryptedMessage?.trim()
-    if (beapRecipientMode === 'private' && trimmedEncrypted) {
-      if (beapDraftMessage.includes(trimmedEncrypted)) {
-        setNotification({
-          message:
-            'The public message must not contain the encrypted message content. ' +
-            'The public field is transport-visible — use different text than your private message.',
-          type: 'error',
-        })
-        setTimeout(() => setNotification(null), 6000)
-        return
-      }
-      const trimmedPublic = beapDraftMessage.trim()
-      if (trimmedPublic && trimmedEncrypted.includes(trimmedPublic)) {
-        setNotification({
-          message:
-            'The encrypted message contains the same text as the public message. ' +
-            'Use distinct content for each field — the public message is visible in transport.',
-          type: 'error',
-        })
-        setTimeout(() => setNotification(null), 6000)
-        return
-      }
-    }
-
     const useHandshakeRefresh =
       handshakeDelivery === 'email' &&
       beapRecipientMode === 'private' &&

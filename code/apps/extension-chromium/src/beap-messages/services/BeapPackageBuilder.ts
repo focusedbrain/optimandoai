@@ -1004,14 +1004,6 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   }
   const processingEventOffer = processingEventsResult.offer
 
-
-  if (hasEncryptedMessage && transportPlaintext.includes(config.encryptedMessage!)) {
-    return {
-      success: false,
-      error: 'SECURITY: encryptedMessage leaked into transport plaintext'
-    }
-  }
-
   // ==========================================================================
   // Compute Hashes (needed for header construction)
   // ==========================================================================
@@ -1836,38 +1828,6 @@ function buildEmailTransportContract(
   return { subject, body, attachments }
 }
 
-/**
- * Validate email transport contract for security violations
- * Throws if encrypted content would leak via email transport
- */
-function validateEmailTransportContract(
-  contract: EmailTransportContract,
-  config: BeapPackageConfig
-): void {
-  const encryptedMessage = config.encryptedMessage?.trim()
-  
-  if (!encryptedMessage || encryptedMessage.length === 0) {
-    return // No encrypted message to check
-  }
-  
-  // Check subject for leakage
-  if (contract.subject.includes(encryptedMessage)) {
-    throw new Error('SECURITY: Encrypted content attempted to leave capsule via email subject')
-  }
-  
-  // Check body for leakage
-  if (contract.body.includes(encryptedMessage)) {
-    throw new Error('SECURITY: Encrypted content attempted to leave capsule via email body')
-  }
-  
-  // Check attachment filenames for leakage
-  for (const attachment of contract.attachments) {
-    if (attachment.name.includes(encryptedMessage)) {
-      throw new Error('SECURITY: Encrypted content attempted to leave capsule via attachment filename')
-    }
-  }
-}
-
 // =============================================================================
 // Delivery Actions
 // =============================================================================
@@ -1877,9 +1837,8 @@ function validateEmailTransportContract(
  * 
  * Transport separation rules:
  * - Subject: Safe default only
- * - Body: Transport plaintext only (qBEAP uses safe default if minimal)
- * - Attachment: .beap package with safe filename
- * - encryptedMessage NEVER leaves the capsule
+ * - Body: User-chosen transport plaintext (qBEAP uses safe default if minimal); may match or overlap the encrypted field by user intent
+ * - Attachment: .beap package with safe filename (capsule-bound encrypted payload)
  */
 export async function executeEmailAction(
   pkg: BeapPackage,
@@ -1899,9 +1858,6 @@ export async function executeEmailAction(
 
   // Build the email transport contract with strict content separation
   const emailContract = buildEmailTransportContract(pkg, config)
-  
-  // SECURITY: Validate no encrypted content leaks via email transport
-  validateEmailTransportContract(emailContract, config)
 
   const sendPayload = {
     to: toAddress,
@@ -1976,15 +1932,6 @@ Encoding: qBEAP (Encrypted)
 ---
 
 ${packageJson}`
-
-    // SECURITY: Ensure encryptedMessage is not in clipboard header text (it's only in encrypted payload)
-    // The encryptedMessage content should only exist within the encrypted payload, never in plaintext headers
-    if (config.encryptedMessage && config.encryptedMessage.trim()) {
-      const headerSection = clipboardContent.split('---')[1] || ''
-      if (headerSection.includes(config.encryptedMessage)) {
-        throw new Error('SECURITY: encryptedMessage leaked into messenger clipboard header')
-      }
-    }
   } else {
     clipboardContent = `--- BEAP™ Public Package (pBEAP) ---
 Distribution: Public (Auditable)
