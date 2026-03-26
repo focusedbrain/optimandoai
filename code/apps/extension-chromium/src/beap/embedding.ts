@@ -44,6 +44,53 @@ export function textToTensor(text: string, dim = 256) {
   })
 }
 
+const EMBEDDING_API_URL = 'http://127.0.0.1:51248/api/llm/embeddings'
+const semanticEmbeddingCache = new Map<string, tf.Tensor1D>()
+
+function normalizeVector(values: number[]): tf.Tensor1D {
+  const tns = tf.tensor1d(values)
+  const norm = tf.norm(tns)
+  return tf.tidy(() => tf.div(tns, tf.add(norm, tf.scalar(1e-8))) as tf.Tensor1D)
+}
+
+async function fetchSemanticEmbedding(text: string): Promise<tf.Tensor1D | null> {
+  try {
+    const response = await fetch(EMBEDDING_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: text })
+    })
+    if (!response.ok) return null
+    const body = await response.json()
+    const vector = Array.isArray(body?.embedding)
+      ? body.embedding
+      : Array.isArray(body?.data?.[0]?.embedding)
+        ? body.data[0].embedding
+        : null
+    if (!vector || !vector.every((v: unknown) => typeof v === 'number')) return null
+    return normalizeVector(vector as number[])
+  } catch {
+    return null
+  }
+}
+
+// textToTensorWithFallback: semantic embedding first, deterministic fallback for offline safety.
+export async function textToTensorWithFallback(text: string, dim = 256): Promise<tf.Tensor1D> {
+  const cacheKey = normalizeText(text)
+  const cached = semanticEmbeddingCache.get(cacheKey)
+  if (cached) return cached
+
+  const semanticTensor = await fetchSemanticEmbedding(text)
+  if (semanticTensor) {
+    semanticEmbeddingCache.set(cacheKey, semanticTensor)
+    return semanticTensor
+  }
+
+  const fallback = textToTensor(text, dim)
+  semanticEmbeddingCache.set(cacheKey, fallback)
+  return fallback
+}
+
 // cosineSimilarity: returns scalar cosine similarity between two unit tensors
 export function cosineSimilarity(a: tf.Tensor1D, b: tf.Tensor1D) {
   return tf.tidy(() => {

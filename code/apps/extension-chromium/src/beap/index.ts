@@ -1,5 +1,5 @@
 import { loadTier3Blocks, loadTier2Components, loadTier1MiniApps, loadAllTiers } from './loader' // loader to obtain all tiers
-import { textToTensor, cosineSimilarity } from './embedding' // embedding utilities
+import { textToTensorWithFallback, cosineSimilarity } from './embedding' // embedding utilities
 import { assembleMiniApp, resolveMiniApp, resolveComponent } from './runtime' // assemble selected blocks into MiniApp
 import { renderMiniApp } from './renderer' // render a MiniApp to HTMLElement
 import * as tf from '@tensorflow/tfjs' // tf types used in StoredBlock
@@ -173,9 +173,9 @@ CRITICAL RULES:
 }
 
 // STEP 4: Create vector ONLY from normalized intent and features (not raw input)
-function createQueryVector(normalizedIntent: NormalizedIntent): tf.Tensor1D {
+async function createQueryVector(normalizedIntent: NormalizedIntent): Promise<tf.Tensor1D> {
   const queryText = normalizedIntent.intent + ' ' + normalizedIntent.features.join(' ')
-  return textToTensor(queryText.trim())
+  return textToTensorWithFallback(queryText.trim())
 }
 
 // STEP 7.5: Deterministic post-similarity selection layer
@@ -248,7 +248,7 @@ async function ensureBlocks() {
       (b.intent_tags || []).join(' ')
     ].filter(t => t.length > 0).join(' ').trim()
     
-    const tensor = textToTensor(blockText) // compute deterministic tensor
+    const tensor = await textToTensorWithFallback(blockText) // compute semantic tensor with fallback
     stored.push({ block: b, tensor }) // store pair
   }
   cachedBlocks = stored // assign cache
@@ -287,7 +287,7 @@ async function ensureAllTiers(): Promise<{ registry: BEAPRegistry, items: Stored
         (block.intent_tags || []).join(' ')
       ].filter(t => t.length > 0).join(' ').trim()
       
-      const tensor = textToTensor(blockText)
+      const tensor = await textToTensorWithFallback(blockText)
       items.push({ item: block, tier: 3, tensor })
     }
   }
@@ -302,7 +302,7 @@ async function ensureAllTiers(): Promise<{ registry: BEAPRegistry, items: Stored
         (component.intent_tags || []).join(' ')
       ].filter(t => t.length > 0).join(' ').trim()
       
-      const tensor = textToTensor(componentText)
+      const tensor = await textToTensorWithFallback(componentText)
       items.push({ item: component, tier: 2, tensor })
     }
   }
@@ -317,7 +317,7 @@ async function ensureAllTiers(): Promise<{ registry: BEAPRegistry, items: Stored
         (miniApp.intent_tags || []).join(' ')
       ].filter(t => t.length > 0).join(' ').trim()
       
-      const tensor = textToTensor(miniAppText)
+      const tensor = await textToTensorWithFallback(miniAppText)
       items.push({ item: miniApp, tier: 1, tensor })
     }
   }
@@ -340,7 +340,7 @@ export async function createMiniAppFromQuery(title: string, description: string,
     console.log("BEAP: Normalized intent:", normalizedIntent) // Remove this line for production
     
     // STEP 4-5: TensorFlow.js creates vector from normalized intent/features ONLY
-    const queryVector = createQueryVector(normalizedIntent)
+    const queryVector = await createQueryVector(normalizedIntent)
     console.log("BEAP: Created query vector from normalized intent")
     
     // STEP 6-7: TensorFlow.js ranks ALL tier items using cosine similarity
