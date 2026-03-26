@@ -17,6 +17,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react'
 import type { CapsuleState, CapsuleAttachment, CapsuleSessionRef, CapabilityClass } from '../canonical-types'
 import { processAttachmentForParsing, isParseableFormat } from '../parserService'
 import { VisionFallbackButton } from './VisionFallbackButton'
+import { AttachmentStatusBadge } from './AttachmentStatusBadge'
 
 interface CapsuleSectionProps {
   capsule: CapsuleState
@@ -60,6 +61,8 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
   // Track parsing status per attachment
   const [parsingAttachments, setParsingAttachments] = useState<Set<string>>(new Set())
   const [parseErrors, setParseErrors] = useState<Record<string, string>>({})
+  /** Bumps when `attachmentDataMap` gains entries so Vision/Parse buttons re-render. */
+  const [, setAttachmentDataEpoch] = useState(0)
   
   // Read file as base64
   const readFileAsBase64 = useCallback((file: File): Promise<string> => {
@@ -76,51 +79,65 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
     })
   }, [])
   
-  // Parse attachment for text extraction (PDF only for now)
-  const parseAttachment = useCallback(async (attachment: CapsuleAttachment, file: File) => {
-    // Only parse PDFs
-    if (!isParseableFormat(file.type)) {
-      return
-    }
-    
-    // Mark as parsing
-    setParsingAttachments(prev => new Set(prev).add(attachment.id))
-    setParseErrors(prev => {
-      const next = { ...prev }
-      delete next[attachment.id]
-      return next
-    })
-    
-    try {
-      // Read file as base64
-      const base64Data = await readFileAsBase64(file)
-      attachmentDataMap.current.set(attachment.id, base64Data)
-      
-      // Call parser service
-      const result = await processAttachmentForParsing(attachment, base64Data)
-      
-      if (result.error) {
-        setParseErrors(prev => ({ ...prev, [attachment.id]: result.error! }))
+  /** Load base64 after attach (no parsing) — user clicks Parse when ready. */
+  const cacheBase64ForAttachment = useCallback(
+    async (attachmentId: string, file: File) => {
+      if (!isParseableFormat(file.type)) return
+      try {
+        const base64Data = await readFileAsBase64(file)
+        attachmentDataMap.current.set(attachmentId, base64Data)
+        setAttachmentDataEpoch((n) => n + 1)
+      } catch {
+        setParseErrors((prev) => ({ ...prev, [attachmentId]: 'Failed to read file' }))
       }
-      
-      // Update attachment with parsed content (if callback provided)
-      if (onUpdateAttachment) {
-        onUpdateAttachment(attachment.id, {
-          semanticContent: result.attachment.semanticContent,
-          semanticExtracted: result.attachment.semanticExtracted
-        })
+    },
+    [readFileAsBase64],
+  )
+
+  /** Manual Parse — same pipeline as WR Chat draft. */
+  const parseAttachmentById = useCallback(
+    async (attachment: CapsuleAttachment) => {
+      if (!isParseableFormat(attachment.originalType)) return
+      const base64Data = attachmentDataMap.current.get(attachment.id)
+      if (!base64Data) {
+        setParseErrors((prev) => ({
+          ...prev,
+          [attachment.id]: 'File data not ready — remove and re-attach, then click Parse.',
+        }))
+        return
       }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Parsing failed'
-      setParseErrors(prev => ({ ...prev, [attachment.id]: errorMsg }))
-    } finally {
-      setParsingAttachments(prev => {
-        const next = new Set(prev)
-        next.delete(attachment.id)
+
+      setParsingAttachments((prev) => new Set(prev).add(attachment.id))
+      setParseErrors((prev) => {
+        const next = { ...prev }
+        delete next[attachment.id]
         return next
       })
-    }
-  }, [readFileAsBase64, onUpdateAttachment])
+
+      try {
+        const result = await processAttachmentForParsing(attachment, base64Data)
+        if (result.error) {
+          setParseErrors((prev) => ({ ...prev, [attachment.id]: result.error! }))
+        }
+        if (onUpdateAttachment) {
+          onUpdateAttachment(attachment.id, {
+            semanticContent: result.attachment.semanticContent,
+            semanticExtracted: result.attachment.semanticExtracted,
+          })
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Parsing failed'
+        setParseErrors((prev) => ({ ...prev, [attachment.id]: errorMsg }))
+      } finally {
+        setParsingAttachments((prev) => {
+          const next = new Set(prev)
+          next.delete(attachment.id)
+          return next
+        })
+      }
+    },
+    [onUpdateAttachment],
+  )
   
   // Clean up base64 cache when attachments are removed
   useEffect(() => {
@@ -155,10 +172,9 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
       }
       
       onAddAttachment(attachment)
-      
-      // Trigger parsing for PDFs (async, non-blocking)
+
       if (isParseableFormat(file.type)) {
-        parseAttachment(attachment, file)
+        void cacheBase64ForAttachment(attachment.id, file)
       }
     }
     
@@ -256,83 +272,123 @@ export const CapsuleSection: React.FC<CapsuleSectionProps> = ({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {capsule.attachments.map(att => (
-                <div
-                  key={att.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 10px',
-                    background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)',
-                    borderRadius: '6px',
-                    border: `1px solid ${borderColor}`
-                  }}
-                >
-                  <span style={{ fontSize: '14px' }}>
-                    {att.isMedia ? '🎬' : '📄'}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ 
-                      fontSize: '12px', 
-                      fontWeight: 500, 
-                      color: textColor,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {att.originalName}
-                    </div>
-                    <div style={{ fontSize: '10px', color: mutedColor }}>
-                      {formatSize(att.originalSize)} • {
-                        parsingAttachments.has(att.id) 
-                          ? '⏳ Parsing...'
-                          : parseErrors[att.id]
-                            ? `❌ ${parseErrors[att.id].substring(0, 30)}`
-                            : att.semanticExtracted 
-                              ? `✓ Parsed (${(att.semanticContent?.length || 0).toLocaleString()} chars)`
-                              : isParseableFormat(att.originalType)
-                                ? '⏳ Pending'
-                                : '— Not parseable'
-                      }
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {att.originalType?.toLowerCase() === 'application/pdf' &&
-                     !att.semanticExtracted &&
-                     !parsingAttachments.has(att.id) &&
-                     attachmentDataMap.current.get(att.id) &&
-                     onUpdateAttachment && (
-                      <VisionFallbackButton
-                        attachment={att}
-                        dataBase64={attachmentDataMap.current.get(att.id)!}
-                        onSuccess={(text) => {
-                          onUpdateAttachment(att.id, { semanticContent: text, semanticExtracted: true })
-                          setParseErrors(prev => {
-                            const next = { ...prev }
-                            delete next[att.id]
-                            return next
-                          })
-                        }}
-                        theme={theme === 'professional' ? 'professional' : theme === 'dark' ? 'dark' : 'default'}
-                      />
-                    )}
-                  <button
-                    onClick={() => onRemoveAttachment(att.id)}
+              {capsule.attachments.map((att) => {
+                const isPdf =
+                  att.originalType?.toLowerCase() === 'application/pdf' ||
+                  att.originalName.toLowerCase().endsWith('.pdf')
+                const isParsing = parsingAttachments.has(att.id)
+                const isSuccess = !!att.semanticExtracted
+                const err = parseErrors[att.id]
+                const hasData = !!attachmentDataMap.current.get(att.id)
+                const showPdfBadge = isPdf && (isParsing || isSuccess || !!err)
+                const parseStatus: 'pending' | 'success' | 'failed' = isParsing
+                  ? 'pending'
+                  : isSuccess
+                    ? 'success'
+                    : 'failed'
+                const badgeTheme = isProfessional ? 'standard' : 'dark'
+                return (
+                  <div
+                    key={att.id}
                     style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: mutedColor,
-                      fontSize: '16px',
-                      cursor: 'pointer',
-                      padding: '2px 6px'
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 10px',
+                      background: isProfessional ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)',
+                      borderRadius: '6px',
+                      border: `1px solid ${borderColor}`,
+                      flexWrap: 'wrap' as const,
                     }}
                   >
-                    ×
-                  </button>
+                    <span style={{ fontSize: '14px' }}>{att.isMedia ? '🎬' : '📄'}</span>
+                    <div style={{ flex: 1, minWidth: '120px' }}>
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          color: textColor,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {att.originalName}
+                      </div>
+                      <div style={{ fontSize: '10px', color: mutedColor }}>
+                        {formatSize(att.originalSize)}
+                        {isPdf && !isParsing && !isSuccess && !err && ' • Click Parse to extract text'}
+                        {err && !isParsing ? ` • ${err.substring(0, 80)}${err.length > 80 ? '…' : ''}` : null}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
+                      {isPdf && hasData && onUpdateAttachment && (
+                        <button
+                          type="button"
+                          disabled={isParsing || isSuccess}
+                          onClick={() => parseAttachmentById(att)}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            borderRadius: '4px',
+                            cursor: isParsing || isSuccess ? 'not-allowed' : 'pointer',
+                            opacity: isParsing || isSuccess ? 0.6 : 1,
+                            background: isProfessional ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',
+                            border: `1px solid ${isProfessional ? 'rgba(139,92,246,0.35)' : 'rgba(192,132,252,0.4)'}`,
+                            color: isProfessional ? '#6d28d9' : '#e9d5ff',
+                          }}
+                        >
+                          {isParsing ? 'Parsing…' : 'Parse'}
+                        </button>
+                      )}
+                      {isPdf &&
+                        !att.semanticExtracted &&
+                        !isParsing &&
+                        hasData &&
+                        onUpdateAttachment && (
+                          <VisionFallbackButton
+                            attachment={att}
+                            dataBase64={attachmentDataMap.current.get(att.id)!}
+                            onSuccess={(text) => {
+                              onUpdateAttachment(att.id, { semanticContent: text, semanticExtracted: true })
+                              setParseErrors((prev) => {
+                                const next = { ...prev }
+                                delete next[att.id]
+                                return next
+                              })
+                            }}
+                            theme={
+                              theme === 'professional'
+                                ? 'professional'
+                                : theme === 'dark'
+                                  ? 'dark'
+                                  : 'default'
+                            }
+                          />
+                        )}
+                      <button
+                        type="button"
+                        onClick={() => onRemoveAttachment(att.id)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: mutedColor,
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                        }}
+                        aria-label="Remove attachment"
+                      >
+                        ×
+                      </button>
+                      {showPdfBadge && (
+                        <AttachmentStatusBadge status={parseStatus} theme={badgeTheme} />
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
           

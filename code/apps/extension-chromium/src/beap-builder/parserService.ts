@@ -40,6 +40,9 @@ async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
 /** Timeout for browser extraction — prevents hanging on large/complex PDFs */
 const BROWSER_EXTRACT_TIMEOUT_MS = 90_000
 
+/** Hard cap on the whole parse pipeline (browser + Electron fallbacks). */
+const PARSING_HARD_TIMEOUT_MS = 120_000
+
 /**
  * Extract text from PDF using pdfjs-dist (browser-compatible, no Electron)
  * Wrapped with timeout to prevent indefinite hangs.
@@ -269,38 +272,70 @@ export async function processAttachmentForParsing(
     }
   }
 
-  // Call parser
-  const result = await extractPdfText(attachment.id, fileDataBase64)
+  let hardTimeoutId: ReturnType<typeof setTimeout> | undefined
+  const hardTimeoutPromise = new Promise<never>((_, reject) => {
+    hardTimeoutId = setTimeout(
+      () => reject(new Error('__PARSING_HARD_TIMEOUT__')),
+      PARSING_HARD_TIMEOUT_MS,
+    )
+  })
 
-  if (!result.success) {
-    // Parsing failed - keep attachment but mark as not extracted
+  const run = async () => {
+    const result = await extractPdfText(attachment.id, fileDataBase64)
+
+    if (!result.success) {
+      return {
+        attachment: {
+          ...attachment,
+          semanticContent: null,
+          semanticExtracted: false,
+        },
+        provenance: null,
+        error: result.error || 'Parsing failed',
+      }
+    }
+
+    const provenance: ParserProvenance = {
+      engine: result.parser?.engine || 'pdfjs',
+      version: result.parser?.version || 'unknown',
+      extractedAt: Date.now(),
+      truncated: result.truncated || false,
+    }
+
     return {
       attachment: {
         ...attachment,
-        semanticContent: null,
-        semanticExtracted: false
+        semanticContent: result.extractedText || '',
+        semanticExtracted: true,
       },
-      provenance: null,
-      error: result.error || 'Parsing failed'
+      provenance,
+      error: null,
     }
   }
 
-  // Success - update attachment with extracted text
-  const provenance: ParserProvenance = {
-    engine: result.parser?.engine || 'pdfjs',
-    version: result.parser?.version || 'unknown',
-    extractedAt: Date.now(),
-    truncated: result.truncated || false
-  }
-
-  return {
-    attachment: {
-      ...attachment,
-      semanticContent: result.extractedText || '',
-      semanticExtracted: true
-    },
-    provenance,
-    error: null
+  try {
+    const out = await Promise.race([
+      run().finally(() => {
+        if (hardTimeoutId !== undefined) clearTimeout(hardTimeoutId)
+      }),
+      hardTimeoutPromise,
+    ])
+    return out
+  } catch (err) {
+    if (hardTimeoutId !== undefined) clearTimeout(hardTimeoutId)
+    if (err instanceof Error && err.message === '__PARSING_HARD_TIMEOUT__') {
+      return {
+        attachment: {
+          ...attachment,
+          semanticContent: null,
+          semanticExtracted: false,
+        },
+        provenance: null,
+        error:
+          'Extraction timed out. Try “Extract with Vision AI”, split the PDF, or ensure the desktop parser is running (port 51248).',
+      }
+    }
+    throw err
   }
 }
 
@@ -349,7 +384,8 @@ export async function rasterizePdf(
         attachmentId,
         base64: base64Data,
         dpi
-      })
+      }),
+      signal: AbortSignal.timeout(180_000),
     })
 
     if (!response.ok) {

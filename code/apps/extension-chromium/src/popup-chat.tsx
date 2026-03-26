@@ -1097,7 +1097,7 @@ function PopupChatApp() {
             {/* BEAP™ Message Header */}
             <div style={{ padding: '12px 14px', borderBottom: `1px solid ${borderColor}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '18px' }}>📦</span>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>BEAP™ Message</span>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>BEAP™ Message (required)</span>
             </div>
             
             {/* Compose Fields */}
@@ -1262,9 +1262,11 @@ function PopupChatApp() {
                             <span style={{ fontSize: '14px' }}>📄</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: '11px', color: textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                              <div style={{ fontSize: '9px', color: mutedColor }}>{a.mime} · {(a.size / 1024).toFixed(0)} KB</div>
+                              <div style={{ fontSize: '9px', color: mutedColor }}>
+                                {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                {isPdf && !isParsing && !isSuccess && !a.processing?.error && ' · Click Parse to extract text'}
+                              </div>
                             </div>
-                            {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={isStandard ? 'standard' : 'dark'} />}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
                             {isPdf && a.dataBase64 && (
@@ -1329,6 +1331,7 @@ function PopupChatApp() {
                               />
                             )}
                             <button onClick={() => { setBeapDraftReaderOpenId((id) => (id === a.id ? null : id)); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                            {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={isStandard ? 'standard' : 'dark'} />}
                           </div>
                         </div>
                         {readerOpen && isSuccess && (

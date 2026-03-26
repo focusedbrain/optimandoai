@@ -4979,7 +4979,7 @@ function SidepanelOrchestrator() {
                   {/* Header */}
                   <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '18px' }}>📦</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
                   </div>
                   
                   <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -5221,9 +5221,9 @@ function SidepanelOrchestrator() {
                                       </div>
                                       <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
                                         {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {isPdf && !isParsing && !isSuccess && !a.processing?.error && ' · Click Parse to extract text'}
                                       </div>
                                     </div>
-                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
                                     {isPdf && a.dataBase64 && (
@@ -5288,6 +5288,7 @@ function SidepanelOrchestrator() {
                                       />
                                     )}
                                     <button onClick={() => { setBeapDraftReaderOpenId((id) => id === a.id ? null : id); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                 </div>
                                 {readerOpen && isSuccess && (
@@ -6539,7 +6540,7 @@ height: '28px',
                 {/* BEAP™ Message UI - App View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
@@ -6596,9 +6597,11 @@ height: '28px',
                                     <span style={{ fontSize: '14px' }}>📄</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                                      <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {(a.size / 1024).toFixed(0)} KB</div>
+                                      <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
+                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {isPdf && !isParsing && !isSuccess && !a.processing?.error && ' · Click Parse to extract text'}
+                                      </div>
                                     </div>
-                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
                                     {isPdf && a.dataBase64 && (
@@ -6663,6 +6666,7 @@ height: '28px',
                                       />
                                     )}
                                     <button onClick={() => { setBeapDraftReaderOpenId((id) => (id === a.id ? null : id)); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                 </div>
                                 {readerOpen && isSuccess && (
@@ -7784,7 +7788,7 @@ height: '28px',
                 {/* BEAP™ Message UI - Admin View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
@@ -7841,9 +7845,11 @@ height: '28px',
                                     <span style={{ fontSize: '14px' }}>📄</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                                      <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>{a.mime} · {(a.size / 1024).toFixed(0)} KB</div>
+                                      <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
+                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {isPdf && !isParsing && !isSuccess && !a.processing?.error && ' · Click Parse to extract text'}
+                                      </div>
                                     </div>
-                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
                                     {isPdf && a.dataBase64 && (
@@ -7908,6 +7914,7 @@ height: '28px',
                                       />
                                     )}
                                     <button onClick={() => { setBeapDraftReaderOpenId((id) => (id === a.id ? null : id)); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: theme === 'standard' ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                                    {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={theme === 'standard' ? 'standard' : 'dark'} />}
                                   </div>
                                 </div>
                                 {readerOpen && isSuccess && (
