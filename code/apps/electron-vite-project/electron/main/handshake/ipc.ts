@@ -605,8 +605,17 @@ export async function handleHandshakeRPC(
       } catch (err: any) {
         return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
       }
+      console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
       enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
-      await processOutboundQueue(db, _getOidcToken)
+      const deliveryResult = await processOutboundQueue(db, _getOidcToken)
+      console.log(`[P2P-SEND] Delivery result for ${handshakeId}: ${JSON.stringify(deliveryResult)}`)
+      if (!deliveryResult.delivered) {
+        return {
+          success: false,
+          error: deliveryResult.error ?? 'Delivery failed — capsule queued for retry',
+          queued: deliveryResult.queued !== false,
+        }
+      }
       return { success: true }
     }
 

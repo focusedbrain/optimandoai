@@ -287,8 +287,8 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
 export async function sendBeapViaP2P(
   handshakeId: string,
   packageJson: string
-): Promise<{ success: boolean; error?: string }> {
-  return sendHandshakeRpc<{ success: boolean; error?: string }>(
+): Promise<{ success: boolean; error?: string; queued?: boolean }> {
+  return sendHandshakeRpc<{ success: boolean; error?: string; queued?: boolean }>(
     'handshake.sendBeapViaP2P',
     { handshakeId, packageJson }
   )

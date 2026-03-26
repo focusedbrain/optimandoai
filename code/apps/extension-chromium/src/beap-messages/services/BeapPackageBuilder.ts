@@ -621,6 +621,8 @@ export interface DeliveryResult {
   success: boolean
   action: 'sent' | 'copied' | 'downloaded' | 'preflight'
   message: string
+  /** P2P: set when delivery failed but the capsule may still be retried from the outbound queue */
+  queued?: boolean
   details?: {
     to?: string
     filename?: string
@@ -2031,13 +2033,20 @@ export async function executeP2PAction(
       return {
         success: true,
         action: 'sent',
-        message: 'BEAP™ package sent via P2P'
+        message: 'Message delivered',
       }
     }
+    const errMsg = result?.error ?? 'P2P delivery failed'
+    const mayRetry = result?.queued !== false
+    const message =
+      !mayRetry || /retry/i.test(errMsg)
+        ? errMsg
+        : `${errMsg} — queued for retry`
     return {
       success: false,
       action: 'sent',
-      message: result?.error ?? 'P2P delivery failed'
+      message,
+      queued: mayRetry,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'P2P delivery failed'
