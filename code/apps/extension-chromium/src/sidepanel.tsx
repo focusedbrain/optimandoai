@@ -408,7 +408,12 @@ function SidepanelOrchestrator() {
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
 
   // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
-  const { handshakes } = useHandshakes('active')
+  const {
+    handshakes,
+    loading: handshakesLoading,
+    error: handshakesError,
+    refresh: refreshHandshakes,
+  } = useHandshakes('active')
 
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
@@ -5026,6 +5031,9 @@ function SidepanelOrchestrator() {
                         selectedHandshakeId={selectedRecipient?.handshake_id || null}
                         onSelect={setSelectedRecipient}
                         theme={theme}
+                        isLoading={handshakesLoading}
+                        fetchError={handshakesError}
+                        onRetry={refreshHandshakes}
                       />
                     )}
                     
@@ -6530,7 +6538,15 @@ height: '28px',
                   <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
                   {/* Handshake Select (PRIVATE mode only) */}
                   {beapRecipientMode === 'private' && (
-                    <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
+                    <RecipientHandshakeSelect
+                      handshakes={handshakes}
+                      selectedHandshakeId={selectedRecipient?.handshake_id || null}
+                      onSelect={setSelectedRecipient}
+                      theme={theme}
+                      isLoading={handshakesLoading}
+                      fetchError={handshakesError}
+                      onRetry={refreshHandshakes}
+                    />
                   )}
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
@@ -7755,7 +7771,15 @@ height: '28px',
                   <RecipientModeSwitch mode={beapRecipientMode} onModeChange={setBeapRecipientMode} theme={theme} />
                   {/* Handshake Select (PRIVATE mode only) */}
                   {beapRecipientMode === 'private' && (
-                    <RecipientHandshakeSelect handshakes={handshakes} selectedHandshakeId={selectedRecipient?.handshake_id || null} onSelect={setSelectedRecipient} theme={theme} />
+                    <RecipientHandshakeSelect
+                      handshakes={handshakes}
+                      selectedHandshakeId={selectedRecipient?.handshake_id || null}
+                      onSelect={setSelectedRecipient}
+                      theme={theme}
+                      isLoading={handshakesLoading}
+                      fetchError={handshakesError}
+                      onRetry={refreshHandshakes}
+                    />
                   )}
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />

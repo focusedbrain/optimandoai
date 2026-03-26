@@ -44,6 +44,10 @@ export interface RecipientHandshakeSelectProps {
   theme: 'standard' | 'hacker' | 'pro' | 'dark'
   disabled?: boolean
   isLoading?: boolean
+  /** Set when useHandshakes() failed — show instead of misleading "No Active Handshakes". */
+  fetchError?: string | null
+  /** Typically useHandshakes().refresh */
+  onRetry?: () => void
 }
 
 export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> = ({
@@ -53,6 +57,8 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
   theme,
   disabled = false,
   isLoading = false,
+  fetchError = null,
+  onRetry,
 }) => {
   const isStandard = theme === 'standard'
   const textColor = isStandard ? '#0f172a' : 'white'
@@ -136,6 +142,44 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
         }}
       >
         Loading handshakes...
+      </div>
+    )
+  }
+
+  if (fetchError) {
+    return (
+      <div
+        style={{
+          padding: '16px',
+          background: isStandard ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.15)',
+          borderRadius: '8px',
+          border: `1px solid ${isStandard ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.45)'}`,
+        }}
+      >
+        <div style={{ fontSize: '12px', color: textColor, lineHeight: 1.5, marginBottom: '10px' }}>
+          Could not load handshakes: {fetchError}
+        </div>
+        <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.5, marginBottom: '12px' }}>
+          Make sure WR Desk™ is running and your vault is unlocked.
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: 'none',
+              background: isStandard ? '#2563eb' : 'rgba(139,92,246,0.9)',
+              color: 'white',
+            }}
+          >
+            Retry
+          </button>
+        )}
       </div>
     )
   }

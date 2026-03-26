@@ -11,13 +11,26 @@ import type {
   HandshakeBuildForDownloadResponse,
 } from '@ext/handshake/rpcTypes'
 
+/**
+ * Same filter mapping as extension `handshakeRpc.listHandshakes` (lines 88–99).
+ * Preload passes this object to `ipcRenderer.invoke('handshake:list', arg)`; main wraps it as
+ * `handleHandshakeRPC('handshake.list', { filter: arg }, db)` — so `arg` must be `{ state: 'ACTIVE' }`
+ * (uppercase), not `{ state: 'active' }`, and "all" must omit state (undefined), not `{ state: 'all' }`.
+ */
 export async function listHandshakes(
   _filter?: 'active' | 'pending' | 'all',
 ): Promise<HandshakeRecord[]> {
-  if (window.handshakeView?.listHandshakes) {
-    return window.handshakeView.listHandshakes({ state: _filter })
+  if (!window.handshakeView?.listHandshakes) return []
+
+  const stateMap: Record<string, string | undefined> = {
+    active: 'ACTIVE',
+    pending: 'PENDING_ACCEPT',
+    all: undefined,
   }
-  return []
+  const state = _filter ? stateMap[_filter] : undefined
+  const ipcFilter = state !== undefined ? { state } : undefined
+
+  return window.handshakeView.listHandshakes(ipcFilter)
 }
 
 export async function getHandshake(_handshakeId: string): Promise<HandshakeRecord> {

@@ -392,7 +392,12 @@ function PopupChatApp() {
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
 
   // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
-  const { handshakes } = useHandshakes('active')
+  const {
+    handshakes,
+    loading: handshakesLoading,
+    error: handshakesError,
+    refresh: refreshHandshakes,
+  } = useHandshakes('active')
 
   // Command Chat: refresh models from backend (uses electronRpc)
   const refreshPopupModels = async () => {
@@ -1145,6 +1150,9 @@ function PopupChatApp() {
                   selectedHandshakeId={selectedRecipient?.handshake_id || null}
                   onSelect={setSelectedRecipient}
                   theme={toBeapTheme(theme)}
+                  isLoading={handshakesLoading}
+                  fetchError={handshakesError}
+                  onRetry={refreshHandshakes}
                 />
               )}
               
