@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react'
 import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
-import { hasHandshakeKeyMaterial } from '../rpcTypes'
+import { hasHandshakeKeyMaterial, handshakeListRowIcon } from '../rpcTypes'
 import { useHandshakes } from '../useHandshakes'
 import { deleteHandshake } from '../handshakeRpc'
 import { HandshakeDetailsPanel } from './HandshakeDetailsPanel'
@@ -46,6 +46,39 @@ const STATE_LABELS: Record<HandshakeState, string> = {
   REVOKED: 'Revoked',
 }
 
+/** True when expires_at is set and in the past (aligns with listHandshakeRecords ACTIVE filter). */
+function isPastHandshakeExpiry(h: HandshakeRecord): boolean {
+  if (!h.expires_at) return false
+  const expiresAt = Date.parse(h.expires_at)
+  if (Number.isNaN(expiresAt)) return false
+  return Date.now() > expiresAt
+}
+
+/** ACTIVE in DB and not past expires_at — matches handshake.list filter { state: 'ACTIVE' }. */
+function isEffectivelyActive(h: HandshakeRecord): boolean {
+  return h.state === 'ACTIVE' && !isPastHandshakeExpiry(h)
+}
+
+/** Formatted calendar date for list rows (e.g. "Mar 30, 2026"). */
+function formatExpiresAtLabel(expiresAt: string | null | undefined): string | null {
+  if (!expiresAt) return null
+  const d = new Date(expiresAt)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function itemsForStateGroup(state: HandshakeState, handshakes: HandshakeRecord[]): HandshakeRecord[] {
+  if (state === 'ACTIVE') {
+    return handshakes.filter(isEffectivelyActive)
+  }
+  if (state === 'EXPIRED') {
+    return handshakes.filter(
+      (h) => h.state === 'EXPIRED' || (h.state === 'ACTIVE' && isPastHandshakeExpiry(h)),
+    )
+  }
+  return handshakes.filter((h) => h.state === state)
+}
+
 export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> = ({
   fromAccountId,
   theme = 'default',
@@ -82,7 +115,7 @@ export const HandshakeManagementPanel: React.FC<HandshakeManagementPanelProps> =
 
   const grouped = STATE_ORDER.reduce(
     (acc, state) => {
-      const items = handshakes.filter((h) => h.state === state)
+      const items = itemsForStateGroup(state, handshakes)
       if (items.length > 0) acc.push({ state, items })
       return acc
     },
@@ -313,6 +346,7 @@ const HandshakeListItem: React.FC<{
   onClick: () => void
   onAccept?: () => void
 }> = ({ handshake, isProfessional, onClick, onAccept }) => {
+  const expiresLabel = formatExpiresAtLabel(handshake.expires_at)
   const stateColors: Record<HandshakeState, string> = {
     DRAFT: '#94a3b8',
     PENDING_ACCEPT: '#f59e0b',
@@ -339,17 +373,7 @@ const HandshakeListItem: React.FC<{
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>
-            {handshake.state === 'ACTIVE'
-              ? (hasHandshakeKeyMaterial(handshake) ? '🔒' : '⚠️')
-              : handshake.state === 'PENDING_ACCEPT' || handshake.state === 'PENDING_REVIEW'
-                ? '⏳'
-                : handshake.state === 'ACCEPTED'
-                  ? '🔄'
-                  : handshake.state === 'DRAFT'
-                    ? '📝'
-                    : '🔒'}
-          </span>
+          <span style={{ fontSize: '16px' }}>{handshakeListRowIcon(handshake)}</span>
           <div>
             <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
               {handshake.counterparty_email}
@@ -359,6 +383,17 @@ const HandshakeListItem: React.FC<{
                 ? '⚠️ Incomplete — delete and re-establish'
                 : `${handshake.local_role === 'initiator' ? 'You initiated' : 'They initiated'}${handshake.sharing_mode ? ` · ${handshake.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}` : ''}`}
             </div>
+            {expiresLabel && (
+              <div
+                style={{
+                  fontSize: '10px',
+                  marginTop: '4px',
+                  color: isProfessional ? '#64748b' : 'rgba(255,255,255,0.45)',
+                }}
+              >
+                Expires: {expiresLabel}
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

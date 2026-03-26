@@ -7,7 +7,10 @@
 
 // ── Handshake record as returned by the backend ──
 
-/** Mirrors backend `HandshakeState` (electron/main/handshake/types.ts). */
+/**
+ * Mirrors backend `HandshakeState` (`electron/main/handshake/types.ts`).
+ * Keep in sync with the server enum — all seven values may appear at runtime.
+ */
 export type HandshakeState =
   | 'DRAFT'
   | 'PENDING_ACCEPT'
@@ -72,6 +75,44 @@ export function hasHandshakeKeyMaterial(
   record: Pick<HandshakeRecord | SelectedHandshakeRecipient, 'peerX25519PublicKey' | 'peerPQPublicKey'>
 ): boolean {
   return !!(record.peerX25519PublicKey && record.peerPQPublicKey)
+}
+
+/** Prefix shown next to the status label in detail panels (exhaustive over HandshakeState). */
+export function handshakeDetailsStatusPrefix(state: HandshakeState): string {
+  switch (state) {
+    case 'ACTIVE':
+      return '✓'
+    case 'ACCEPTED':
+      return '◐'
+    case 'PENDING_ACCEPT':
+    case 'PENDING_REVIEW':
+      return '⏳'
+    case 'DRAFT':
+      return '📝'
+    case 'EXPIRED':
+      return '⏱'
+    case 'REVOKED':
+      return '⛔'
+  }
+}
+
+/** Leading icon for handshake list rows (ACTIVE respects key material). */
+export function handshakeListRowIcon(record: HandshakeRecord): string {
+  switch (record.state) {
+    case 'ACTIVE':
+      return hasHandshakeKeyMaterial(record) ? '🔒' : '⚠️'
+    case 'PENDING_ACCEPT':
+    case 'PENDING_REVIEW':
+      return '⏳'
+    case 'ACCEPTED':
+      return '🔄'
+    case 'DRAFT':
+      return '📝'
+    case 'EXPIRED':
+      return '⏱'
+    case 'REVOKED':
+      return '🚫'
+  }
 }
 
 // ── RPC response types ──

@@ -12,21 +12,24 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { listHandshakes, revokeHandshake } from '../../handshake/handshakeRpc'
-import type { HandshakeRecord } from '../../handshake/rpcTypes'
+import type { HandshakeRecord, HandshakeState } from '../../handshake/rpcTypes'
 
 interface Props {
   theme?: 'default' | 'dark' | 'professional'
   onOpenThread?: (handshakeId: string, counterpartyEmail: string) => void
 }
 
-function StatusPill({ state }: { state: string }) {
-  const map: Record<string, { label: string; bg: string; color: string }> = {
-    ACTIVE:         { label: 'Active', bg: 'rgba(34,197,94,0.12)', color: '#16a34a' },
+function StatusPill({ state }: { state: HandshakeState }) {
+  const map: Record<HandshakeState, { label: string; bg: string; color: string }> = {
+    DRAFT: { label: 'Draft', bg: 'rgba(107,114,128,0.12)', color: '#64748b' },
     PENDING_ACCEPT: { label: 'Pending', bg: 'rgba(251,191,36,0.12)', color: '#d97706' },
-    REVOKED:        { label: 'Revoked', bg: 'rgba(239,68,68,0.12)', color: '#dc2626' },
-    EXPIRED:        { label: 'Expired', bg: 'rgba(107,114,128,0.12)', color: '#6b7280' },
+    PENDING_REVIEW: { label: 'Review', bg: 'rgba(251,191,36,0.12)', color: '#d97706' },
+    ACCEPTED: { label: 'Accepted', bg: 'rgba(14,165,233,0.12)', color: '#0284c7' },
+    ACTIVE: { label: 'Active', bg: 'rgba(34,197,94,0.12)', color: '#16a34a' },
+    EXPIRED: { label: 'Expired', bg: 'rgba(107,114,128,0.12)', color: '#6b7280' },
+    REVOKED: { label: 'Revoked', bg: 'rgba(239,68,68,0.12)', color: '#dc2626' },
   }
-  const cfg = map[state] ?? { label: state, bg: 'rgba(107,114,128,0.12)', color: '#6b7280' }
+  const cfg = map[state]
   return (
     <span style={{
       fontSize: '10px', fontWeight: 700, padding: '2px 8px',

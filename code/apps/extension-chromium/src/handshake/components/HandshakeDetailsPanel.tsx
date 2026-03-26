@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import type { HandshakeRecord, HandshakeState } from '../rpcTypes'
+import { handshakeDetailsStatusPrefix, type HandshakeRecord, type HandshakeState } from '../rpcTypes'
 import { useBeapInboxStore } from '../../beap-messages/useBeapInboxStore'
 import type { BeapMessage } from '../../beap-messages/beapInboxTypes'
 import { BeapMessageDetailPanel } from '../../beap-messages/components/BeapMessageDetailPanel'
@@ -465,7 +465,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
                   border: `1px solid ${stateInfo.color}33`,
                 }}
               >
-                {handshake.state === 'ACTIVE' ? '✓' : handshake.state === 'ACCEPTED' ? '◐' : '○'} {stateInfo.label}
+                {handshakeDetailsStatusPrefix(handshake.state)} {stateInfo.label}
               </span>
               {handshake.activated_at && (
                 <span style={{ fontSize: '11px', color: dimColor }}>

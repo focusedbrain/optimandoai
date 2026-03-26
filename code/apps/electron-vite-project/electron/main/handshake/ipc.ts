@@ -537,6 +537,14 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.list': {
+      // Self-heal before read: flip ACTIVE→EXPIRED when expires_at is past (aligns with ACTIVE list filter).
+      if (db) {
+        const now = new Date().toISOString()
+        db.prepare(
+          `UPDATE handshakes SET state = 'EXPIRED'
+           WHERE state = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at < ?`,
+        ).run(now)
+      }
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
       let records = listHandshakeRecords(db, filter)
 
@@ -1189,8 +1197,9 @@ export async function handleHandshakeRPC(
       if (!record) {
         return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
       }
-      if (record.state !== HS.ACTIVE) {
-        return { success: false, error: `Handshake is in state ${record.state}, expected ACTIVE` }
+      const refreshActiveCheck = diagnoseHandshakeInactive(db, handshake_id, new Date())
+      if (!refreshActiveCheck.active) {
+        return { success: false, error: refreshActiveCheck.reason }
       }
 
       const counterpartyUserId = record.initiator.wrdesk_user_id === session.wrdesk_user_id
@@ -1243,9 +1252,13 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
+      const contextDeliveryActiveCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
+      if (!contextDeliveryActiveCheck.active) {
+        return { success: false, error: contextDeliveryActiveCheck.reason }
+      }
       const record = getHandshakeRecord(db, handshakeId)
-      if (!record || record.state !== HS.ACTIVE) {
-        return { success: false, error: 'Handshake not active' }
+      if (!record) {
+        return { success: false, error: 'Handshake not found' }
       }
 
       const pending = getContextStoreByHandshake(db, handshakeId, 'pending_delivery')
@@ -1301,9 +1314,16 @@ export async function handleHandshakeRPC(
       }
       if (!db) return { success: false, error: 'Vault locked' }
 
+      const receiveDeliveryActiveCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
+      if (!receiveDeliveryActiveCheck.active) {
+        return {
+          success: false,
+          error: `${receiveDeliveryActiveCheck.reason} — content delivery rejected`,
+        }
+      }
       const record = getHandshakeRecord(db, handshakeId)
-      if (!record || record.state !== HS.ACTIVE) {
-        return { success: false, error: 'Handshake not active — content delivery rejected' }
+      if (!record) {
+        return { success: false, error: 'Handshake not found' }
       }
 
       const proofs = getContextStoreByHandshake(db, handshakeId, 'pending')

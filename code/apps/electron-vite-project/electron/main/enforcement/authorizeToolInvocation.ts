@@ -21,6 +21,7 @@ import {
   getHandshakeRecord,
   insertAuditLogEntry,
 } from '../handshake/db'
+import { diagnoseHandshakeInactive } from '../handshake/enforcement'
 import { HandshakeState as HS } from '../handshake/types'
 
 // ── Types ──
@@ -112,17 +113,9 @@ function runAuthorization(
     return deny('HANDSHAKE_REVOKED', `Handshake ${request.handshake_id} is revoked`)
   }
 
-  // Check active (also catches EXPIRED, PENDING_ACCEPT, DRAFT)
-  if (record.state !== HS.ACTIVE) {
-    return deny('HANDSHAKE_INACTIVE', `Handshake ${request.handshake_id} is not active (state: ${record.state})`)
-  }
-
-  // Check expiry
-  if (record.expires_at) {
-    const expiresAt = Date.parse(record.expires_at)
-    if (!isNaN(expiresAt) && now.getTime() > expiresAt) {
-      return deny('HANDSHAKE_INACTIVE', `Handshake ${request.handshake_id} has expired`)
-    }
+  const inactiveDiag = diagnoseHandshakeInactive(db, request.handshake_id, now)
+  if (!inactiveDiag.active) {
+    return deny('HANDSHAKE_INACTIVE', inactiveDiag.reason)
   }
 
   // 3. Tool is explicitly granted

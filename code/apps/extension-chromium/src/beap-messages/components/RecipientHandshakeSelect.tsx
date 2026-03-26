@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react'
-import type { HandshakeRecord, SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
+import type { HandshakeRecord, HandshakeState, SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
 import { hasHandshakeKeyMaterial } from '../../handshake/rpcTypes'
 
 export type { SelectedHandshakeRecipient }
@@ -27,6 +27,14 @@ function formatExpiry(expiresAt: string | null | undefined): string | null {
   const minutes = Math.floor((ms % 3600000) / 60000)
   if (hours > 0) return `Expires in ${hours}h`
   return `Expires in ${minutes}m`
+}
+
+/** Absolute date for any handshake with expires_at (capsule builder awareness). */
+function formatExpiryAbsolute(expiresAt: string | null | undefined): string | null {
+  if (!expiresAt) return null
+  const d = new Date(expiresAt)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export interface RecipientHandshakeSelectProps {
@@ -69,7 +77,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
     onSelect(recipient)
   }
 
-  const getStateBadge = (state: string) => {
+  const getStateBadge = (state: HandshakeState) => {
     if (state === 'ACTIVE') {
       return (
         <span
@@ -89,7 +97,32 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
         </span>
       )
     }
-    return null
+    const labels: Record<HandshakeState, string> = {
+      DRAFT: 'Draft',
+      PENDING_ACCEPT: 'Pending',
+      PENDING_REVIEW: 'Review',
+      ACCEPTED: 'Accepted',
+      ACTIVE: 'Active',
+      EXPIRED: 'Expired',
+      REVOKED: 'Revoked',
+    }
+    return (
+      <span
+        style={{
+          fontSize: '9px',
+          fontWeight: 600,
+          padding: '2px 6px',
+          borderRadius: '4px',
+          background: isStandard ? 'rgba(107,114,128,0.12)' : 'rgba(107,114,128,0.22)',
+          color: isStandard ? '#475569' : 'rgba(255,255,255,0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '3px',
+        }}
+      >
+        {labels[state]}
+      </span>
+    )
   }
 
   if (isLoading) {
@@ -166,8 +199,9 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
           const isSelected = selectedHandshakeId === hs.handshake_id
           const hasKeys = hasHandshakeKeyMaterial(hs)
           const isSelectable = hasKeys && !disabled
-          const expiryHint = hasKeys ? formatExpiry(hs.expires_at) : null
-          const expiryIsUrgent = expiryHint != null && expiryHint !== 'Expired'
+          const expiryHint = formatExpiry(hs.expires_at)
+          const expiryAbsolute = formatExpiryAbsolute(hs.expires_at)
+          const showExpiryBadge = expiryHint != null
 
           return (
             <div
@@ -210,20 +244,70 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                       {hs.counterparty_email}
                     </div>
                     {hasKeys ? (
-                      hs.sharing_mode && (
-                        <div style={{ fontSize: '11px', color: mutedColor }}>
-                          {hs.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}
-                        </div>
-                      )
+                      <>
+                        {hs.sharing_mode && (
+                          <div style={{ fontSize: '11px', color: mutedColor }}>
+                            {hs.sharing_mode === 'reciprocal' ? 'Reciprocal' : 'Receive-only'}
+                          </div>
+                        )}
+                        {expiryAbsolute && !expiryHint && (
+                          <div style={{ fontSize: '10px', color: mutedColor, marginTop: hs.sharing_mode ? '2px' : 0 }}>
+                            Expires: {expiryAbsolute}
+                          </div>
+                        )}
+                      </>
                     ) : (
-                      <div style={{ fontSize: '11px', color: isStandard ? '#b91c1c' : '#fca5a5', fontWeight: 500 }}>
-                        ⚠️ Incomplete — delete and re-establish
-                      </div>
+                      <>
+                        <div style={{ fontSize: '11px', color: isStandard ? '#b91c1c' : '#fca5a5', fontWeight: 500 }}>
+                          ⚠️ Incomplete — delete and re-establish
+                        </div>
+                        {expiryAbsolute && !expiryHint && (
+                          <div style={{ fontSize: '10px', color: mutedColor, marginTop: '2px' }}>
+                            Expires: {expiryAbsolute}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {showExpiryBadge && (
+                    <span
+                      title={expiryAbsolute ? `Expires ${expiryAbsolute}` : undefined}
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background:
+                          expiryHint === 'Expired'
+                            ? isStandard
+                              ? 'rgba(239,68,68,0.15)'
+                              : 'rgba(239,68,68,0.25)'
+                            : isStandard
+                              ? 'rgba(245,158,11,0.15)'
+                              : 'rgba(245,158,11,0.22)',
+                        color:
+                          expiryHint === 'Expired'
+                            ? isStandard
+                              ? '#b91c1c'
+                              : '#fca5a5'
+                            : isStandard
+                              ? '#b45309'
+                              : '#fcd34d',
+                        border:
+                          expiryHint === 'Expired'
+                            ? `1px solid ${isStandard ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.45)'}`
+                            : `1px solid ${isStandard ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.4)'}`,
+                        maxWidth: '140px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {expiryHint === 'Expired' ? '⛔ ' : '⏱ '}
+                      {expiryHint}
+                    </span>
+                  )}
                   {getStateBadge(hs.state)}
                   {isSelected && hasKeys && (
                     <span style={{ fontSize: '14px', color: isStandard ? '#3b82f6' : '#a78bfa' }}>
@@ -245,31 +329,6 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 >
                   <span>Activated:</span>
                   <span>{new Date(hs.activated_at).toLocaleDateString()}</span>
-                </div>
-              )}
-              {expiryHint && hasKeys && (
-                <div
-                  style={{
-                    fontSize: '10px',
-                    marginTop: hs.activated_at ? '4px' : 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    color:
-                      expiryHint === 'Expired'
-                        ? isStandard
-                          ? '#b91c1c'
-                          : '#fca5a5'
-                        : expiryIsUrgent
-                          ? isStandard
-                            ? '#b45309'
-                            : '#fcd34d'
-                          : mutedColor,
-                    fontWeight: expiryIsUrgent || expiryHint === 'Expired' ? 600 : 400,
-                  }}
-                >
-                  <span>{expiryIsUrgent ? '⏱' : expiryHint === 'Expired' ? '⛔' : ''}</span>
-                  <span>{expiryHint}</span>
                 </div>
               )}
             </div>

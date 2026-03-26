@@ -1567,17 +1567,19 @@ export function markPlainEmailProcessed(db: any, id: number): void {
 /**
  * Expires handshakes past their expires_at deadline.
  *
- * Only PENDING_ACCEPT and ACTIVE states are expired by this job:
+ * Only **PENDING_ACCEPT** and **ACTIVE** are bulk-expired by this job:
  * - PENDING_ACCEPT: initiator waiting for acceptor response
  * - ACTIVE: fully established handshake past its validity window
  *
  * States NOT expired by this job (by design):
- * - ACCEPTED: roundtrip (context exchange) not yet complete — these
- *   should not be silently expired while negotiation is in progress.
- *   Consider a separate cleanup for long-stale ACCEPTED rows if needed.
- * - PENDING_REVIEW: acceptor reviewing imported capsule — same rationale.
- * - DRAFT: local-only, not yet transmitted.
- * - EXPIRED / REVOKED: terminal states, no further transition needed.
+ * - ACCEPTED: context-sync roundtrip not yet complete; should not be
+ *   silently expired during active negotiation
+ * - PENDING_REVIEW: acceptor reviewing imported capsule
+ * - DRAFT: local-only, not yet transmitted
+ * - EXPIRED / REVOKED: terminal states
+ *
+ * Note: Prompt 1's opportunistic expiry in handshake.list also covers
+ * ACTIVE→EXPIRED on list fetch, reducing the window between retention runs.
  */
 export function expirePendingHandshakes(db: any, now: Date): number {
   const result = db.prepare(
@@ -1587,7 +1589,10 @@ export function expirePendingHandshakes(db: any, now: Date): number {
   return result.changes
 }
 
-/** Companion to {@link expirePendingHandshakes}: transitions ACTIVE → EXPIRED when past expires_at. See module comment above for states intentionally excluded. */
+/**
+ * Companion to {@link expirePendingHandshakes}: ACTIVE → EXPIRED when past expires_at.
+ * Same “states NOT bulk-expired” rules apply (see JSDoc on {@link expirePendingHandshakes}).
+ */
 export function expireActiveHandshakes(db: any, now: Date): number {
   const result = db.prepare(
     `UPDATE handshakes SET state = 'EXPIRED'
